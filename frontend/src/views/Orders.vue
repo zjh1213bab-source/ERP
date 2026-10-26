@@ -1,0 +1,783 @@
+<template>
+  <div>
+    <div class="page-head">
+      <div>
+        <h2>销售订单</h2>
+        <div class="sub">一款多色 · 每色每码数量与美金单价 · 汇率 {{ rate }}</div>
+      </div>
+      <button v-if="canCreate" class="btn btn-primary" @click="openCreate">＋ 新建订单</button>
+    </div>
+
+    <div class="toolbar" style="margin-bottom: 14px">
+      <input class="input" v-model="q" placeholder="搜索订单号 / 客户" @keyup.enter="load" style="width: 240px" />
+      <select class="select" v-model="status" @change="load">
+        <option value="">全部状态</option>
+        <option v-for="(lb, k) in labels" :key="k" :value="k">{{ lb }}</option>
+      </select>
+      <select class="select" v-model="type" @change="load">
+        <option value="">全部类型</option>
+        <option value="custom">定制</option>
+        <option value="stock">现货</option>
+      </select>
+      <button class="btn btn-ghost" @click="load">查询</button>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>订单号</th><th>类型</th><th>客户</th><th>金额(USD)</th><th>金额(CNY)</th><th>状态</th><th>交期</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="o in list" :key="o.id">
+            <td><strong>{{ o.order_no }}</strong></td>
+            <td><span class="tag" :class="o.type === 'stock' ? 'blue' : 'purple'">{{ o.type === 'stock' ? '现货' : '定制' }}</span></td>
+            <td>{{ o.customer_name || '-' }}</td>
+            <td>${{ money(o.total_usd) }}</td>
+            <td>¥{{ money(o.total_amount) }}</td>
+            <td><span class="tag" :class="tagOf(o.status)">{{ labels[o.status] || o.status }}</span></td>
+            <td>{{ o.delivery_date || '-' }}</td>
+            <td><button class="link-btn" @click="openDetail(o.id)">查看 / 流转</button></td>
+          </tr>
+          <tr v-if="!list.length"><td colspan="8" class="empty-cell">暂无订单，点右上角「新建订单」</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ================= 新建订单 ================= -->
+    <div v-if="showCreate" class="modal-mask" @click.self="showCreate = false">
+      <div class="modal wide">
+        <div class="modal-head">
+          <h3>新建订单</h3>
+          <button class="x" @click="showCreate = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="fitem">
+              <label>订单类型</label>
+              <select class="select" v-model="form.type">
+                <option value="custom">定制订单（需开发单）</option>
+                <option value="stock">现货订单</option>
+              </select>
+            </div>
+            <div class="fitem">
+              <label>客户</label>
+              <select class="select" v-model.number="form.customer_id">
+                <option :value="null">— 请选择 —</option>
+                <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+            </div>
+            <div class="fitem"><label>交期</label><input class="input" type="date" v-model="form.delivery_date" /></div>
+            <div class="fitem"><label>款名</label><input class="input" v-model="form.style_name" placeholder="如 女式针织开衫" /></div>
+            <div class="fitem"><label>客户订单号</label><input class="input" v-model="form.cus_order_no" placeholder="客户 PO 号，可空" /></div>
+            <div class="fitem"><label>跟单员</label><input class="input" v-model="form.manager" placeholder="可空" /></div>
+            <div class="fitem"><label>下单日期</label><input class="input" type="date" v-model="form.order_date" /></div>
+            <div class="fitem">
+              <label>交货方式</label>
+              <select class="select" v-model="form.delivery_method">
+                <option value="">请选择</option><option>快递</option><option>空运</option><option>海运</option><option>客户自提</option>
+              </select>
+            </div>
+            <div class="fitem">
+              <label>贸易条款</label>
+              <select class="select" v-model="form.trade_terms">
+                <option value="">请选择</option><option>FOB</option><option>CIF</option><option>EXW</option><option>DDP</option>
+              </select>
+            </div>
+            <div class="fitem"><label>包装要求</label><input class="input" v-model="form.packaging" placeholder="如 独立包装/纸箱" /></div>
+            <div class="fitem"><label>店铺名称</label><input class="input" v-model="form.shop_name" placeholder="可空" /></div>
+            <div class="fitem"><label>店铺订单编号</label><input class="input" v-model="form.shop_order_no" placeholder="可空" /></div>
+            <div class="fitem"><label>交货天数</label><input class="input" type="number" v-model.number="form.delivery_days" /></div>
+            <div class="fitem"><label>运费</label><input class="input" type="number" v-model.number="form.freight" /></div>
+            <div class="fitem"><label>汇率（USD→CNY，可在系统设置改）</label><input class="input" :value="rate" disabled /></div>
+            <div class="fitem full"><label>备注</label><input class="input" v-model="form.remark" /></div>
+          </div>
+
+          <h3 style="margin: 18px 0 10px; font-size: 14px">订单明细（一款多色，按色按码，单位：美元）</h3>
+
+          <div v-for="(it, i) in form.items" :key="i" style="border: 1px solid #eef2f7; border-radius: 10px; padding: 12px; margin-bottom: 12px">
+            <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 10px">
+              <div class="fitem" style="flex: 2; margin: 0">
+                <label>产品 / 款号</label>
+                <select class="select" v-model.number="it.product_id" @change="pickProduct(it)">
+                  <option :value="null">— 自定义 —</option>
+                  <option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option>
+                </select>
+              </div>
+              <div class="fitem" style="flex: 1; margin: 0"><label>款号</label><input class="input" v-model="it.style_no" placeholder="如 LEJE-SY-001" /></div>
+              <div class="fitem" style="flex: 1; margin: 0"><label>SKU</label><input class="input" v-model="it.sku" placeholder="可空" /></div>
+              <button class="link-btn danger" @click="removeItem(i)" :disabled="form.items.length === 1">删除该款</button>
+            </div>
+
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px">
+              <span style="font-size: 12.5px; color: #8a94a6">套用尺码模板</span>
+              <select class="select" style="width: 200px" @change="applySizeTemplate(it, $event.target.value)">
+                <option value="">— 选择模板 —</option>
+                <option v-for="t in sizeTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
+              </select>
+            </div>
+
+            <div v-for="(c, ci) in it.colors" :key="ci" style="border: 1px dashed #dfe5ef; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #fcfdff">
+              <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 8px">
+                <div class="fitem" style="flex: 1; margin: 0"><label>颜色</label><input class="input" v-model="c.color" placeholder="如 藏青/米白" /></div>
+                <button class="link-btn danger" @click="removeColor(it, ci)" :disabled="it.colors.length === 1">删除该色</button>
+              </div>
+
+              <div style="font-size: 12px; color: #8a94a6; font-weight: 600; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 8px; margin-bottom: 6px">
+                <div>尺码</div><div>数量</div><div>美金单价</div><div style="text-align: right">小计($)</div><div></div>
+              </div>
+              <div v-for="(s, si) in c.sizes" :key="si" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px">
+                <input class="input" v-model="s.size" placeholder="S/M/L" />
+                <input class="input" type="number" min="0" v-model.number="s.qty" />
+                <input class="input" type="number" min="0" step="0.01" v-model.number="s.usd_price" />
+                <div style="text-align: right; font-size: 13px; font-weight: 600; color: #33415a">${{ money((s.qty || 0) * (s.usd_price || 0)) }}</div>
+                <button class="link-btn danger" @click="removeSize(c, si)">删</button>
+              </div>
+              <button class="btn btn-ghost btn-sm" @click="addSize(c)">＋ 加尺码</button>
+              <div style="text-align: right; font-size: 12.5px; color: #8a94a6; margin-top: 6px">本色：{{ colorQty(c) }} 件 · ${{ money(colorUsd(c)) }}</div>
+            </div>
+
+            <button class="btn btn-ghost btn-sm" @click="addColor(it)">＋ 加颜色</button>
+            <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #eef2f7; display: flex; justify-content: space-between; font-size: 13px">
+              <span style="color: #8a94a6">本款：{{ itemQty(it) }} 件</span>
+              <span>小计 <strong>${{ money(itemUsd(it)) }}</strong> · <strong>¥{{ money(itemUsd(it) * rate) }}</strong></span>
+            </div>
+          </div>
+
+          <button class="btn btn-ghost btn-sm" @click="addItem">＋ 添加一款</button>
+
+          <div style="display: flex; justify-content: flex-end; gap: 24px; margin-top: 14px; font-size: 15px; font-weight: 700; color: #16305f">
+            <span>合计：${{ money(orderUsd) }}</span><span>¥{{ money(orderCny) }}</span>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="showCreate = false">取消</button>
+          <button class="btn btn-primary" :disabled="saving" @click="saveOrder">{{ saving ? '提交中…' : '提交订单' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 详情 ================= -->
+    <div v-if="detail" class="modal-mask" @click.self="detail = null">
+      <div class="modal wide">
+        <div class="modal-head">
+          <h3>{{ detail.order_no }} · <span class="tag" :class="tagOf(detail.status)">{{ labels[detail.status] }}</span></h3>
+          <button class="x" @click="detail = null">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid" style="margin-bottom: 14px">
+            <div><span style="color: #8a94a6; font-size: 12.5px">客户</span><div><strong>{{ detail.customer_name || '-' }}</strong></div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">类型</span><div>{{ detail.type === 'stock' ? '现货' : '定制' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">款名</span><div>{{ detail.style_name || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">客户订单号</span><div>{{ detail.cus_order_no || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">跟单员</span><div>{{ detail.manager || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">交期</span><div>{{ detail.delivery_date || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">合计</span><div><strong>${{ money(detail.total_usd) }} / ¥{{ money(detail.total_amount) }}</strong> <span style="color:#8a94a6;font-size:12px">@{{ detail.rate }}</span></div></div>
+          </div>
+          <div class="form-grid" style="margin-bottom: 14px">
+            <div><span style="color: #8a94a6; font-size: 12.5px">下单日期</span><div>{{ detail.order_date || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">交货方式</span><div>{{ detail.delivery_method || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">贸易条款</span><div>{{ detail.trade_terms || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">包装要求</span><div>{{ detail.packaging || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">店铺名称</span><div>{{ detail.shop_name || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">店铺订单编号</span><div>{{ detail.shop_order_no || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">交货天数</span><div>{{ detail.delivery_days || '-' }}</div></div>
+            <div><span style="color: #8a94a6; font-size: 12.5px">运费</span><div>¥{{ money(detail.freight) }}</div></div>
+          </div>
+
+          <h3 style="margin: 12px 0 8px; font-size: 14px">明细（款 / 颜色 / 尺码）</h3>
+          <div v-for="it in detail.items" :key="it.id" style="margin-bottom: 12px">
+            <div style="font-size: 13px; font-weight: 700; color: #16233b; margin-bottom: 6px">
+              {{ it.product_name }} <span v-if="it.style_no" style="color:#2563eb;font-weight:600">· {{ it.style_no }}</span>
+              <span style="color:#8a94a6;font-weight:400"> · {{ it.qty }} 件 · ${{ money(it.amount_usd) }} / ¥{{ money(it.amount_cny) }}</span>
+            </div>
+            <div v-for="(g, gi) in it.colors" :key="gi" style="margin-bottom: 8px">
+              <div style="font-size: 12.5px; color: #2563eb; font-weight: 700; margin-bottom: 4px">颜色：{{ g.color || '（未填）' }} · {{ g.qty }} 件 · ${{ money(g.amount_usd) }}</div>
+              <table class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden">
+                <thead><tr><th>尺码</th><th>数量</th><th>美金单价</th><th>人民币单价</th><th>小计($)</th></tr></thead>
+                <tbody>
+                  <tr v-for="s in g.sizes" :key="s.id">
+                    <td>{{ s.size }}</td><td>{{ s.qty }}</td><td>${{ money(s.usd_price) }}</td><td>¥{{ money(s.cny_price) }}</td><td>${{ money(s.amount_usd) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 工艺明细 -->
+          <h3 style="margin: 16px 0 8px; font-size: 14px">工艺明细</h3>
+          <table v-if="crafts.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
+            <thead><tr><th>工艺</th><th>数量</th><th>单价</th><th>倍率</th><th>FOB价</th><th>外发/洗水/裁剪</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="c in crafts" :key="c.id">
+                <td><strong>{{ c.name }}</strong></td><td>{{ c.qty }}</td><td>¥{{ money(c.price) }}</td>
+                <td>{{ c.rate }}</td><td>¥{{ money(c.fob_price) }}</td>
+                <td>{{ [c.is_out ? '外发' : '', c.is_wash ? '洗水' : '', c.is_cut ? '裁剪' : ''].filter(Boolean).join('/') || '-' }}</td>
+                <td><button class="link-btn danger" @click="delCraft(c.id)">删</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无工艺明细</div>
+          <div v-if="canCraftWrite" style="margin-bottom: 6px">
+            <button v-if="!craftAdding" class="btn btn-ghost btn-sm" @click="craftAdding = true">＋ 添加工艺</button>
+            <div v-else style="border: 1px solid #eef2f7; border-radius: 10px; padding: 12px">
+              <div class="form-grid">
+                <div class="fitem"><label>工艺名称 *</label><input class="input" v-model="craftForm.name" placeholder="印花/绣花/洗水/车缝…" /></div>
+                <div class="fitem"><label>数量</label><input class="input" type="number" v-model.number="craftForm.qty" /></div>
+                <div class="fitem"><label>单价</label><input class="input" type="number" v-model.number="craftForm.price" /></div>
+                <div class="fitem"><label>倍率</label><input class="input" type="number" v-model.number="craftForm.rate" /></div>
+                <div class="fitem"><label>FOB 价</label><input class="input" type="number" v-model.number="craftForm.fob_price" /></div>
+                <div class="fitem">
+                  <label>标签</label>
+                  <div style="display: flex; gap: 14px; padding-top: 8px; font-size: 12.5px">
+                    <label><input type="checkbox" v-model="craftForm.is_out" /> 外发</label>
+                    <label><input type="checkbox" v-model="craftForm.is_wash" /> 洗水</label>
+                    <label><input type="checkbox" v-model="craftForm.is_cut" /> 裁剪</label>
+                  </div>
+                </div>
+                <div class="fitem full"><label>工艺说明</label><input class="input" v-model="craftForm.instruction" /></div>
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 8px">
+                <button class="btn btn-primary btn-sm" :disabled="craftBusy" @click="addCraft">提交</button>
+                <button class="btn btn-ghost btn-sm" @click="craftAdding = false">取消</button>
+              </div>
+            </div>
+          </div>
+
+          <h3 style="margin: 16px 0 8px; font-size: 14px">流转记录</h3>
+          <ul class="timeline">
+            <li v-for="lg in detail.logs" :key="lg.id">
+              <div class="t-main">{{ lg.from_status ? (labels[lg.from_status] || lg.from_status) + ' → ' : '创建 · ' }}{{ labels[lg.to_status] || lg.to_status }}</div>
+              <div class="t-sub">{{ lg.operator }} · {{ dateStr(lg.created_at) }} <span v-if="lg.note">· {{ lg.note }}</span></div>
+            </li>
+          </ul>
+
+          <!-- 开发单 -->
+          <h3 style="margin: 16px 0 8px; font-size: 14px">开发单 / 技术资料</h3>
+          <table v-if="techpacks.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
+            <thead><tr><th>产品/款号</th><th>版本</th><th>状态</th><th>确认人</th><th style="width: 140px">操作</th></tr></thead>
+            <tbody>
+              <template v-for="tp in techpacks" :key="tp.id">
+                <tr>
+                  <td>{{ tp.product_name }}</td><td>{{ tp.version }}</td>
+                  <td><span class="tag" :class="tpTag(tp.status)">{{ tpLabel(tp.status) }}</span></td>
+                  <td>{{ tp.confirmed_by || '-' }}</td>
+                  <td>
+                    <button class="link-btn" @click="tpOpen[tp.id] = !tpOpen[tp.id]">{{ tpOpen[tp.id] ? '收起' : '详情' }}</button>
+                    <button v-if="tp.status !== 'confirmed' && canTechReview" class="link-btn" @click="confirmTp(tp.id)">确认</button>
+                  </td>
+                </tr>
+                <tr v-if="tpOpen[tp.id]">
+                  <td colspan="5" style="background: #fafcff">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12.5px; color: #33415a">
+                      <div><strong>面料：</strong>{{ matNames(tp.fabric_ids, fabrics) }}<span v-if="tp.fabric_info">（{{ tp.fabric_info }}）</span></div>
+                      <div><strong>辅料：</strong>{{ matNames(tp.accessory_ids, accessories) }}<span v-if="tp.accessory_info">（{{ tp.accessory_info }}）</span></div>
+                      <div><strong>工艺工序：</strong>{{ tp.craft_info || '—' }}</div>
+                      <div><strong>客户要求：</strong>{{ tp.customer_req || '—' }}</div>
+                      <div style="grid-column: 1 / -1"><strong>尺码规格：</strong>{{ tp.size_spec || '—' }}</div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无开发单</div>
+
+          <div v-if="canTechWrite" style="margin-bottom: 6px">
+            <button v-if="!tpAdding" class="btn btn-ghost btn-sm" @click="tpAdding = true">＋ 新增开发单</button>
+            <div v-else style="border: 1px solid #eef2f7; border-radius: 10px; padding: 12px">
+              <div class="form-grid">
+                <div class="fitem"><label>产品/款号 *</label><input class="input" v-model="tpForm.product_name" /></div>
+                <div class="fitem"><label>版本</label><input class="input" v-model="tpForm.version" /></div>
+                <div class="fitem full">
+                  <label>选择面料 *（勾选）</label>
+                  <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px">
+                    <label v-for="m in fabrics" :key="m.id" style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
+                      <input type="checkbox" :value="m.id" v-model="tpForm.fabric_ids" /> {{ m.name }} <span style="color:#8a94a6">{{ m.spec || '' }}</span>
+                    </label>
+                    <span v-if="!fabrics.length" style="color:#8a94a6;font-size:12.5px">面料库为空，请到系统设置添加</span>
+                  </div>
+                  <input class="input" v-model="tpForm.fabric_info" placeholder="面料补充说明（可空）" />
+                </div>
+                <div class="fitem full">
+                  <label>选择辅料 *（勾选）</label>
+                  <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px">
+                    <label v-for="m in accessories" :key="m.id" style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
+                      <input type="checkbox" :value="m.id" v-model="tpForm.accessory_ids" /> {{ m.name }} <span style="color:#8a94a6">{{ m.spec || '' }}</span>
+                    </label>
+                    <span v-if="!accessories.length" style="color:#8a94a6;font-size:12.5px">辅料库为空，请到系统设置添加</span>
+                  </div>
+                  <input class="input" v-model="tpForm.accessory_info" placeholder="辅料补充说明（可空）" />
+                </div>
+                <div class="fitem full"><label>工艺工序 *</label><textarea v-model="tpForm.craft_info" rows="2" placeholder="印花/绣花/水洗/车缝等"></textarea></div>
+                <div class="fitem full"><label>客户要求 *</label><textarea v-model="tpForm.customer_req" rows="2" placeholder="尺码表/包装/标签/测试要求"></textarea></div>
+                <div class="fitem full"><label>尺码规格说明</label><input class="input" v-model="tpForm.size_spec" /></div>
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 8px">
+                <button class="btn btn-primary btn-sm" :disabled="tpBusy" @click="addTechpack">提交</button>
+                <button class="btn btn-ghost btn-sm" @click="tpAdding = false">取消</button>
+              </div>
+              <p style="font-size: 11.5px; color: #8a94a6; margin: 8px 0 0">带 * 为定制订单技术确认前的必填项。</p>
+            </div>
+          </div>
+
+          <!-- 面辅料用量 -->
+          <h3 style="margin: 16px 0 8px; font-size: 14px">面辅料用量</h3>
+          <table v-if="orderMats.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
+            <thead><tr><th>类型</th><th>名称</th><th>单位</th><th>单件用量</th><th>损耗%</th><th>总用量</th><th>单价</th><th>金额</th><th>供应商</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="m in orderMats" :key="m.id">
+                <td><span class="tag" :class="m.type === 'fabric' ? 'blue' : 'purple'">{{ m.type === 'fabric' ? '面料' : '辅料' }}</span></td>
+                <td><strong>{{ m.name }}</strong><div v-if="m.spec" style="font-size: 11px; color: #8a94a6">{{ m.spec }}</div></td>
+                <td>{{ m.unit || '-' }}</td><td>{{ m.one_use }}</td><td>{{ m.loss }}</td><td>{{ money(m.total_use) }}</td>
+                <td>¥{{ money(m.price) }}</td><td>¥{{ money(m.amount) }}</td><td>{{ m.supplier || '-' }}</td>
+                <td><button class="link-btn danger" @click="delMat(m.id)">删</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无面辅料用量</div>
+          <div v-if="orderMats.length" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px">
+            <div>面料成本 <strong>¥{{ money(fabricCost) }}</strong> · 辅料成本 <strong>¥{{ money(accessoryCost) }}</strong></div>
+            <button v-if="canCostWrite" class="btn btn-ghost btn-sm" @click="applyMatCost">带入成本单</button>
+          </div>
+          <div v-if="canMatWrite" style="margin-bottom: 6px">
+            <button v-if="!matAdding" class="btn btn-ghost btn-sm" @click="matAdding = true">＋ 添加面辅料</button>
+            <div v-else style="border: 1px solid #eef2f7; border-radius: 10px; padding: 12px">
+              <div class="form-grid">
+                <div class="fitem">
+                  <label>从料库选择</label>
+                  <select class="select" v-model.number="matForm.material_id" @change="pickMat">
+                    <option :value="null">— 自定义 —</option>
+                    <option v-for="m in allMats" :key="m.id" :value="m.id">{{ m.type === 'fabric' ? '面料' : '辅料' }} · {{ m.name }}</option>
+                  </select>
+                </div>
+                <div class="fitem"><label>类型</label><select class="select" v-model="matForm.type"><option value="fabric">面料</option><option value="accessory">辅料</option></select></div>
+                <div class="fitem"><label>名称 *</label><input class="input" v-model="matForm.name" /></div>
+                <div class="fitem"><label>单位</label><input class="input" v-model="matForm.unit" placeholder="米/个/码" /></div>
+                <div class="fitem"><label>单件用量</label><input class="input" type="number" v-model.number="matForm.one_use" /></div>
+                <div class="fitem"><label>损耗率 %</label><input class="input" type="number" v-model.number="matForm.loss" /></div>
+                <div class="fitem"><label>单价</label><input class="input" type="number" v-model.number="matForm.price" /></div>
+                <div class="fitem"><label>成分</label><input class="input" v-model="matForm.ingredient" /></div>
+                <div class="fitem"><label>规格</label><input class="input" v-model="matForm.spec" /></div>
+                <div class="fitem"><label>供应商</label><input class="input" v-model="matForm.supplier" /></div>
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 8px">
+                <button class="btn btn-primary btn-sm" :disabled="matBusy" @click="addMat">提交</button>
+                <button class="btn btn-ghost btn-sm" @click="matAdding = false">取消</button>
+              </div>
+              <p style="font-size: 11.5px; color: #8a94a6; margin: 8px 0 0">总用量 / 金额按订单总件数自动计算（含损耗）。</p>
+            </div>
+          </div>
+
+          <!-- 成本财务 -->
+          <h3 style="margin: 16px 0 8px; font-size: 14px">成本与财务审核</h3>
+          <div v-if="cost" style="font-size: 13px; margin-bottom: 8px">
+            <span class="tag" :class="costTag(cost.status)">{{ costLabel(cost.status) }}</span>
+            <span style="color: #8a94a6; margin-left: 8px">总成本 ¥{{ money(cost.total_cost) }} · 出厂价 ¥{{ money(cost.factory_price) }}
+              <span v-if="cost.reviewed_by"> · 审核人 {{ cost.reviewed_by }}</span><span v-if="cost.review_opinion"> · {{ cost.review_opinion }}</span>
+            </span>
+          </div>
+          <div v-if="canCostWrite" class="form-grid" style="margin-bottom: 8px">
+            <div class="fitem"><label>材料费</label><input class="input" type="number" v-model.number="costForm.material_cost" /></div>
+            <div class="fitem"><label>辅料费</label><input class="input" type="number" v-model.number="costForm.accessory_cost" /></div>
+            <div class="fitem"><label>做工费</label><input class="input" type="number" v-model.number="costForm.labor_cost" /></div>
+            <div class="fitem"><label>水电房租/管理</label><input class="input" type="number" v-model.number="costForm.overhead_cost" /></div>
+            <div class="fitem"><label>其他</label><input class="input" type="number" v-model.number="costForm.other_cost" /></div>
+            <div class="fitem"><label>加价率 %</label><input class="input" type="number" v-model.number="costForm.profit_rate" /></div>
+          </div>
+          <div v-if="canCostWrite" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
+            <div style="font-size: 13px; color: #33415a">总成本 <strong>¥{{ money(costTotalPreview) }}</strong> · 出厂价 <strong style="color: #16305f">¥{{ money(costPricePreview) }}</strong></div>
+            <button class="btn btn-primary btn-sm" :disabled="costBusy" @click="saveCost">保存成本单</button>
+          </div>
+          <div v-if="cost && cost.status === 'pending' && canFinanceReview" class="node-actions" style="margin-bottom: 6px">
+            <button class="btn btn-primary btn-sm" :disabled="costBusy" @click="reviewCost(true)">✓ 审核通过</button>
+            <button class="btn btn-danger btn-sm" :disabled="costBusy" @click="reviewCost(false)">✗ 驳回</button>
+          </div>
+
+          <!-- 生产工序进度 -->
+          <h3 style="margin: 16px 0 8px; font-size: 14px">
+            生产工序进度
+            <span v-if="nodes.length" style="font-weight: 400; color: #8a94a6; font-size: 12.5px">（已完成 {{ doneCount }} / {{ nodes.length }}）</span>
+          </h3>
+          <div v-if="nodes.length">
+            <div style="height: 8px; background: #eef1f6; border-radius: 6px; overflow: hidden; margin-bottom: 10px">
+              <div :style="{ width: (nodes.length ? (doneCount / nodes.length * 100) : 0) + '%' }" style="height: 100%; background: #16a34a"></div>
+            </div>
+            <table class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden">
+              <thead><tr><th>工序</th><th>状态</th><th>计划完成</th><th>实际完成</th><th>责任人</th><th>备注</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-for="n in nodes" :key="n.id">
+                  <td><strong>{{ n.name }}</strong></td>
+                  <td>
+                    <select class="select" v-model="n.status" :disabled="!canNodeWrite" style="padding: 4px 8px">
+                      <option value="pending">待开始</option><option value="doing">进行中</option><option value="done">已完成</option>
+                    </select>
+                  </td>
+                  <td><input class="input" type="date" v-model="n.plan_date" :disabled="!canNodeWrite" style="padding: 4px 6px" /></td>
+                  <td><input class="input" type="date" v-model="n.actual_date" :disabled="!canNodeWrite" style="padding: 4px 6px" /></td>
+                  <td><input class="input" v-model="n.operator" :disabled="!canNodeWrite" style="padding: 4px 6px; width: 90px" /></td>
+                  <td><input class="input" v-model="n.remark" :disabled="!canNodeWrite" style="padding: 4px 6px" /></td>
+                  <td><button v-if="canNodeWrite" class="link-btn" :disabled="nodeBusy" @click="saveNode(n)">保存</button></td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="margin-top: 8px; font-size: 12px; color: #8a94a6">进入「生产中」会自动生成 13 道工序；状态改为「已完成」时自动补实际完成日期。</div>
+          </div>
+          <div v-else style="font-size: 12.5px; color: #8a94a6">
+            暂无工序。
+            <button v-if="canNodeWrite" class="link-btn" :disabled="nodeBusy" @click="initNodes">初始化工序（13 道）</button>
+          </div>
+
+          <h3 style="margin: 16px 0 8px; font-size: 14px">可执行操作</h3>
+          <div class="node-actions">
+            <button v-for="t in nextStates" :key="t" class="btn" :class="t === 'cancelled' ? 'btn-danger' : 'btn-primary'" :disabled="busy" @click="doTransition(t)">→ {{ labels[t] || t }}</button>
+            <span v-if="!nextStates.length" style="color: #8a94a6; font-size: 13px">当前状态无可执行操作</span>
+          </div>
+        </div>
+        <div class="modal-foot"><button class="btn btn-ghost" @click="detail = null">关闭</button></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, computed, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
+import { api } from '../api';
+import { auth, hasRole } from '../store/auth';
+
+const route = useRoute();
+
+const list = ref([]);
+const q = ref('');
+const status = ref('');
+const type = ref('');
+
+const labels = ref({});
+const flow = ref({});
+const roles = ref({});
+const rate = ref(6.5);
+
+const customers = ref([]);
+const products = ref([]);
+const fabrics = ref([]);
+const accessories = ref([]);
+const sizeTemplates = ref([]);
+
+const showCreate = ref(false);
+const saving = ref(false);
+const detail = ref(null);
+const busy = ref(false);
+
+const techpacks = ref([]);
+const cost = ref(null);
+const samples = ref([]);
+const tpOpen = reactive({});
+const tpForm = ref(blankTp());
+const tpAdding = ref(false);
+const tpBusy = ref(false);
+const costForm = ref({ material_cost: 0, accessory_cost: 0, labor_cost: 0, overhead_cost: 0, other_cost: 0, profit_rate: 30 });
+const costBusy = ref(false);
+
+const crafts = ref([]);
+const craftAdding = ref(false);
+const craftBusy = ref(false);
+const craftForm = ref({ name: '', qty: 0, price: 0, rate: 0, fob_price: 0, is_out: false, is_wash: false, is_cut: false, instruction: '' });
+
+const orderMats = ref([]);
+const matAdding = ref(false);
+const matBusy = ref(false);
+const matForm = ref({ material_id: null, type: 'fabric', name: '', unit: '', one_use: 0, loss: 0, price: 0, spec: '', ingredient: '', supplier: '', mat_color: '' });
+
+const nodes = ref([]);
+const nodeBusy = ref(false);
+
+const canCreate = computed(() => hasRole('sales'));
+const canTechWrite = computed(() => hasRole('tech', 'sales'));
+const canTechReview = computed(() => hasRole('tech'));
+const canCostWrite = computed(() => hasRole('finance', 'sales'));
+const canFinanceReview = computed(() => hasRole('finance'));
+const canCraftWrite = computed(() => hasRole('tech', 'sales'));
+const canMatWrite = computed(() => hasRole('tech', 'sales', 'finance'));
+const canNodeWrite = computed(() => hasRole('production', 'sales'));
+const doneCount = computed(() => nodes.value.filter((n) => n.status === 'done').length);
+const allMats = computed(() => [...fabrics.value, ...accessories.value]);
+const fabricCost = computed(() => orderMats.value.filter((m) => m.type === 'fabric').reduce((s, m) => s + Number(m.amount || 0), 0));
+const accessoryCost = computed(() => orderMats.value.filter((m) => m.type === 'accessory').reduce((s, m) => s + Number(m.amount || 0), 0));
+
+const DEFAULT_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+
+function blankTp() {
+  return { product_name: '', version: 'V1', fabric_ids: [], accessory_ids: [], fabric_info: '', accessory_info: '', craft_info: '', customer_req: '', size_spec: '' };
+}
+function blankColor() {
+  return { color: '', sizes: DEFAULT_SIZES.map((s) => ({ size: s, qty: 0, usd_price: 0 })) };
+}
+function blankItem() {
+  return { product_id: null, product_name: '', style_no: '', sku: '', colors: [blankColor()] };
+}
+function blankForm() {
+  return { type: 'custom', customer_id: null, style_name: '', cus_order_no: '', manager: '', order_date: '', delivery_method: '', packaging: '', trade_terms: '', shop_name: '', shop_order_no: '', delivery_days: 0, freight: 0, delivery_date: '', remark: '', items: [blankItem()] };
+}
+const form = ref(blankForm());
+
+const colorQty = (c) => c.sizes.reduce((s, x) => s + (Number(x.qty) || 0), 0);
+const colorUsd = (c) => c.sizes.reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.usd_price) || 0), 0);
+const itemQty = (it) => it.colors.reduce((s, c) => s + colorQty(c), 0);
+const itemUsd = (it) => it.colors.reduce((s, c) => s + colorUsd(c), 0);
+const orderUsd = computed(() => form.value.items.reduce((s, it) => s + itemUsd(it), 0));
+const orderCny = computed(() => Math.round(orderUsd.value * rate.value * 100) / 100);
+
+const costTotalPreview = computed(() =>
+  ['material_cost', 'accessory_cost', 'labor_cost', 'overhead_cost', 'other_cost'].reduce((s, k) => s + (Number(costForm.value[k]) || 0), 0)
+);
+const costPricePreview = computed(() => Math.round(costTotalPreview.value * (1 + (Number(costForm.value.profit_rate) || 0) / 100) * 100) / 100);
+
+const nextStates = computed(() => {
+  if (!detail.value) return [];
+  const cur = detail.value.status;
+  const next = [...(flow.value[cur] || [])];
+  if (cur !== 'closed' && cur !== 'cancelled') next.push('cancelled');
+  return next.filter((t) => auth.user?.role === 'admin' || (roles.value[t] || []).includes(auth.user?.role));
+});
+
+const TAG = { draft: 'gray', tech: 'blue', finance: 'orange', assigned: 'purple', production: 'orange', instock: 'green', shipped: 'green', closed: 'gray', cancelled: 'red' };
+const TP_TAG = { draft: 'gray', confirmed: 'green', rejected: 'red' };
+const TP_LABEL = { draft: '草稿', confirmed: '已确认', rejected: '已驳回' };
+const COST_TAG = { draft: 'gray', pending: 'orange', approved: 'green', rejected: 'red' };
+const COST_LABEL = { draft: '草稿', pending: '待审核', approved: '已通过', rejected: '已驳回' };
+const tagOf = (s) => TAG[s] || 'gray';
+const tpTag = (s) => TP_TAG[s] || 'gray';
+const tpLabel = (s) => TP_LABEL[s] || s;
+const costTag = (s) => COST_TAG[s] || 'gray';
+const costLabel = (s) => COST_LABEL[s] || s;
+const money = (v) => Number(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const dateStr = (s) => (s ? new Date(s).toLocaleString('zh-CN', { hour12: false }) : '-');
+
+function matNames(ids, list) {
+  if (!ids) return '—';
+  const arr = String(ids).split(',').filter(Boolean);
+  const names = arr.map((id) => (list.find((m) => String(m.id) === String(id)) || {}).name).filter(Boolean);
+  return names.length ? names.join('、') : '—';
+}
+
+async function loadMeta() {
+  const meta = await api.orderMeta();
+  labels.value = meta.labels || {};
+  flow.value = meta.flow || {};
+  roles.value = meta.roles || {};
+  if (meta.rate) rate.value = meta.rate;
+}
+async function loadRefs() {
+  const [cs, ps, ms, st] = await Promise.all([api.customers({}), api.products({}), api.materials({}), api.sizeTemplates()]);
+  customers.value = cs;
+  products.value = ps;
+  fabrics.value = ms.filter((m) => m.type === 'fabric' && m.status === 'active');
+  accessories.value = ms.filter((m) => m.type === 'accessory' && m.status === 'active');
+  sizeTemplates.value = st;
+}
+async function load() {
+  try { list.value = await api.orders({ q: q.value, status: status.value, type: type.value }); }
+  catch (e) { alert(e.message); }
+}
+
+function openCreate() { form.value = blankForm(); showCreate.value = true; }
+function addItem() { form.value.items.push(blankItem()); }
+function removeItem(i) { if (form.value.items.length > 1) form.value.items.splice(i, 1); }
+function addColor(it) { it.colors.push(blankColor()); }
+function removeColor(it, ci) { if (it.colors.length > 1) it.colors.splice(ci, 1); }
+function addSize(c) { c.sizes.push({ size: '', qty: 0, usd_price: 0 }); }
+function removeSize(c, si) { if (c.sizes.length > 1) c.sizes.splice(si, 1); }
+function pickProduct(it) {
+  const p = products.value.find((x) => x.id === it.product_id);
+  if (!p) return;
+  it.product_name = p.name;
+  const usd = rate.value > 0 ? Math.round((Number(p.price) / rate.value) * 100) / 100 : 0;
+  it.colors.forEach((c) => c.sizes.forEach((s) => { if (!Number(s.usd_price)) s.usd_price = usd; }));
+}
+function applySizeTemplate(it, tid) {
+  const t = sizeTemplates.value.find((x) => String(x.id) === String(tid));
+  if (!t) return;
+  const sizes = String(t.sizes).split(',').map((s) => s.trim()).filter(Boolean);
+  it.colors.forEach((c) => {
+    const priceMap = {};
+    c.sizes.forEach((s) => { priceMap[s.size] = s.usd_price; });
+    c.sizes = sizes.map((s) => ({ size: s, qty: 0, usd_price: priceMap[s] || 0 }));
+  });
+}
+
+function validateForm() {
+  for (const it of form.value.items) {
+    if (!it.product_name && !it.product_id) return '请为每个款选择或填写产品';
+    for (const c of it.colors) {
+      const filled = c.sizes.filter((s) => Number(s.qty) > 0);
+      if (filled.length && filled.some((s) => !s.size)) return '存在未填写尺码名的行';
+    }
+    if (!it.colors.some((c) => c.sizes.some((s) => Number(s.qty) > 0))) return `款「${it.product_name || '未命名'}」没有填写任何尺码数量`;
+  }
+  return '';
+}
+
+async function saveOrder() {
+  const err = validateForm();
+  if (err) return alert(err);
+  const items = form.value.items.map((it) => ({
+    product_id: it.product_id,
+    product_name: it.product_name || '未命名产品',
+    style_no: it.style_no,
+    sku: it.sku,
+    colors: it.colors.map((c) => ({
+      color: c.color,
+      sizes: c.sizes.filter((s) => Number(s.qty) > 0).map((s) => ({ size: s.size, qty: s.qty, usd_price: s.usd_price }))
+    })).filter((c) => c.sizes.length)
+  }));
+  saving.value = true;
+  try {
+    await api.createOrder({
+      type: form.value.type,
+      customer_id: form.value.customer_id,
+      style_name: form.value.style_name,
+      cus_order_no: form.value.cus_order_no,
+      manager: form.value.manager,
+      order_date: form.value.order_date || null,
+      delivery_method: form.value.delivery_method,
+      packaging: form.value.packaging,
+      trade_terms: form.value.trade_terms,
+      shop_name: form.value.shop_name,
+      shop_order_no: form.value.shop_order_no,
+      delivery_days: form.value.delivery_days,
+      freight: form.value.freight,
+      delivery_date: form.value.delivery_date || null,
+      remark: form.value.remark,
+      items
+    });
+    showCreate.value = false;
+    await load();
+  } catch (e) { alert(e.message); } finally { saving.value = false; }
+}
+
+async function loadP2(id) {
+  const [tp, cs, sp, cf, om, nd] = await Promise.all([api.techpacks(id), api.cost(id), api.samples(id), api.crafts(id), api.orderMaterials(id), api.orderNodes(id)]);
+  techpacks.value = tp || [];
+  cost.value = cs || null;
+  samples.value = sp || [];
+  crafts.value = cf || [];
+  orderMats.value = om || [];
+  nodes.value = nd || [];
+  if (cs) costForm.value = { material_cost: cs.material_cost, accessory_cost: cs.accessory_cost, labor_cost: cs.labor_cost, overhead_cost: cs.overhead_cost, other_cost: cs.other_cost, profit_rate: cs.profit_rate };
+}
+async function openDetail(id) {
+  try { detail.value = await api.order(id); tpAdding.value = false; await loadP2(id); }
+  catch (e) { alert(e.message); }
+}
+async function addTechpack() {
+  if (!tpForm.value.product_name) return alert('请填写产品/款号');
+  tpBusy.value = true;
+  try {
+    const payload = {
+      order_id: detail.value.id,
+      product_name: tpForm.value.product_name,
+      version: tpForm.value.version,
+      fabric_ids: tpForm.value.fabric_ids.join(','),
+      accessory_ids: tpForm.value.accessory_ids.join(','),
+      fabric_info: tpForm.value.fabric_info,
+      accessory_info: tpForm.value.accessory_info,
+      craft_info: tpForm.value.craft_info,
+      customer_req: tpForm.value.customer_req,
+      size_spec: tpForm.value.size_spec
+    };
+    await api.createTechpack(payload);
+    tpForm.value = blankTp();
+    tpAdding.value = false;
+    techpacks.value = await api.techpacks(detail.value.id);
+  } catch (e) { alert(e.message); } finally { tpBusy.value = false; }
+}
+async function confirmTp(id) {
+  try { await api.confirmTechpack(id); techpacks.value = await api.techpacks(detail.value.id); }
+  catch (e) { alert(e.message); }
+}
+async function saveCost() {
+  costBusy.value = true;
+  try { cost.value = await api.saveCost(detail.value.id, costForm.value); }
+  catch (e) { alert(e.message); } finally { costBusy.value = false; }
+}
+async function reviewCost(approve) {
+  costBusy.value = true;
+  try { cost.value = await api.reviewCost(detail.value.id, approve, approve ? '同意' : '不通过'); }
+  catch (e) { alert(e.message); } finally { costBusy.value = false; }
+}
+async function addCraft() {
+  if (!craftForm.value.name) return alert('请填写工艺名称');
+  craftBusy.value = true;
+  try {
+    await api.createCraft({ order_id: detail.value.id, ...craftForm.value });
+    craftForm.value = { name: '', qty: 0, price: 0, rate: 0, fob_price: 0, is_out: false, is_wash: false, is_cut: false, instruction: '' };
+    craftAdding.value = false;
+    crafts.value = await api.crafts(detail.value.id);
+  } catch (e) { alert(e.message); } finally { craftBusy.value = false; }
+}
+async function delCraft(id) {
+  if (!confirm('确定删除该工艺？')) return;
+  try { await api.deleteCraft(id); crafts.value = await api.crafts(detail.value.id); }
+  catch (e) { alert(e.message); }
+}
+
+function pickMat() {
+  const m = allMats.value.find((x) => x.id === matForm.value.material_id);
+  if (!m) return;
+  matForm.value.type = m.type;
+  matForm.value.name = m.name;
+  matForm.value.spec = m.spec || '';
+  matForm.value.supplier = m.supplier || '';
+}
+async function addMat() {
+  if (!matForm.value.name) return alert('请填写料名');
+  matBusy.value = true;
+  try {
+    await api.createOrderMaterial({ order_id: detail.value.id, ...matForm.value });
+    matForm.value = { material_id: null, type: 'fabric', name: '', unit: '', one_use: 0, loss: 0, price: 0, spec: '', ingredient: '', supplier: '', mat_color: '' };
+    matAdding.value = false;
+    orderMats.value = await api.orderMaterials(detail.value.id);
+  } catch (e) { alert(e.message); } finally { matBusy.value = false; }
+}
+async function delMat(id) {
+  if (!confirm('确定删除该面辅料？')) return;
+  try { await api.deleteOrderMaterial(id); orderMats.value = await api.orderMaterials(detail.value.id); }
+  catch (e) { alert(e.message); }
+}
+function applyMatCost() {
+  costForm.value.material_cost = Math.round(fabricCost.value * 100) / 100;
+  costForm.value.accessory_cost = Math.round(accessoryCost.value * 100) / 100;
+}
+
+async function initNodes() {
+  nodeBusy.value = true;
+  try { nodes.value = await api.initNodes(detail.value.id); }
+  catch (e) { alert(e.message); } finally { nodeBusy.value = false; }
+}
+async function saveNode(n) {
+  nodeBusy.value = true;
+  try {
+    const updated = await api.updateNode(n.id, { status: n.status, plan_date: n.plan_date, actual_date: n.actual_date, operator: n.operator, remark: n.remark });
+    const i = nodes.value.findIndex((x) => x.id === n.id);
+    if (i >= 0) nodes.value[i] = updated;
+  } catch (e) { alert(e.message); } finally { nodeBusy.value = false; }
+}
+async function doTransition(to) {
+  if (!detail.value) return;
+  const note = to === 'cancelled' ? prompt('取消原因（可空）') ?? '' : '';
+  busy.value = true;
+  try {
+    detail.value = await api.transitionOrder(detail.value.id, to, note);
+    await load();
+    await loadP2(detail.value.id);
+  } catch (e) { alert(e.message); } finally { busy.value = false; }
+}
+
+onMounted(async () => {
+  try { await Promise.all([loadMeta(), loadRefs()]); } catch (e) { /* ignore */ }
+  await load();
+  const oid = route.query.order;
+  if (oid) openDetail(oid);
+  if (route.query.new) openCreate();
+});
+</script>
