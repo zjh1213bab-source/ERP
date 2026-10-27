@@ -176,3 +176,18 @@ pm2 stop erp-mindmap-api        # 停止
 pm2 logs erp-mindmap-api --lines 100   # 查看日志
 nginx -t && nginx -s reload     # 校验并重载 Nginx
 ```
+
+---
+
+## 快速部署（推荐：一键脚本）
+
+```bash
+cd /www/wwwroot/erp-mindmap
+cp backend/.env.example backend/.env && vi backend/.env   # 改 JWT_SECRET / ADMIN_PASSWORD
+bash deploy/install.sh                                     # 装依赖 + 构建前端 + PM2 启动
+pm2 startup && pm2 save                                    # 开机自启（按提示执行）
+```
+
+- **HTTPS 配置**：`deploy/nginx-https.conf`（HTTP 自动跳 HTTPS，含 `/uploads` 反代）
+- **上线逐项核对**：`deploy/GO-LIVE-CHECKLIST.md`
+- 注意：Nginx 必须同时反代 `/api/` 与 `/uploads/`，否则接口或图片会 404。

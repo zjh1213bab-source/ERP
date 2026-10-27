@@ -23,6 +23,8 @@ export function setAuth(token, user) {
   auth.user = user;
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user || null));
+  // 登录后立刻拉一次生效权限（一人多岗 / 岗位复核收回都在服务端算）
+  import('./permissions').then((m) => m.syncPerms()).catch(() => {});
 }
 
 export function clearAuth() {
@@ -30,6 +32,7 @@ export function clearAuth() {
   auth.user = null;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  import('./permissions').then((m) => m.resetPerms()).catch(() => {});
 }
 
 export function isLoggedIn() {
@@ -44,10 +47,12 @@ export function hasRole(...roles) {
 
 export const ROLE_LABELS = {
   admin: '系统管理员',
-  sales: '销售',
-  tech: '技术',
-  finance: '财务',
-  production: '生产',
-  warehouse: '仓储',
+  boss: '总经理',
+  sales: '销售跟单',
+  tech: '技术打版',
+  finance: '财务会计',
+  production: '生产车间',
+  warehouse: '仓库采购',
+  hr: '人事行政',
   viewer: '只读'
 };

@@ -28,7 +28,10 @@
     <div v-if="view === 'card'">
       <div class="dev-grid">
         <div v-for="r in filtered" :key="r.id" class="dev-card">
-          <div class="dev-img">👕</div>
+          <div class="dev-img">
+            <img v-if="r.image_url" :src="r.image_url" style="width: 100%; height: 100%; object-fit: cover" />
+            <span v-else>👕</span>
+          </div>
           <div class="dev-body">
             <div class="dev-name" :title="r.product_name">{{ r.product_name }}</div>
             <div class="dev-sub">{{ r.order_no || '-' }}</div>
@@ -37,6 +40,7 @@
               <span class="tag" :class="stageTag(r.stage)">{{ stageLabel(r.stage) }}</span>
             </div>
             <div class="dev-acts">
+              <button class="link-btn" @click="openDetail(r)">详情</button>
               <button class="link-btn" @click="openEdit(r)">编辑</button>
               <button v-if="r.stage !== 'confirmed'" class="link-btn" @click="advance(r)">推进 →</button>
             </div>
@@ -58,6 +62,7 @@
             <div class="kcard-title">{{ r.product_name }}</div>
             <div class="kcard-sub">{{ r.order_no || '-' }} · {{ r.customer_name || '-' }}</div>
             <div class="kcard-acts">
+              <button class="link-btn" @click="openDetail(r)">详情</button>
               <button class="link-btn" @click="openEdit(r)">编辑</button>
               <button v-if="s.key !== 'confirmed'" class="link-btn" @click="advance(r)">推进 →</button>
             </div>
@@ -86,6 +91,18 @@
             <div class="fitem"><label>产品 / 款号 *</label><input class="input" v-model="form.product_name" /></div>
             <div class="fitem"><label>版本</label><input class="input" v-model="form.version" /></div>
             <div class="fitem"><label>尺码规格说明</label><input class="input" v-model="form.size_spec" /></div>
+            <div class="fitem full">
+              <label>款图 / 色卡</label>
+              <div style="display: flex; gap: 12px; align-items: center">
+                <div style="width: 80px; height: 80px; border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #fafcff">
+                  <img v-if="form.image_url" :src="form.image_url" style="width: 100%; height: 100%; object-fit: cover" />
+                  <span v-else style="font-size: 11px; color: #8a94a6">无</span>
+                </div>
+                <label class="btn btn-ghost btn-sm" style="cursor: pointer">
+                  上传<input type="file" accept="image/*" style="display: none" @change="onImage" />
+                </label>
+              </div>
+            </div>
             <div class="fitem full">
               <label>面料 *（勾选）</label>
               <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px">
@@ -118,6 +135,8 @@
         </div>
       </div>
     </div>
+    <!-- 开发详情（面辅料 / 成衣尺寸 / 生产要求） -->
+    <TechPackDetail :techpack-id="detailId" @close="detailId = null" @saved="load" @version-created="onVersionCreated" />
   </div>
 </template>
 
@@ -125,7 +144,8 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { api } from '../api';
-import { hasRole } from '../store/auth';
+import { can } from '../store/permissions';
+import TechPackDetail from '../components/TechPackDetail.vue';
 
 const route = useRoute();
 
@@ -136,12 +156,14 @@ const tab = ref('all');
 const orders = ref([]);
 const fabrics = ref([]);
 const accessories = ref([]);
+const detailId = ref(null);
 
 const showModal = ref(false);
 const saving = ref(false);
 const form = ref(blank());
 
-const canWrite = computed(() => hasRole('tech', 'sales'));
+const canWrite = computed(() => can('development.write'));
+const canReview = computed(() => can('development.review'));
 
 const STAGES = [
   { key: 'draft', label: '可打版' },
@@ -180,7 +202,7 @@ const byStage = computed(() => {
 });
 
 function blank() {
-  return { id: null, order_id: null, product_name: '', version: 'V1', fabric_ids: [], accessory_ids: [], fabric_info: '', accessory_info: '', craft_info: '', customer_req: '', size_spec: '', remark: '' };
+  return { id: null, order_id: null, product_name: '', version: 'V1', fabric_ids: [], accessory_ids: [], fabric_info: '', accessory_info: '', craft_info: '', customer_req: '', size_spec: '', image_url: '', remark: '' };
 }
 
 async function load() {
@@ -195,6 +217,8 @@ async function loadRefs() {
 }
 
 function openCreate() { form.value = blank(); showModal.value = true; }
+function openDetail(r) { detailId.value = r.id; }
+function onVersionCreated(id) { detailId.value = id; load(); }
 function openEdit(r) {
   form.value = {
     ...r,
@@ -218,6 +242,7 @@ async function save() {
     craft_info: form.value.craft_info,
     customer_req: form.value.customer_req,
     size_spec: form.value.size_spec,
+    image_url: form.value.image_url,
     remark: form.value.remark
   };
   saving.value = true;
@@ -235,6 +260,21 @@ async function advance(r) {
   const next = STAGES[idx + 1];
   try { await api.techpackStage(r.id, next.key); await load(); }
   catch (e) { alert(e.message); }
+}
+
+async function onImage(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  if (file.size > 3 * 1024 * 1024) { alert('图片不能超过 3MB'); ev.target.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const up = await api.upload(reader.result);
+      form.value.image_url = up.url;
+    } catch (err) { alert(err.message); }
+  };
+  reader.readAsDataURL(file);
+  ev.target.value = '';
 }
 
 onMounted(async () => {

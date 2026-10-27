@@ -85,7 +85,14 @@
   background: #fff;
   border-bottom: 1px solid #e3e8f0;
 }
-.erp-topbar .crumb { font-size: 15px; font-weight: 700; color: #16233b; }
+.erp-topbar .crumb { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; color: #16233b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 顶部邮件图标（EM02：不新增一级模块，靠顶部入口 + 侧边快捷项） */
+.erp-topbar .mail-bell { position: relative; margin-right: 16px; font-size: 17px; line-height: 1; text-decoration: none; opacity: .85; }
+.erp-topbar .mail-bell:hover { opacity: 1; }
+.erp-topbar .mb-badge {
+  position: absolute; top: -6px; right: -10px; background: #d92d45; color: #fff;
+  font-size: 9.5px; font-weight: 700; border-radius: 9px; padding: 1px 4px; min-width: 14px; text-align: center;
+}
 .erp-topbar .userbox { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #4b5568; }
 .erp-topbar .avatar {
   width: 32px; height: 32px; border-radius: 50%;
@@ -103,6 +110,10 @@
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .page-head h2 { margin: 0; font-size: 19px; color: #16233b; }
 .page-head .sub { font-size: 12.5px; color: #8a94a6; margin-top: 3px; }
+/* 页头右侧操作区：不参与收缩，否则长标题会把「刷新」挤成两行 */
+.head-ops { display: flex; align-items: center; gap: 8px; flex: none; }
+.head-ops .btn { white-space: nowrap; }
+.head-ops .pill { white-space: nowrap; }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .toolbar .spacer { flex: 1; }
 
@@ -135,7 +146,7 @@
 .panel-card h3 { margin: 0 0 14px; font-size: 15px; color: #16233b; }
 
 /* ---------- 表格 ---------- */
-.table-wrap { background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; overflow: hidden; }
+.table-wrap { background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; overflow-x: auto; overflow-y: hidden; }
 table.data { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 table.data thead th {
   text-align: left; padding: 12px 14px; background: #f7f9fc; color: #5b6474;
@@ -154,9 +165,13 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .tag.orange { background: #fff2e0; color: #d97706; }
 .tag.red { background: #fdecee; color: #d92d45; }
 .tag.purple { background: #f0eaff; color: #7c3aed; }
+.muted { color: #8a94a6; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- 按钮组 ---------- */
 .btn-sm { padding: 5px 10px; font-size: 12.5px; border-radius: 7px; }
+/* 不能点的按钮必须看得出来：否则用户会一直点，以为系统没反应 */
+.btn:disabled, .btn[disabled] { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .link-btn { background: none; border: none; color: #2563eb; cursor: pointer; font-size: 13px; padding: 2px 6px; }
 .link-btn:hover { text-decoration: underline; }
 .link-btn.danger { color: #d92d45; }
@@ -172,6 +187,8 @@ table.data tbody tr:last-child td { border-bottom: none; }
   box-shadow: 0 24px 60px rgba(16, 32, 64, 0.35);
 }
 .modal.wide { width: 780px; }
+.modal.xwide { width: 1000px; }
+.modal.xxwide { width: 1180px; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #eef2f7; }
 .modal-head h3 { margin: 0; font-size: 16px; color: #16233b; }
 .modal-head .x { border: none; background: none; font-size: 20px; color: #98a2b3; cursor: pointer; line-height: 1; }
@@ -256,3 +273,184 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .kcard-sub { font-size: 11.5px; color: #8a94a6; margin: 4px 0 8px; }
 .kcard-acts { display: flex; gap: 10px; }
 .kempty { text-align: center; color: #b6c0d1; font-size: 12px; padding: 10px 0; }
+
+.nav-toggle { display: none; }
+
+/* ============ 移动端适配 ============ */
+@media (max-width: 900px) {
+  .erp-shell { flex-direction: column; }
+
+  /* 侧边栏改为抽屉：一级/二级菜单都能点到，不再挤成一行 chips */
+  .erp-sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 268px;
+    max-width: 84vw;
+    flex-direction: column;
+    align-items: stretch;
+    overflow: hidden;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 95;
+  }
+  .erp-sidebar.open { transform: translateX(0); box-shadow: 0 0 40px rgba(0, 0, 0, 0.4); }
+  .nav-mask { position: fixed; inset: 0; background: rgba(16, 24, 40, 0.45); z-index: 90; }
+  .erp-sidebar .brand { padding: 0 16px; height: 54px; flex: none; font-size: 14px; }
+  .erp-sidebar .brand .dot { width: 9px; height: 9px; }
+  .erp-nav { display: block; padding: 8px; overflow-y: auto; overflow-x: hidden; flex: 1; }
+  .erp-nav a { margin-bottom: 3px; padding: 10px 12px; font-size: 13.5px; }
+  .erp-sidebar .side-foot { display: block; }
+
+  .nav-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; flex: none; margin-right: 8px;
+    border: 1px solid #dfe5ef; border-radius: 9px; background: #fff;
+    color: #16233b; font-size: 17px; line-height: 1; cursor: pointer;
+  }
+
+  .erp-topbar { height: auto; min-height: 52px; padding: 8px 12px; flex-wrap: wrap; gap: 6px; }
+  .erp-topbar .crumb { font-size: 14px; }
+  .erp-topbar .userbox { font-size: 12px; gap: 8px; }
+  .erp-content { padding: 12px 12px 24px; }
+
+  .page-head { flex-wrap: wrap; gap: 8px; }
+  .page-head h2 { font-size: 17px; }
+
+  .cards { grid-template-columns: repeat(2, 1fr) !important; gap: 10px; }
+  .stat-card { padding: 14px; }
+  .stat-card .value { font-size: 22px; }
+
+  .grid-2, .grid-3, .form-grid { grid-template-columns: 1fr !important; }
+  .toolbar { flex-wrap: wrap; }
+  .tabs { margin-left: 0 !important; overflow-x: auto; }
+
+  /* 列多的表在手机上横向滚动，并保证每列有基本可读宽度（避免文字被挤成竖排） */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.data { min-width: 820px; }
+  table.data td, table.data th { white-space: nowrap; }
+
+  .dev-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .dev-img { height: 100px; }
+
+  /* 窄屏（手机竖屏）卡片改单列：订单号、客户名不再被截断 */
+  @media (max-width: 480px) {
+    .dev-grid { grid-template-columns: 1fr; }
+    .kcol { flex: 0 0 86vw; }
+  }
+
+  .kanban { padding-bottom: 8px; }
+  .kcol { flex: 0 0 78vw; }
+
+  .modal-mask { padding: 2vh 8px; }
+  .modal { width: 100%; border-radius: 14px; }
+  .modal.wide { width: 100%; }
+  .modal-body { max-height: 72vh; padding: 14px; }
+  .modal-head, .modal-foot { padding: 12px 14px; }
+
+  .blueprint-page .bp-head { margin-bottom: 8px; }
+  .reset-btn { top: 10px; right: 10px; padding: 6px 10px; font-size: 12px; }
+}
+
+/* ---------- 侧边栏二级菜单 ---------- */
+.erp-nav .nav-item,
+.erp-nav .group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 14px;
+  margin-bottom: 4px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: #b7c6e2;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.erp-nav .nav-item:hover,
+.erp-nav .group-head:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
+.erp-nav .nav-item.router-link-active { background: #2b6de5; color: #fff; box-shadow: 0 4px 14px rgba(43, 109, 229, 0.4); }
+.erp-nav .group-head .g-label { flex: 1; }
+.erp-nav .group-head .g-arrow { font-size: 11px; color: #7f93b8; }
+.erp-nav .group-head.open { color: #fff; }
+.erp-nav .group-body { padding-left: 6px; margin-bottom: 6px; }
+.erp-nav .group-body a.sub {
+  display: block;
+  position: relative;
+  padding: 7px 12px 7px 26px;
+  border-radius: 8px;
+  color: #a9b8d6;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+.erp-nav .group-body a.sub::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #5b6f92;
+  transform: translateY(-50%);
+}
+.erp-nav .group-body a.sub:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.erp-nav .group-body a.sub.router-link-active { background: #2b6de5; color: #fff; }
+.erp-nav .group-body a.sub.router-link-active::before { background: #fff; }
+
+/* 移动端宽度收敛（防止内容把 1fr 撑宽） */
+@media (max-width: 900px) {
+  html, body, #app { max-width: 100%; overflow-x: hidden; }
+  .erp-shell { width: 100%; max-width: 100vw; }
+  .erp-main { width: 100%; min-width: 0; }
+  .erp-nav { min-width: 0; }
+  .erp-content { width: 100%; }
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+
+/* 移动端交互细节 */
+@media (max-width: 900px) {
+  .erp-content input,
+  .erp-content select,
+  .erp-content textarea { font-size: 16px; }   /* 防 iOS 聚焦缩放 */
+  .modal-head { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #eef2f7; }
+  .modal-foot { position: sticky; bottom: 0; background: #fff; z-index: 2; box-shadow: 0 -2px 10px rgba(16, 32, 64, 0.06); }
+  .erp-content .btn { padding: 10px 16px; }
+  .erp-content .btn-sm { padding: 8px 12px; }
+  .erp-content .link-btn { padding: 6px 8px; }
+  .panel-card, .table-wrap { padding: 14px; }
+  .table-wrap { padding: 0; }
+}
+
+/* ---------- 档案图片：表格缩略图 / 粘贴提示 ---------- */
+.mini-thumb {
+  width: 34px; height: 34px; border-radius: 6px; overflow: hidden;
+  background: #f7f9fc; border: 1px solid #eef2f7;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #a9b4c5;
+}
+.mini-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.mini-thumb.clickable, .thumb.clickable { cursor: zoom-in; }
+.mini-thumb.clickable:hover, .thumb.clickable:hover { border-color: #2b6de5; }
+.paste-tip { font-weight: 400; font-size: 11.5px; color: #2b6de5; margin-left: 6px; }
+
+/* ============ 弹窗表单两列网格（全局，各页面通用） ============ */
+.fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.fgrid label, .fgrid .full { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #6b7688; }
+.fgrid label.full, .fgrid .full { grid-column: 1 / -1; }
+.fgrid input, .fgrid select, .fgrid textarea {
+  padding: 7px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px;
+  font-family: inherit; color: #1f2937; background: #fff;
+}
+.fgrid textarea { resize: vertical; line-height: 1.6; }
+@media (max-width: 900px) {
+  .fgrid { grid-template-columns: 1fr; }
+}

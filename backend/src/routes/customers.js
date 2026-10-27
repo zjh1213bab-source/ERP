@@ -58,8 +58,8 @@ router.post(
     const t = now();
     const info = db
       .prepare(
-        `INSERT INTO customers (code, name, contact, phone, email, level, credit_limit, status, remark, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO customers (code, name, contact, phone, email, level, credit_limit, status, remark, image_url, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         b.code || null,
@@ -71,6 +71,7 @@ router.post(
         Number(b.credit_limit) || 0,
         b.status || 'active',
         b.remark || null,
+        b.image_url || null,
         t,
         t
       );
@@ -90,7 +91,7 @@ router.put(
     const b = req.body || {};
     if (!b.name) return fail(res, 400, '客户名称必填');
     db.prepare(
-      `UPDATE customers SET code=?, name=?, contact=?, phone=?, email=?, level=?, credit_limit=?, status=?, remark=?, updated_at=?
+      `UPDATE customers SET code=?, name=?, contact=?, phone=?, email=?, level=?, credit_limit=?, status=?, remark=?, image_url=?, updated_at=?
        WHERE id=?`
     ).run(
       b.code || null,
@@ -102,6 +103,7 @@ router.put(
       Number(b.credit_limit) || 0,
       b.status || 'active',
       b.remark || null,
+      b.image_url ?? null,
       now(),
       id
     );

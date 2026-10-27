@@ -11,7 +11,7 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-const WRITE = ['admin', 'sales', 'tech'];
+const WRITE = ['admin', 'tech'];
 
 router.get('/', authRequired, wrap(async (req, res) => {
   const { order_id } = req.query;

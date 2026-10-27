@@ -8,6 +8,7 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const { ensureCostInstance, actTask } = require('../services/approvals');
 
 const router = express.Router();
 const WRITE = ['admin', 'finance', 'sales'];
@@ -68,6 +69,7 @@ router.post(
         round2(total), rate, factoryPrice, t, t
       );
     }
+    ensureCostInstance(orderId, round2(total));
     return ok(res, db.prepare('SELECT * FROM cost_sheets WHERE order_id = ?').get(orderId));
   })
 );
@@ -81,6 +83,23 @@ router.post(
     const row = db.prepare('SELECT * FROM cost_sheets WHERE order_id = ?').get(orderId);
     if (!row) return fail(res, 404, '成本单不存在，请先录入成本');
     const b = req.body || {};
+
+    // 多级审批：若存在未完成实例，按当前级处理
+    const inst = db.prepare(
+      "SELECT * FROM approval_instances WHERE target_type='cost' AND target_id=? AND status='pending' ORDER BY id DESC LIMIT 1"
+    ).get(orderId);
+    if (inst) {
+      const task = db.prepare('SELECT * FROM approval_tasks WHERE instance_id=? AND step_no=?').get(inst.id, inst.current_step);
+      if (!task) return fail(res, 400, '审批任务异常');
+      try {
+        actTask(task.id, !!b.approve, b.opinion, req.user);
+      } catch (e) {
+        return fail(res, 400, e.message);
+      }
+      return ok(res, db.prepare('SELECT * FROM cost_sheets WHERE order_id = ?').get(orderId));
+    }
+
+    // 兼容旧数据：无审批实例时按单级处理
     const status = b.approve ? 'approved' : 'rejected';
     const t = now();
     db.prepare(

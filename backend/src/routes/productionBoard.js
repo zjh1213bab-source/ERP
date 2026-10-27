@@ -1,0 +1,32 @@
+/**
+ * 生产看板：汇总已分单/生产中/已入库 订单的工序进度
+ * GET /api/production/board?status=
+ */
+const express = require('express');
+const { db } = require('../db');
+const { ok, wrap } = require('../utils/http');
+const { authRequired } = require('../middleware/auth');
+
+const router = express.Router();
+
+router.get('/board', authRequired, wrap(async (req, res) => {
+  const { status = '' } = req.query;
+  const where = ["o.status IN ('assigned','production','instock')"];
+  const params = [];
+  if (status) { where.push('o.status = ?'); params.push(status); }
+
+  const sql = `
+    SELECT o.id, o.order_no, o.style_name, o.status, o.delivery_date, o.total_amount, o.total_usd,
+           c.name AS customer_name,
+           (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id) AS item_count,
+           (SELECT COUNT(*) FROM order_nodes n WHERE n.order_id = o.id) AS node_total,
+           (SELECT COUNT(*) FROM order_nodes n WHERE n.order_id = o.id AND n.status = 'done') AS node_done,
+           (SELECT n.name FROM order_nodes n WHERE n.order_id = o.id AND n.status != 'done' ORDER BY n.seq, n.id LIMIT 1) AS current_node
+    FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
+    WHERE ${where.join(' AND ')}
+    ORDER BY (o.delivery_date IS NULL), o.delivery_date ASC, o.id DESC
+  `;
+  return ok(res, db.prepare(sql).all(...params));
+}));
+
+module.exports = router;

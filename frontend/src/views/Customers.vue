@@ -16,18 +16,21 @@
         <option value="disabled">停用</option>
       </select>
       <button class="btn btn-ghost" @click="load">查询</button>
+      <CsvImport v-if="canWrite" kind="customers" @done="load" />
     </div>
 
     <div class="table-wrap">
       <table class="data">
         <thead>
           <tr>
+            <th style="width: 56px">图片</th>
             <th>编号</th><th>客户名称</th><th>联系人</th><th>电话</th><th>等级</th>
             <th>信用额度</th><th>状态</th><th v-if="canWrite">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="c in list" :key="c.id">
+            <td><div class="mini-thumb" :class="{ clickable: c.image_url }" @click="c.image_url && openImage(c.image_url, c.name || '')"><img v-if="c.image_url" :src="c.image_url" /><span v-else>-</span></div></td>
             <td>{{ c.code || '-' }}</td>
             <td><strong>{{ c.name }}</strong></td>
             <td>{{ c.contact || '-' }}</td>
@@ -45,7 +48,7 @@
             </td>
           </tr>
           <tr v-if="!list.length">
-            <td :colspan="canWrite ? 8 : 7" class="empty-cell">暂无客户</td>
+            <td :colspan="canWrite ? 9 : 8" class="empty-cell">暂无客户</td>
           </tr>
         </tbody>
       </table>
@@ -60,6 +63,11 @@
         </div>
         <div class="modal-body">
           <div class="form-grid">
+            <div class="fitem full">
+              <label>客户图片 <span class="paste-tip">支持 Ctrl+V 直接粘贴图片</span></label>
+              <ImageUpload v-model="form.image_url" size="lg" />
+            </div>
+
             <div class="fitem"><label>客户名称 *</label><input class="input" v-model="form.name" /></div>
             <div class="fitem"><label>编号</label><input class="input" v-model="form.code" placeholder="可空" /></div>
             <div class="fitem"><label>联系人</label><input class="input" v-model="form.contact" /></div>
@@ -93,18 +101,20 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
-import { hasRole } from '../store/auth';
+import { can } from '../store/permissions';
+import CsvImport from '../components/CsvImport.vue';
+import ImageUpload from '../components/ImageUpload.vue';
 
 const list = ref([]);
 const q = ref('');
 const status = ref('');
-const canWrite = computed(() => hasRole('sales'));
+const canWrite = computed(() => can('customer.write'));
 
 const showModal = ref(false);
 const saving = ref(false);
 const blank = () => ({
   id: null, code: '', name: '', contact: '', phone: '', email: '',
-  level: 'B', credit_limit: 0, status: 'active', remark: ''
+  level: 'B', credit_limit: 0, status: 'active', remark: '', image_url: ''
 });
 const form = ref(blank());
 

@@ -12,10 +12,10 @@
 | **P0** | 地基 | 登录鉴权、角色权限、公司/部门、数据库、部署 | ✅ 已实现 |
 | **P1** | 主数据 + 订单核心 | 客户、产品、销售订单、状态流转、工作台、业务蓝图 | ✅ 已实现 |
 | P2 | 技术 + 财务 | 打样/制版、技术资料确认、成本核算、财务审核 + 流转门槛 | ✅ 已实现 |
-| P3 | 分单 + 生产 + 价格 | 本厂/外协分单、生产单/工序报工、出厂价与阶梯报价 | 规划 |
-| P4 | 仓储 + 物流 + 美仓 | 生产仓、头程物流、美仓库存、发货出库 | 规划 |
-| P5 | 人事 + 行政 + 数据平台 | 人事薪酬、行政后勤、BI 报表、审计 | 规划 |
-| P6 | AI 助手 | AI 搜索/问答/预警/报表解读 | 规划 |
+| P3 | 分单 + 生产 + 价格 | 本厂/外协分单、生产单/工序报工、出厂价与阶梯报价 | ✅ 已实现（阶梯报价待做） |
+| P4 | 仓储 + 物流 + 美仓 | 生产仓、头程物流、美仓库存、发货出库 | ✅ 已实现 |
+| P5 | 人事 + 行政 + 数据平台 | 人事薪酬、行政后勤、BI 报表、审计 | ✅ 已实现 |
+| P6 | AI 助手 | AI 搜索/问答/预警/报表解读 | ✅ 已实现 |
 
 > 每期结束都是一个"可上线里程碑"，不是全部做完才上线。
 
@@ -30,16 +30,16 @@
 | 15 | 工作台 / 首页总览 | P1 | 前端 Dashboard + `/orders/stats/summary` | ✅ |
 | 3 | 销售技术 / 研发设计 | P2 | `sample_requests` `tech_packs` | ✅ 已实现 |
 | 4 | 财务审核与经营 | P2 | `cost_sheets` | ✅ 已实现（成本单 + 审核） |
-| 12 | 制度与工作流 | P2 | `workflows` `approvals` `sop_docs` | 规划 |
-| 5 | 分厂执行（关键规则） | P3 | `dispatch_orders`（本厂/外协） | 部分（订单 `assigned` 状态） |
-| 6 | 本厂生产 | P3 | `production_orders` `process_reports` | 规划 |
-| 9 | 工厂出厂价管理 | P3 | `price_rules` `price_snapshots` | 规划 |
-| 7 | 美仓现货（现货归口） | P4 | `stock_items` `stock_ledger` `replenish` | 规划 |
-| 8 | 仓储与物流 | P4 | `warehouses` `inbound` `outbound` `shipments` | 规划 |
-| 10 | 人事与薪酬 | P5 | `employees` `attendance` `payroll` | 规划 |
-| 11 | 行政后勤 | P5 | `assets` `vehicles` `admin_expense` | 规划 |
-| 13 | 数据平台与安全 | P1/P5 | `audit_log` + BI 看板 | 部分（鉴权/角色已含） |
-| 14 | AI 助手 | P6 | `ai_*`（对接大模型） | 规划 |
+| 12 | 制度与工作流 | P2 | `approval_flows` `approval_instances` `approval_tasks` | ✅ 已实现 |
+| 5 | 分厂执行（关键规则） | P3 | `factories` `dispatch_orders`（本厂/外协、外协对账结算） | ✅ |
+| 6 | 本厂生产 | P3 | `order_nodes` `production_reports`（13 道工序） | ✅ |
+| 9 | 工厂出厂价管理 | P3 | `cost_sheets`（材料/做工/管理/加价率）+ 分单金额 | 部分（阶梯报价待做） |
+| 7 | 美仓现货（现货归口） | P4 | `stock_items` `stock_ledger` + 缺货一键补货 | ✅ |
+| 8 | 仓储与物流 | P4 | `stock_items`（cn/us）`stock_ledger` 入库/调拨/发货 | ✅ |
+| 10 | 人事与薪酬 | P5 | `employees` `attendance` `leave_requests` `payrolls` | ✅ |
+| 11 | 行政后勤 | P5 | `assets`（含车辆）`admin_expenses` | ✅ |
+| 13 | 数据平台与安全 | P1/P5 | `audit_logs` + 报表中心 + 数据备份/恢复 | ✅ |
+| 14 | AI 助手 | P6 | `/api/assistant/{insights,report,query}`、`/api/ai/chat` | ✅ |
 | 16 | 关键业务规则（红线） | 贯穿 | 校验逻辑，不单列页面 | 贯穿 |
 | 17 | 可吸收优点 | 贯穿 | 交互与效能优化 | 贯穿 |
 

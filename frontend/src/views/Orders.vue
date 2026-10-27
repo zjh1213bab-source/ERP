@@ -20,6 +20,7 @@
         <option value="stock">现货</option>
       </select>
       <button class="btn btn-ghost" @click="load">查询</button>
+      <button v-if="canExport" class="btn btn-ghost" @click="exportCsv">导出 Excel</button>
     </div>
 
     <div class="table-wrap">
@@ -158,7 +159,7 @@
 
     <!-- ================= 详情 ================= -->
     <div v-if="detail" class="modal-mask" @click.self="detail = null">
-      <div class="modal wide">
+      <div class="modal xwide">
         <div class="modal-head">
           <h3>{{ detail.order_no }} · <span class="tag" :class="tagOf(detail.status)">{{ labels[detail.status] }}</span></h3>
           <button class="x" @click="detail = null">×</button>
@@ -182,6 +183,42 @@
             <div><span style="color: #8a94a6; font-size: 12.5px">店铺订单编号</span><div>{{ detail.shop_order_no || '-' }}</div></div>
             <div><span style="color: #8a94a6; font-size: 12.5px">交货天数</span><div>{{ detail.delivery_days || '-' }}</div></div>
             <div><span style="color: #8a94a6; font-size: 12.5px">运费</span><div>¥{{ money(detail.freight) }}</div></div>
+          </div>
+
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px">
+            <button class="btn btn-ghost btn-sm" @click="goPrint('production')">打印生产单</button>
+            <button class="btn btn-ghost btn-sm" @click="goPrint('packing')">打印装箱单</button>
+            <button class="btn btn-ghost btn-sm" @click="goPrint('shipping')">打印发货单</button>
+            <button class="btn btn-ghost btn-sm" @click="goLabels">打印标签</button>
+          </div>
+
+          <div style="display: flex; gap: 14px; align-items: center; margin-bottom: 14px">
+            <div style="width: 96px; height: 96px; border: 1px solid #eef2f7; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #fafcff">
+              <img v-if="detail.image_url" :src="detail.image_url" style="width: 100%; height: 100%; object-fit: cover" />
+              <span v-else style="font-size: 12px; color: #8a94a6">无款图</span>
+            </div>
+            <div>
+              <label class="btn btn-ghost btn-sm" style="cursor: pointer">
+                上传款图<input type="file" accept="image/*" style="display: none" @change="onOrderImage" />
+              </label>
+              <div style="font-size: 11.5px; color: #8a94a6; margin-top: 6px">png/jpg，≤3MB</div>
+            </div>
+          </div>
+
+          <h3 style="margin: 16px 0 8px; font-size: 14px">附件</h3>
+          <div v-if="attachments.length" style="margin-bottom: 8px">
+            <div v-for="a in attachments" :key="a.id" style="display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed #eef2f7">
+              <a :href="a.url" target="_blank" rel="noopener" style="color: #2563eb">{{ a.filename }}</a>
+              <span style="color: #8a94a6">{{ Math.round((a.size || 0) / 1024) }} KB</span>
+              <button class="link-btn danger" @click="removeAttachment(a.id)">删</button>
+            </div>
+          </div>
+          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无附件</div>
+          <div style="margin-bottom: 14px; display: flex; align-items: center; gap: 10px">
+            <label class="btn btn-ghost btn-sm" style="cursor: pointer">
+              上传附件<input type="file" multiple style="display: none" @change="onAttachments" />
+            </label>
+            <span style="font-size: 11.5px; color: #8a94a6">{{ attUploading ? '上传中…' : 'PDF / 图片 / Office，单个 ≤10MB' }}</span>
           </div>
 
           <h3 style="margin: 12px 0 8px; font-size: 14px">明细（款 / 颜色 / 尺码）</h3>
@@ -254,7 +291,7 @@
           <!-- 开发单 -->
           <h3 style="margin: 16px 0 8px; font-size: 14px">开发单 / 技术资料</h3>
           <table v-if="techpacks.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
-            <thead><tr><th>产品/款号</th><th>版本</th><th>状态</th><th>确认人</th><th style="width: 140px">操作</th></tr></thead>
+            <thead><tr><th>产品/款号</th><th>版本</th><th>状态</th><th>确认人</th><th style="width: 250px">操作</th></tr></thead>
             <tbody>
               <template v-for="tp in techpacks" :key="tp.id">
                 <tr>
@@ -262,7 +299,9 @@
                   <td><span class="tag" :class="tpTag(tp.status)">{{ tpLabel(tp.status) }}</span></td>
                   <td>{{ tp.confirmed_by || '-' }}</td>
                   <td>
-                    <button class="link-btn" @click="tpOpen[tp.id] = !tpOpen[tp.id]">{{ tpOpen[tp.id] ? '收起' : '详情' }}</button>
+                    <button class="link-btn" @click="tpOpen[tp.id] = !tpOpen[tp.id]">{{ tpOpen[tp.id] ? '收起' : '摘要' }}</button>
+                    <button class="link-btn" @click="tpDetailId = tp.id">明细</button>
+                    <button class="link-btn" @click="printTechpack(tp.id)">打印工艺单</button>
                     <button v-if="tp.status !== 'confirmed' && canTechReview" class="link-btn" @click="confirmTp(tp.id)">确认</button>
                   </td>
                 </tr>
@@ -393,6 +432,41 @@
             <button class="btn btn-danger btn-sm" :disabled="costBusy" @click="reviewCost(false)">✗ 驳回</button>
           </div>
 
+          <!-- 分单 -->
+          <h3 style="margin: 16px 0 8px; font-size: 14px">分单（本厂 / 外协）</h3>
+          <table v-if="dispatches.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
+            <thead><tr><th>工厂</th><th>类型</th><th>数量</th><th>单价</th><th>备注</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="d in dispatches" :key="d.id">
+                <td><strong>{{ d.factory_name }}</strong></td>
+                <td><span class="tag" :class="d.type === 'own' ? 'blue' : 'purple'">{{ d.type === 'own' ? '本厂' : '外协' }}</span></td>
+                <td>{{ d.qty }}</td>
+                <td>¥{{ money(d.price) }}</td>
+                <td>{{ d.remark || '-' }}</td>
+                <td><button class="link-btn danger" @click="removeDispatch(d.id)">删</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">未分单</div>
+          <template v-if="canDispatch && ['finance', 'assigned'].includes(detail.status)">
+            <div class="form-grid" style="margin-bottom: 8px">
+              <div class="fitem">
+                <label>工厂 *</label>
+                <select class="select" v-model.number="dispatchForm.factory_id">
+                  <option :value="null">— 选择工厂 —</option>
+                  <option v-for="f in factories" :key="f.id" :value="f.id">{{ f.name }}（{{ f.type === 'own' ? '本厂' : '外协' }}）</option>
+                </select>
+              </div>
+              <div class="fitem"><label>数量</label><input class="input" type="number" v-model.number="dispatchForm.qty" /></div>
+              <div class="fitem"><label>单价</label><input class="input" type="number" v-model.number="dispatchForm.price" /></div>
+              <div class="fitem"><label>备注</label><input class="input" v-model="dispatchForm.remark" /></div>
+            </div>
+            <div style="margin-bottom: 6px; display: flex; align-items: center; gap: 10px">
+              <button class="btn btn-primary btn-sm" :disabled="dispatchBusy" @click="doDispatch">提交分单</button>
+              <span style="font-size: 12px; color: #8a94a6">首次分单会将订单推进到「已分单」（需财务已审核通过）</span>
+            </div>
+          </template>
+
           <!-- 生产工序进度 -->
           <h3 style="margin: 16px 0 8px; font-size: 14px">
             生产工序进度
@@ -402,11 +476,16 @@
             <div style="height: 8px; background: #eef1f6; border-radius: 6px; overflow: hidden; margin-bottom: 10px">
               <div :style="{ width: (nodes.length ? (doneCount / nodes.length * 100) : 0) + '%' }" style="height: 100%; background: #16a34a"></div>
             </div>
-            <table class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden">
+            <div class="node-scroll">
+            <table class="data node-table" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden">
               <thead><tr><th>工序</th><th>状态</th><th>计划完成</th><th>实际完成</th><th>责任人</th><th>备注</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="n in nodes" :key="n.id">
-                  <td><strong>{{ n.name }}</strong></td>
+                  <td class="nowrap"><strong>{{ n.name }}</strong>
+                    <div v-if="aggOf(n.id).ok || aggOf(n.id).defect" style="font-size: 11px; color: #8a94a6">
+                      已报工 {{ aggOf(n.id).ok }} 件<span v-if="aggOf(n.id).defect"> · 不良 {{ aggOf(n.id).defect }}</span>
+                    </div>
+                  </td>
                   <td>
                     <select class="select" v-model="n.status" :disabled="!canNodeWrite" style="padding: 4px 8px">
                       <option value="pending">待开始</option><option value="doing">进行中</option><option value="done">已完成</option>
@@ -416,10 +495,14 @@
                   <td><input class="input" type="date" v-model="n.actual_date" :disabled="!canNodeWrite" style="padding: 4px 6px" /></td>
                   <td><input class="input" v-model="n.operator" :disabled="!canNodeWrite" style="padding: 4px 6px; width: 90px" /></td>
                   <td><input class="input" v-model="n.remark" :disabled="!canNodeWrite" style="padding: 4px 6px" /></td>
-                  <td><button v-if="canNodeWrite" class="link-btn" :disabled="nodeBusy" @click="saveNode(n)">保存</button></td>
+                  <td>
+                    <button v-if="canNodeWrite" class="link-btn" :disabled="nodeBusy" @click="saveNode(n)">保存</button>
+                    <button v-if="canNodeWrite" class="link-btn" @click="openReport(n)">报工</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
+            </div>
             <div style="margin-top: 8px; font-size: 12px; color: #8a94a6">进入「生产中」会自动生成 13 道工序；状态改为「已完成」时自动补实际完成日期。</div>
           </div>
           <div v-else style="font-size: 12.5px; color: #8a94a6">
@@ -427,23 +510,100 @@
             <button v-if="canNodeWrite" class="link-btn" :disabled="nodeBusy" @click="initNodes">初始化工序（13 道）</button>
           </div>
 
+          <div v-if="canStockWrite" style="margin: 12px 0 4px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center">
+            <button v-if="['assigned','production'].includes(detail.status)" class="btn btn-ghost btn-sm" :disabled="busy" @click="doInstock">成品入库（生产仓）</button>
+            <button v-if="canShip && detail.status === 'instock'" class="btn btn-primary btn-sm" :disabled="busy" @click="doShip">发货出库（生产仓）</button>
+            <span v-if="detail.status === 'shipped'" style="font-size: 12.5px; color: #16a34a">已发货</span>
+          </div>
+
           <h3 style="margin: 16px 0 8px; font-size: 14px">可执行操作</h3>
           <div class="node-actions">
             <button v-for="t in nextStates" :key="t" class="btn" :class="t === 'cancelled' ? 'btn-danger' : 'btn-primary'" :disabled="busy" @click="doTransition(t)">→ {{ labels[t] || t }}</button>
-            <span v-if="!nextStates.length" style="color: #8a94a6; font-size: 13px">当前状态无可执行操作</span>
+            <button v-if="canRollback" class="btn btn-ghost rollback-btn" :disabled="busy" @click="openRollback">
+              ↩ 反审退回
+            </button>
+            <span v-if="!nextStates.length && !canRollback" style="color: #8a94a6; font-size: 13px">当前状态无可执行操作</span>
           </div>
+          <p v-if="canRollback" class="rollback-tip">
+            生产、技术或财务环节发现问题时，可以把订单退回前面的环节（如退回业务重新确认），退回会同步冲销库存、重置工序，并记入流转记录。
+          </p>
         </div>
         <div class="modal-foot"><button class="btn btn-ghost" @click="detail = null">关闭</button></div>
       </div>
     </div>
+
+    <!-- 反审退回 -->
+    <div v-if="rollbackOpen" class="modal-mask" @click.self="rollbackOpen = false">
+      <div class="modal">
+        <div class="modal-head">
+          <h3>反审退回 · {{ detail.order_no }}</h3>
+          <button class="x" @click="rollbackOpen = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid" style="grid-template-columns: 1fr">
+            <div class="fitem">
+              <label>退回到 *</label>
+              <select class="select" v-model="rollbackTo">
+                <option v-for="s in rollbackTargets" :key="s.value" :value="s.value">{{ s.label }}</option>
+              </select>
+            </div>
+            <div class="fitem">
+              <label>退回原因 * <span style="font-weight: 400; color: #8a94a6">会写进流转记录</span></label>
+              <textarea rows="3" v-model="rollbackReason" placeholder="如：面料到货后发现色差，需退回业务重新与客户确认面辅料"></textarea>
+            </div>
+          </div>
+          <div class="tip-warn">{{ rollbackHint }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="rollbackOpen = false">取消</button>
+          <button class="btn btn-primary" :disabled="busy" @click="doRollback">确认退回</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 报工 -->
+    <div v-if="reportNode" class="modal-mask" @click.self="reportNode = null">
+      <div class="modal">
+        <div class="modal-head"><h3>报工 · {{ reportNode.name }}</h3><button class="x" @click="reportNode = null">×</button></div>
+        <div class="modal-body">
+          <table v-if="reports.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 10px">
+            <thead><tr><th>日期</th><th>合格</th><th>不良</th><th>工时</th><th>操作人</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="r in reports" :key="r.id">
+                <td>{{ r.report_date }}</td><td>{{ r.qty_ok }}</td><td>{{ r.qty_defect }}</td><td>{{ r.hours }}</td><td>{{ r.operator }}</td>
+                <td><button class="link-btn danger" @click="delReport(r.id)">删</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 10px">暂无报工记录</div>
+          <div class="form-grid">
+            <div class="fitem"><label>日期</label><input class="input" type="date" v-model="reportForm.report_date" /></div>
+            <div class="fitem"><label>合格数</label><input class="input" type="number" v-model.number="reportForm.qty_ok" /></div>
+            <div class="fitem"><label>不良数</label><input class="input" type="number" v-model.number="reportForm.qty_defect" /></div>
+            <div class="fitem"><label>工时</label><input class="input" type="number" v-model.number="reportForm.hours" /></div>
+            <div class="fitem"><label>操作人</label><input class="input" v-model="reportForm.operator" /></div>
+            <div class="fitem"><label>备注</label><input class="input" v-model="reportForm.remark" /></div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="reportNode = null">关闭</button>
+          <button class="btn btn-primary" :disabled="reportBusy" @click="addReport">添加报工</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 开发详情：面辅料 / 成衣尺寸 / 生产要求（与开发管理同一个组件） -->
+    <TechPackDetail :techpack-id="tpDetailId" @close="tpDetailId = null" @saved="reloadTechpacks" @version-created="onTpVersionCreated" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { api } from '../api';
-import { auth, hasRole } from '../store/auth';
+import { api, exportOrders } from '../api';
+import { auth } from '../store/auth';
+import { can } from '../store/permissions';
+import TechPackDetail from '../components/TechPackDetail.vue';
 
 const route = useRoute();
 
@@ -472,6 +632,7 @@ const techpacks = ref([]);
 const cost = ref(null);
 const samples = ref([]);
 const tpOpen = reactive({});
+const tpDetailId = ref(null);
 const tpForm = ref(blankTp());
 const tpAdding = ref(false);
 const tpBusy = ref(false);
@@ -491,14 +652,36 @@ const matForm = ref({ material_id: null, type: 'fabric', name: '', unit: '', one
 const nodes = ref([]);
 const nodeBusy = ref(false);
 
-const canCreate = computed(() => hasRole('sales'));
-const canTechWrite = computed(() => hasRole('tech', 'sales'));
-const canTechReview = computed(() => hasRole('tech'));
-const canCostWrite = computed(() => hasRole('finance', 'sales'));
-const canFinanceReview = computed(() => hasRole('finance'));
-const canCraftWrite = computed(() => hasRole('tech', 'sales'));
-const canMatWrite = computed(() => hasRole('tech', 'sales', 'finance'));
-const canNodeWrite = computed(() => hasRole('production', 'sales'));
+const dispatches = ref([]);
+const factories = ref([]);
+const dispatchBusy = ref(false);
+const dispatchForm = ref({ factory_id: null, qty: 0, price: 0, remark: '' });
+
+const reportNode = ref(null);
+const reports = ref([]);
+const reportBusy = ref(false);
+const reportForm = ref({ report_date: '', qty_ok: 0, qty_defect: 0, hours: 0, operator: '', remark: '' });
+const reportAgg = ref({});
+
+const attachments = ref([]);
+const attUploading = ref(false);
+
+const canCreate = computed(() => can('order.create'));
+const canExport = computed(() => can('order.export'));
+const canTechWrite = computed(() => can('development.write'));
+const canTechReview = computed(() => can('development.review'));
+const canCostWrite = computed(() => can('cost.write'));
+const canFinanceReview = computed(() => can('cost.review'));
+const canCraftWrite = computed(() => can('craft.write'));
+const canMatWrite = computed(() => can('material.write'));
+const canNodeWrite = computed(() => can('node.write'));
+const canStockWrite = computed(() => can('order.instock'));
+const canShip = computed(() => can('order.ship'));
+const canDispatch = computed(() => can('order.dispatch'));
+const orderQty = computed(() => {
+  if (!detail.value) return 0;
+  return detail.value.items.reduce((s, it) => s + Number(it.qty || 0), 0);
+});
 const doneCount = computed(() => nodes.value.filter((n) => n.status === 'done').length);
 const allMats = computed(() => [...fabrics.value, ...accessories.value]);
 const fabricCost = computed(() => orderMats.value.filter((m) => m.type === 'fabric').reduce((s, m) => s + Number(m.amount || 0), 0));
@@ -531,6 +714,56 @@ const costTotalPreview = computed(() =>
   ['material_cost', 'accessory_cost', 'labor_cost', 'overhead_cost', 'other_cost'].reduce((s, k) => s + (Number(costForm.value[k]) || 0), 0)
 );
 const costPricePreview = computed(() => Math.round(costTotalPreview.value * (1 + (Number(costForm.value.profit_rate) || 0) / 100) * 100) / 100);
+
+/** 反审：可退回的目标（当前状态之前的所有环节，不含已发货/已结案） */
+const ROLLBACK_CHAIN = ['draft', 'tech', 'finance', 'assigned', 'production', 'instock'];
+const rollbackOpen = ref(false);
+const rollbackTo = ref('draft');
+const rollbackReason = ref('');
+const canRollback = computed(() => {
+  if (!detail.value) return false;
+  const cur = detail.value.status;
+  return ROLLBACK_CHAIN.includes(cur) && ROLLBACK_CHAIN.indexOf(cur) > 0;
+});
+const rollbackTargets = computed(() => {
+  if (!detail.value) return [];
+  const idx = ROLLBACK_CHAIN.indexOf(detail.value.status);
+  return ROLLBACK_CHAIN.slice(0, Math.max(idx, 0)).map((s) => ({ value: s, label: labels.value[s] || s }));
+});
+const rollbackHint = computed(() => {
+  const cur = detail.value ? detail.value.status : '';
+  const parts = [];
+  if (cur === 'instock') parts.push('已入库的货会按库存流水冲销回生产仓');
+  if (cur === 'production' || cur === 'instock') parts.push('13 道工序全部重置为待开始，返工需重新报工');
+  if (cur === 'assigned') parts.push('分单信息保留，退回后可重新分单');
+  parts.push('退回原因会写进流转记录，前后状态都可追溯');
+  return '退回后：' + parts.join('；') + '。';
+});
+
+function openRollback() {
+  rollbackReason.value = '';
+  rollbackTo.value = rollbackTargets.value.length ? rollbackTargets.value[0].value : 'draft';
+  rollbackOpen.value = true;
+}
+async function doRollback() {
+  if (!detail.value) return;
+  if (!rollbackReason.value.trim()) return alert('请填写退回原因');
+  const label = labels.value[rollbackTo.value] || rollbackTo.value;
+  if (!confirm(`确认把订单退回「${label}」？会产生库存与工序回滚。`)) return;
+  busy.value = true;
+  try {
+    const r = await api.rollbackOrder(detail.value.id, rollbackTo.value, rollbackReason.value.trim());
+    detail.value = r.order;
+    await load();
+    await loadP2(detail.value.id);
+    rollbackOpen.value = false;
+    const ef = r.effects || {};
+    const extra = [];
+    if (ef.stockReversed) extra.push(`冲销库存 ${ef.stockReversed} 件`);
+    if (ef.nodesReset) extra.push(`重置工序 ${ef.nodesReset} 道`);
+    alert(`已退回「${label}」` + (extra.length ? '\n' + extra.join('，') : ''));
+  } catch (e) { alert(e.message); } finally { busy.value = false; }
+}
 
 const nextStates = computed(() => {
   if (!detail.value) return [];
@@ -568,12 +801,13 @@ async function loadMeta() {
   if (meta.rate) rate.value = meta.rate;
 }
 async function loadRefs() {
-  const [cs, ps, ms, st] = await Promise.all([api.customers({}), api.products({}), api.materials({}), api.sizeTemplates()]);
+  const [cs, ps, ms, st, fs] = await Promise.all([api.customers({}), api.products({}), api.materials({}), api.sizeTemplates(), api.factories({ status: 'active' })]);
   customers.value = cs;
   products.value = ps;
   fabrics.value = ms.filter((m) => m.type === 'fabric' && m.status === 'active');
   accessories.value = ms.filter((m) => m.type === 'accessory' && m.status === 'active');
   sizeTemplates.value = st;
+  factories.value = fs;
 }
 async function load() {
   try { list.value = await api.orders({ q: q.value, status: status.value, type: type.value }); }
@@ -656,15 +890,22 @@ async function saveOrder() {
 }
 
 async function loadP2(id) {
-  const [tp, cs, sp, cf, om, nd] = await Promise.all([api.techpacks(id), api.cost(id), api.samples(id), api.crafts(id), api.orderMaterials(id), api.orderNodes(id)]);
+  const [tp, cs, sp, cf, om, nd, su, dp, att] = await Promise.all([api.techpacks(id), api.cost(id), api.samples(id), api.crafts(id), api.orderMaterials(id), api.orderNodes(id), api.reportSummary(id), api.dispatches(id), api.attachments({ target_type: 'order', target_id: id })]);
   techpacks.value = tp || [];
   cost.value = cs || null;
   samples.value = sp || [];
   crafts.value = cf || [];
   orderMats.value = om || [];
   nodes.value = nd || [];
+  dispatches.value = dp || [];
+  attachments.value = att || [];
+  dispatchForm.value.qty = orderQty.value || 0;
+  const agg = {};
+  (su || []).forEach((r) => { agg[r.node_id] = { ok: Number(r.ok) || 0, defect: Number(r.defect) || 0, hours: Number(r.hours) || 0 }; });
+  reportAgg.value = agg;
   if (cs) costForm.value = { material_cost: cs.material_cost, accessory_cost: cs.accessory_cost, labor_cost: cs.labor_cost, overhead_cost: cs.overhead_cost, other_cost: cs.other_cost, profit_rate: cs.profit_rate };
 }
+const aggOf = (id) => reportAgg.value[id] || { ok: 0, defect: 0, hours: 0 };
 async function openDetail(id) {
   try { detail.value = await api.order(id); tpAdding.value = false; await loadP2(id); }
   catch (e) { alert(e.message); }
@@ -695,6 +936,13 @@ async function confirmTp(id) {
   try { await api.confirmTechpack(id); techpacks.value = await api.techpacks(detail.value.id); }
   catch (e) { alert(e.message); }
 }
+/** 开发明细保存后刷新列表（状态/确认人可能变） */
+async function reloadTechpacks() {
+  if (!detail.value) return;
+  try { techpacks.value = await api.techpacks(detail.value.id); } catch (e) { /* ignore */ }
+}
+function printTechpack(id) { window.open('/print/techpack/' + id, '_blank'); }
+function onTpVersionCreated(id) { tpDetailId.value = id; reloadTechpacks(); }
 async function saveCost() {
   costBusy.value = true;
   try { cost.value = await api.saveCost(detail.value.id, costForm.value); }
@@ -762,6 +1010,126 @@ async function saveNode(n) {
     if (i >= 0) nodes.value[i] = updated;
   } catch (e) { alert(e.message); } finally { nodeBusy.value = false; }
 }
+async function doDispatch() {
+  if (!dispatchForm.value.factory_id) return alert('请选择工厂');
+  dispatchBusy.value = true;
+  try {
+    const r = await api.createDispatch({ order_id: detail.value.id, ...dispatchForm.value });
+    dispatches.value = r.dispatches;
+    detail.value = await api.order(detail.value.id);
+    await load();
+    dispatchForm.value = { factory_id: null, qty: orderQty.value, price: 0, remark: '' };
+  } catch (e) { alert(e.message); } finally { dispatchBusy.value = false; }
+}
+async function removeDispatch(id) {
+  if (!confirm('确定删除该分单？')) return;
+  try { await api.deleteDispatch(id); dispatches.value = await api.dispatches(detail.value.id); }
+  catch (e) { alert(e.message); }
+}
+
+async function doInstock() {  if (!confirm('按订单明细入库到生产仓？库存将增加，订单状态变为「已入库」。')) return;
+  busy.value = true;
+  try {
+    await api.orderInstock({ order_id: detail.value.id, warehouse: 'cn' });
+    detail.value = await api.order(detail.value.id);
+    await load();
+    await loadP2(detail.value.id);
+  } catch (e) { alert(e.message); } finally { busy.value = false; }
+}
+async function doShip() {
+  if (!confirm('按订单明细从生产仓发货出库？库存将扣减，订单状态变为「已发货」。')) return;
+  busy.value = true;
+  try {
+    await api.orderShip({ order_id: detail.value.id, warehouse: 'cn' });
+    detail.value = await api.order(detail.value.id);
+    await load();
+    await loadP2(detail.value.id);
+  } catch (e) { alert(e.message); } finally { busy.value = false; }
+}
+
+function goPrint(type) {
+  if (!detail.value) return;
+  window.open(`/print/${type}/${detail.value.id}`, '_blank');
+}
+function goLabels() {
+  if (!detail.value) return;
+  window.open(`/labels/${detail.value.id}`, '_blank');
+}
+
+async function exportCsv() {
+  try {
+    const blob = await exportOrders({ q: q.value, status: status.value, type: type.value });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'orders.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) { alert(e.message); }
+}
+
+async function onOrderImage(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  if (file.size > 3 * 1024 * 1024) { alert('图片不能超过 3MB'); ev.target.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const up = await api.upload(reader.result);
+      await api.setOrderImage(detail.value.id, up.url);
+      detail.value = await api.order(detail.value.id);
+    } catch (err) { alert(err.message); }
+  };
+  reader.readAsDataURL(file);
+  ev.target.value = '';
+}
+
+async function onAttachments(ev) {
+  const files = Array.from(ev.target.files || []);
+  if (!files.length) return;
+  attUploading.value = true;
+  try {
+    for (const f of files) {
+      if (f.size > 10 * 1024 * 1024) { alert(`${f.name} 超过 10MB，已跳过`); continue; }
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(f);
+      });
+      const up = await api.uploadFile(dataUrl, f.name);
+      await api.createAttachment({ target_type: 'order', target_id: detail.value.id, filename: f.name, url: up.url, size: up.size, mime: up.mime });
+    }
+    attachments.value = await api.attachments({ target_type: 'order', target_id: detail.value.id });
+  } catch (e) { alert(e.message); } finally { attUploading.value = false; ev.target.value = ''; }
+}
+async function removeAttachment(id) {
+  if (!confirm('删除该附件？')) return;
+  try { await api.deleteAttachment(id); attachments.value = await api.attachments({ target_type: 'order', target_id: detail.value.id }); }
+  catch (e) { alert(e.message); }
+}
+
+async function openReport(n) {  reportNode.value = n;
+  reportForm.value = { report_date: new Date().toISOString().slice(0, 10), qty_ok: 0, qty_defect: 0, hours: 0, operator: '', remark: '' };
+  try { reports.value = await api.reports({ node_id: n.id }); } catch (e) { reports.value = []; }
+}
+async function addReport() {
+  if (!reportNode.value) return;
+  reportBusy.value = true;
+  try {
+    await api.createReport({ node_id: reportNode.value.id, order_id: detail.value.id, ...reportForm.value });
+    reports.value = await api.reports({ node_id: reportNode.value.id });
+    reportForm.value = { report_date: new Date().toISOString().slice(0, 10), qty_ok: 0, qty_defect: 0, hours: 0, operator: '', remark: '' };
+    await loadP2(detail.value.id);
+  } catch (e) { alert(e.message); } finally { reportBusy.value = false; }
+}
+async function delReport(id) {
+  try {
+    await api.deleteReport(id);
+    reports.value = await api.reports({ node_id: reportNode.value.id });
+    await loadP2(detail.value.id);
+  } catch (e) { alert(e.message); }
+}
 async function doTransition(to) {
   if (!detail.value) return;
   const note = to === 'cancelled' ? prompt('取消原因（可空）') ?? '' : '';
@@ -781,3 +1149,14 @@ onMounted(async () => {
   if (route.query.new) openCreate();
 });
 </script>
+
+<style scoped>
+/* 工序表 7 列挤在弹窗里会把「成品入库」压成竖排：外层横向滚动 + 单元格不折行 */
+.rollback-btn { border-color: #f0c9cf; color: #d92d45; }
+.rollback-btn:hover { background: #fdecee; }
+.rollback-tip { margin: 8px 0 0; font-size: 12px; color: #8a94a6; line-height: 1.6; }
+.node-scroll { overflow-x: auto; }
+.node-table { min-width: 760px; }
+.node-table th,
+.node-table td { white-space: nowrap; }
+</style>

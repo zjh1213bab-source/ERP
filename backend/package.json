@@ -6,7 +6,10 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "smoke": "node scripts/smoke-test.js",
+    "rbac": "node scripts/rbac-audit.js --md ../docs/RBAC.md",
+    "shot": "node scripts/ui-shot.js"
   },
   "engines": {
     "node": ">=18"

@@ -23,52 +23,14 @@
       </div>
     </section>
 
-    <!-- 面料库 -->
+    <!-- 面辅料主数据已独立成「面辅料档案」页 -->
     <section class="panel-card">
-      <h3>面料库 <span class="hint">开发单里从这里勾选</span></h3>
-      <div class="toolbar" style="margin-bottom: 12px">
-        <input class="input" v-model="fForm.name" placeholder="面料名称 *" style="width: 200px" />
-        <input class="input" v-model="fForm.spec" placeholder="规格/克重/幅宽" style="width: 180px" />
-        <input class="input" v-model="fForm.supplier" placeholder="供应商" style="width: 160px" />
-        <button class="btn btn-primary btn-sm" :disabled="!canWrite" @click="addMaterial('fabric')">＋ 添加面料</button>
-      </div>
-      <table class="data">
-        <thead><tr><th>编码</th><th>名称</th><th>规格</th><th>供应商</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>
-          <tr v-for="m in fabrics" :key="m.id">
-            <td>{{ m.code || '-' }}</td><td><strong>{{ m.name }}</strong></td><td>{{ m.spec || '-' }}</td>
-            <td>{{ m.supplier || '-' }}</td>
-            <td><span class="tag" :class="m.status === 'active' ? 'green' : 'gray'">{{ m.status === 'active' ? '启用' : '停用' }}</span></td>
-            <td><button v-if="m.status === 'active' && canWrite" class="link-btn danger" @click="delMaterial(m)">停用</button></td>
-          </tr>
-          <tr v-if="!fabrics.length"><td colspan="6" class="empty-cell">暂无面料</td></tr>
-        </tbody>
-      </table>
+      <h3>面辅料档案 <span class="hint">开发单里从这里选择调用</span></h3>
+      <p style="font-size: 13px; color: #5b6474; margin: 8px 0 12px">
+        面料 / 辅料的名称、编号、简称、供应商、颜色、色号、规格、成份、图片都在「面辅料档案」里统一维护；开发单只引用、不改档案。
+      </p>
+      <router-link class="btn btn-primary btn-sm" to="/materials">打开面辅料档案</router-link>
     </section>
-
-    <!-- 辅料库 -->
-    <section class="panel-card">
-      <h3>辅料库 <span class="hint">开发单里从这里勾选</span></h3>
-      <div class="toolbar" style="margin-bottom: 12px">
-        <input class="input" v-model="aForm.name" placeholder="辅料名称 *" style="width: 200px" />
-        <input class="input" v-model="aForm.spec" placeholder="规格" style="width: 180px" />
-        <input class="input" v-model="aForm.supplier" placeholder="供应商" style="width: 160px" />
-        <button class="btn btn-primary btn-sm" :disabled="!canWrite" @click="addMaterial('accessory')">＋ 添加辅料</button>
-      </div>
-      <table class="data">
-        <thead><tr><th>编码</th><th>名称</th><th>规格</th><th>供应商</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>
-          <tr v-for="m in accessories" :key="m.id">
-            <td>{{ m.code || '-' }}</td><td><strong>{{ m.name }}</strong></td><td>{{ m.spec || '-' }}</td>
-            <td>{{ m.supplier || '-' }}</td>
-            <td><span class="tag" :class="m.status === 'active' ? 'green' : 'gray'">{{ m.status === 'active' ? '启用' : '停用' }}</span></td>
-            <td><button v-if="m.status === 'active' && canWrite" class="link-btn danger" @click="delMaterial(m)">停用</button></td>
-          </tr>
-          <tr v-if="!accessories.length"><td colspan="6" class="empty-cell">暂无辅料</td></tr>
-        </tbody>
-      </table>
-    </section>
-    <!-- 尺码模板 -->
     <section class="panel-card">
       <h3>尺码模板 <span class="hint">下单时一键套用</span></h3>
       <div class="toolbar" style="margin-bottom: 12px">
@@ -88,13 +50,30 @@
         </tbody>
       </table>
     </section>
+    <!-- 数据备份 -->
+    <section v-if="isAdmin" class="panel-card">
+      <h3>数据备份 <span class="hint">下载当前数据库快照（.db，可用于迁移/恢复）</span></h3>
+      <div class="toolbar">
+        <button class="btn btn-primary" :disabled="backing" @click="backup">{{ backing ? '生成中…' : '下载数据库备份' }}</button>
+        <label class="btn btn-ghost" style="cursor: pointer">
+          {{ restoring ? '上传中…' : '上传备份恢复（.db）' }}
+          <input type="file" accept=".db,application/octet-stream" style="display: none" @change="restore" />
+        </label>
+        <span class="form-msg ok" v-if="backupMsg">{{ backupMsg }}</span>
+      </div>
+      <p class="form-msg ok" v-if="restoreMsg" style="margin: 8px 0 0">{{ restoreMsg }}</p>
+      <p style="font-size: 12px; color: #8a94a6; margin: 8px 0 0">
+        恢复会上传 .db 并暂存，重启后端服务后生效；建议先「下载数据库备份」留底再操作。
+      </p>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { api } from '../api';
+import { api, downloadFile } from '../api';
 import { hasRole } from '../store/auth';
+import CsvImport from '../components/CsvImport.vue';
 
 const isAdmin = computed(() => hasRole('admin'));
 const canWrite = computed(() => hasRole('tech', 'sales'));
@@ -109,6 +88,42 @@ const fForm = ref({ name: '', spec: '', supplier: '' });
 const aForm = ref({ name: '', spec: '', supplier: '' });
 const sizeTemplates = ref([]);
 const stForm = ref({ name: '', sizes: '' });
+const backing = ref(false);
+const backupMsg = ref('');
+const restoring = ref(false);
+const restoreMsg = ref('');
+
+async function restore(ev) {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  if (!confirm('上传后将覆盖当前数据库（重启后端后生效），确定继续？')) { ev.target.value = ''; return; }
+  restoring.value = true;
+  restoreMsg.value = '';
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const b64 = String(reader.result).replace(/^data:.*;base64,/, '');
+      const r = await api.restoreDb(b64);
+      restoreMsg.value = '✓ ' + r.message;
+    } catch (e) { alert(e.message); } finally { restoring.value = false; ev.target.value = ''; }
+  };
+  reader.readAsDataURL(f);
+}
+
+async function backup() {
+  backing.value = true;
+  backupMsg.value = '';
+  try {
+    const blob = await downloadFile('/api/admin/backup');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'erp-backup.db';
+    a.click();
+    URL.revokeObjectURL(url);
+    backupMsg.value = '✓ 备份已下载';
+  } catch (e) { alert(e.message); } finally { backing.value = false; }
+}
 
 async function loadAll() {
   const [s, ms, st] = await Promise.all([api.settings(), api.materials({}), api.sizeTemplates()]);

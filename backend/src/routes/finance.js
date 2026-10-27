@@ -1,0 +1,445 @@
+/**
+ * 往来账与资金核销：应收（AR） / 应付（AP） / 收付款 / 账龄
+ * ------------------------------------------------------------
+ * 模型：一张账款可以被多笔收付款核销，一笔收付款也能核销多张账款，
+ * 所以 paid_amount 不直接改，而是由 payment_allocations 汇总后回写，
+ * 保证「核销明细之和 = 已收/已付」永远成立，红冲时按明细反向回退。
+ *
+ * 数据流：
+ *   订单发货 → 自动开应收（source=order）
+ *   采购入库 → 自动开应付（source=purchase，接采购模块时调用 openAP）
+ *   登记收款/付款 → 核销 → 账款状态 unpaid/partial/paid
+ *   红冲 → 反向回退已收已付，款项置 reversed，记录保留
+ */
+const express = require('express');
+const { db, now, getSettings } = require('../db');
+const { ok, fail, wrap, genNo } = require('../utils/http');
+const { authRequired, requireRole } = require('../middleware/auth');
+
+const router = express.Router();
+const WRITE = ['admin', 'finance'];
+const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+const today = () => new Date().toISOString().slice(0, 10);
+
+const INVOICE = {
+  ar: { table: 'ar_invoices', prefix: 'YS', label: '应收' },
+  ap: { table: 'ap_invoices', prefix: 'YF', label: '应付' }
+};
+
+/** 按前缀 + 当天流水生成单号 */
+function nextNo(prefix, table) {
+  const d = new Date();
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const row = db.prepare(`SELECT bill_no FROM ${table} WHERE bill_no LIKE ? ORDER BY id DESC LIMIT 1`).get(`${prefix}${ymd}%`);
+  const seq = row ? Number(String(row.bill_no).slice(-4)) + 1 : 1;
+  return genNo(prefix, seq);
+}
+function nextPayNo(direction) {
+  const d = new Date();
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const prefix = direction === 'in' ? 'SK' : 'FK';
+  const row = db.prepare('SELECT pay_no FROM payments WHERE pay_no LIKE ? ORDER BY id DESC LIMIT 1').get(`${prefix}${ymd}%`);
+  const seq = row ? Number(String(row.pay_no).slice(-4)) + 1 : 1;
+  return genNo(prefix, seq);
+}
+
+/** 未收 / 未付金额（本币） */
+const openAmount = (inv) => r2((Number(inv.amount) || 0) - (Number(inv.paid_amount) || 0));
+/** 未收 / 未付金额（原币）：本币未收 ÷ 开票汇率 */
+const openOrig = (inv) => {
+  const rate = Number(inv.rate) || 1;
+  return r2(openAmount(inv) / rate);
+};
+/** 外币单据的展示补充字段 */
+const withCurrency = (inv) => ({
+  ...inv,
+  currency: inv.currency || 'CNY',
+  amount_orig: r2(inv.amount_orig || inv.amount),
+  rate: Number(inv.rate) || 1,
+  open_amount: openAmount(inv),
+  open_amount_orig: openOrig(inv)
+});
+
+/** 按已核销金额重算状态（作废的不动） */
+function syncStatus(kind, invoiceId) {
+  const { table } = INVOICE[kind];
+  const inv = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(invoiceId);
+  if (!inv || inv.status === 'void') return;
+  const paid = r2(db.prepare(
+    `SELECT COALESCE(SUM(a.amount),0) AS s FROM payment_allocations a
+     JOIN payments p ON p.id = a.payment_id AND p.status = 'valid'
+     WHERE a.invoice_kind = ? AND a.invoice_id = ?`
+  ).get(kind, invoiceId).s);
+  let status = 'unpaid';
+  if (paid >= r2(inv.amount) - 0.005) status = 'paid';
+  else if (paid > 0) status = 'partial';
+  db.prepare(`UPDATE ${table} SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`)
+    .run(paid, status, now(), invoiceId);
+}
+
+/** 账龄天数（按到期日算，未设到期日按开票日+30 天） */
+function agingDays(inv) {
+  const base = inv.due_date || inv.created_at;
+  if (!base) return 0;
+  const d = new Date(String(base).slice(0, 10));
+  if (isNaN(d.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+}
+
+/* ---------------- 自动开票（供订单/采购调用） ---------------- */
+
+/**
+ * 订单发货时开应收；已开过就返回原单，不重复开。
+ *
+ * 外币口径：外贸订单以美金签单，开票按**美金原币金额**开，
+ * 汇率取订单上的 rate（下单时的结算汇率），本币金额 = 美金 × 汇率 用于记账与账龄。
+ * 订单没有美金金额时（纯内销）退化成人民币开票。
+ */
+function openARForOrder(orderId, userId) {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  if (!order) return null;
+  const exist = db.prepare("SELECT * FROM ar_invoices WHERE order_id = ? AND status != 'void'").get(orderId);
+  if (exist) return exist;
+
+  const usd = r2(order.total_usd);
+  const rate = Number(order.rate) || Number(getSettings().exchangeRate) || 1;
+  let currency = 'CNY';
+  let amountOrig = 0;
+  let amount = 0;
+  if (usd > 0) {
+    currency = 'USD';
+    amountOrig = usd;
+    amount = r2(usd * rate);
+  } else {
+    amountOrig = r2(order.total_amount);
+    amount = amountOrig;
+  }
+  if (amount <= 0) return null;
+
+  const cust = order.customer_id
+    ? db.prepare('SELECT name FROM customers WHERE id = ?').get(order.customer_id)
+    : null;
+  const t = now();
+  const info = db.prepare(
+    `INSERT INTO ar_invoices (bill_no, order_id, customer_id, customer_name, currency, amount_orig, rate, amount, paid_amount, due_date, status, source, remark, created_by, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?)`
+  ).run(
+    nextNo(INVOICE.ar.prefix, INVOICE.ar.table),
+    orderId, order.customer_id || null, cust ? cust.name : null,
+    currency, amountOrig, rate, amount,
+    order.delivery_date || null, 'unpaid', 'order',
+    currency === 'USD'
+      ? `订单 ${order.order_no} 发货自动开票（USD ${amountOrig} × ${rate}）`
+      : `订单 ${order.order_no} 发货自动开票`,
+    userId || 'system', t, t
+  );
+  return db.prepare('SELECT * FROM ar_invoices WHERE id = ?').get(Number(info.lastInsertRowid));
+}
+
+/** 采购收货时开应付 */
+function openAPForPurchase(purchaseId, userId) {
+  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(purchaseId);
+  if (!po) return null;
+  const exist = db.prepare("SELECT * FROM ap_invoices WHERE purchase_id = ? AND status != 'void'").get(purchaseId);
+  if (exist) return exist;
+  const amount = r2(po.total_amount);
+  if (amount <= 0) return null;
+  const t = now();
+  const info = db.prepare(
+    `INSERT INTO ap_invoices (bill_no, purchase_id, supplier_id, supplier_name, currency, amount_orig, rate, amount, paid_amount, due_date, status, source, remark, created_by, created_at, updated_at)
+     VALUES (?,?,?,?, 'CNY', ?,1,?,0, ?,?,?,?,?,?,?)`
+  ).run(
+    nextNo(INVOICE.ap.prefix, INVOICE.ap.table),
+    purchaseId, null, po.supplier || null,
+    amount, amount, po.expect_date || null, 'unpaid', 'purchase',
+    `采购单 ${po.po_no} 自动开票`, userId || 'system', t, t
+  );
+  return db.prepare('SELECT * FROM ap_invoices WHERE id = ?').get(Number(info.lastInsertRowid));
+}
+
+/* ---------------- 总览 ---------------- */
+
+router.get('/summary', authRequired, wrap(async (req, res) => {
+  const sum = (sql, ...args) => r2(db.prepare(sql).get(...args).s);
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  const ms = monthStart.toISOString().slice(0, 10);
+
+  const arTotal = sum("SELECT COALESCE(SUM(amount - paid_amount),0) AS s FROM ar_invoices WHERE status IN ('unpaid','partial')");
+  const apTotal = sum("SELECT COALESCE(SUM(amount - paid_amount),0) AS s FROM ap_invoices WHERE status IN ('unpaid','partial')");
+  const overdueAr = sum(
+    "SELECT COALESCE(SUM(amount - paid_amount),0) AS s FROM ar_invoices WHERE status IN ('unpaid','partial') AND due_date IS NOT NULL AND due_date < ?",
+    today()
+  );
+  const paidIn = sum("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='in' AND status='valid' AND pay_date >= ?", ms);
+  const paidOut = sum("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='out' AND status='valid' AND pay_date >= ?", ms);
+
+  // 美金口径：外贸客户欠的是美金，本币数字受汇率波动影响，业务更需要看原币
+  const usdOpen = sum(
+    "SELECT COALESCE(SUM((amount - paid_amount) / CASE WHEN rate > 0 THEN rate ELSE 1 END),0) AS s FROM ar_invoices WHERE status IN ('unpaid','partial') AND currency = 'USD'"
+  );
+  const usdTotal = sum("SELECT COALESCE(SUM(amount_orig),0) AS s FROM ar_invoices WHERE status != 'void' AND currency = 'USD'");
+  const usdPaid = sum(
+    "SELECT COALESCE(SUM(paid_amount / CASE WHEN rate > 0 THEN rate ELSE 1 END),0) AS s FROM ar_invoices WHERE status != 'void' AND currency = 'USD'"
+  );
+
+  return ok(res, {
+    ar_open: arTotal,
+    ap_open: apTotal,
+    ar_overdue: overdueAr,
+    month_in: paidIn,
+    month_out: paidOut,
+    // 美金口径
+    ar_open_usd: usdOpen,
+    ar_total_usd: usdTotal,
+    ar_paid_usd: usdPaid,
+    ar_count: db.prepare("SELECT COUNT(*) AS c FROM ar_invoices WHERE status IN ('unpaid','partial')").get().c,
+    ap_count: db.prepare("SELECT COUNT(*) AS c FROM ap_invoices WHERE status IN ('unpaid','partial')").get().c
+  });
+}));
+
+/* ---------------- 账龄 ---------------- */
+
+router.get('/aging', authRequired, wrap(async (req, res) => {
+  const kind = req.query.kind === 'ap' ? 'ap' : 'ar';
+  const { table } = INVOICE[kind];
+  const rows = db.prepare(`SELECT * FROM ${table} WHERE status IN ('unpaid','partial') ORDER BY due_date`).all();
+  const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
+  rows.forEach((inv) => {
+    const open = openAmount(inv);
+    if (open <= 0) return;
+    const days = agingDays(inv);
+    const overdue = inv.due_date && String(inv.due_date).slice(0, 10) < today();
+    if (!overdue) buckets.current += open;
+    else if (days <= 30) buckets.d30 += open;
+    else if (days <= 60) buckets.d60 += open;
+    else if (days <= 90) buckets.d90 += open;
+    else buckets.over90 += open;
+  });
+  Object.keys(buckets).forEach((k) => (buckets[k] = r2(buckets[k])));
+  return ok(res, { kind, buckets, count: rows.length });
+}));
+
+/* ---------------- 应收 / 应付 列表与维护 ---------------- */
+
+function listInvoices(kind) {
+  return wrap(async (req, res) => {
+    const { table } = INVOICE[kind];
+    const { status, q, partner_id } = req.query;
+    const where = [];
+    const args = [];
+    if (status) { where.push('status = ?'); args.push(status); }
+    if (partner_id) { where.push(`${kind === 'ar' ? 'customer_id' : 'supplier_id'} = ?`); args.push(partner_id); }
+    if (q) {
+      where.push(`(bill_no LIKE ? OR ${kind === 'ar' ? 'customer_name' : 'supplier_name'} LIKE ? OR remark LIKE ?)`);
+      args.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    }
+    // 默认不显示已作废，除非显式筛 status=void
+    if (status !== 'void') where.push("status != 'void'");
+    const sql = `SELECT * FROM ${table} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY (status='paid'), due_date IS NULL, due_date, id DESC LIMIT 500`;
+    const rows = db.prepare(sql).all(...args).map((r) => ({
+      ...withCurrency(r),
+      aging_days: agingDays(r),
+      overdue: !!(r.due_date && String(r.due_date).slice(0, 10) < today() && openAmount(r) > 0)
+    }));
+    return ok(res, rows);
+  });
+}
+
+router.get('/ar', authRequired, listInvoices('ar'));
+router.get('/ap', authRequired, listInvoices('ap'));
+
+function createInvoice(kind) {
+  return wrap(async (req, res) => {
+    const { table, prefix } = INVOICE[kind];
+    const b = req.body || {};
+
+    // 币种：外币传 { currency:'USD', amount_orig, rate }；本币传 { amount }
+    const currency = String(b.currency || 'CNY').toUpperCase();
+    const rate = currency === 'CNY'
+      ? 1
+      : (Number(b.rate) || Number(getSettings().exchangeRate) || 1);
+    let amountOrig = currency === 'CNY' ? r2(b.amount || b.amount_orig) : r2(b.amount_orig);
+    let amount = currency === 'CNY' ? amountOrig : r2(amountOrig * rate);
+    if (currency !== 'CNY' && !(amountOrig > 0)) return fail(res, 400, '外币单据请填写原币金额');
+    if (!(amount > 0)) return fail(res, 400, '金额必须大于 0');
+
+    const partnerName = b.partner_name || b.customer_name || b.supplier_name || null;
+    if (!partnerName) return fail(res, 400, kind === 'ar' ? '请填写客户' : '请填写供应商');
+
+    const t = now();
+    const info = db.prepare(
+      `INSERT INTO ${table} (bill_no, ${kind === 'ar' ? 'order_id, customer_id, customer_name' : 'purchase_id, supplier_id, supplier_name'},
+        currency, amount_orig, rate, amount, paid_amount, due_date, status, source, remark, created_by, created_at, updated_at)
+       VALUES (?,?,?,?, ?,?,?,?,0, ?,?,?,?,?,?,?)`
+    ).run(
+      nextNo(prefix, table),
+      b.order_id || null, b.partner_id || null, partnerName,
+      currency, amountOrig, rate, amount,
+      b.due_date || null, 'unpaid', b.source || 'manual', b.remark || null,
+      req.user.username, t, t
+    );
+    return ok(res, withCurrency(db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(Number(info.lastInsertRowid))));
+  });
+}
+
+router.post('/ar', authRequired, requireRole(WRITE), createInvoice('ar'));
+router.post('/ap', authRequired, requireRole(WRITE), createInvoice('ap'));
+
+function voidInvoice(kind) {
+  return wrap(async (req, res) => {
+    const { table } = INVOICE[kind];
+    const inv = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
+    if (!inv) return fail(res, 404, '单据不存在');
+    if (inv.status === 'void') return fail(res, 400, '已经作废过');
+    if (r2(inv.paid_amount) > 0) return fail(res, 400, '已有核销记录，请先红冲对应收付款再作废');
+    const reason = (req.body && req.body.reason) || '';
+    if (!reason.trim()) return fail(res, 400, '请填写作废原因');
+    db.prepare(`UPDATE ${table} SET status='void', void_reason=?, updated_at=? WHERE id=?`)
+      .run(reason.trim(), now(), req.params.id);
+    return ok(res, { id: Number(req.params.id), status: 'void' });
+  });
+}
+
+router.post('/ar/:id/void', authRequired, requireRole(WRITE), voidInvoice('ar'));
+router.post('/ap/:id/void', authRequired, requireRole(WRITE), voidInvoice('ap'));
+
+/* ---------------- 收付款 + 核销 ---------------- */
+
+router.get('/payments', authRequired, wrap(async (req, res) => {
+  const { direction, partner_id } = req.query;
+  const where = [];
+  const args = [];
+  if (direction) { where.push('direction = ?'); args.push(direction); }
+  if (partner_id) { where.push('partner_id = ?'); args.push(partner_id); }
+  const rows = db.prepare(
+    `SELECT * FROM payments ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY pay_date DESC, id DESC LIMIT 300`
+  ).all(...args);
+  const detail = rows.map((p) => {
+    const allocs = db.prepare(
+      `SELECT a.*, CASE WHEN a.invoice_kind='ar' THEN (SELECT bill_no FROM ar_invoices WHERE id=a.invoice_id)
+                         ELSE (SELECT bill_no FROM ap_invoices WHERE id=a.invoice_id) END AS bill_no
+       FROM payment_allocations a WHERE a.payment_id = ?`
+    ).all(p.id);
+    return { ...p, allocations: allocs };
+  });
+  return ok(res, detail);
+}));
+
+/**
+ * 登记收付款并核销
+ * body: { direction, partner_id, partner_name, amount, method, pay_date, remark,
+ *         allocations: [{ invoice_id, amount }] }
+ */
+router.post('/payments', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  const b = req.body || {};
+  const direction = b.direction === 'out' ? 'out' : 'in';
+  const kind = direction === 'in' ? 'ar' : 'ap';
+  const { table } = INVOICE[kind];
+
+  // 币种：客户汇美金就填美金原币 + 汇率，本币金额自动换算；核销一律用本币
+  const currency = String(b.currency || 'CNY').toUpperCase();
+  const rate = currency === 'CNY'
+    ? 1
+    : (Number(b.rate) || Number(getSettings().exchangeRate) || 1);
+  const amountOrig = currency === 'CNY' ? r2(b.amount || b.amount_orig) : r2(b.amount_orig);
+  const amount = currency === 'CNY' ? amountOrig : r2(amountOrig * rate);
+  if (currency !== 'CNY' && !(amountOrig > 0)) return fail(res, 400, '外币收付款请填写原币金额与汇率');
+  if (!(amount > 0)) return fail(res, 400, '金额必须大于 0');
+  const partnerType = direction === 'in' ? 'customer' : 'supplier';
+  const partnerName = b.partner_name || null;
+  if (!partnerName) return fail(res, 400, direction === 'in' ? '请填写客户' : '请填写供应商');
+
+  const allocs = Array.isArray(b.allocations) ? b.allocations.filter((a) => a && a.invoice_id && r2(a.amount) > 0) : [];
+  const allocTotal = r2(allocs.reduce((s, a) => s + r2(a.amount), 0));
+  if (allocTotal > amount + 0.005) {
+    return fail(res, 400, `核销合计 ${allocTotal} 超过收款金额 ${amount}，请检查`);
+  }
+
+  const t = now();
+  const payDate = b.pay_date || today();
+  db.exec('BEGIN');
+  try {
+    for (const a of allocs) {
+      const inv = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(a.invoice_id);
+      if (!inv) throw new Error(`账款 #${a.invoice_id} 不存在`);
+      if (inv.status === 'void') throw new Error(`${inv.bill_no} 已作废，不能核销`);
+      const open = openAmount(inv);
+      if (r2(a.amount) > open + 0.005) {
+        throw new Error(`${inv.bill_no} 未${direction === 'in' ? '收' : '付'}只有 ${open}，不能核销 ${r2(a.amount)}`);
+      }
+    }
+
+    const info = db.prepare(
+      `INSERT INTO payments (pay_no, direction, partner_type, partner_id, partner_name, currency, amount_orig, rate, amount, method, pay_date, status, remark, operator, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(
+      nextPayNo(direction), direction, partnerType, b.partner_id || null, partnerName,
+      currency, amountOrig, rate, amount, b.method || '银行转账', payDate, 'valid', b.remark || null, req.user.username, t
+    );
+    const payId = Number(info.lastInsertRowid);
+
+    for (const a of allocs) {
+      db.prepare('INSERT INTO payment_allocations (payment_id, invoice_kind, invoice_id, amount, created_at) VALUES (?,?,?,?,?)')
+        .run(payId, kind, a.invoice_id, r2(a.amount), t);
+      syncStatus(kind, a.invoice_id);
+    }
+    db.exec('COMMIT');
+
+    return ok(res, {
+      id: payId,
+      pay_no: db.prepare('SELECT pay_no FROM payments WHERE id = ?').get(payId).pay_no,
+      currency, amount_orig: amountOrig, rate, amount,
+      allocated: allocTotal,
+      unallocated: r2(amount - allocTotal)
+    });
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return fail(res, 400, e.message);
+  }
+}));
+
+/** 红冲：款项作废，核销金额退回各账款 */
+router.post('/payments/:id/reverse', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  const pay = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
+  if (!pay) return fail(res, 404, '收付款记录不存在');
+  if (pay.status === 'reversed') return fail(res, 400, '已经红冲过');
+  const reason = ((req.body && req.body.reason) || '').trim();
+  if (!reason) return fail(res, 400, '请填写红冲原因');
+
+  const kind = pay.direction === 'in' ? 'ar' : 'ap';
+  const allocs = db.prepare('SELECT * FROM payment_allocations WHERE payment_id = ?').all(pay.id);
+
+  db.exec('BEGIN');
+  try {
+    db.prepare("UPDATE payments SET status='reversed', reversed_at=?, reverse_reason=? WHERE id=?")
+      .run(now(), reason, pay.id);
+    // 明细保留（可追溯），状态重算时只统计 valid 的款项
+    allocs.forEach((a) => syncStatus(kind, a.invoice_id));
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return fail(res, 400, e.message);
+  }
+  return ok(res, { id: pay.id, status: 'reversed', released: allocs.reduce((s, a) => s + r2(a.amount), 0) });
+}));
+
+/** 某客户/供应商还有哪些未结账款（登记收款时给前端选） */
+router.get('/open-invoices', authRequired, wrap(async (req, res) => {
+  const kind = req.query.kind === 'ap' ? 'ap' : 'ar';
+  const { table } = INVOICE[kind];
+  const partnerId = req.query.partner_id;
+  const where = ["status IN ('unpaid','partial')"];
+  const args = [];
+  if (partnerId) {
+    where.push(`${kind === 'ar' ? 'customer_id' : 'supplier_id'} = ?`);
+    args.push(partnerId);
+  }
+  const rows = db.prepare(`SELECT * FROM ${table} WHERE ${where.join(' AND ')} ORDER BY due_date IS NULL, due_date, id`).all(...args)
+    .map((r) => ({ ...withCurrency(r), aging_days: agingDays(r) }));
+  return ok(res, rows);
+}));
+
+module.exports = router;
+module.exports.openARForOrder = openARForOrder;
+module.exports.openAPForPurchase = openAPForPurchase;

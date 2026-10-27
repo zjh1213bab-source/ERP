@@ -1,0 +1,372 @@
+/**
+ * 权限矩阵 —— 单一来源
+ *
+ * 为什么放在后端：前端 `store/permissions.js` 只决定「按钮显不显示」，
+ * 真正的门在后端 requireRole。两边各维护一份，迟早对不上（发生过：
+ * 前端给了按钮、后端 403）。所以权限点表以本文件为准，前端通过
+ * GET /api/access/permissions 拉取后覆盖本地兜底表。
+ *
+ * 三条约定：
+ *   1. admin 恒通过（requireRole 内直接放行），不在表里出现
+ *   2. 未定义的权限点一律拒绝（can() 返回 false）
+ *   3. 岗位变化只改这里 + 对应路由的 requireRole 常量，不要两边各改一半
+ *
+ * 角色口径（2026-10-28 按真实岗位复核后）：
+ *   admin      系统管理员（IT，兼最高权限）
+ *   boss       总经理 / 老板：全业务只读 + 关键审批，不碰具体业务录入
+ *   sales      销售 / 跟单：接单、报价、客户、开发单发起
+ *   tech       技术 / 打版：开发单、工艺、面辅料、技术确认
+ *   production 生产 / 车间：工序、报工、首件、设备、排程、裁片外发
+ *   warehouse  仓库 / 采购：库存、收发、盘点、备料、美仓、采购与供方
+ *   finance    财务：成本审核、往来、总账、税票、预算、合并、定价池
+ *   hr         人事行政：员工档案、考勤、请假审批、薪酬、绩效、用印、后勤
+ */
+
+const ROLES = ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'];
+
+const ROLE_LABELS = {
+  admin: '系统管理员',
+  boss: '总经理',
+  sales: '销售跟单',
+  tech: '技术打版',
+  production: '生产车间',
+  warehouse: '仓库采购',
+  finance: '财务会计',
+  hr: '人事行政'
+};
+
+/** 每个角色「本岗位该有」的权限点。boss 单独处理（只读，无写权限点） */
+const PERMS = {
+  // ===== 订单 =====
+  'order.create': ['sales'],
+  'order.export': ['sales', 'finance'],
+  'order.dispatch': ['sales', 'production'],
+  'order.instock': ['warehouse', 'production'],
+  'order.ship': ['warehouse'],
+
+  // ===== 质量与合规 =====
+  // 复核收回 sales：销售不能自己判定「质量合格」，否则客诉前无法发现
+  'qc.write': ['production', 'tech'],
+  'production.write': ['production', 'tech'],        // 返工报废与生产结单
+  'equipment.write': ['production', 'warehouse'],    // 设备停机与产能
+
+  // ===== 客户订单与资料确认（样衣/变更/交期）=====
+  'confirm.write': ['sales', 'tech', 'production'],
+
+  // ===== 零售与渠道 =====
+  'channel.write': ['sales', 'finance'],
+
+  // ===== 客户商城 =====
+  'mall.write': ['sales'],
+
+  // ===== 报价单 =====
+  'quote.write': ['sales'],
+  'quote.convert': ['sales'],
+
+  // ===== 开发单 =====
+  'development.write': ['tech', 'sales'],
+  'development.review': ['tech'],
+
+  // ===== 财务 =====
+  'cost.write': ['finance', 'sales'],
+  'cost.review': ['finance'],
+
+  // ===== 工艺 / 面辅料 / 工序 / 报工 =====
+  // 复核收回 sales：工艺与报工是现场事实，销售改了就没人能核对
+  'craft.write': ['tech'],
+  'material.write': ['tech', 'finance'],
+  'node.write': ['production'],
+  'report.write': ['production'],
+
+  // ===== 首件确认与工位工艺 =====
+  // 复核收回 sales：首件是质量放行依据
+  'fa.write': ['production', 'tech'],
+  'fa.release': ['production', 'tech'],
+  'fa.workstation': ['tech', 'production'],
+
+  // ===== 内部邮件（所有在岗员工都能收发，不设审批）=====
+  'mail.write': ['sales', 'tech', 'finance', 'production', 'warehouse', 'hr'],
+
+  // ===== 主数据 =====
+  'customer.write': ['sales'],
+  'product.write': ['sales', 'tech'],
+  'factory.write': ['production', 'sales'],
+
+  // ===== 仓储 =====
+  // 复核收回 sales：库存与采购是仓库/采购职责，销售只能查
+  'stock.write': ['warehouse', 'production'],
+  'purchase.write': ['warehouse'],
+  'supplier.write': ['warehouse'],
+  'receipt.write': ['warehouse', 'production'],
+
+  // ===== 人事 / 行政 =====
+  'employee.write': ['hr'],
+  'hr.write': ['hr'],
+  'facility.write': ['hr', 'warehouse'],
+  'integration.write': ['hr'],
+  // 自助提交（本人请假），所有在岗员工都有；审批另设 leave.review
+  'leave.write': ['sales', 'tech', 'finance', 'production', 'warehouse', 'hr'],
+  'leave.review': ['hr', 'production', 'sales'],     // 人事 + 部门负责人
+  'payroll.write': ['hr', 'finance'],
+  'kpi.write': ['hr'],
+  'kpi.review': ['hr', 'sales', 'production'],
+  'admincontract.write': ['hr'],
+  'asset.write': ['hr', 'finance'],
+  'expense.write': ['hr', 'finance'],
+
+  // ===== 数据质量与业务勾稽 =====
+  'dq.write': ['finance'],
+
+  // ===== 海外仓作业 =====
+  'wh.write': ['warehouse', 'sales'],
+
+  // ===== 总账与财务报表 =====
+  'gl.write': ['finance'],
+
+  // ===== 现货库龄与退货 =====
+  'spot.write': ['warehouse', 'sales'],
+
+  // ===== AI 能力中心 =====
+  'ai.write': ['sales', 'tech', 'finance', 'production', 'warehouse', 'hr'],
+
+  // ===== 预算管理 =====
+  'budget.write': ['finance', 'sales'],
+
+  // ===== 税票银行 =====
+  'bank.write': ['finance'],
+
+  // ===== 多主体与合并 =====
+  'group.write': ['finance'],
+
+  // ===== 经营驾驶舱 =====
+  'cockpit.write': ['finance'],
+
+  // ===== 营销与素材 =====
+  'mkt.write': ['sales', 'tech'],
+  'mkt.review': ['finance'],
+
+  // ===== 组织编制与岗位 =====
+  'org.write': ['hr'],
+  'org.approve': ['finance'],
+
+  // ===== 税负测算 =====
+  'tax.write': ['finance'],
+
+  // ===== 销售与客户 =====
+  'crm.write': ['sales'],
+  'crm.approve': ['finance'],
+
+  // ===== 供给批次与预订 =====
+  'supply.write': ['sales', 'warehouse'],
+  'supply.confirm': ['sales'],
+
+  // ===== 打版流程 =====
+  'pattern.material': ['tech'],
+  'pattern.pattern': ['tech'],
+  'pattern.craft': ['tech'],
+  'pattern.sample': ['tech', 'production'],
+  'pattern.biz': ['sales'],
+  'pattern.audit': ['finance', 'production'],
+  'pattern.review': ['tech'],
+
+  // ===== 管理 =====
+  'settings.write': ['admin'],
+  'user.manage': ['admin'],
+  'audit.read': ['admin'],
+  'approvalflow.manage': ['admin'],
+  'process.write': ['hr'],
+  'process.review': ['hr', 'finance', 'production'],
+
+  // ===== 客户营销与消息 =====
+  'notify.write': ['sales'],
+  'notify.approve': ['finance'],
+
+  // ===== 美仓作业 =====
+  'whplan.write': ['warehouse', 'sales'],
+  'whplan.ship': ['warehouse'],
+
+  // ===== 有限产能排程 =====
+  'schedule.write': ['production'],
+  'schedule.publish': ['production'],
+
+  // ===== 现货经营 =====
+  'spotops.write': ['sales', 'warehouse'],
+  'spotops.policy': ['sales'],
+
+  // ===== 分公司经营对比 =====
+  'segment.write': ['finance'],
+
+  // ===== 备料领退 =====
+  'matflow.write': ['warehouse', 'production'],
+  'matflow.adjust': ['warehouse'],
+
+  // ===== 价格快照与费用池 =====
+  'pricing.pool': ['finance'],
+  'pricing.book': ['finance', 'sales'],
+
+  // ===== 长期投资 =====
+  'investment.write': ['finance'],
+
+  // ===== 裁片外发 =====
+  'cutdispatch.write': ['production', 'warehouse'],
+
+  // ===== 研发立项 =====
+  'devmaster.write': ['tech'],
+  'devmaster.milestone': ['tech', 'sales'],
+
+  // ===== 供方协同与技术复审 =====
+  'supreview.write': ['tech'],
+
+  // ===== 真实数据导入 =====
+  'importops.commit': ['finance']
+};
+
+/**
+ * 高危权限点 → 后端路由映射
+ *
+ * 只登记「改钱、改库存、改人事、改权限」的动作。作用是让「用户级收回」
+ * 在后端也真的生效（否则前端藏了按钮，直接调接口还能过）。
+ *
+ * 没登记的权限点，用户级收回只在前端生效 —— 这是有意的：
+ * 全量映射一旦配错会误拦线上业务，风险比收益大。
+ *
+ * 字段：method（* 表全部）、prefix（命中即算）、perm
+ */
+const GUARDED = [
+  { perm: 'payroll.write', method: '*', prefix: '/api/payrolls' },
+  { perm: 'employee.write', method: '*', prefix: '/api/employees' },
+  { perm: 'hr.write', method: '*', prefix: '/api/hr' },
+  { perm: 'admincontract.write', method: '*', prefix: '/api/admin-contracts' },
+  { perm: 'asset.write', method: '*', prefix: '/api/assets' },
+  { perm: 'expense.write', method: '*', prefix: '/api/admin-expenses' },
+  { perm: 'facility.write', method: '*', prefix: '/api/facility' },
+  { perm: 'integration.write', method: '*', prefix: '/api/integration' },
+  { perm: 'org.write', method: '*', prefix: '/api/org' },
+  { perm: 'cost.review', method: '*', prefix: '/api/costs' },
+  { perm: 'gl.write', method: '*', prefix: '/api/gl' },
+  { perm: 'bank.write', method: '*', prefix: '/api/bank' },
+  { perm: 'budget.write', method: '*', prefix: '/api/budget' },
+  { perm: 'group.write', method: '*', prefix: '/api/group' },
+  { perm: 'tax.write', method: '*', prefix: '/api/tax' },
+  { perm: 'investment.write', method: '*', prefix: '/api/investment' },
+  { perm: 'cockpit.write', method: '*', prefix: '/api/cockpit' },
+  { perm: 'segment.write', method: '*', prefix: '/api/segments' },
+  { perm: 'pricing.pool', method: '*', prefix: '/api/pricing' },
+  { perm: 'matflow.adjust', method: '*', prefix: '/api/matflow' },
+  { perm: 'stock.write', method: '*', prefix: '/api/stock' },
+  { perm: 'importops.commit', method: '*', prefix: '/api/importops' },
+  { perm: 'dq.write', method: '*', prefix: '/api/dq' },
+  { perm: 'user.manage', method: '*', prefix: '/api/users' },
+  { perm: 'settings.write', method: '*', prefix: '/api/settings' },
+  { perm: 'approvalflow.manage', method: '*', prefix: '/api/approval-flows' },
+  { perm: 'audit.read', method: 'GET', prefix: '/api/audit' },
+  { perm: 'schedule.publish', method: 'POST', prefix: '/api/schedule/publish' },
+  // 对外数据外泄与主数据篡改，同样算高危
+  { perm: 'order.export', method: 'GET', prefix: '/api/orders/export' },
+  { perm: 'customer.write', method: '*', prefix: '/api/customers' },
+  { perm: 'supplier.write', method: '*', prefix: '/api/supplier-evals' },
+  { perm: 'qc.write', method: '*', prefix: '/api/qc' }
+];
+
+/** 写方法（用于判断请求是否属于「写」） */
+const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
+
+/**
+ * 职责分离规则（SoD）
+ *
+ * 判据：同一个账号同时持有左右两个权限点 → 冲突。
+ * 级别都是 warn：小企业常常一个人干两份，直接 block 会让系统不可用。
+ * 正确做法是「识别 + 留痕 + 补偿性控制」（如由总经理每月抽查操作日志），
+ * 报告里对每条冲突给出补偿建议。
+ */
+const SOD_RULES = [
+  {
+    code: 'SOD-01', level: 'warn',
+    name: '下单与成本审核同一人',
+    perm_a: 'order.create', perm_b: 'cost.review',
+    note: '自己接单自己核成本，可能压低成本价冲业绩',
+    compensate: '由财务主管每月抽查成本单与毛利异常订单'
+  },
+  {
+    code: 'SOD-02', level: 'warn',
+    name: '采购申请与收货点收同一人',
+    perm_a: 'purchase.write', perm_b: 'receipt.write',
+    note: '采购下单自己收，无法核实到货数量与质量',
+    compensate: '由生产或财务对到货数量做二次抽盘'
+  },
+  {
+    code: 'SOD-03', level: 'warn',
+    name: '收货点收与质量判定同一人',
+    perm_a: 'receipt.write', perm_b: 'qc.write',
+    note: '自己点收自己判合格，来料不良会流入产线',
+    compensate: '首件确认与巡检由技术或生产独立执行'
+  },
+  {
+    code: 'SOD-04', level: 'warn',
+    name: '发料与盘点落账同一人',
+    perm_a: 'matflow.write', perm_b: 'matflow.adjust',
+    note: '自己发料自己调账，可以把缺料做成「账上有」',
+    compensate: '盘点表由第二人复核签字后再落账'
+  },
+  {
+    code: 'SOD-05', level: 'warn',
+    name: '定价发布与成本录入同一人',
+    perm_a: 'pricing.book', perm_b: 'cost.write',
+    note: '自己填成本自己发布价格，可人为做高/做低毛利',
+    compensate: '价格发布走审批，成本单保留版本与修改人'
+  },
+  {
+    code: 'SOD-06', level: 'warn',
+    name: '银行结算与总账记账同一人',
+    perm_a: 'bank.write', perm_b: 'gl.write',
+    note: '既做付款又记账，可掩盖资金差异',
+    compensate: '银行流水每月与总账做一次双向核对'
+  },
+  {
+    code: 'SOD-07', level: 'warn',
+    name: '排程生成与排程发布同一人',
+    perm_a: 'schedule.write', perm_b: 'schedule.publish',
+    note: '可绕过硬冲突确认直接把排程下发车间',
+    compensate: '发布记录留痕，车间按发布版执行，改版必须重新发布'
+  },
+  {
+    code: 'SOD-08', level: 'warn',
+    name: '权限授予与日志审计同一人',
+    perm_a: 'user.manage', perm_b: 'audit.read',
+    note: '既能改权限又能改日志，事后无法追溯（admin 天然如此，需补偿）',
+    compensate: '操作日志另存一份到外部存储，由总经理定期查阅'
+  },
+  {
+    code: 'SOD-09', level: 'warn',
+    name: '供方选择与供方评价同一人',
+    perm_a: 'purchase.write', perm_b: 'supplier.write',
+    note: '自己选供方自己打高分，评价失去约束力',
+    compensate: '供方评价样本由系统按批次自动汇总，人工只做整改跟踪'
+  },
+  {
+    code: 'SOD-10', level: 'warn',
+    name: '薪酬核算与总账记账同一人',
+    perm_a: 'payroll.write', perm_b: 'gl.write',
+    note: '自己算工资自己入账，人工成本可被调整',
+    compensate: '薪酬发放前由总经理确认总额，银行代发流水留档'
+  }
+];
+
+/** 某个角色默认拥有的权限点 */
+function permsOfRole(role) {
+  if (role === 'boss') {
+    // 总经理：全业务只读（写权限点一个都不给），关键审批走审批流而非按钮
+    return [];
+  }
+  return Object.keys(PERMS).filter((p) => PERMS[p].includes(role));
+}
+
+/** 全部权限点名 */
+function allPerms() {
+  return Object.keys(PERMS);
+}
+
+module.exports = {
+  ROLES, ROLE_LABELS, PERMS, GUARDED, SOD_RULES, WRITE_METHODS,
+  permsOfRole, allPerms
+};

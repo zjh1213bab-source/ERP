@@ -12,7 +12,7 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-const WRITE = ['admin', 'tech', 'sales', 'finance'];
+const WRITE = ['admin', 'tech', 'finance'];
 
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 

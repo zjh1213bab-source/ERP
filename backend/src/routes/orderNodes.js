@@ -12,7 +12,7 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const { ensureNodes } = require('../services/production');
 
 const router = express.Router();
-const WRITE = ['admin', 'production', 'sales'];
+const WRITE = ['admin', 'production'];
 const STATUS = ['pending', 'doing', 'done'];
 
 router.get('/', authRequired, wrap(async (req, res) => {
