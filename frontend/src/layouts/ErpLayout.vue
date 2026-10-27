@@ -204,6 +204,7 @@ const navModel = [
       { label: '外部接口', to: '/integration' },
       { label: '权限复核', to: '/access-review', roles: ['admin', 'hr'] },
       { label: '备份与恢复', to: '/backup', adminOnly: true },
+      { label: '移动工作台', to: '/m' },
       { label: '用户与角色', to: '/users', adminOnly: true },
       { label: '操作日志', to: '/audit', adminOnly: true }
     ]

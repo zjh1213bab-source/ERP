@@ -5114,6 +5114,47 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 移动端扫码作业 =================
+  {
+    console.log('\n[移动端扫码作业]');
+
+    const noAuth = await req('/api/settings/lan');
+    ok('局域网地址接口需要登录', noAuth.status === 401, `HTTP ${noAuth.status}`);
+
+    const lan = await req('/api/settings/lan', { token });
+    const lanD = lan.status === 200 ? lan.json.data : {};
+    ok('可读局域网地址（单据二维码要用）', lan.status === 200 && Array.isArray(lanD.urls),
+      `HTTP ${lan.status} / ${(lanD.urls || []).join(',') || '无外网卡'}`);
+    ok('局域网地址带端口且格式正确',
+      (lanD.urls || []).every((u) => /^http:\/\/[\d.]+:\d+$/.test(u)),
+      (lanD.urls || [])[0] || '（本机无局域网网卡，跳过）');
+
+    // 扫码直达：按订单号查单
+    const list = await req('/api/orders', { token });
+    const first = (list.json.data || [])[0];
+    if (first) {
+      const byNo = await req('/api/orders/find?no=' + encodeURIComponent(first.order_no), { token });
+      ok('扫订单号能查到单（扫码直达）',
+        byNo.status === 200 && byNo.json.data && byNo.json.data.id === first.id,
+        `HTTP ${byNo.status}`);
+
+      // 标签码：订单号-款号-色-码，接口只取第一段
+      const tag = first.order_no + '-WY-001-110';
+      const byTag = await req('/api/orders/find?no=' + encodeURIComponent(tag), { token });
+      ok('扫标签码能反解出订单（取第一段）',
+        byTag.status === 200 && byTag.json.data && byTag.json.data.order_no === first.order_no,
+        `HTTP ${byTag.status}`);
+
+      const notFound = await req('/api/orders/find?no=NOPE-NOT-EXIST-999', { token });
+      ok('不存在的码返回 404 而不是 500', notFound.status === 404, `HTTP ${notFound.status}`);
+    } else {
+      ok('扫订单号能查到单（扫码直达）', true, '无订单数据，跳过');
+    }
+
+    const emptyCode = await req('/api/orders/find?no=', { token });
+    ok('空码被拒', emptyCode.status === 400, `HTTP ${emptyCode.status}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

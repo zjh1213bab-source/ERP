@@ -82,6 +82,9 @@ import Settings from './views/Settings.vue';
 import Users from './views/Users.vue';
 import Print from './views/Print.vue';
 import PrintBatch from './views/PrintBatch.vue';
+import ScanGo from './views/ScanGo.vue';
+import MobileHome from './views/MobileHome.vue';
+import MobileReport from './views/MobileReport.vue';
 import QuotePrint from './views/QuotePrint.vue';
 import MallAdmin from './views/MallAdmin.vue';
 import Quality from './views/Quality.vue';
@@ -195,6 +198,11 @@ const routes = [
     ]
   },
   { path: '/print/batch', component: PrintBatch, meta: { title: '批量打印' } },
+  // 扫码直达：手机扫工单二维码 → 打开这个页面（独立布局，不套侧栏）
+  { path: '/s/:code', component: ScanGo, meta: { title: '扫码结果' } },
+  // 移动端工作台与扫码报工
+  { path: '/m', component: MobileHome, meta: { title: '移动工作台' } },
+  { path: '/m/report', component: MobileReport, meta: { title: '扫码报工' } },
   { path: '/print/quote/:id', component: QuotePrint, meta: { title: '打印报价单' } },
   { path: '/print/:type/:id', component: Print, meta: { title: '打印单据' } },
   { path: '/labels/:id', component: LabelPrint, meta: { title: '打印标签' } },
@@ -208,7 +216,8 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   if (to.meta.public) return true;
-  if (!auth.token) return '/login';
+  // 带上 redirect：扫工单二维码时多半没登录，登录后要能回到那张单
+  if (!auth.token) return { path: '/login', query: { redirect: to.fullPath } };
   // 首次进入同步一次生效权限（一人多岗 / 岗位复核收回都在服务端算）。
   // 失败不阻断导航 —— 退回 perm-table.js 兜底表，宁可多显示按钮也不要整页空白。
   if (!permState.loaded) {

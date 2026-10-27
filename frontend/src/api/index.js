@@ -58,6 +58,11 @@ export const api = {  // 登录
   // 订单
   orders: (params) => req('/api/orders' + qs(params)),
   order: (id) => req(`/api/orders/${id}`),
+  /** 局域网地址：单据二维码要用它，否则用 127.0.0.1 打开时二维码手机扫了打不开 */
+  lanInfo: () => req('/api/settings/lan'),
+
+  /** 按标签码 / 订单号查单（扫码直达用；带 '-' 的标签码只取第一段） */
+  findOrder: (no) => req('/api/orders/find?no=' + encodeURIComponent(no)),
   findOrder: (no) => req('/api/orders/find?no=' + encodeURIComponent(no)),
   orderMeta: () => req('/api/orders/meta'),
   orderStats: () => req('/api/orders/stats/summary'),

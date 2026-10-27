@@ -33,11 +33,12 @@
 
 <script setup>
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { setAuth } from '../store/auth';
 
 const router = useRouter();
+const route = useRoute();
 const username = ref('');
 const password = ref('');
 const loading = ref(false);
@@ -53,7 +54,9 @@ async function submit() {
   try {
     const res = await api.login(username.value, password.value);
     setAuth(res.token, res.user);
-    router.push('/dashboard');
+    // 扫码进来时带了 redirect，登录后直接回到那张单据
+    const back = route.query.redirect ? String(route.query.redirect) : '/dashboard';
+    router.push(back);
   } catch (e) {
     err.value = e.message || '登录失败';
   } finally {

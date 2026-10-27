@@ -19,8 +19,11 @@
           <span v-if="tp">开发单：{{ tp.version }}</span>
           <span>打印日期：{{ today }}</span>
         </div>
-        <!-- 条码：车间扫码报工 / 仓库扫码入库都用订单号 -->
+        <!-- 条码给扫码枪，二维码给手机：手机扫二维码能直接打开这单 -->
         <svg v-if="!isTechpack" class="pr-barcode"></svg>
+        <div v-if="!isTechpack && qrSrc" class="pr-qr-box">
+          <img class="pr-qr" :src="qrSrc" alt="扫码直达" />
+        </div>
       </div>
 
       <!-- ========== 工艺单：开发单头部 ========== -->
@@ -408,6 +411,10 @@
 
       <div v-if="tp && tp.remark" class="pr-note">备注：{{ tp.remark }}</div>
 
+      <div v-if="!isTechpack && qrSrc" class="pr-qr-tip">
+        手机扫右上角二维码可直接打开本单（{{ qrHost }}），用于扫码报工与查看工序。
+      </div>
+
       <div class="pr-sign">
         <template v-if="type === 'production'">
           <div>制单：__________</div>
@@ -440,6 +447,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import JsBarcode from 'jsbarcode';
+import { qrDataUrl, scanUrl, lanBase } from '../utils/qr';
 import { api } from '../api';
 
 const route = useRoute();
@@ -465,6 +473,8 @@ const materials = ref([]);
 const nodes = ref([]);
 const bundles = ref([]);
 const reportSum = ref([]);
+const qrSrc = ref('');
+const qrHost = ref('');
 const today = new Date().toLocaleDateString('zh-CN');
 
 const REQ_CATS = [
@@ -573,6 +583,7 @@ onMounted(async () => {
       ready.value = true;
       await nextTick();
       renderBarcode();
+      await renderQr();
     }
   });
 
@@ -581,6 +592,15 @@ onMounted(async () => {
  * 车间扫码报工、仓库扫码入库都扫这个，比手输单号快且不会错。
  * 中文剔掉（条码只能是 ASCII），订单号本身是纯 ASCII，剔除只是兜底。
  */
+/** 二维码：内容是"扫码直达链接"，手机扫一下就能打开这单 */
+async function renderQr() {
+  if (isTechpack.value || !order.value) return;
+  // 用局域网地址做二维码，否则从 127.0.0.1 打印出来的码手机扫不了
+  const base = await lanBase(api);
+  qrSrc.value = await qrDataUrl(scanUrl(order.value.order_no, base), 240);
+  qrHost.value = base.replace(/^https?:\/\//, '');
+}
+
 function renderBarcode() {
   const el = document.querySelector('.pr-barcode');
   if (!el || !order.value) return;
@@ -610,7 +630,7 @@ function renderBarcode() {
 .pr-head { text-align: center; border-bottom: 2px solid #1f2937; padding-bottom: 10px; margin-bottom: 12px; }
 .pr-co { font-size: 13px; letter-spacing: 2px; color: #33415a; }
 .pr-head h1 { margin: 6px 0 6px; font-size: 22px; letter-spacing: 4px; }
-.pr-meta { display: flex; justify-content: space-between; font-size: 12px; color: #5b6474; }
+.pr-meta { display: flex; justify-content: space-between; font-size: 12px; color: #5b6474; padding-right: 96px; }
 
 .pr-info { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
 .pr-info th, .pr-info td { border: 1px solid #c9d2e0; padding: 6px 8px; font-size: 12px; }
@@ -649,6 +669,19 @@ function renderBarcode() {
 /* 单据条码（放在单据抬头下方，方便扫码） */
 .pr-barcode { display: block; margin: 8px auto 0; max-width: 260px; }
 
+/* 二维码：条码给扫码枪，二维码给手机 */
+.pr-head { position: relative; }
+.pr-qr-box {
+  position: absolute; right: 0; top: 4px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.pr-qr { width: 68px; height: 68px; display: block; }
+.pr-qr-tip {
+  margin-top: 14px; padding: 6px 10px; border-radius: 4px;
+  background: #f7f9fd; border: 1px dashed #dbe3ef;
+  font-size: 10.5px; color: #7b8798; line-height: 1.6;
+}
+
 /* 需要手写的表：行高留够，别挤成一条线 */
 .pr-table.pr-tall td { height: 26px; }
 
@@ -668,5 +701,6 @@ function renderBarcode() {
   .pr-sheet { font-size: 11.5px; }
   .pr-table.pr-tall td { height: 30px; }
   .pr-barcode { max-width: 220px; }
+  .pr-qr { width: 64px; height: 64px; }
 }
 </style>

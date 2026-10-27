@@ -19,6 +19,9 @@ backend/data/_drill-state.json
 backend/data/restore-pending.db
 backend/data/restore-plan.json
 
+# 本地 npm 缓存（装依赖时用工作区缓存避免 EPERM）
+.npmcache/
+
 # 日志
 logs/
 *.log
