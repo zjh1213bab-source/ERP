@@ -2512,3 +2512,32 @@ SQLite 已打开的连接无法安全换到另一个文件，硬换会让一半�
 ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 ```
 走 HTTP 而不是直连库：备份的唯一写入者应该是服务进程，避免抢锁与重复实现保留策略。
+
+## 现场照片留证（`/api/photos`）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/photos/cats | 登录 | 分类口径（defect/incoming/packing/sample/other），前后端共用一份，防止中文自由输入把筛选搞坏 |
+| GET | /api/photos | 登录 | `?order_id&cat&node_id&from&to&keyword&limit&offset` 照片墙列表，带订单号/款名/工序名 |
+| GET | /api/photos/stats | 登录 | 总数 / 涉及订单 / 占用 / 分类分布 / 近 14 天 / 磁盘占用 |
+| GET | /api/photos/order/:id | 登录 | 某张单的全部照片（订单详情附件区用） |
+| POST | /api/photos | photo.write | `{order_id, dataUrl, cat, note, node_id, taken_at}` 单张上传 |
+| POST | /api/photos/batch | photo.write | `{order_id, photos:[…]}` 一次最多 12 张，返回 `saved` / `failed` 两段（一张失败不影响其他张） |
+| DELETE | /api/photos/:id | photo.write | **软删除**（写 `deleted_at`，文件与记录都保留） |
+
+**三条硬规则**
+
+1. `cat=defect` 时 `note` 至少 2 个字，否则 400 —— 一堆没说明的不良照片三个月后没人看得懂
+2. 删除只写 `deleted_at`，不物理删 —— 照片是证据
+3. 挂之前校验订单存在、`node_id` 属于该单 —— 避免孤儿附件
+
+**为什么必须先压缩**
+
+手机直出 3–8MB，后端单张上限 4MB、`express.json` 上限 8MB。前端 `utils/photo.js` 在**选完照片立刻压**
+（长边 1600 / JPEG 0.82 → 200–400KB），并按 EXIF 摆正。不压就必然在上传这一步失败，
+而工人会把「上传失败」理解成「系统坏了」。
+
+**存储位置**
+
+`backend/data/uploads/photos/YYYY-MM/<随机名>.jpg`，对外 `/uploads/photos/...`。
+按月分目录：单目录堆几万个文件，远程备份和 `ls` 都会很难受。

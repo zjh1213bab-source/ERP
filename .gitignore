@@ -12,6 +12,9 @@ dist/
 backend/data/*.db
 backend/data/*.db-wal
 backend/data/*.db-shm
+# 上传文件与现场照片（运行时数据，体积大，不入库）
+backend/data/uploads/
+
 # 备份与恢复留档（体积大、属于运行时数据，不入库）
 backend/data/backups/
 backend/data/replaced/

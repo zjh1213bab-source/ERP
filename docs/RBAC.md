@@ -560,6 +560,9 @@
 | payrolls | POST | `/generate` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | payrolls | GET | `/periods` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | payrolls | GET | `/summary` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| photos | POST | `/` | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | — |
+| photos | DELETE | `/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | — |
+| photos | POST | `/batch` | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | — |
 | priceTiers | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | priceTiers | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | pricing | POST | `/books` | ✅ | — | ✅ | — | — | — | ✅ | — |
@@ -842,6 +845,7 @@
 | `order.instock` | 仓库采购、生产车间 |
 | `order.ship` | 仓库采购 |
 | `qc.write` | 生产车间、技术打版 |
+| `photo.write` | 生产车间、仓库采购、技术打版、销售跟单 |
 | `production.write` | 生产车间、技术打版 |
 | `equipment.write` | 生产车间、仓库采购 |
 | `confirm.write` | 销售跟单、技术打版、生产车间 |

@@ -206,15 +206,30 @@
             </div>
           </div>
 
-          <h3 style="margin: 16px 0 8px; font-size: 14px">附件</h3>
-          <div v-if="attachments.length" style="margin-bottom: 8px">
-            <div v-for="a in attachments" :key="a.id" style="display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed #eef2f7">
+          <h3 style="margin: 16px 0 8px; font-size: 14px">
+            附件
+            <span v-if="photoAtts.length" style="font-size: 12px; font-weight: 500; color: #8a94a6">
+              · 其中现场照片 {{ photoAtts.length }} 张
+            </span>
+          </h3>
+
+          <!-- 看图比看文件名有用：图片走缩略图，其余走文件行 -->
+          <div v-if="photoAtts.length" class="att-grid">
+            <div v-for="a in photoAtts" :key="a.id" class="att-cell" @click="shot = a">
+              <img :src="a.url" alt="" loading="lazy" />
+              <span class="att-cat" :class="a.cat">{{ catLabel(a.cat) }}</span>
+              <div class="att-note">{{ a.note || a.filename }}</div>
+            </div>
+          </div>
+
+          <div v-if="fileAtts.length" style="margin-bottom: 8px">
+            <div v-for="a in fileAtts" :key="a.id" style="display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed #eef2f7">
               <a :href="a.url" target="_blank" rel="noopener" style="color: #2563eb">{{ a.filename }}</a>
               <span style="color: #8a94a6">{{ Math.round((a.size || 0) / 1024) }} KB</span>
               <button class="link-btn danger" @click="removeAttachment(a.id)">删</button>
             </div>
           </div>
-          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无附件</div>
+          <div v-if="!attachments.length" style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无附件</div>
           <div style="margin-bottom: 14px; display: flex; align-items: center; gap: 10px">
             <label class="btn btn-ghost btn-sm" style="cursor: pointer">
               上传附件<input type="file" multiple style="display: none" @change="onAttachments" />
@@ -595,6 +610,22 @@
 
     <!-- 开发详情：面辅料 / 成衣尺寸 / 生产要求（与开发管理同一个组件） -->
     <TechPackDetail :techpack-id="tpDetailId" @close="tpDetailId = null" @saved="reloadTechpacks" @version-created="onTpVersionCreated" />
+
+    <!-- 现场照片大图（附件区缩略图点开） -->
+    <div v-if="shot" class="shot-mask" @click.self="shot = null">
+      <div class="shot-box">
+        <img :src="shot.url" alt="" />
+        <div class="shot-meta">
+          <span class="att-cat big" :class="shot.cat">{{ catLabel(shot.cat) }}</span>
+          <b>{{ shot.note || '（没写说明）' }}</b>
+          <span class="tiny">{{ shot.node_name || '未指定工序' }} · {{ shot.shot_at || shot.created_at }} · {{ shot.uploader }}</span>
+          <div class="shot-ops">
+            <a :href="shot.url" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">原图</a>
+            <button class="btn btn-ghost btn-sm" @click="shot = null">关闭</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -666,6 +697,13 @@ const reportForm = ref({ report_date: '', qty_ok: 0, qty_defect: 0, hours: 0, op
 const reportAgg = ref({});
 
 const attachments = ref([]);
+/** 附件区：图片走缩略图（现场照片看一眼比看文件名有用），其他走文件行 */
+const IMG_EXT = /\.(png|jpe?g|webp|gif)$/i;
+const photoAtts = computed(() => (attachments.value || []).filter((a) => IMG_EXT.test(a.url || '')));
+const fileAtts = computed(() => (attachments.value || []).filter((a) => !IMG_EXT.test(a.url || '')));
+const shot = ref(null);
+const CAT_LABELS = { defect: '不良', incoming: '到货', packing: '装箱', sample: '样品', other: '其他' };
+function catLabel(c) { return CAT_LABELS[c] || '其他'; }
 const attUploading = ref(false);
 
 const canCreate = computed(() => can('order.create'));
@@ -1176,4 +1214,91 @@ onMounted(async () => {
 .node-table { min-width: 760px; }
 .node-table th,
 .node-table td { white-space: nowrap; }
+
+/* 附件区缩略图 */
+.att-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.att-cell {
+  position: relative;
+  border: 1px solid #e6ebf3;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #f7f9fd;
+}
+.att-cell img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
+.att-cat {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #2563eb;
+}
+.att-cat.defect { color: #d92d45; }
+.att-cat.incoming { color: #b45309; }
+.att-cat.packing { color: #0f766e; }
+.att-cat.sample { color: #7c3aed; }
+.att-cat.big { position: static; font-size: 11px; }
+.att-note {
+  font-size: 11px;
+  color: #4a5769;
+  padding: 4px 6px 6px;
+  line-height: 1.45;
+  /* 两行截断：一行放不下「左袖口跳线 3 处，已停线待返工」这种说明 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 30px;
+}
+
+/* 大图 */
+.shot-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 22, 38, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 120;
+  padding: 24px;
+}
+.shot-box {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  max-width: 960px;
+  width: 100%;
+  background: #16233b;
+  border-radius: 14px;
+  padding: 16px;
+  max-height: 88vh;
+}
+.shot-box img {
+  max-height: 76vh;
+  max-width: 62%;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #0d1626;
+}
+.shot-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  color: #dfe6f2;
+  font-size: 13px;
+}
+.shot-meta b { color: #fff; font-size: 14.5px; line-height: 1.6; }
+.shot-meta .tiny { color: #8b9ab2; font-size: 11.5px; }
+.shot-ops { display: flex; gap: 8px; margin-top: 6px; }
 </style>

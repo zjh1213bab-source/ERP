@@ -85,6 +85,8 @@ import PrintBatch from './views/PrintBatch.vue';
 import ScanGo from './views/ScanGo.vue';
 import MobileHome from './views/MobileHome.vue';
 import MobileReport from './views/MobileReport.vue';
+import MobilePhoto from './views/MobilePhoto.vue';
+import Photos from './views/Photos.vue';
 import QuotePrint from './views/QuotePrint.vue';
 import MallAdmin from './views/MallAdmin.vue';
 import Quality from './views/Quality.vue';
@@ -203,6 +205,9 @@ const routes = [
   // 移动端工作台与扫码报工
   { path: '/m', component: MobileHome, meta: { title: '移动工作台' } },
   { path: '/m/report', component: MobileReport, meta: { title: '扫码报工' } },
+  { path: '/m/photo', component: MobilePhoto, meta: { title: '拍照留证' } },
+  // 桌面照片墙
+  { path: '/photos', component: Photos, meta: { title: '现场照片' } },
   { path: '/print/quote/:id', component: QuotePrint, meta: { title: '打印报价单' } },
   { path: '/print/:type/:id', component: Print, meta: { title: '打印单据' } },
   { path: '/labels/:id', component: LabelPrint, meta: { title: '打印标签' } },

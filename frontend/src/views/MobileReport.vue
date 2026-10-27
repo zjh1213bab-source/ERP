@@ -76,6 +76,23 @@
           </label>
         </div>
         <input v-model="form.remark" class="mr-input" placeholder="备注（不良原因写这里）" />
+
+        <!-- 拍照留证：不良品靠嘴说说不清，拍一张比写三行字有用 -->
+        <div class="mr-photo">
+          <button class="mr-shot" @click="camInput.click()">
+            📷 拍不良照片
+          </button>
+          <span v-if="shots.length" class="mr-shot-n">已拍 {{ shots.length }} 张 · {{ totalKb }}KB</span>
+          <span v-else class="mr-shot-n muted">不良数量大于 0 时建议拍一张</span>
+        </div>
+        <input ref="camInput" type="file" accept="image/*" capture="environment" class="mr-file" @change="onPick" />
+        <div v-if="shots.length" class="mr-thumbs">
+          <div v-for="(s, i) in shots" :key="i" class="mr-thumb">
+            <img :src="s.dataUrl" alt="" />
+            <button class="mr-thumb-x" @click="shots.splice(i, 1)">×</button>
+          </div>
+        </div>
+
         <div v-if="err" class="mr-err">{{ err }}</div>
         <button class="mr-submit" :disabled="saving" @click="submit">
           {{ saving ? '提交中…' : '提交报工' }}
@@ -95,6 +112,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { auth } from '../store/auth';
+import { compressImage, localDateTime } from '../utils/photo';
 
 const route = useRoute();
 const router = useRouter();
@@ -106,6 +124,9 @@ const reports = ref([]);
 const picked = ref(null);
 const saving = ref(false);
 const err = ref('');
+const camInput = ref(null);
+const shots = ref([]);
+const totalKb = computed(() => shots.value.reduce((s, x) => s + (Number(x.kb) || 0), 0));
 // 本地日期：toISOString 是 UTC，晚上 8 点后（GMT+8）会算成"昨天"
 function localDate() {
   const d = new Date();
@@ -162,6 +183,22 @@ function pick(n) {
   form.hours = 0;
   form.remark = '';
   err.value = '';
+  shots.value = [];
+}
+
+/** 拍完立刻压缩：一张手机直出 4–8MB，不压就必然传不上去 */
+async function onPick(e) {
+  const files = Array.from((e.target && e.target.files) || []);
+  e.target.value = '';
+  if (!files.length) return;
+  err.value = '';
+  for (const f of files) {
+    try {
+      shots.value.push(await compressImage(f));
+    } catch (ex) {
+      err.value = ex.message || '照片处理失败';
+    }
+  }
 }
 
 async function submit() {
@@ -172,23 +209,50 @@ async function submit() {
   }
   saving.value = true;
   err.value = '';
+  const hasPhoto = shots.value.length > 0;
+  const nodeName = picked.value.name;
+  const defectQty = Number(form.qty_defect) || 0;
   try {
     await api.createReport({
       order_id: order.value.id,
       node_id: picked.value.id,
       qty_ok: Number(form.qty_ok) || 0,
-      qty_defect: Number(form.qty_defect) || 0,
+      qty_defect: defectQty,
       hours: Number(form.hours) || 0,
       remark: form.remark || '',
       report_date: today
     });
+
+    // 报工已经写库了，照片失败不能把它算成失败 —— 分开处理，分别提示
+    let photoMsg = '';
+    if (hasPhoto) {
+      try {
+        const cat = defectQty > 0 ? 'defect' : 'other';
+        const r = await api.createPhotos({
+          order_id: order.value.id,
+          photos: shots.value.map((s) => ({
+            dataUrl: s.dataUrl,
+            cat,
+            // 不良照片必须带说明（后端硬校验）：没填备注就用上下文自动生成
+            note: form.remark || (cat === 'defect' ? `${nodeName}不良 ${defectQty} 件` : `${nodeName}报工留证`),
+            node_id: picked.value.id,
+            taken_at: localDateTime()
+          }))
+        });
+        if (r.failed_count) photoMsg = `，${r.failed_count} 张照片没传上`;
+      } catch (e) {
+        photoMsg = '，照片上传失败：' + (e.message || '');
+      }
+    }
+
     picked.value = null;
+    shots.value = [];
     // 重新拉一次累计，让工人看到刚报的数
     const rep = await api.reportSummary(order.value.id).catch(() => []);
     reports.value = Array.isArray(rep) ? rep : [];
     const nd = await api.orderNodes(order.value.id).catch(() => []);
     nodes.value = nd || [];
-    toast('报工成功');
+    toast('报工成功' + photoMsg);
   } catch (e) {
     err.value = e.message || '提交失败';
   } finally {
@@ -413,6 +477,51 @@ onMounted(() => {
   cursor: pointer;
 }
 .mr-submit:disabled { background: #9db8ea; }
+/* 报工抽屉里的拍照区 */
+.mr-photo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.mr-shot {
+  flex: none;
+  padding: 10px 14px;
+  border: 1px solid #2563eb;
+  border-radius: 11px;
+  background: #f4f8ff;
+  color: #2563eb;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mr-shot-n { font-size: 11.5px; color: #2563eb; }
+.mr-shot-n.muted { color: #a6b0c0; }
+.mr-file { display: none; }
+.mr-thumbs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.mr-thumb {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid #e6ebf3;
+}
+.mr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mr-thumb-x {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(20, 30, 50, 0.66);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
 .mr-toast {
   position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%);
   background: rgba(22, 35, 59, 0.92); color: #fff; font-size: 13.5px;

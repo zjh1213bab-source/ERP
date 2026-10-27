@@ -26,6 +26,11 @@
         <b>扫码报工</b>
         <small>做完一道工序就报</small>
       </button>
+      <button class="mh-card" @click="goPage('/m/photo')">
+        <span class="mh-icon">📷</span>
+        <b>拍照留证</b>
+        <small>不良 / 到货 / 装箱</small>
+      </button>
       <button class="mh-card" @click="goPage('/inventory')">
         <span class="mh-icon">📦</span>
         <b>查库存</b>

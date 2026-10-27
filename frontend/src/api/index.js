@@ -161,6 +161,15 @@ export const api = {  // 登录
   createAttachment: (d) => req('/api/attachments', { method: 'POST', body: d }),
   deleteAttachment: (id) => req(`/api/attachments/${id}`, { method: 'DELETE' }),
 
+  // 现场照片留证
+  photoCats: () => req('/api/photos/cats'),
+  photos: (params) => req('/api/photos' + qs(params)),
+  photoStats: (params) => req('/api/photos/stats' + qs(params)),
+  orderPhotos: (id) => req(`/api/photos/order/${id}`),
+  createPhoto: (d) => req('/api/photos', { method: 'POST', body: d }),
+  createPhotos: (d) => req('/api/photos/batch', { method: 'POST', body: d }),
+  deletePhoto: (id) => req(`/api/photos/${id}`, { method: 'DELETE' }),
+
   // 审批 / 人事
   approvals: () => req('/api/approvals/pending'),
   myApprovalTasks: () => req('/api/approvals/my-tasks'),

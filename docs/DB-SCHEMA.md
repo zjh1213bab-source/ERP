@@ -911,3 +911,28 @@
 >
 > **`sha256` 的用途**：同一个文件在服务端、下载到本地、再上传回来，都能比对是不是同一份。
 > 但**不要拿它判定「恢复是否成功」** —— WAL 模式下服务启动后会正常写入，主库文件指纹必然变化。
+
+## 现场照片留证（M-PHOTO）
+
+**复用 `attachments`，不新建 photos 表** —— 附件本来就是「文件挂在业务对象上」这件事，
+再开一张表会让「看一张单的所有附件」变成两处查询，迟早漏掉一侧。
+
+| 新增列 | 说明 |
+|---|---|
+| cat | 分类：`defect` 不良 / `incoming` 到货 / `packing` 装箱 / `sample` 样品 / `other` 其他。取值域写死在服务端，不接受自由输入 |
+| note | 一句说明。**`cat='defect'` 时后端硬校验至少 2 字** —— 没有说明的不良照片三个月后没人看得懂 |
+| node_id | 关联工序（可空）。不良照片要能说清是哪道工序出的问题；后端校验该工序属于同一订单 |
+| taken_at | 拍摄时间（可空）。手机时间与上传时间常常不同（夜里补传很常见），统计与展示优先用它 |
+| deleted_at | **软删除标记**。照片是证据，物理删掉之后「当时到底什么样」就永远说不清了 |
+
+索引：
+
+```sql
+idx_att_order_cat  ON attachments(target_type, target_id, cat)   -- 订单详情附件区 / 按单筛
+idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按分类倒序
+```
+
+> 历史数据：本模块上线前的附件 `cat` 默认 `other`、`note`/`node_id`/`taken_at` 为 NULL，
+> 订单详情里仍按「图片走缩略图、其他走文件行」显示，不会丢。
+>
+> 磁盘：`data/uploads/photos/YYYY-MM/`，按月分目录；已被 `.gitignore` 忽略（`data/uploads/`）。

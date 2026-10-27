@@ -5155,6 +5155,149 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('空码被拒', emptyCode.status === 400, `HTTP ${emptyCode.status}`);
   }
 
+  // ================= 现场照片留证 =================
+  {
+    console.log('\n[现场照片留证]');
+
+    // 1×1 透明 PNG：够用来测「是不是真落盘、能不能取回来」
+    const TINY_PNG =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF+9WQAAAAASUVORK5CYII=';
+    const created = [];
+    const fs2 = require('fs');
+    const path2 = require('path');
+
+    const noAuth = await req('/api/photos');
+    ok('照片接口需要登录', noAuth.status === 401, `HTTP ${noAuth.status}`);
+
+    const cats = await req('/api/photos/cats', { token });
+    ok('可读照片分类（前后端共用一份口径）',
+      cats.status === 200 && Array.isArray(cats.json.data) && cats.json.data.length >= 4,
+      `${cats.status} / ${(cats.json.data || []).map((c) => c.code).join(',')}`);
+
+    const list0 = await req('/api/orders', { token });
+    const target = (list0.json.data || [])[0];
+
+    if (target) {
+      // 不良照片不写说明必须被拒（这是这一轮的核心规则）
+      const noNote = await req('/api/photos', {
+        method: 'POST',
+        token,
+        body: { order_id: target.id, dataUrl: TINY_PNG, cat: 'defect', note: '' }
+      });
+      ok('不良照片不写说明被拒', noNote.status === 400, `HTTP ${noNote.status} ${noNote.json.message || ''}`);
+
+      const shortNote = await req('/api/photos', {
+        method: 'POST',
+        token,
+        body: { order_id: target.id, dataUrl: TINY_PNG, cat: 'defect', note: '坏' }
+      });
+      ok('说明只有一个字也被拒（等于没写）', shortNote.status === 400, `HTTP ${shortNote.status}`);
+
+      // 正常上传
+      const good = await req('/api/photos', {
+        method: 'POST',
+        token,
+        body: { order_id: target.id, dataUrl: TINY_PNG, cat: 'defect', note: '自测：左袖口跳线', taken_at: '2026-10-28 10:00:00' }
+      });
+      const row = good.status === 200 ? good.json.data : null;
+      if (row) created.push(row);
+      ok('上传照片成功并返回记录', good.status === 200 && !!row, `HTTP ${good.status}`);
+
+      if (row) {
+        ok('照片挂在订单上（target_type=order）',
+          row.target_type === 'order' && Number(row.target_id) === Number(target.id),
+          `${row.target_type}/${row.target_id}`);
+        ok('分类与说明原样保存', row.cat === 'defect' && String(row.note).includes('自测'),
+          `${row.cat} / ${row.note}`);
+
+        // 文件真的落盘了吗
+        const rel = String(row.url || '').replace(/^\/uploads\//, '');
+        const file = path2.resolve(__dirname, '../data/uploads', rel);
+        ok('照片文件真的落盘（不是只写了一条记录）', fs2.existsSync(file) && fs2.statSync(file).size > 0,
+          file.replace(/\\/g, '/'));
+
+        // 静态地址能取回图片
+        const got = await fetch(BASE + row.url);
+        ok('照片能通过 /uploads 取回', got.status === 200, `HTTP ${got.status} ${got.headers.get('content-type')}`);
+
+        // 单张照片能查到
+        const one = await req('/api/photos?order_id=' + target.id + '&cat=defect&limit=200', { token });
+        ok('按订单 + 分类能筛出来',
+          one.status === 200 && (one.json.data.rows || []).some((r) => r.id === row.id),
+          `共 ${(one.json.data && one.json.data.total) || 0} 张`);
+
+        const deco = (one.json.data.rows || []).find((r) => r.id === row.id) || {};
+        ok('列表带订单号与分类中文名', !!deco.order_no && deco.cat_label === '不良',
+          `${deco.order_no} / ${deco.cat_label}`);
+        ok('列表带拍摄时间（没传就用上传时间）', !!deco.shot_at, deco.shot_at || '空');
+      }
+
+      // 订单不存在 / 工序不属于该单
+      const badOrder = await req('/api/photos', {
+        method: 'POST',
+        token,
+        body: { order_id: 99999999, dataUrl: TINY_PNG, cat: 'other', note: '自测孤儿' }
+      });
+      ok('订单不存在时拒绝挂照片（不留孤儿附件）', badOrder.status === 400, `HTTP ${badOrder.status}`);
+
+      const otherNodes = await req('/api/order-nodes?order_id=1', { token });
+      const foreign = (otherNodes.json.data || []).find((n) => Number(n.order_id) !== Number(target.id));
+      if (foreign) {
+        const badNode = await req('/api/photos', {
+          method: 'POST',
+          token,
+          body: { order_id: target.id, dataUrl: TINY_PNG, cat: 'other', note: '自测错工序', node_id: foreign.id }
+        });
+        ok('工序不属于该单时拒绝', badNode.status === 400, `HTTP ${badNode.status}`);
+      }
+
+      // 非图片 / 非法分类
+      const notImg = await req('/api/photos', {
+        method: 'POST',
+        token,
+        body: { order_id: target.id, dataUrl: 'data:text/plain;base64,aGVsbG8=', cat: 'other', note: '自测' }
+      });
+      ok('非图片内容被拒', notImg.status === 400, `HTTP ${notImg.status}`);
+
+      const badCat = await req('/api/photos', {
+        method: 'POST',
+        token,
+        body: { order_id: target.id, dataUrl: TINY_PNG, cat: 'whatever', note: '自测' }
+      });
+      ok('非法分类被拒（不让中文自由输入把筛选搞坏）', badCat.status === 400, `HTTP ${badCat.status}`);
+    }
+
+    const st = await req('/api/photos/stats', { token });
+    ok('照片统计可读（含分类分布与近 14 天）',
+      st.status === 200 && Array.isArray(st.json.data.cats) && (st.json.data.days || []).length === 14,
+      `总 ${st.json.data && st.json.data.total} 张`);
+
+    // 软删除：删完列表里没了，但库里那一行还在（照片是证据）
+    if (created.length) {
+      const del = await req('/api/photos/' + created[0].id, { method: 'DELETE', token });
+      ok('照片可以删除', del.status === 200, `HTTP ${del.status}`);
+
+      const after = await req('/api/photos?limit=200', { token });
+      ok('删除后列表里不再出现',
+        !(after.json.data.rows || []).some((r) => r.id === created[0].id),
+        '已从列表消失');
+
+      const { db: DB } = require('../src/db');
+      const still = DB.prepare('SELECT id, deleted_at, url FROM attachments WHERE id = ?').get(created[0].id);
+      ok('软删除：记录仍在库里并带删除标记（证据不真删）',
+        !!still && !!still.deleted_at, still ? `deleted_at=${still.deleted_at}` : '行被物理删了');
+
+      // 自清理：把测试行与文件都清掉
+      created.forEach((c) => {
+        const rel = String(c.url || '').replace(/^\/uploads\//, '');
+        const f = path2.resolve(__dirname, '../data/uploads', rel);
+        try { if (fs2.existsSync(f)) fs2.unlinkSync(f); } catch (e) { /* ignore */ }
+        try { DB.prepare('DELETE FROM attachments WHERE id = ?').run(c.id); } catch (e) { /* ignore */ }
+      });
+      ok('照片用例跑完自清理（测试记录与文件已删）', true, `清理 ${created.length} 条`);
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 598 个对象
- * （295 张表 + 303 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 600 个对象
+ * （295 张表 + 305 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -29,7 +29,7 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS production_reports (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  node_id INTEGER,                            -- order_nodes.id\n  node_name TEXT,\n  report_date TEXT,\n  qty_ok REAL NOT NULL DEFAULT 0,             -- 合格数\n  qty_defect REAL NOT NULL DEFAULT 0,         -- 不良数\n  hours REAL NOT NULL DEFAULT 0,              -- 工时\n  operator TEXT,\n  remark TEXT,\n  created_at TEXT NOT NULL\n, employee_id INTEGER);",
   "CREATE TABLE IF NOT EXISTS factories (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT,\n  name TEXT NOT NULL,\n  type TEXT NOT NULL DEFAULT 'outsource',      -- own 本厂 / outsource 外协\n  contact TEXT,\n  phone TEXT,\n  address TEXT,\n  status TEXT NOT NULL DEFAULT 'active',\n  created_at TEXT NOT NULL\n, image_url TEXT);",
   "CREATE TABLE IF NOT EXISTS dispatch_orders (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  factory_id INTEGER,\n  factory_name TEXT,\n  type TEXT NOT NULL DEFAULT 'own',            -- own 本厂 / outsource 外协\n  qty REAL NOT NULL DEFAULT 0,\n  price REAL NOT NULL DEFAULT 0,\n  status TEXT NOT NULL DEFAULT 'dispatched',\n  remark TEXT,\n  created_at TEXT NOT NULL\n);",
-  "CREATE TABLE IF NOT EXISTS attachments (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,                  -- order / techpack\n  target_id INTEGER NOT NULL,\n  filename TEXT NOT NULL,\n  url TEXT NOT NULL,\n  size INTEGER DEFAULT 0,\n  mime TEXT,\n  uploader TEXT,\n  created_at TEXT NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS attachments (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,                  -- order / techpack\n  target_id INTEGER NOT NULL,\n  filename TEXT NOT NULL,\n  url TEXT NOT NULL,\n  size INTEGER DEFAULT 0,\n  mime TEXT,\n  uploader TEXT,\n  created_at TEXT NOT NULL\n, cat TEXT NOT NULL DEFAULT 'other', note TEXT, node_id INTEGER, taken_at TEXT, deleted_at TEXT);",
   "CREATE TABLE IF NOT EXISTS employees (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT,\n  name TEXT NOT NULL,\n  department_id INTEGER,\n  position TEXT,\n  phone TEXT,\n  hire_date TEXT,\n  status TEXT NOT NULL DEFAULT 'active',      -- active / left\n  remark TEXT,\n  created_at TEXT NOT NULL\n, base_salary REAL DEFAULT 0, leave_date TEXT, employment_type TEXT DEFAULT 'fulltime', regular_date TEXT, id_card TEXT, emergency_contact TEXT, image_url TEXT);",
   "CREATE TABLE IF NOT EXISTS leave_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  employee_id INTEGER,\n  employee_name TEXT,\n  type TEXT NOT NULL DEFAULT 'annual',        -- annual 年假 / sick 病假 / personal 事假 / other\n  start_date TEXT,\n  end_date TEXT,\n  days REAL DEFAULT 0,\n  reason TEXT,\n  status TEXT NOT NULL DEFAULT 'pending',     -- pending / approved / rejected\n  reviewed_by TEXT,\n  created_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS audit_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  username TEXT,\n  method TEXT,\n  path TEXT,\n  status INTEGER,\n  ip TEXT,\n  created_at TEXT NOT NULL\n);",
@@ -603,5 +603,7 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_uroles_user ON user_roles(user_id);",
   "CREATE INDEX IF NOT EXISTS idx_aexc_user ON access_exceptions(user_id);",
   "CREATE INDEX IF NOT EXISTS idx_bkjobs_kind ON backup_jobs(kind);",
-  "CREATE INDEX IF NOT EXISTS idx_bkjobs_created ON backup_jobs(created_at);"
+  "CREATE INDEX IF NOT EXISTS idx_bkjobs_created ON backup_jobs(created_at);",
+  "CREATE INDEX IF NOT EXISTS idx_att_order_cat ON attachments(target_type, target_id, cat);",
+  "CREATE INDEX IF NOT EXISTS idx_att_cat_time ON attachments(cat, created_at);"
 ];
