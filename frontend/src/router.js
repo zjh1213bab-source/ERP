@@ -81,6 +81,7 @@ import Blueprint from './views/Blueprint.vue';
 import Settings from './views/Settings.vue';
 import Users from './views/Users.vue';
 import Print from './views/Print.vue';
+import PrintBatch from './views/PrintBatch.vue';
 import QuotePrint from './views/QuotePrint.vue';
 import MallAdmin from './views/MallAdmin.vue';
 import Quality from './views/Quality.vue';
@@ -193,6 +194,7 @@ const routes = [
       { path: 'users', component: Users, meta: { title: '用户与角色' } }
     ]
   },
+  { path: '/print/batch', component: PrintBatch, meta: { title: '批量打印' } },
   { path: '/print/quote/:id', component: QuotePrint, meta: { title: '打印报价单' } },
   { path: '/print/:type/:id', component: Print, meta: { title: '打印单据' } },
   { path: '/labels/:id', component: LabelPrint, meta: { title: '打印标签' } },

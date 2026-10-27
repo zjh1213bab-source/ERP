@@ -19,6 +19,8 @@
           <span v-if="tp">开发单：{{ tp.version }}</span>
           <span>打印日期：{{ today }}</span>
         </div>
+        <!-- 条码：车间扫码报工 / 仓库扫码入库都用订单号 -->
+        <svg v-if="!isTechpack" class="pr-barcode"></svg>
       </div>
 
       <!-- ========== 工艺单：开发单头部 ========== -->
@@ -91,6 +93,78 @@
         </tbody>
       </table>
 
+      <!-- ========== 装箱单：箱号与重量体积由装箱人现场填写 ========== -->
+      <template v-if="type === 'packing'">
+        <h2 class="pr-sec">装箱明细</h2>
+        <table class="pr-table pr-tall">
+          <thead>
+            <tr>
+              <th style="width: 54px">箱号</th>
+              <th style="width: 90px">款号</th>
+              <th>品名</th>
+              <th style="width: 68px">颜色</th>
+              <th style="width: 56px">尺码</th>
+              <th style="width: 56px">数量</th>
+              <th style="width: 62px">毛重 kg</th>
+              <th style="width: 62px">净重 kg</th>
+              <th style="width: 66px">体积 m³</th>
+              <th>备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(l, i) in lines" :key="i">
+              <td></td>
+              <td>{{ l.style_no || '-' }}</td>
+              <td>{{ l.product_name }}</td>
+              <td>{{ l.color || '-' }}</td>
+              <td>{{ l.size || '-' }}</td>
+              <td class="num">{{ l.qty }}</td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td></td>
+            </tr>
+            <tr class="pr-total">
+              <td colspan="5">合计</td>
+              <td class="num">{{ totalQty }}</td>
+              <td colspan="4"></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="pr-note">
+          箱号 / 毛重 / 净重 / 体积由装箱人现场填写。一箱混装多个尺码时，同一箱号在多行重复填写。
+        </div>
+      </template>
+
+      <!-- ========== 发货单：收货信息与回签 ========== -->
+      <template v-if="type === 'shipping'">
+        <h2 class="pr-sec">收货信息</h2>
+        <table class="pr-info">
+          <tbody>
+            <tr>
+              <th>收货人</th><td></td>
+              <th>联系电话</th><td></td>
+            </tr>
+            <tr>
+              <th>收货地址</th><td colspan="3"></td>
+            </tr>
+            <tr>
+              <th>运单号</th><td></td>
+              <th>箱数</th><td></td>
+            </tr>
+            <tr>
+              <th>总毛重 kg</th><td></td>
+              <th>总净重 kg</th><td></td>
+            </tr>
+            <tr>
+              <th>交货方式</th><td>{{ order.delivery_method || '-' }}</td>
+              <th>贸易条款</th><td>{{ order.trade_terms || '-' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="pr-note">收货信息、运单号、箱数由发货人现场填写。</div>
+      </template>
+
       <!-- ========== 客户要求 ========== -->
       <template v-if="tp && tp.customer_req">
         <h2 class="pr-sec">客户要求</h2>
@@ -98,8 +172,8 @@
       </template>
 
       <!-- ========== 款式明细（工艺单放在尺寸表之前） ========== -->
-      <h2 class="pr-sec">{{ isTechpack ? '款式 / 颜色 / 尺码明细' : '款式 / 颜色 / 尺码明细' }}</h2>
-      <table class="pr-table">
+      <h2 v-if="type !== 'packing'" class="pr-sec">款式 / 颜色 / 尺码明细</h2>
+      <table v-if="type !== 'packing'" class="pr-table">
         <thead>
           <tr>
             <th style="width: 34px">序号</th>
@@ -252,7 +326,7 @@
 
         <h2 class="pr-sec">生产工序</h2>
         <table class="pr-table">
-          <thead><tr><th style="width: 34px">序号</th><th>工序</th><th style="width: 90px">计划完成</th><th style="width: 90px">实际完成</th><th style="width: 80px">责任人</th><th style="width: 80px">状态</th></tr></thead>
+          <thead><tr><th style="width: 34px">序号</th><th>工序</th><th style="width: 86px">计划完成</th><th style="width: 86px">实际完成</th><th style="width: 76px">责任人</th><th style="width: 70px">状态</th><th style="width: 96px">系统报工</th></tr></thead>
           <tbody>
             <tr v-for="(n, i) in nodes" :key="n.id">
               <td>{{ i + 1 }}</td>
@@ -261,10 +335,69 @@
               <td>{{ n.actual_date || '' }}</td>
               <td>{{ n.operator || '' }}</td>
               <td>{{ { pending: '待开始', doing: '进行中', done: '已完成' }[n.status] || n.status }}</td>
+              <td class="num">{{ reportText(n.id) }}</td>
             </tr>
-            <tr v-if="!nodes.length"><td colspan="6" style="text-align: center; color: #888">无</td></tr>
+            <tr v-if="!nodes.length"><td colspan="7" style="text-align: center; color: #888">无</td></tr>
           </tbody>
         </table>
+
+        <!-- ========== 裁床扎包（车间按扎作业，扎号是追溯单位） ========== -->
+        <template v-if="bundles.length">
+          <h2 class="pr-sec">裁床扎包（{{ bundles.length }} 扎 / {{ bundleQty }} 件）</h2>
+          <table class="pr-table">
+            <thead>
+              <tr>
+                <th style="width: 64px">扎号</th>
+                <th style="width: 72px">颜色</th>
+                <th style="width: 52px">尺码</th>
+                <th style="width: 52px">件数</th>
+                <th style="width: 84px">缸号 / 床次</th>
+                <th style="width: 72px">状态</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="b in bundles" :key="b.id">
+                <td>{{ b.bundle_no }}</td>
+                <td>{{ b.color || '-' }}</td>
+                <td>{{ b.size || '-' }}</td>
+                <td class="num">{{ b.qty }}</td>
+                <td>{{ [b.dye_lot, b.bed_no].filter(Boolean).join(' / ') || '-' }}</td>
+                <td>{{ b.status === 'checked' ? '已复核' : '待复核' }}</td>
+                <td>{{ b.note || '' }}</td>
+              </tr>
+              <tr class="pr-total">
+                <td colspan="3">合计</td>
+                <td class="num">{{ bundleQty }}</td>
+                <td colspan="3"></td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+
+        <!-- ========== 现场手写报工（系统报工在系统里录，这里只给车间现场用） ========== -->
+        <h2 class="pr-sec">现场报工记录（车间填写）</h2>
+        <table class="pr-table pr-tall">
+          <thead>
+            <tr>
+              <th style="width: 76px">日期</th>
+              <th>工序</th>
+              <th style="width: 58px">合格</th>
+              <th style="width: 58px">不良</th>
+              <th style="width: 58px">工时</th>
+              <th style="width: 76px">报工人</th>
+              <th style="width: 88px">班组长</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="n in 8" :key="'w' + n">
+              <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="pr-note">
+          此栏仅供车间现场手写核对；正式报工请在「生产 → 生产管理」录入，成本与进度以系统数据为准。
+        </div>
       </template>
 
       <!-- 工艺工序文字说明（工艺单用） -->
@@ -276,17 +409,37 @@
       <div v-if="tp && tp.remark" class="pr-note">备注：{{ tp.remark }}</div>
 
       <div class="pr-sign">
-        <div>制单：__________</div>
-        <div>审核：__________</div>
-        <div>日期：__________</div>
+        <template v-if="type === 'production'">
+          <div>制单：__________</div>
+          <div>审核：__________</div>
+          <div>车间接收：__________</div>
+          <div>日期：__________</div>
+        </template>
+        <template v-else-if="type === 'packing'">
+          <div>装箱人：__________</div>
+          <div>复核人：__________</div>
+          <div>日期：__________</div>
+        </template>
+        <template v-else-if="type === 'shipping'">
+          <div>发货人：__________</div>
+          <div>承运人：__________</div>
+          <div>客户签收：__________</div>
+          <div>日期：__________</div>
+        </template>
+        <template v-else>
+          <div>制单：__________</div>
+          <div>审核：__________</div>
+          <div>日期：__________</div>
+        </template>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import JsBarcode from 'jsbarcode';
 import { api } from '../api';
 
 const route = useRoute();
@@ -310,6 +463,8 @@ const tp = ref(null);
 const crafts = ref([]);
 const materials = ref([]);
 const nodes = ref([]);
+const bundles = ref([]);
+const reportSum = ref([]);
 const today = new Date().toLocaleDateString('zh-CN');
 
 const REQ_CATS = [
@@ -336,6 +491,22 @@ const lines = computed(() => {
   return out;
 });
 const totalQty = computed(() => lines.value.reduce((s, l) => s + (Number(l.qty) || 0), 0));
+
+const bundleQty = computed(() => bundles.value.reduce((s, b) => s + (Number(b.qty) || 0), 0));
+
+/** 工序的系统报工累计（合格 / 不良），没有报工就留空让现场手写 */
+const reportMap = computed(() => {
+  const m = {};
+  reportSum.value.forEach((r) => {
+    if (r.node_id) m[r.node_id] = { ok: Number(r.ok) || 0, defect: Number(r.defect) || 0 };
+  });
+  return m;
+});
+function reportText(nodeId) {
+  const r = reportMap.value[nodeId];
+  if (!r) return '';
+  return r.defect ? `${r.ok} / 不良 ${r.defect}` : String(r.ok);
+}
 
 /** 尺寸行 → 部位 × 尺码 矩阵 */
 const sizeMatrix = computed(() => {
@@ -371,25 +542,58 @@ onMounted(async () => {
     } else {
       order.value = await api.order(id.value);
       if (type.value === 'production') {
-        const [cf, om, nd, cur] = await Promise.all([
+        const [cf, om, nd, cur, cuts, rep] = await Promise.all([
           api.crafts(id.value),
           api.orderMaterials(id.value),
           api.orderNodes(id.value),
-          api.techpackCurrent(id.value).catch(() => null)
+          api.techpackCurrent(id.value).catch(() => null),
+          api.cutByOrder(id.value).catch(() => null),
+          api.reportSummary(id.value).catch(() => [])
         ]);
         crafts.value = cf || [];
         materials.value = om || [];
         nodes.value = nd || [];
         // 取该订单「当前生效」的开发单（已确认优先），把客户要求 / 面辅料 / 成衣尺寸 / 生产要求带上总单
         tp.value = cur || null;
+
+        // 裁床扎包：扎是车间追溯的最小单位，纸质工单上必须有，否则裁完的扎对不上单
+        const lots = (cuts && cuts.lots) || [];
+        const lotMap = {};
+        lots.forEach((l) => { lotMap[l.id] = l; });
+        bundles.value = ((cuts && cuts.bundles) || []).map((b) => {
+          const lot = b.lot_id ? lotMap[b.lot_id] : null;
+          return { ...b, dye_lot: lot ? lot.dye_lot : '', bed_no: lot ? lot.bed_no : '' };
+        });
+        reportSum.value = Array.isArray(rep) ? rep : [];
       }
     }
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      ready.value = true;
+      await nextTick();
+      renderBarcode();
+    }
+  });
+
+/**
+ * 单据条码：用订单号生成 Code128。
+ * 车间扫码报工、仓库扫码入库都扫这个，比手输单号快且不会错。
+ * 中文剔掉（条码只能是 ASCII），订单号本身是纯 ASCII，剔除只是兜底。
+ */
+function renderBarcode() {
+  const el = document.querySelector('.pr-barcode');
+  if (!el || !order.value) return;
+  const code = String(order.value.order_no || '').replace(/[^\x20-\x7E]/g, '').trim();
+  if (!code) return;
+  try {
+    JsBarcode(el, code, {
+      format: 'CODE128', height: 38, width: 1.15, fontSize: 12, margin: 0, displayValue: true
+    });
   } catch (e) {
-    alert(e.message);
-  } finally {
-    ready.value = true;
+    /* 条码画不出来不影响单据本身 */
   }
-});
+}
 </script>
 
 <style>
@@ -440,7 +644,13 @@ onMounted(async () => {
 .pr-req-list { margin: 0; padding-left: 20px; }
 .pr-req-list li { font-size: 12px; line-height: 1.7; }
 
-.pr-sign { display: flex; justify-content: space-between; margin-top: 28px; padding-top: 10px; font-size: 12.5px; color: #33415a; }
+.pr-sign { display: flex; justify-content: space-between; gap: 10px; margin-top: 28px; padding-top: 10px; font-size: 12.5px; color: #33415a; flex-wrap: wrap; }
+
+/* 单据条码（放在单据抬头下方，方便扫码） */
+.pr-barcode { display: block; margin: 8px auto 0; max-width: 260px; }
+
+/* 需要手写的表：行高留够，别挤成一条线 */
+.pr-table.pr-tall td { height: 26px; }
 
 .pr-loading { padding: 40px; text-align: center; color: #8a94a6; }
 
@@ -453,5 +663,10 @@ onMounted(async () => {
   .pr-table, .pr-info { page-break-inside: auto; }
   .pr-table tr { page-break-inside: avoid; }
   .pr-sec { page-break-after: avoid; }
+  /* 跨页时表头重复：多页工单散开后，第二页也能看出哪列是什么 */
+  .pr-table thead, .pr-info thead { display: table-header-group; }
+  .pr-sheet { font-size: 11.5px; }
+  .pr-table.pr-tall td { height: 30px; }
+  .pr-barcode { max-width: 220px; }
 }
 </style>

@@ -21,6 +21,7 @@
       </select>
       <button class="btn btn-ghost" @click="load">查询</button>
       <button v-if="canExport" class="btn btn-ghost" @click="exportCsv">导出 Excel</button>
+      <button class="btn btn-ghost" @click="batchPrint">批量打印工单</button>
     </div>
 
     <div class="table-wrap">
@@ -599,13 +600,14 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api, exportOrders } from '../api';
 import { auth } from '../store/auth';
 import { can } from '../store/permissions';
 import TechPackDetail from '../components/TechPackDetail.vue';
 
 const route = useRoute();
+const router = useRouter();
 
 const list = ref([]);
 const q = ref('');
@@ -668,6 +670,21 @@ const attUploading = ref(false);
 
 const canCreate = computed(() => can('order.create'));
 const canExport = computed(() => can('order.export'));
+
+/**
+ * 批量打印：拿当前列表里的订单一次性出工单。
+ * 限 50 张——一次打上百张会卡住浏览器，而且纸质工单一次性也发不了那么多。
+ */
+function batchPrint() {
+  const ids = (list.value || []).map((o) => o.id).slice(0, 50);
+  if (!ids.length) {
+    alert('当前列表没有订单');
+    return;
+  }
+  const tip = ids.length >= 50 ? '（只取前 50 张）' : '';
+  if (!confirm(`批量打印 ${ids.length} 张生产工单${tip}？\n\n工艺明细、面辅料、裁床扎包等完整内容请单张打印。`)) return;
+  router.push({ path: '/print/batch', query: { type: 'production', ids: ids.join(',') } });
+}
 const canTechWrite = computed(() => can('development.write'));
 const canTechReview = computed(() => can('development.review'));
 const canCostWrite = computed(() => can('cost.write'));
