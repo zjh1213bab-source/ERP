@@ -4995,6 +4995,125 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 上线准备：备份恢复 =================
+  {
+    console.log('\n[备份与恢复]');
+    const created = [];
+    let salesToken = null;
+
+    const noAuth = await req('/api/backup/overview');
+    ok('备份概览需要登录', noAuth.status === 401, `HTTP ${noAuth.status}`);
+
+    // 非管理员不能碰备份（备份里有全库数据）
+    const sl = await req('/api/auth/login', { method: 'POST', body: { username: 'sales01', password: 'admin123456' } });
+    if (sl.status === 200 && sl.json.data) salesToken = sl.json.data.token;
+    if (salesToken) {
+      const forbid = await req('/api/backup/overview', { token: salesToken });
+      ok('销售不能访问备份接口', forbid.status === 403, `HTTP ${forbid.status}`);
+    } else {
+      ok('销售不能访问备份接口', true, '无销售测试账号，跳过');
+    }
+
+    const ov = await req('/api/backup/overview', { token });
+    const ovD = ov.status === 200 ? ov.json.data : {};
+    ok('备份概览可读（健康/存储/待恢复/数据检查）',
+      ov.status === 200 && !!ovD.health && !!ovD.storage && !!ovD.pending && Array.isArray(ovD.checks),
+      `HTTP ${ov.status}`);
+    ok('数据健康检查返回 6 项', (ovD.checks || []).length === 6, `${(ovD.checks || []).length} 项`);
+    ok('待恢复状态可读（默认无）', ovD.pending && ovD.pending.pending === false);
+
+    // ---- 建备份 ----
+    const mk = await req('/api/backup/create', { method: 'POST', token, body: { note: '冒烟测试备份' } });
+    const job = mk.status === 200 ? mk.json.data : null;
+    ok('可以生成服务端备份', mk.status === 200 && !!job, `HTTP ${mk.status}`);
+    if (job) {
+      created.push(job.id);
+      ok('备份带编号与校验和', !!job.job_no && !!job.sha256 && String(job.sha256).length === 64,
+        `${job.job_no} / ${String(job.sha256).slice(0, 12)}…`);
+      ok('备份生成后即通过校验', job.verify_status === 'ok', job.verify_note || '');
+      ok('备份记录了表数与关键表行数',
+        job.tables_count > 100 && job.rows_total > 0, `${job.tables_count} 表 / ${job.rows_total} 行`);
+
+      const vf = await req(`/api/backup/${job.id}/verify`, { method: 'POST', token });
+      ok('可重新校验备份（完整性 + 关键表）',
+        vf.status === 200 && vf.json.data.checks.ok === true,
+        `integrity=${vf.json.data && vf.json.data.checks && vf.json.data.checks.integrity}`);
+
+      // 下载要拿到真正的 SQLite 文件
+      const dl = await fetch(BASE + `/api/backup/${job.id}/download`, {
+        headers: { Authorization: 'Bearer ' + token }
+      });
+      const buf = Buffer.from(await dl.arrayBuffer());
+      ok('可以下载备份文件且是有效 SQLite',
+        dl.status === 200 && buf.slice(0, 16).toString('latin1') === 'SQLite format 3\u0000',
+        `HTTP ${dl.status} / ${(buf.length / 1024 / 1024).toFixed(1)} MB`);
+    }
+
+    // ---- 拒绝不合法输入（恢复前必须挡住） ----
+    const badId = await req('/api/backup/restore/prepare', {
+      method: 'POST', token, body: { backup_id: 999999 }
+    });
+    ok('不存在的备份不能恢复', badId.status === 400, `HTTP ${badId.status}`);
+
+    const junk = await fetch(BASE + '/api/backup/restore/upload', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/octet-stream' },
+      body: Buffer.alloc(2048, 'not-a-database')
+    });
+    const junkJson = await junk.json();
+    ok('非 SQLite 文件被拒绝', junk.status === 400, `HTTP ${junk.status} ${junkJson.message || ''}`);
+
+    const tiny = await fetch(BASE + '/api/backup/restore/upload', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/octet-stream' },
+      body: Buffer.alloc(10)
+    });
+    ok('过小的上传被拒绝', tiny.status === 400, `HTTP ${tiny.status}`);
+
+    const noPendingRollback = await req('/api/backup/restore/rollback', { method: 'POST', token });
+    ok('没有待恢复时撤销会报错（不静默成功）', noPendingRollback.status === 400, `HTTP ${noPendingRollback.status}`);
+
+    // ---- 准备恢复 + 撤销（不真重启，只验证前半段与退路） ----
+    if (job) {
+      const prep = await req('/api/backup/restore/prepare', {
+        method: 'POST', token, body: { backup_id: job.id, note: '冒烟测试：验证准备与撤销' }
+      });
+      const pD = prep.status === 200 ? prep.json.data : null;
+      ok('可以准备恢复（校验通过）', prep.status === 200 && pD.prepared === true, `HTTP ${prep.status}`);
+      if (pD) {
+        ok('准备恢复时自动生成了回滚点', !!pD.rollback_job_no, pD.rollback_job_no || '无');
+        ok('待恢复文件校验结果随计划返回',
+          !!pD.checks && pD.checks.integrity === 'ok' && pD.checks.tables > 100,
+          `${pD.checks.tables} 张表`);
+        // 记下回滚点，后面一起清
+        const bk = await req('/api/backup/list?kind=pre_restore', { token });
+        const rb = (bk.json.data || []).find((x) => x.job_no === pD.rollback_job_no);
+        if (rb) created.push(rb.id);
+      }
+
+      const pd = await req('/api/backup/restore/pending', { token });
+      ok('待恢复状态变为 true', pd.status === 200 && pd.json.data.pending === true);
+
+      const rb = await req('/api/backup/restore/rollback', { method: 'POST', token });
+      ok('可以撤销待恢复（重启前反悔）', rb.status === 200 && rb.json.data.rolled_back === true, `HTTP ${rb.status}`);
+
+      const pd2 = await req('/api/backup/restore/pending', { token });
+      ok('撤销后待恢复状态归零', pd2.status === 200 && pd2.json.data.pending === false);
+    }
+
+    // ---- 自清理：删掉本次生成的备份（含回滚点） ----
+    try {
+      let removed = 0;
+      for (const id of created) {
+        const r = await req(`/api/backup/${id}`, { method: 'DELETE', token });
+        if (r.status === 200) removed++;
+      }
+      ok('备份用例跑完自清理', removed === created.length, `清理 ${removed}/${created.length} 份`);
+    } catch (e) {
+      ok('备份用例跑完自清理', false, e.message);
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

@@ -2459,3 +2459,56 @@
 
 10 条内置规则（`SOD-01` ~ `SOD-10`），判据是同一账号同时持有左右两端。
 `level` 全是 `warn`：识别 + 留痕 + 补偿性控制，不做硬拦截（小企业一人多岗是常态）。
+
+## 上线准备：备份与恢复（`/api/backup`，全部仅管理员）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /api/backup/overview | 备份健康（最近备份距今几小时 / 等级）+ 磁盘占用 + 待恢复状态 + 数据健康检查 + 最近 12 条 |
+| POST | /api/backup/create | `{note}` 在服务端生成备份（`VACUUM INTO`），立即校验并记录 sha256 / 表数 / 行数 / 耗时 |
+| GET | /api/backup/list | `?kind=manual\|pre_restore\|auto\|restore` 备份历史（含 `exists` 表示文件是否还在） |
+| GET | /api/backup/:id/download | 下载备份文件（二进制流） |
+| POST | /api/backup/:id/verify | 重新校验文件（`integrity_check` + 关键表 + 非空库），结果写回记录 |
+| DELETE | /api/backup/:id | 删除备份（文件一起删；正等着恢复的那份不允许删） |
+| POST | /api/backup/restore/prepare | `{backup_id, note}` 校验 → **自动备份当前库** → 写待恢复文件，返回 plan（含回滚点编号） |
+| POST | /api/backup/restore/upload | **二进制上传**（`application/octet-stream`，≤512MB）准备恢复，`?note=` 记原因 |
+| POST | /api/backup/restore/rollback | 撤销待恢复（重启前反悔），待恢复文件改名归档 |
+| GET | /api/backup/restore/pending | 当前是否有待恢复文件 + 计划详情 |
+| GET | /api/backup/checks | 数据健康检查（6 项，见下） |
+
+**恢复为什么必须重启**
+
+SQLite 已打开的连接无法安全换到另一个文件，硬换会让一半请求读旧库、一半读新库。
+所以「换文件」只在启动时做（`db.js` 在 `new Database(...)` **之前**调 `services/backup-restore.applyPendingRestore()`）。
+
+**启动时替换的顺序（缺一步就出事）**
+
+```
+1. 校验 restore-pending.db（integrity_check + 关键表 + 非空）
+   └ 校验不过：改名 restore-failed-<时间>.db 到 data/replaced/，继续用旧库（宁可恢复失败也不能弄坏库）
+2. 旧库改名 → data/replaced/replaced-<时间>.db（不删）
+3. 删掉 erp-mindmap.db-wal 与 -shm   ← 不删会把旧事务重放到新库上
+4. restore-pending.db 改名为 erp-mindmap.db
+5. 写一条 backup_jobs（kind=restore）留痕
+```
+
+**数据健康检查的 6 项**
+
+| key | 项目 | 级别 | 说明 |
+|---|---|---|---|
+| gl_posted_balanced | 已过账凭证借贷平衡 | hard | 只算 `status='posted'` 且有凭证的分录 |
+| gl_orphan_entries | 凭证分录无孤儿行 | data | 分录的凭证不存在（演示脚本中断留下的），会让总账不平 |
+| stock_balance | 成品库存 = 流水净额 | data | `SUM(stock_items.qty)` vs `SUM(stock_ledger.qty)` |
+| material_balance | 原料库存 = 流水净额 | data | `SUM(materials.stock_qty)` vs `SUM(material_ledger.qty)` |
+| order_items_orphan | 订单明细无孤儿行 | data | 明细的订单不存在 |
+| users_unique | 账号无重复 | hard | 重名账号会让登录错乱 |
+
+**这些检查不参与「恢复是否成功」的判定** —— 库里本来就有脏数据时，恢复成功后它仍然会报；
+恢复只看：待恢复文件被消费、关键表行数一致、标记数据回滚、有退路（回滚点 + 旧库留档）。
+
+**定时备份**
+
+```bash
+ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
+```
+走 HTTP 而不是直连库：备份的唯一写入者应该是服务进程，避免抢锁与重复实现保留策略。

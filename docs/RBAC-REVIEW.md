@@ -2,7 +2,7 @@
 
 > 复核日期：2026-10-28
 > 复核范围：94 个权限点 × 8 个岗位 × 10 个在册账号
-> 依据：`backend/src/access/permissions.js`（唯一来源）+ `backend/scripts/rbac-audit.js`（808 个带角色要求的接口静态扫描）
+> 依据：`backend/src/access/permissions.js`（唯一来源）+ `backend/scripts/rbac-audit.js`（819 个带角色要求的接口静态扫描）
 > 矩阵全量见 `docs/RBAC.md`，由脚本生成，接口有变动重跑即可。
 
 ---

@@ -102,6 +102,7 @@ const investmentRoutes = require('./routes/investment');
 const cutdispatchRoutes = require('./routes/cutdispatch');
 const devmasterRoutes = require('./routes/devmaster');
 const supreviewRoutes = require('./routes/supreview');
+const backupRoutes = require('./routes/backup');   // 备份中心（服务端备份/校验/恢复计划/回滚）
 const accessRoutes = require('./routes/access');   // 岗位权限复核（权限矩阵/例外/职责分离/签字留痕）
 const importOpsRoutes = require('./routes/importops');   // 上线准备：真实数据导入（预览/提交/批次留痕）   // 供方信息协同与技术再次审核（A1 分工 / A2 供方确认 / A3 复审）   // 研发立项与款式生命周期 + SKU 配码主档   // 裁片外发与外协验货交接（按扎追溯）   // 长期投资抵消（长投↔子公司权益/商誉/少数股东权益）   // 价格快照（价格本）+ 费用池分摊   // 备料领退与盘点差异（原料流水/领料/退料/盘点）   // 分公司经营对比（对外口径/环比/可比调整/报告快照）
 
@@ -237,6 +238,7 @@ app.use('/api/investment', investmentRoutes);
 app.use('/api/cutdispatch', cutdispatchRoutes);
 app.use('/api/devmaster', devmasterRoutes);
 app.use('/api/supreview', supreviewRoutes);
+app.use('/api/backup', backupRoutes);   // 备份与恢复
 app.use('/api/access', accessRoutes);   // 岗位权限复核
 app.use('/api/importops', importOpsRoutes);   // 真实数据导入   // 供方信息协同与技术再次审核   // 研发立项 + SKU 配码主档   // 裁片外发与外协验货交接   // 长期投资抵消   // 价格快照 + 费用池分摊   // 备料领退与盘点差异   // 分公司经营对比
 

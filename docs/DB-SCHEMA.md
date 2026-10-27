@@ -894,3 +894,20 @@
 >
 > 与既有表的关系：`access_exceptions.perm` 的取值必须是 `backend/src/access/permissions.js` 里定义过的权限点（后端校验，不存在的点直接拒），
 > 这样才能保证「权限点表 → 角色默认 → 用户例外」是一条链，不会冒出无源之水。
+
+## 上线准备：备份与恢复（M-BACKUP）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| backup_jobs | job_no(UNIQUE), kind(manual/pre_restore/auto/drill/restore), file_name, file_path, size_bytes, **sha256**, tables_count, rows_total, key_rows(JSON), app_version, verify_status(unchecked/ok/failed), verify_at, verify_note, restore_status(pending/applied/rolled_back/failed), restore_at, note, operator, duration_ms, created_at | **每一次备份与恢复都留一条**。`kind=restore` 是「重启时应用了恢复」的记录（由 `db.js` 在启动时写入），文件名为空、`file_path` 为空。`verify_note` 存校验结论或失败原因；保留策略清理文件后会在 note 里追加标记，记录本身不删 |
+
+> **磁盘结构**（都在 `backend/data/` 下，已被 `.gitignore` 忽略）：
+> - `backups/BK<日期>-<序号>.db` —— 正常备份文件
+> - `backups/BK<日期>-<序号>-pre-restore.db` —— 恢复前自动生成的回滚点
+> - `restore-pending.db` + `restore-plan.json` —— 待恢复文件与计划（只在「准备完、还没重启」这段时间存在）
+> - `replaced/replaced-<时间>.db` —— 恢复时换下来的旧库（**不删**，唯一的物理退路）
+> - `replaced/restore-failed-<时间>.db` —— 校验不过被放弃的待恢复文件
+> - `replaced/restore-cancelled-<时间>.db` —— 被人工撤销的待恢复文件
+>
+> **`sha256` 的用途**：同一个文件在服务端、下载到本地、再上传回来，都能比对是不是同一份。
+> 但**不要拿它判定「恢复是否成功」** —— WAL 模式下服务启动后会正常写入，主库文件指纹必然变化。

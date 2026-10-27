@@ -50,7 +50,7 @@
         <span class="tiny muted">共 {{ filteredPerms.length }} 个权限点 · 带 <span class="tag red">核</span> 的表示已在后端按高危路由拦截</span>
       </div>
       <div class="table-wrap" style="margin-top: 12px; overflow-y: auto; max-height: 900px">
-        <table class="tb matrix">
+        <table class="data matrix">
           <thead>
             <tr>
               <th style="text-align: left; min-width: 190px">权限点</th>
@@ -197,7 +197,7 @@
     <!-- ============ 复核记录 ============ -->
     <div v-if="tab === 'history'">
       <div class="table-wrap" style="overflow-y: auto">
-        <table class="tb">
+        <table class="data">
           <thead>
             <tr>
               <th>编号</th>

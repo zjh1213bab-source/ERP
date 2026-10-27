@@ -1334,6 +1334,17 @@ export const api = {  // 登录
   createSupReview: (id, d) => req(`/api/supreview/packs/${id}/reviews`, { method: 'POST', body: d }),
   approveSupPack: (id, d) => req(`/api/supreview/packs/${id}/approve`, { method: 'POST', body: d || {} }),
 
+  // 备份与恢复
+  backupOverview: () => req('/api/backup/overview'),
+  backupCreate: (d) => req('/api/backup/create', { method: 'POST', body: d }),
+  backupList: (params) => req('/api/backup/list' + qs(params)),
+  backupVerify: (id) => req(`/api/backup/${id}/verify`, { method: 'POST' }),
+  backupDelete: (id) => req(`/api/backup/${id}`, { method: 'DELETE' }),
+  backupPrepare: (d) => req('/api/backup/restore/prepare', { method: 'POST', body: d }),
+  backupRollback: () => req('/api/backup/restore/rollback', { method: 'POST' }),
+  backupPending: () => req('/api/backup/restore/pending'),
+  backupChecks: () => req('/api/backup/checks'),
+
   // 岗位权限复核
   accessMe: () => req('/api/access/me'),
   accessPermissions: () => req('/api/access/permissions'),
@@ -1375,6 +1386,30 @@ export async function exportOrders(params) {
   const res = await fetch(base + '/api/orders/export' + qs(params), { headers });
   if (!res.ok) throw new Error('导出失败');
   return res.blob();
+}
+
+/**
+ * 上传二进制文件（备份恢复用）
+ * 不能走 req()：那个函数固定 Content-Type: application/json，还会把 body JSON 序列化。
+ * 备份动辄几十上百 MB，base64 膨胀 33% 且要在内存里多留一份，所以直接发二进制。
+ */
+export async function uploadBinary(path, file, query = {}) {
+  const base = import.meta.env.VITE_API_BASE || '';
+  const headers = { 'Content-Type': 'application/octet-stream' };
+  if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+  const res = await fetch(base + path + qs(query), { method: 'POST', headers, body: file });
+  let json = {};
+  try {
+    json = await res.json();
+  } catch (e) {
+    json = {};
+  }
+  if (res.status === 401) {
+    clearAuth();
+    if (location.pathname !== '/login') location.href = '/login';
+  }
+  if (!res.ok) throw new Error(json.message || `上传失败（${res.status}）`);
+  return json.data !== undefined ? json.data : json;
 }
 
 /** 通用带 Token 下载（返回 blob） */

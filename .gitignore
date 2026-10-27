@@ -12,6 +12,12 @@ dist/
 backend/data/*.db
 backend/data/*.db-wal
 backend/data/*.db-shm
+# 备份与恢复留档（体积大、属于运行时数据，不入库）
+backend/data/backups/
+backend/data/replaced/
+backend/data/_drill-state.json
+backend/data/restore-pending.db
+backend/data/restore-plan.json
 
 # 日志
 logs/

@@ -31,6 +31,27 @@ try {
 }
 
 fs.mkdirSync(path.dirname(config.dbPath), { recursive: true });
+
+/**
+ * 待生效的恢复：必须在打开连接之前把文件换掉。
+ * 顺序反了就会连到旧库上 —— 表现是「恢复提示成功，重启后数据没变」。
+ * backup-restore 模块刻意不依赖本文件，就是为了能在这里先跑。
+ */
+let restoreApplied = null;
+try {
+  const BR = require('./services/backup-restore');
+  const r = BR.applyPendingRestore({ dbPath: config.dbPath });
+  if (r.applied) {
+    restoreApplied = r;
+    console.log(`[db] 已应用待恢复的备份：${r.checks.tables} 张表 / 关键表 ${r.checks.rows_total} 行`);
+    console.log(`[db] 恢复前的旧库已留档：${r.replacedFile}`);
+  } else if (r.error) {
+    console.error('[db] 恢复未执行，继续使用当前库 —— ' + r.error);
+  }
+} catch (e) {
+  console.error('[db] 处理待恢复文件时异常（继续使用当前库）：', e.message);
+}
+
 const db = new DatabaseCtor(config.dbPath);
 try {
   db.exec('PRAGMA journal_mode = WAL;');
@@ -138,15 +159,54 @@ function seed() {
         .run('C001', '默认公司', t);
       companyId = Number(info.lastInsertRowid);
     }
+    // 注意列名是 password_hash（早期写成 password，全新库初始化会直接报错、连管理员都建不出来）
     db.prepare(
-      'INSERT INTO users (username, password, name, role, company_id, status, created_at) VALUES (?,?,?,?,?,?,?)'
-    ).run(config.adminUsername, hashPassword(config.adminPassword), '系统管理员', 'admin', companyId, 'active', t);
+      'INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,?,?)'
+    ).run(config.adminUsername, hashPassword(config.adminPassword), '系统管理员', 'admin', companyId, 1, t);
   }
 }
 
 createSchema();
 migrate();
 seed();
+
+/** 把「本次启动应用了恢复」这件事记进 backup_jobs（表可能还不存在，忽略异常） */
+function logRestoreApplied(r) {
+  if (!r || !r.applied) return;
+  try {
+    const has = db
+      .prepare("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='backup_jobs'")
+      .get();
+    if (!has) return;
+    const plan = r.plan || {};
+    db.prepare(
+      `INSERT INTO backup_jobs
+       (job_no, kind, file_name, size_bytes, tables_count, rows_total, key_rows,
+        verify_status, verify_at, verify_note, restore_status, restore_at, note, operator, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(
+      'RS' + new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14),
+      'restore',
+      '（由 ' + (plan.source && plan.source.job_no ? plan.source.job_no : '上传文件') + ' 恢复）',
+      0,
+      (r.checks && r.checks.tables) || 0,
+      (r.checks && r.checks.rows_total) || 0,
+      JSON.stringify((r.checks && r.checks.key_rows) || {}),
+      'ok',
+      now(),
+      '完整性校验通过，已替换数据库文件',
+      'applied',
+      now(),
+      '重启时应用恢复；恢复前旧库留档：' + (r.replacedFile || ''),
+      plan.operator || '',
+      now()
+    );
+  } catch (e) {
+    console.warn('[db] 恢复记录写入失败（不影响业务）：', e.message);
+  }
+}
+
+logRestoreApplied(restoreApplied);
 
 // ---------- 蓝图（原思维导图）配置 ----------
 function getMindmap() {

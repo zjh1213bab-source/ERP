@@ -76,6 +76,17 @@
 | assets | POST | `/:id/status` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | attendance | POST | `/clock` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | audit | GET | `/` | ✅ | — | — | — | — | — | — | — |
+| backup | DELETE | `/:id` | ✅ | — | — | — | — | — | — | — |
+| backup | GET | `/:id/download` | ✅ | — | — | — | — | — | — | — |
+| backup | POST | `/:id/verify` | ✅ | — | — | — | — | — | — | — |
+| backup | GET | `/checks` | ✅ | — | — | — | — | — | — | — |
+| backup | POST | `/create` | ✅ | — | — | — | — | — | — | — |
+| backup | GET | `/list` | ✅ | — | — | — | — | — | — | — |
+| backup | GET | `/overview` | ✅ | — | — | — | — | — | — | — |
+| backup | GET | `/restore/pending` | ✅ | — | — | — | — | — | — | — |
+| backup | POST | `/restore/prepare` | ✅ | — | — | — | — | — | — | — |
+| backup | POST | `/restore/rollback` | ✅ | — | — | — | — | — | — | — |
+| backup | POST | `/restore/upload` | ✅ | — | — | — | — | — | — | — |
 | bank | POST | `/accounts` | ✅ | — | — | — | — | — | — | — |
 | bank | PUT | `/accounts/:id` | ✅ | — | — | — | — | — | — | — |
 | bank | POST | `/auto-match` | ✅ | — | — | — | — | — | ✅ | — |

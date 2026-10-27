@@ -55,6 +55,7 @@ import DevMaster from './views/DevMaster.vue';
 import SupReview from './views/SupReview.vue';
 import ImportData from './views/ImportData.vue';
 import AccessReview from './views/AccessReview.vue';
+import Backup from './views/Backup.vue';
 import Suppliers from './views/Suppliers.vue';
 import CraftTypes from './views/CraftTypes.vue';
 import PatternBoard from './views/PatternBoard.vue';
@@ -172,6 +173,7 @@ const routes = [
       { path: 'sup-review', component: SupReview, meta: { title: '供方协同与技术复审' } },
       { path: 'import-data', component: ImportData, meta: { title: '真实数据导入' } },
       { path: 'access-review', component: AccessReview, meta: { title: '权限复核' } },
+      { path: 'backup', component: Backup, meta: { title: '备份与恢复' } },
       { path: 'mail', component: Mail, meta: { title: '内部邮件' } },
       { path: 'materials', component: Materials, meta: { title: '面辅料档案' } },
       { path: 'materials/new', component: MaterialEdit, meta: { title: '新增物料档案' } },
