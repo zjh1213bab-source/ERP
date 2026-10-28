@@ -8,7 +8,7 @@ const { localTime } = require('../utils/time');
 const { db, now, getSettings } = require('../db');
 const { applyStock, addLedger } = require('../services/stockOps');
 const { notifyOrderStatus } = require('../services/mall');
-const { ok, fail, wrap, genNo } = require('../utils/http');
+const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -16,6 +16,9 @@ const router = express.Router();
 // 状态机常量与流转实现已抽到 services/orderFlow.js —— 单张流转与批量流转必须共用同一套门槛，
 // 所以这里只做转发，不再自己判断（抄一份判断，迟早出现「批量能绕过评审」的洞）
 const orderFlow = require('../services/orderFlow');
+// 订单号由业务手填（必填、唯一、可改但要级联同步下游）—— 规则统一在服务层，
+// 这里只调用，不在这里重写一遍判断
+const orderNoSvc = require('../services/orderNo');
 const { STATUS_LABELS, FLOW, CHAIN, TRANSITION_ROLES } = orderFlow;
 
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
@@ -53,6 +56,12 @@ function getOrderFull(id) {
   });
   order.logs = db.prepare('SELECT * FROM order_logs WHERE order_id = ? ORDER BY id').all(id);
   order.crafts = db.prepare('SELECT * FROM order_crafts WHERE order_id = ? ORDER BY id').all(id);
+  // 关联采购（这张订单的料买了没有）—— 采购单那边有 order_id，这里反查，
+  // 让「订单 → 采购」和「采购 → 订单」两个方向都能看，不用来回找
+  order.purchases = db.prepare(`SELECT id, po_no, supplier, status, order_date, expect_date, total_amount
+    FROM purchase_orders WHERE order_id = ? ORDER BY id DESC`).all(id);
+  // 改号历史（没有就是空数组，前端不用判 null）
+  order.order_no_logs = db.prepare('SELECT * FROM order_no_logs WHERE order_id = ? ORDER BY id DESC').all(id);
   return order;
 }
 
@@ -143,6 +152,52 @@ router.get('/find', authRequired, wrap(async (req, res) => {
   return ok(res, { ...order, matched_by: matchedBy });
 }));
 
+// ============================================================
+// 订单号：反查 / 改号 / 改号历史
+//
+// 全部收在 `/order-no/` 这一段下，两个原因：
+//   1. **必须放在 `/:id` 之前** —— 否则 `/order-no/trace` 会被当成 id=order-no
+//   2. **`GUARDED` 是前缀匹配**，只有独立路径段才能精确挂「改号」这类高危动作
+//      （写成 `/:id/order-no` 无法用前缀锁，会退回到只靠路由里的 requireRole）
+// ============================================================
+
+// 反查：这个订单号现在挂着哪些单（采购、排产、领料、计件……）
+router.get('/order-no/trace', authRequired, wrap(async (req, res) =>
+  ok(res, orderNoSvc.trace(req.query.no))));
+
+// 改号预览：先看清会连带改哪些表多少行，再决定按不按确认
+router.get('/order-no/:id/preview', authRequired, wrap(async (req, res) =>
+  ok(res, orderNoSvc.previewRename(req.params.id, req.query.no))));
+
+// 改号历史
+router.get('/order-no/:id/logs', authRequired, wrap(async (req, res) =>
+  ok(res, orderNoSvc.renameLogs(req.params.id))));
+
+/**
+ * 改订单号
+ *
+ * 比下单更严：已经在产或已入库的单只允许管理员改，已发货/已结案/已取消一律不许改。
+ * 理由不是「怕麻烦」，而是这三种状态下订单号已经出现在**系统之外**：
+ * 已发货的号印在面单和客户对账单上，已结案的号进了结算，
+ * 已取消的号还留着改会让历史里出现一个从没存在过的编号。
+ */
+router.post('/order-no/:id', authRequired, requireRole(['admin', 'sales']), wrap(async (req, res) => {
+  const order = db.prepare('SELECT id, order_no, status FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return fail(res, 404, '订单不存在');
+  const LOCKED = ['shipped', 'closed', 'cancelled'];
+  if (LOCKED.includes(order.status)) {
+    return fail(res, 400, `订单${STATUS_LABELS[order.status] || order.status}，订单号不能再改`
+      + '（号已印在面单/进了结算/已作废，改了会和系统外的文件对不上）');
+  }
+  const inProduction = ['production', 'instock'].includes(order.status);
+  if (inProduction && req.user.role !== 'admin') {
+    return fail(res, 400, `订单${STATUS_LABELS[order.status]}，改订单号需要管理员操作`
+      + '（车间与仓库正在按这个号找货，改号会让实物与单据对不上）');
+  }
+  return ok(res, orderNoSvc.rename(req.params.id, req.body && req.body.order_no, req.body || {},
+    (req.user && (req.user.username || req.user.name)) || 'system'));
+}));
+
 // ---------- 详情 ----------
 router.get('/:id', authRequired, wrap(async (req, res) => {
   const order = getOrderFull(req.params.id);
@@ -167,17 +222,21 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
     let itemQty = 0, itemUsd = 0;
     const sizeRows = [];
     for (const c of colors) {
-      const colorName = c.color || '';
+      const colorName = String(c.color || '').trim();
       const sizes = Array.isArray(c.sizes) ? c.sizes.filter((s) => Number(s.qty) > 0) : [];
+      if (sizes.length && !String(colorName).trim()) return fail(res, 400, `款「${it.product_name || '未命名'}」有数量的颜色组必须填写颜色`);
       for (const s of sizes) {
         const qty = Number(s.qty) || 0;
-        const usd = Number(s.usd_price) || 0;
+        const usd = Number(s.usd_price ?? 0);
+        if (!Number.isFinite(usd) || usd < 0) return fail(res, 400, `款「${it.product_name || '未命名'}」有无效美金单价`);
+        const sizeName = String(s.size || '').trim();
+        if (!sizeName) return fail(res, 400, `款「${it.product_name || '未命名'}」有数量的尺码行必须填写尺码`);
         const amtUsd = round2(qty * usd);
         itemQty += qty;
         itemUsd += amtUsd;
         sizeRows.push({
           color: colorName,
-          size: String(s.size || '均码'),
+          size: sizeName,
           qty,
           usd_price: usd,
           cny_price: round2(usd * rate),
@@ -203,11 +262,15 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
   }
   const orderCny = round2(orderUsd * rate);
 
-  let seq = Number(db.prepare('SELECT COUNT(*) AS c FROM orders').get().c) + 1;
-  let orderNo = genNo(type === 'stock' ? 'XS' : 'SO', seq);
-  while (db.prepare('SELECT 1 AS x FROM orders WHERE order_no = ?').get(orderNo)) {
-    orderNo = genNo(type === 'stock' ? 'XS' : 'SO', ++seq);
-  }
+  // 订单号由业务手工填写（必填），不再自动生成。
+  //
+  // 之前是 genNo(SO/XS + 日期 + 序号) 自动出号，改成手填之后有三个直接后果，
+  // 都在 orderNoSvc.check 里处理：
+  //   1. 不能为空 —— 手填最容易出现的不是填错，而是漏填，让系统兜个号就变成两张单号体系
+  //   2. 不能重号（不分大小写）—— so001 与 SO001 在人眼里是同一个号，
+  //      数据库的唯一索引分大小写，兜不住这个
+  //   3. 不强制格式 —— 业务填的是客户 PO / 平台单号 / 老系统流水，强制 SO 前缀等于没改
+  const orderNo = orderNoSvc.check(b.order_no);
 
   let orderId;
   db.exec('BEGIN');
@@ -246,6 +309,91 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
     throw err;
   }
   return ok(res, getOrderFull(orderId));
+}));
+
+// ---------- 完善草稿订单的颜色尺码矩阵 ----------
+router.put('/:id/items', authRequired, requireRole(['admin', 'sales']), wrap(async (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return fail(res, 404, '订单不存在');
+  if (order.status !== 'draft') return fail(res, 400, '订单进入技术确认后不可修改颜色尺码明细');
+  if (db.prepare('SELECT 1 AS x FROM dispatch_orders WHERE order_id = ? LIMIT 1').get(order.id)) {
+    return fail(res, 400, '订单已有分单记录，不可修改明细');
+  }
+  const input = req.body && req.body.items;
+  if (!Array.isArray(input) || !input.length) return fail(res, 400, '至少保留一款订单明细');
+
+  const rate = Number(order.rate) > 0 ? Number(order.rate) : getSettings().exchangeRate;
+  const items = [];
+  let orderUsd = 0;
+  for (const it of input) {
+    const sizes = Array.isArray(it.sizes) ? it.sizes : (Array.isArray(it.colors)
+      ? it.colors.flatMap((c) => (c.sizes || []).map((s) => ({ ...s, color: c.color })))
+      : []);
+    const validRows = [];
+    let qty = 0;
+    let amountUsd = 0;
+    for (const s of sizes) {
+      const rowQty = Number(s.qty);
+      if (!Number.isFinite(rowQty) || rowQty < 0) return fail(res, 400, `款「${it.product_name || '未命名'}」有无效数量`);
+      if (rowQty === 0) continue;
+      const color = String(s.color || '').trim();
+      const size = String(s.size || '').trim();
+      const usd = Number(s.usd_price ?? 0);
+      if (!color || ['待定', '待分色', '未定'].includes(color)) return fail(res, 400, `款「${it.product_name || '未命名'}」的颜色仍未确定`);
+      if (!size || ['待定', '待定尺码'].includes(size)) return fail(res, 400, `款「${it.product_name || '未命名'}」的尺码仍未确定`);
+      if (!Number.isFinite(usd) || usd < 0) return fail(res, 400, `款「${it.product_name || '未命名'}」有无效单价`);
+      const amount = round2(rowQty * usd);
+      qty += rowQty;
+      amountUsd += amount;
+      validRows.push({ color, size, qty: rowQty, usd, amount });
+    }
+    if (!String(it.product_name || '').trim()) return fail(res, 400, '每款都必须填写产品名称');
+    if (!validRows.length) return fail(res, 400, `款「${it.product_name}」没有有效的颜色尺码数量`);
+    amountUsd = round2(amountUsd);
+    orderUsd = round2(orderUsd + amountUsd);
+    items.push({
+      product_id: it.product_id || null,
+      product_name: String(it.product_name).trim(),
+      style_no: it.style_no || null,
+      sku: it.sku || null,
+      remark: it.remark || null,
+      qty,
+      amount_usd: amountUsd,
+      amount_cny: round2(amountUsd * rate),
+      sizes: validRows.map((s) => ({
+        ...s,
+        cny: round2(s.usd * rate),
+        amount_cny: round2(s.amount * rate)
+      }))
+    });
+  }
+
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(order.id);
+    db.prepare('DELETE FROM order_items WHERE order_id = ?').run(order.id);
+    const insItem = db.prepare(
+      'INSERT INTO order_items (order_id, product_id, product_name, style_no, sku, remark, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?,?)'
+    );
+    const insSize = db.prepare(
+      'INSERT INTO order_item_sizes (item_id, color, size, qty, usd_price, cny_price, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?)'
+    );
+    for (const it of items) {
+      const info = insItem.run(order.id, it.product_id, it.product_name, it.style_no, it.sku, it.remark,
+        it.qty, it.amount_usd, it.amount_cny);
+      for (const s of it.sizes) insSize.run(Number(info.lastInsertRowid), s.color, s.size, s.qty, s.usd, s.cny, s.amount, s.amount_cny);
+    }
+    const t = now();
+    db.prepare('UPDATE orders SET total_usd = ?, total_amount = ?, updated_at = ? WHERE id = ?')
+      .run(orderUsd, round2(orderUsd * rate), t, order.id);
+    db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
+      .run(order.id, 'draft', 'draft', req.user.username, `完善颜色尺码明细：${items.length} 款，共 ${items.reduce((sum, it) => sum + it.qty, 0)} 件`, t);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return ok(res, getOrderFull(order.id));
 }));
 
 // ---------- 设置款图 ----------

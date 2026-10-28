@@ -14,13 +14,37 @@ const { genNo } = require('./http');
 
 function nextNo(prefix, table, column = 'bill_no') {
   const d = new Date();
-  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-  const row = db
-    .prepare(`SELECT ${column} AS no FROM ${table} WHERE ${column} LIKE ? ORDER BY id DESC LIMIT 1`)
-    .get(`${prefix}${ymd}%`);
-  // 号形如 YS202610280001：日期 8 位之后才是 4 位序号，从尾部取，不从头部切
-  const seq = row ? Number(String(row.no).slice(-4)) + 1 : 1;
-  return genNo(prefix, seq);
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
+    + `${String(d.getDate()).padStart(2, '0')}`;
+  const like = `${prefix}${ymd}%`;
+  const rows = db.prepare(`SELECT ${column} AS no FROM ${table} WHERE ${column} LIKE ?`).all(like);
+
+  /**
+   * 取「当天该前缀下最大的尾部序号 + 1」
+   *
+   * 原来只取 `ORDER BY id DESC LIMIT 1` 再 `slice(-4)`，在手填单号的库上会出事：
+   *   - 业务可能自己填过 `SO202610280007`（尾部是序号，没事）
+   *   - 也可能填 `SO202610280001-A`（尾部不是数字）→ `Number('1-A')` 是 NaN
+   *     → 生成 `SO202610280NaN`，之后所有取号全乱
+   *   - 还可能是 `SO2026102800001`（5 位序号）→ slice(-4) 得到 `0001`=1，倒退
+   *
+   * 所以：**先剥掉「前缀 + 日期」这 8 位，剩下的才是序号部分**，再从中取开头的连续数字。
+   *
+   * 不能直接在整串上取尾部数字：`ZZTEST202610280007` 的尾部 6 位是 `280007`，
+   * 那是日期的一部分，算出来会是 280008 号（真踩过）。
+   * 也不能要求尾部必须是数字：手填的 `...0001-A` 是合法单号，取开头的 1 才是对的。
+   */
+  const head = `${prefix}${ymd}`;
+  let max = 0;
+  rows.forEach((r) => {
+    const full = String(r.no || '').trim();
+    if (!full.startsWith(head)) return;
+    const m = /^(\d{1,6})/.exec(full.slice(head.length));
+    if (!m) return;
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n > max) max = n;
+  });
+  return genNo(prefix, max + 1);
 }
 
 module.exports = { nextNo };

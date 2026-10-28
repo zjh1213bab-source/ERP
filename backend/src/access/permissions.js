@@ -39,6 +39,9 @@ const ROLE_LABELS = {
 const PERMS = {
   // ===== 订单 =====
   'order.create': ['sales'],
+  // 改订单号会级联改下游 18 张表的冗余副本（生产单、领料单、计件明细…），属高危动作，
+  // 所以单独一个权限点，而不是搭 order.create 的便车
+  'order.rename': ['admin', 'sales'],
   'order.export': ['sales', 'finance'],
   'order.dispatch': ['sales', 'production'],
   'order.instock': ['warehouse', 'production'],
@@ -484,6 +487,8 @@ const GUARDED = [
   { perm: 'schedule.publish', method: 'POST', prefix: '/api/schedule/publish' },
   // 对外数据外泄与主数据篡改，同样算高危
   { perm: 'order.export', method: 'GET', prefix: '/api/orders/export' },
+  // 改号单独锁：路径做成独立段 /order-no/:id，才能被前缀精确挂上
+  { perm: 'order.rename', method: 'POST', prefix: '/api/orders/order-no' },
   { perm: 'customer.write', method: '*', prefix: '/api/customers' },
   { perm: 'supplier.write', method: '*', prefix: '/api/supplier-evals' },
   { perm: 'qc.write', method: '*', prefix: '/api/qc' },

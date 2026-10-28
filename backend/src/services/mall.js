@@ -2,6 +2,7 @@
  * 客户商城公共逻辑：价格解析、可售量、站内消息、单据号
  */
 const { db, now, getSettings } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { genNo } = require('../utils/http');
 
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
@@ -125,11 +126,13 @@ function convertInquiryToOrder(inquiry, items, operator) {
   const rate = Number(inquiry.rate) || getSettings().exchangeRate;
   const t = now();
 
-  let seq = Number(db.prepare('SELECT COUNT(*) AS c FROM orders').get().c) + 1;
-  let orderNo = genNo('SO', seq);
-  while (db.prepare('SELECT 1 AS x FROM orders WHERE order_no = ?').get(orderNo)) {
-    orderNo = genNo('SO', ++seq);
-  }
+  // 商城下单是全系统**唯一**一个「没有人可以填订单号」的建单入口：
+  // 客户在商城里自助下单，不可能让他先编一个公司内部单号。
+  //
+  // 所以这里的号仍由系统出，但用 `XS` 前缀与业务手填的号区分开 ——
+  // 否则商城号与销售手填号混在一起，出问题时说不清哪张是客户自助下的。
+  // 顺手把 COUNT(*)+1 换成取最大号+1（项目铁律：COUNT 会在作废/删除后重号）。
+  const orderNo = nextNo('XS', 'orders', 'order_no');
 
   let orderId;
   db.exec('BEGIN');

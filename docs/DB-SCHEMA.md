@@ -1360,3 +1360,35 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > `backup_jobs`、`gl_vouchers` / `gl_entries` / `gl_periods`、`schema.js`（表结构快照）、
 > `scripts/audit-demo-data.js`（烟测残留与孤儿扫描）。
 > **本模块不写任何业务表**，只写自己这两张。
+
+## 订单号手填（M-ORDERNO）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| order_no_logs | order_id, old_no, new_no, **reason**（必填 ≥6 字）, synced_rows, synced_tables(JSON), operator, created_at | 改号留痕。回答「这张单原来是什么号、谁改的、连带改了多少行」 |
+
+`purchase_orders` 增两列：
+
+| 列 | 说明 |
+|---|---|
+| order_id | 关联销售订单（可空：备货采购/返修补料不挂单） |
+| order_no | 冗余订单号，供打印与筛选；由 `services/orderNo.js` 的级联同步维护 |
+
+> **为什么改号留痕不复用 `audit_logs`**：`audit_logs` 记的是「谁调了哪个接口」（路径+状态码），
+> **不读 body**（避免把业务数据抄进日志表）。而改号必须回答「原来是什么号」，
+> 这个信息只能专门存。
+>
+> **为什么 `purchase_orders` 要冗余 `order_no`**：采购单要打印、要按订单筛、
+> 要在供应商对账单上体现「这是给哪张订单备的料」。只存 `order_id` 的话每次打印都要 JOIN；
+> 而订单号是可改的，JOIN 出来的是新号 —— 这正是要的：**采购单上显示的永远是当前订单号**。
+> 冗余列由级联同步维护，不在业务代码里各改各的。
+>
+> **为什么改号清单要显式登记**：自动扫「所有含 `order_no` 的表」，
+> 某天有人建了一张 `order_no_blacklist` 或 `order_no_import_staging`，也会被卷进来改。
+> 登记制的代价是新增表要记得加一行，但**漏加会在预览里看得见**（那个表的号还是旧值），
+> 而误改是看不见的。
+>
+> **为什么先改下游、最后改订单**：反过来若中途失败，会留下「订单已是新号、下游还是旧号」，
+> 而这种不一致没有任何界面能提示出来。
+>
+> 依赖（只读）：`orders`（本体）、`suppliers`（采购）、以及上列 18 张冗余表。

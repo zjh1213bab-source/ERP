@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 778 个对象
- * （354 张表 + 424 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 782 个对象
+ * （355 张表 + 427 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -37,7 +37,7 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS approval_instances (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,\n  target_id INTEGER NOT NULL,\n  flow_id INTEGER,\n  current_step INTEGER DEFAULT 1,\n  status TEXT DEFAULT 'pending',               -- pending / approved / rejected\n  created_at TEXT NOT NULL\n, flow_version_id INTEGER, steps_snapshot TEXT);",
   "CREATE TABLE IF NOT EXISTS approval_tasks (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  instance_id INTEGER NOT NULL,\n  step_no INTEGER NOT NULL,\n  role TEXT NOT NULL,\n  step_name TEXT,\n  status TEXT DEFAULT 'pending',               -- pending / approved / rejected\n  approver TEXT,\n  remark TEXT,\n  acted_at TEXT\n, due_at TEXT, sla_hours REAL, remind_count INTEGER NOT NULL DEFAULT 0, last_remind_at TEXT, escalate_level TEXT, escalated_to TEXT, escalated_at TEXT, escalate_reason TEXT, original_approver TEXT, delegate_by TEXT, received_at TEXT, received_by TEXT);",
   "CREATE TABLE IF NOT EXISTS attendance (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  employee_id INTEGER NOT NULL,\n  employee_name TEXT,\n  date TEXT NOT NULL,\n  check_in TEXT,\n  check_out TEXT,\n  status TEXT DEFAULT 'normal',                -- normal / late / leave / absent\n  remark TEXT,\n  created_at TEXT NOT NULL,\n  UNIQUE (employee_id, date)\n);",
-  "CREATE TABLE IF NOT EXISTS purchase_orders (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  po_no TEXT UNIQUE NOT NULL,\n  supplier TEXT,\n  status TEXT NOT NULL DEFAULT 'draft',        -- draft / ordered / received / cancelled\n  order_date TEXT,\n  expect_date TEXT,\n  remark TEXT,\n  total_amount REAL NOT NULL DEFAULT 0,\n  created_by INTEGER,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n, supplier_id INTEGER);",
+  "CREATE TABLE IF NOT EXISTS purchase_orders (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  po_no TEXT UNIQUE NOT NULL,\n  supplier TEXT,\n  status TEXT NOT NULL DEFAULT 'draft',        -- draft / ordered / received / cancelled\n  order_date TEXT,\n  expect_date TEXT,\n  remark TEXT,\n  total_amount REAL NOT NULL DEFAULT 0,\n  created_by INTEGER,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n, supplier_id INTEGER, order_id INTEGER, order_no TEXT);",
   "CREATE TABLE IF NOT EXISTS purchase_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  po_id INTEGER NOT NULL,\n  material_id INTEGER,\n  name TEXT NOT NULL,\n  spec TEXT,\n  unit TEXT,\n  qty REAL NOT NULL DEFAULT 0,\n  received_qty REAL NOT NULL DEFAULT 0,\n  price REAL NOT NULL DEFAULT 0,\n  amount REAL NOT NULL DEFAULT 0\n, issued_qty REAL NOT NULL DEFAULT 0, returned_qty REAL NOT NULL DEFAULT 0);",
   "CREATE TABLE IF NOT EXISTS price_tiers (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  product_id INTEGER NOT NULL,\n  min_qty INTEGER NOT NULL DEFAULT 1,\n  max_qty INTEGER,                             -- NULL = 无上限\n  price_usd REAL NOT NULL DEFAULT 0,\n  created_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS quotations (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  quote_no TEXT UNIQUE NOT NULL,\n  customer_id INTEGER,\n  status TEXT NOT NULL DEFAULT 'draft',        -- draft 草稿 / sent 已发出 / accepted 已接受 / rejected 已拒绝 / converted 已转订单\n  rate REAL NOT NULL DEFAULT 6.5,\n  total_qty INTEGER NOT NULL DEFAULT 0,\n  total_usd REAL NOT NULL DEFAULT 0,\n  total_amount REAL NOT NULL DEFAULT 0,\n  valid_until TEXT,\n  trade_terms TEXT,\n  delivery_days INTEGER DEFAULT 0,\n  remark TEXT,\n  order_id INTEGER,                            -- 转成订单后回填\n  created_by INTEGER,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);",
@@ -783,5 +783,9 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_glr_no ON golive_rounds(round_no);",
   "CREATE INDEX IF NOT EXISTS idx_gli_round ON golive_items(round_id, section, sort);",
   "CREATE INDEX IF NOT EXISTS idx_gli_status ON golive_items(round_id, status);",
-  "CREATE INDEX IF NOT EXISTS idx_gli_key ON golive_items(round_id, item_key);"
+  "CREATE INDEX IF NOT EXISTS idx_gli_key ON golive_items(round_id, item_key);",
+  "CREATE TABLE IF NOT EXISTS order_no_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  old_no TEXT NOT NULL,\n  new_no TEXT NOT NULL,\n  reason TEXT NOT NULL,                    -- 改号原因（必填，≥6 字）\n  synced_rows INTEGER NOT NULL DEFAULT 0,  -- 连带改了多少行\n  synced_tables TEXT,                      -- 逐表明细（JSON）\n  operator TEXT,\n  created_at TEXT NOT NULL\n);",
+  "CREATE INDEX IF NOT EXISTS idx_onl_order ON order_no_logs(order_id, created_at);",
+  "CREATE INDEX IF NOT EXISTS idx_onl_new ON order_no_logs(new_no);",
+  "CREATE INDEX IF NOT EXISTS idx_po_order ON purchase_orders(order_id);"
 ];

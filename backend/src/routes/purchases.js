@@ -34,11 +34,42 @@ function resolveSupplier(b) {
   return db.prepare('SELECT * FROM suppliers WHERE name = ? OR short_name = ? LIMIT 1').get(name, name) || null;
 }
 
+/**
+ * 解析要关联的销售订单
+ *
+ * 接受 `order_id` 或直接给 `order_no`（业务手上通常只有单号）。
+ * 填了就必须存在 —— 敲错一位挂到空号上，采购单会永远显示「关联 SO123」而查无此单。
+ * 不填是允许的：备货采购、返修补料、办公用品本来就不挂订单。
+ */
+function resolveOrder(b) {
+  const rawNo = String((b && b.order_no) || '').trim();
+  const rawId = Number((b && b.order_id) || 0);
+  if (!rawId && !rawNo) return null;
+  const row = rawId
+    ? db.prepare('SELECT id, order_no, status, customer_id FROM orders WHERE id = ?').get(rawId)
+    : db.prepare('SELECT id, order_no, status, customer_id FROM orders WHERE UPPER(order_no) = UPPER(?)').get(rawNo);
+  if (!row) {
+    const e = new Error(rawNo ? `订单号「${rawNo}」不存在，请核对后再关联` : '关联的订单不存在');
+    e.status = 400;
+    throw e;
+  }
+  if (row.status === 'cancelled') {
+    const e = new Error(`订单 ${row.order_no} 已取消，不能给已取消的订单挂采购`);
+    e.status = 400;
+    throw e;
+  }
+  return row;
+}
+
 function full(id) {
   const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(id);
   if (!po) return null;
   po.items = db.prepare('SELECT * FROM purchase_items WHERE po_id = ? ORDER BY id').all(id);
   po.receipts = db.prepare('SELECT id, grn_no, receive_date, status, receive_qty, pass_qty, pending_qty FROM goods_receipts WHERE po_id = ? ORDER BY id DESC').all(id);
+  // 关联订单：只读订单号与状态，不改订单任何东西（采购不动销售单）
+  po.order = po.order_id
+    ? (db.prepare('SELECT o.id, o.order_no, o.status, o.style_name, c.name AS customer_name FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?').get(po.order_id) || null)
+    : null;
   return po;
 }
 
@@ -47,7 +78,12 @@ router.get('/', authRequired, wrap(async (req, res) => {
   const where = [];
   const params = [];
   if (status) { where.push('status = ?'); params.push(status); }
-  if (q) { where.push('(po_no LIKE ? OR supplier LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  // 搜索同时覆盖采购单号、供应商、关联订单号 ——
+  // 「这张订单的料买齐了吗」是仓库每天真会问的问题
+  if (q) { where.push('(po_no LIKE ? OR supplier LIKE ? OR order_no LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+  if (req.query.order_no) { where.push('UPPER(order_no) = UPPER(?)'); params.push(String(req.query.order_no).trim()); }
+  if (req.query.order_id) { where.push('order_id = ?'); params.push(Number(req.query.order_id)); }
+  if (req.query.unlinked === '1') { where.push('(order_id IS NULL OR order_id = 0)'); }
   const sql = 'SELECT * FROM purchase_orders ' + (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY id DESC';
   return ok(res, db.prepare(sql).all(...params));
 }));
@@ -70,6 +106,9 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const gate = qualificationGate(sup.id);
   if (!gate.ok) return fail(res, 400, `${sup.name} ${gate.reason}。请先处理整改，或改用其他合格供方`);
 
+  // 关联销售订单（可选）：填了就必须真实存在且未取消
+  const linkOrder = resolveOrder(b);
+
   let seq = db.prepare('SELECT COUNT(*) AS c FROM purchase_orders').get().c + 1;
   let poNo = genNo('CG', seq);
   while (db.prepare('SELECT 1 AS x FROM purchase_orders WHERE po_no = ?').get(poNo)) {
@@ -81,8 +120,9 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   try {
     const t = now();
     const info = db.prepare(
-      'INSERT INTO purchase_orders (po_no, supplier, supplier_id, status, order_date, expect_date, remark, total_amount, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(poNo, sup.name, sup.id, 'draft', b.order_date || null, b.expect_date || null, b.remark || null, round2(total), req.user.sub, t, t);
+      'INSERT INTO purchase_orders (po_no, supplier, supplier_id, status, order_date, expect_date, remark, total_amount, created_by, created_at, updated_at, order_id, order_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(poNo, sup.name, sup.id, 'draft', b.order_date || null, b.expect_date || null, b.remark || null, round2(total), req.user.sub, t, t,
+      linkOrder ? linkOrder.id : null, linkOrder ? linkOrder.order_no : null);
     id = Number(info.lastInsertRowid);
     const ins = db.prepare('INSERT INTO purchase_items (po_id, material_id, name, spec, unit, qty, price, amount) VALUES (?,?,?,?,?,?,?,?)');
     items.forEach((it) => {
@@ -98,6 +138,32 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const out = full(id);
   out.qualification_warning = gate.reason || null;
   return ok(res, out);
+}));
+
+/**
+ * 关联 / 改挂 / 解除关联销售订单
+ *
+ * 允许改挂：采购单建好后才发现挂错订单是常见事（业务报了相邻的单号）。
+ * 允许解除：`order_id` 传 0 或空即解除（订单取消后要把料释放给别的单）。
+ * 不允许挂已取消的订单 —— 那条链路上已经有单据挂着，挂上去只会多一张废单。
+ */
+router.post('/:id/link-order', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!po) return fail(res, 404, '采购单不存在');
+  if (po.status === 'received' || po.status === 'closed') {
+    return fail(res, 400, '已收货/已结案的采购单不再改关联订单（料已入库，改挂会让库存归属说不清）');
+  }
+  const b = req.body || {};
+  const wantClear = (b.order_id === 0 || b.order_id === '0' || b.order_id === null) && !String(b.order_no || '').trim();
+  if (wantClear) {
+    db.prepare('UPDATE purchase_orders SET order_id = NULL, order_no = NULL, updated_at = ? WHERE id = ?').run(now(), po.id);
+    return ok(res, full(po.id));
+  }
+  const link = resolveOrder(b);
+  if (!link) return fail(res, 400, '请指定要关联的订单（订单号或订单 id）；要解除关联请显式传 order_id=0');
+  db.prepare('UPDATE purchase_orders SET order_id = ?, order_no = ?, updated_at = ? WHERE id = ?')
+    .run(link.id, link.order_no, now(), po.id);
+  return ok(res, full(po.id));
 }));
 
 router.post('/:id/order', authRequired, requireRole(WRITE), wrap(async (req, res) => {

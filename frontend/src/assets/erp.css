@@ -211,6 +211,10 @@ table.data tbody tr:last-child td { border-bottom: none; }
 /* ---------- 表单栅格 ---------- */
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form-grid .full { grid-column: 1 / -1; }
+/* 可点击的文字链接（单号/编号点开详情）：多个页面在用，提到全局，
+   否则某个页面忘了定义就是「能点但看着不能点」 */
+.lnk { color: #2563eb; cursor: pointer; }
+.lnk:hover { text-decoration: underline; }
 .fitem label { display: block; font-size: 12.5px; font-weight: 600; color: #5b6474; margin-bottom: 6px; }
 .fitem .input, .fitem .select, .fitem textarea { width: 100%; }
 .fitem textarea { padding: 9px 11px; border: 1px solid #dfe5ef; border-radius: 8px; font-family: inherit; font-size: 13.5px; resize: vertical; }

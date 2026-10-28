@@ -3503,3 +3503,65 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 `draft` 评估中 → `blocked` 有阻塞项（`blocker_open > 0`）→ `ready` 可签署（阻塞解除且人工项全验）
 → `signed` 已签署 → `withdrawn` 已撤回（需新建一轮）。
 `conclusion`：`go` 准予上线 / `conditional` 有条件上线（遗留项限期关闭）/ `no_go` 暂不上线。
+
+## 订单号（业务手填）
+
+> 订单号由业务在下单时**手工填写并必填**，不再是系统自动生成。
+> 它是全流程的锚点：生产任务、裁片外发、领料、计件、售后、采购都按这个号找货。
+>
+> 权限：下单用 `order.create`（sales）；**改号用独立的 `order.rename`**（admin/sales）——
+> 改号会级联改 18 张表的副本，不该搭下单的便车。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | /api/orders | order.create | 下单：`order_no` **必填**；重复返回 409（**不分大小写**） |
+| GET | /api/orders/order-no/trace?no= | 登录 | 反查这个号挂着哪些单（采购/排产/领料/计件…） |
+| GET | /api/orders/order-no/:id/preview?no= | 登录 | 改号预览：`{old_no, new_no, changed, conflict, impacts[], total_rows}` |
+| GET | /api/orders/order-no/:id/logs | 登录 | 改号历史（旧号/新号/原因/连带行数/操作人） |
+| POST | /api/orders/order-no/:id | order.rename | 改号：`{order_no, reason}`；**reason ≥ 6 字** |
+
+### 下单校验（`services/orderNo.js`）
+
+| 规则 | 说明 |
+|---|---|
+| 必填 | 空 / 全空白 → 400 |
+| 长度 | 2–50 字符 |
+| 字符 | 至少要有一个数字/字母/汉字（纯符号如 `----` 无法检索） |
+| 唯一 | `UPPER()` 比较，`so001` 与 `SO001` 视为同一个号 → 409 |
+| 规范化 | 首尾空白、全角空格、零宽字符、换行制表一律清掉 |
+| **不校验格式** | 客户 PO / 平台单号 / 老系统流水都合法，强制 `SO+日期+序号` 等于没做手填 |
+
+### 改号的三条状态限制
+
+| 订单状态 | 能否改 | 为什么 |
+|---|---|---|
+| draft / tech / finance / assigned | 可以 | 还没实物动起来 |
+| production / instock | **仅 admin** | 车间仓库正按这个号找货 |
+| shipped / closed / cancelled | **禁止** | 号已印在面单、进了结算、已作废，改了与系统外文件对不上 |
+
+### 级联同步的 18 张表
+
+`cost_objects`、`commitments`、`material_requirements`、`cut_orders`、`cut_dispatches`、
+`first_articles`、`rework_orders`、`production_closures`、`schedule_tasks`、`schedule_conflicts`、
+`schedule_changes`（无 order_id，按旧号）、`material_issues`、`material_returns`、
+`piece_wage_items`、`cost_pool_allocations`、`kpi_items`、`stock_returns`、`after_sale_tickets`、
+`purchase_orders`。
+
+- 有 `order_id` 的按 id 精准更新；只有 `order_no` 的按旧号更新
+- 清单**显式登记**在 `services/orderNo.js` 的 `CHAINS`，不做「扫所有含 order_no 的表」
+- 顺序：**先同步下游，最后改订单自己** —— 反过来中途失败会留下「订单是新号、下游是旧号」且无处提示
+
+### 两处仍由系统出号（有意为之）
+
+| 入口 | 出号规则 | 原因 |
+|---|---|---|
+| 商城下单（`services/mall.js`） | `XS` + 日期 + 序号 | 客户自助下单，没有人可以填 |
+| 报价单转订单（`routes/quotations.js`） | 传了 `order_no` 就用传的，没传才 `SO` + 日期 + 序号 | 内部动作，客户此时可能还没给 PO |
+
+### 采购关联订单
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | /api/purchases | 可带 `order_id` 或 `order_no`；填了必须存在且未取消 |
+| POST | /api/purchases/:id/link-order | 补挂 / 改挂 / 解除（`order_id=0` 表示解除）；已收货/已结案不许改 |
+| GET | /api/purchases?order_no=&order_id=&unlinked=1 | 按订单筛采购；`unlinked=1` 看没挂订单的 |

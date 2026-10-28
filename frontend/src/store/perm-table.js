@@ -19,6 +19,7 @@ export const ROLE_LABELS = {
 
 export const PERM_TABLE = {
   'order.create': ["sales"],
+  'order.rename': ["admin","sales"],
   'order.export': ["sales","finance"],
   'order.dispatch': ["sales","production"],
   'order.instock': ["warehouse","production"],

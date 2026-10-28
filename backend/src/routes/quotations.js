@@ -12,6 +12,8 @@
 const express = require('express');
 const { db, now, getSettings } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
+// 转订单时若业务没填订单号，用统一取号（最大号+1，禁 COUNT(*)+1）
+const { nextNo } = require('../utils/docNo');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { lookupTier } = require('./priceTiers');
 
@@ -259,16 +261,22 @@ router.post('/:id/convert', authRequired, requireRole(WRITE), wrap(async (req, r
   const q = full(req.params.id);
   if (!q) return fail(res, 404, '报价单不存在');
   if (q.status === 'converted') return fail(res, 400, '该报价单已转过订单');
+  if (q.status !== 'accepted') return fail(res, 400, '报价单尚未被客户接受，不能转为销售订单');
   if (!q.items.length) return fail(res, 400, '报价单没有明细，无法转订单');
 
   const b = req.body || {};
   const rate = Number(q.rate) || getSettings().exchangeRate;
 
-  let seq = Number(db.prepare('SELECT COUNT(*) AS c FROM orders').get().c) + 1;
-  let orderNo = genNo('SO', seq);
-  while (db.prepare('SELECT 1 AS x FROM orders WHERE order_no = ?').get(orderNo)) {
-    orderNo = genNo('SO', ++seq);
-  }
+  // 订单号优先用业务填的（转单时业务手上通常已有客户 PO 号）；
+  // 没填才由系统出号 —— 报价转单是内部动作，客户此时可能还没给号。
+  //
+  // 这里原来写的是 `COUNT(*)+1`，两个问题：
+  //   1. 项目铁律本来就禁（作废/删除后必重号，靠 while 兜住但会白跑几轮）
+  //   2. 手填号与系统号混在一张表里，COUNT 出来的序号更容易撞上已有手填号
+  const svcOrderNo = require('../services/orderNo');
+  const orderNo = String((b && b.order_no) || '').trim()
+    ? svcOrderNo.check(b.order_no)
+    : nextNo('SO', 'orders', 'order_no');
 
   let orderId;
   db.exec('BEGIN');

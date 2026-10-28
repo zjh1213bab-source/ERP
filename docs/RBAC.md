@@ -688,6 +688,7 @@
 | orders | POST | `/:id/image` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | orders | PUT | `/:id/items` | ✅ | — | ✅ | — | — | — | — | — |
 | orders | POST | `/batch/transition` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| orders | POST | `/order-no/:id` | ✅ | — | ✅ | — | — | — | — | — |
 | org | GET | `/dict` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | org | POST | `/employees/:id/transfer` | ✅ | — | — | — | — | — | — | ✅ |
 | org | GET | `/employments` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -829,6 +830,7 @@
 | purchaseChanges | POST | `/returns/:id/void` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | purchases | POST | `/` | ✅ | — | — | — | — | ✅ | — | — |
 | purchases | DELETE | `/:id` | ✅ | — | — | — | — | ✅ | — | — |
+| purchases | POST | `/:id/link-order` | ✅ | — | — | — | — | ✅ | — | — |
 | purchases | POST | `/:id/order` | ✅ | — | — | — | — | ✅ | — | — |
 | purchases | POST | `/:id/receive` | ✅ | — | — | — | — | ✅ | — | — |
 | qc | POST | `/batches` | ✅ | — | ✅ | ✅ | ✅ | — | — | — |
@@ -1097,6 +1099,7 @@
 | 权限名 | 允许角色 |
 |---|---|
 | `order.create` | 销售跟单 |
+| `order.rename` | 系统管理员、销售跟单 |
 | `order.export` | 销售跟单、财务会计 |
 | `order.dispatch` | 销售跟单、生产车间 |
 | `order.instock` | 仓库采购、生产车间 |

@@ -21,7 +21,7 @@
 
     <div class="table-wrap">
       <table class="data">
-        <thead><tr><th>单号</th><th>供应商</th><th>金额</th><th>下单日</th><th>预计到货</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>单号</th><th>供应商</th><th>金额</th><th>下单日</th><th>预计到货</th><th>关联订单</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="p in list" :key="p.id">
             <td><strong>{{ p.po_no }}</strong></td>
@@ -29,6 +29,7 @@
             <td>¥{{ money(p.total_amount) }}</td>
             <td>{{ p.order_date || '-' }}</td>
             <td>{{ p.expect_date || '-' }}</td>
+            <td class="tiny mono">{{ p.order_no || '-' }}</td>
             <td><span class="tag" :class="tagOf(p.status)">{{ statusLabel(p.status) }}</span></td>
             <td>
               <button class="link-btn" @click="openDetail(p.id)">明细</button>
@@ -56,6 +57,11 @@
                 </option>
               </select>
               <div v-if="blocked" class="form-msg err" style="margin-top: 6px">{{ blocked }}</div>
+            </div>
+            <div class="fitem">
+              <label>关联订单号</label>
+              <input class="input" v-model="form.order_no" placeholder="选填：这张订单的料（备货采购可不填）" />
+              <div class="p-hint">填了必须与已有订单号一致；订单改号时这里的号会自动跟着变</div>
             </div>
             <div class="fitem"><label>下单日期</label><input class="input" type="date" v-model="form.order_date" /></div>
             <div class="fitem"><label>预计到货</label><input class="input" type="date" v-model="form.expect_date" /></div>
@@ -162,7 +168,7 @@ const tagOf = (s) => T[s] || 'gray';
 const money = (v) => Number(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 
 function blankItem() { return { material_id: null, name: '', spec: '', unit: '', qty: 1, price: 0 }; }
-function blank() { return { supplier_id: null, supplier: '', order_date: '', expect_date: '', remark: '', items: [blankItem()] }; }
+function blank() { return { supplier_id: null, supplier: '', order_no: '', order_date: '', expect_date: '', remark: '', items: [blankItem()] }; }
 const total = computed(() => form.value.items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0));
 
 async function load() {
@@ -218,7 +224,9 @@ async function save() {
   if (!form.value.supplier_id) return alert('请选择供应商档案（评价和收货要对得上）');
   saving.value = true;
   try {
-    const r = await api.createPurchase({ ...form.value, items });
+    const payload = { ...form.value, items };
+    if (!String(payload.order_no || '').trim()) delete payload.order_no;
+    const r = await api.createPurchase(payload);
     showCreate.value = false;
     await load();
     await loadSups();
@@ -259,3 +267,8 @@ onMounted(async () => {
   await load();
 });
 </script>
+
+<style scoped>
+/* 关联订单号下面那行说明：全局没有这个类，不定义就与输入框贴在一起看不出层级 */
+.p-hint { font-size: 11px; color: #98a2b3; line-height: 1.55; margin-top: 4px; }
+</style>

@@ -39,7 +39,7 @@
             <td>
               <input type="checkbox" :checked="selected.includes(o.id)" @change="toggleOne(o.id)" />
             </td>
-            <td><strong>{{ o.order_no }}</strong></td>
+            <td><a class="lnk mono" @click="openDetail(o.id)"><strong>{{ o.order_no }}</strong></a></td>
             <td><span class="tag" :class="o.type === 'stock' ? 'blue' : 'purple'">{{ o.type === 'stock' ? '现货' : '定制' }}</span></td>
             <td>{{ o.customer_name || '-' }}</td>
             <td>${{ money(o.total_usd) }}</td>
@@ -60,7 +60,7 @@
       <span class="spacer"></span>
       <select v-model="batchTo" class="select" style="min-width: 150px">
         <option value="">目标状态…</option>
-        <option v-for="(lb, k) in labels" :key="k" :value="k">{{ lb }}</option>
+        <option v-for="(lb, k) in batchLabels" :key="k" :value="k">{{ lb }}</option>
       </select>
       <button class="btn btn-primary" :disabled="!batchTo" @click="openBatch">批量流转</button>
       <button class="btn btn-ghost" @click="selected = []">清空选择</button>
@@ -187,6 +187,11 @@
               </select>
             </div>
             <div class="fitem">
+              <label>订单号 <span class="req">*</span></label>
+              <input class="input" v-model="form.order_no" placeholder="如客户 PO 号 / 平台单号（不可重复）" />
+              <div class="hint">下单后仍可修改，但会连带同步生产、领料、计件、采购等下游单据</div>
+            </div>
+            <div class="fitem">
               <label>客户</label>
               <select class="select" v-model.number="form.customer_id">
                 <option :value="null">— 请选择 —</option>
@@ -287,7 +292,13 @@
     <div v-if="detail" class="modal-mask" @click.self="detail = null">
       <div class="modal xwide">
         <div class="modal-head">
-          <h3>{{ detail.order_no }} · <span class="tag" :class="tagOf(detail.status)">{{ labels[detail.status] }}</span></h3>
+          <h3>
+            <span class="mono">{{ detail.order_no }}</span>
+            · <span class="tag" :class="tagOf(detail.status)">{{ labels[detail.status] }}</span>
+            <button v-if="canRename(detail)" class="btn btn-sm btn-ghost" style="margin-left: 8px" @click="openRename">
+              改订单号
+            </button>
+          </h3>
           <button class="x" @click="detail = null">×</button>
         </div>
         <div class="modal-body">
@@ -297,6 +308,14 @@
             <div><span style="color: #8a94a6; font-size: 12.5px">款名</span><div>{{ detail.style_name || '-' }}</div></div>
             <div><span style="color: #8a94a6; font-size: 12.5px">客户订单号</span><div>{{ detail.cus_order_no || '-' }}</div></div>
             <div><span style="color: #8a94a6; font-size: 12.5px">跟单员</span><div>{{ detail.manager || '-' }}</div></div>
+            <div v-if="detail.order_no_logs && detail.order_no_logs.length">
+              <span style="color: #8a94a6; font-size: 12.5px">改号历史</span>
+              <div class="tiny">
+                <div v-for="g in detail.order_no_logs" :key="g.id" class="mut">
+                  {{ g.old_no }} → <b>{{ g.new_no }}</b> · {{ g.operator }} · {{ (g.created_at || '').slice(0, 10) }}
+                </div>
+              </div>
+            </div>
             <div><span style="color: #8a94a6; font-size: 12.5px">交期</span><div>{{ detail.delivery_date || '-' }}</div></div>
             <div><span style="color: #8a94a6; font-size: 12.5px">合计</span><div><strong>${{ money(detail.total_usd) }} / ¥{{ money(detail.total_amount) }}</strong> <span style="color:#8a94a6;font-size:12px">@{{ detail.rate }}</span></div></div>
           </div>
@@ -363,7 +382,42 @@
             <span style="font-size: 11.5px; color: #8a94a6">{{ attUploading ? '上传中…' : 'PDF / 图片 / Office，单个 ≤10MB' }}</span>
           </div>
 
-          <h3 style="margin: 12px 0 8px; font-size: 14px">明细（款 / 颜色 / 尺码）</h3>
+          <div style="margin: 12px 0 8px; display: flex; justify-content: space-between; align-items: center">
+            <h3 style="margin: 0; font-size: 14px">明细（款 / 颜色 / 尺码）</h3>
+            <button v-if="canEditItems" class="btn btn-ghost btn-sm" @click="openItemsEditor">完善颜色尺码</button>
+          </div>
+          <div v-if="itemsEditing" style="border: 1px solid #dfe5ef; border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #fcfdff">
+            <div class="banner info" style="margin-bottom: 10px"><b>草稿明细</b><span>确认每款的颜色、尺码和数量；保存后会重算订单金额。订单进入技术确认后不可再改。</span></div>
+            <div v-for="(it, ii) in itemEditForm" :key="ii" style="border-bottom: 1px solid #eef2f7; padding: 8px 0 12px; margin-bottom: 8px">
+              <div class="form-grid">
+                <div class="fitem"><label>产品名称</label><input class="input" v-model="it.product_name" /></div>
+                <div class="fitem"><label>款号</label><input class="input" v-model="it.style_no" /></div>
+              </div>
+              <table class="data sm" style="margin: 8px 0">
+                <thead><tr><th>颜色</th><th>尺码</th><th>数量</th><th>美金单价</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr v-for="(s, si) in it.sizes" :key="si">
+                    <td><input class="input" v-model="s.color" placeholder="如藏青" /></td>
+                    <td><input class="input" v-model="s.size" placeholder="S/M/L/均码" /></td>
+                    <td><input class="input" type="number" min="0" v-model.number="s.qty" /></td>
+                    <td><input class="input" type="number" min="0" step="0.01" v-model.number="s.usd_price" /></td>
+                    <td><button class="link-btn danger" @click="removeEditSize(it, si)">删除</button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style="display: flex; gap: 8px">
+                <button class="btn btn-ghost btn-sm" @click="addEditSize(it)">＋ 添加颜色尺码</button>
+                <button v-if="itemEditForm.length > 1" class="btn btn-ghost btn-sm" @click="itemEditForm.splice(ii, 1)">删除该款</button>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: space-between">
+              <button class="btn btn-ghost btn-sm" @click="addEditItem">＋ 添加款式</button>
+              <div style="display: flex; gap: 8px">
+                <button class="btn btn-ghost btn-sm" :disabled="itemEditBusy" @click="itemsEditing = false">取消</button>
+                <button class="btn btn-primary btn-sm" :disabled="itemEditBusy" @click="saveItemsEditor">{{ itemEditBusy ? '保存中…' : '保存明细' }}</button>
+              </div>
+            </div>
+          </div>
           <div v-for="it in detail.items" :key="it.id" style="margin-bottom: 12px">
             <div style="font-size: 13px; font-weight: 700; color: #16233b; margin-bottom: 6px">
               {{ it.product_name }} <span v-if="it.style_no" style="color:#2563eb;font-weight:600">· {{ it.style_no }}</span>
@@ -590,6 +644,11 @@
             </tbody>
           </table>
           <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">未分单</div>
+          <div v-if="orderQty > 0" class="pre-sum" style="margin-bottom: 8px">
+            <span>订单总量 <b>{{ orderQty }}</b> 件</span>
+            <span>已有效分单 <b>{{ dispatchedQty }}</b> 件</span>
+            <span :class="dispatchRemaining ? 'tag orange' : 'tag green'">待分 {{ dispatchRemaining }} 件</span>
+          </div>
           <template v-if="canDispatch && ['finance', 'assigned'].includes(detail.status)">
             <div class="form-grid" style="margin-bottom: 8px">
               <div class="fitem">
@@ -599,13 +658,13 @@
                   <option v-for="f in factories" :key="f.id" :value="f.id">{{ f.name }}（{{ f.type === 'own' ? '本厂' : '外协' }}）</option>
                 </select>
               </div>
-              <div class="fitem"><label>数量</label><input class="input" type="number" v-model.number="dispatchForm.qty" /></div>
+              <div class="fitem"><label>数量（最多 {{ dispatchRemaining }} 件）</label><input class="input" type="number" min="0" :max="dispatchRemaining" v-model.number="dispatchForm.qty" /></div>
               <div class="fitem"><label>单价</label><input class="input" type="number" v-model.number="dispatchForm.price" /></div>
               <div class="fitem"><label>备注</label><input class="input" v-model="dispatchForm.remark" /></div>
             </div>
             <div style="margin-bottom: 6px; display: flex; align-items: center; gap: 10px">
               <button class="btn btn-primary btn-sm" :disabled="dispatchBusy" @click="doDispatch">提交分单</button>
-              <span style="font-size: 12px; color: #8a94a6">首次分单会将订单推进到「已分单」（需财务已审核通过）</span>
+              <span style="font-size: 12px; color: #8a94a6">分单数量覆盖整单后才会推进到「已分单」（需财务已审核通过）</span>
             </div>
           </template>
 
@@ -653,9 +712,29 @@
           </div>
 
           <div v-if="canStockWrite" style="margin: 12px 0 4px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center">
-            <button v-if="['assigned','production'].includes(detail.status)" class="btn btn-ghost btn-sm" :disabled="busy" @click="doInstock">成品入库（生产仓）</button>
+            <button v-if="detail.status === 'production'" class="btn btn-ghost btn-sm" :disabled="busy" @click="doInstock">成品入库（生产仓）</button>
             <button v-if="canShip && detail.status === 'instock'" class="btn btn-primary btn-sm" :disabled="busy" @click="doShip()">发货出库（生产仓）</button>
             <span v-if="detail.status === 'shipped'" style="font-size: 12.5px; color: #16a34a">已发货</span>
+          </div>
+
+          <div v-if="detail.purchases && detail.purchases.length" style="margin-top: 16px">
+            <h3 style="margin: 0 0 8px; font-size: 14px">
+              关联采购 <span class="tiny mut">（这张订单的料买了没有）</span>
+            </h3>
+            <table class="data">
+              <thead>
+                <tr><th>采购单号</th><th>供应商</th><th>状态</th><th>下单日</th><th class="num">金额</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="po in detail.purchases" :key="po.id">
+                  <td class="mono tiny">{{ po.po_no }}</td>
+                  <td>{{ po.supplier }}</td>
+                  <td class="tiny">{{ po.status }}</td>
+                  <td class="tiny">{{ po.order_date || '-' }}</td>
+                  <td class="num">¥{{ Number(po.total_amount || 0).toFixed(2) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <h3 style="margin: 16px 0 8px; font-size: 14px">可执行操作</h3>
@@ -675,6 +754,69 @@
     </div>
 
     <!-- 反审退回 -->
+    <!-- ================= 改订单号 ================= -->
+    <div v-if="renForm.open" class="modal-mask" @click.self="renForm.open = false">
+      <div class="modal">
+        <div class="modal-head">
+          <h3>改订单号 · {{ renForm.oldNo }}</h3>
+          <button class="x" @click="renForm.open = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="notice" style="background:#f7f9fd;border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.8;color:#33425c;margin-bottom:12px">
+            订单号是全流程的锚点。<b>改了之后，生产任务、裁片外发、领料单、计件明细、售后工单、采购订单上印的号会一起跟着变</b> ——
+            不跟着变的话，车间按单号找货就会找不到，而系统里显示一切正常。
+            所以这里先让你看清影响面，再决定要不要改。
+          </div>
+
+          <div class="row" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+            <label style="font-size:12.5px;color:#5b6b80;white-space:nowrap">新订单号</label>
+            <input class="input" style="flex:1" v-model="renForm.next"
+              placeholder="输入新的订单号，如客户改单后的 PO 号" @keyup.enter="doPreview" />
+            <button class="btn btn-ghost" :disabled="renForm.checking" @click="doPreview">
+              {{ renForm.checking ? '检查中…' : '检查影响' }}
+            </button>
+          </div>
+
+          <div v-if="renForm.preview" style="font-size:12.5px;line-height:1.9">
+            <div class="ren-arrow">
+              <span class="old">{{ renForm.preview.old_no }}</span>
+              <span>→</span>
+              <span class="new">{{ renForm.preview.new_no }}</span>
+              <span v-if="!renForm.preview.changed" class="tag orange">与当前一致</span>
+            </div>
+            <div v-if="renForm.preview.conflict" class="tag red">
+              该号已被 #{{ renForm.preview.conflict.id }} 占用，不能使用
+            </div>
+            <template v-else-if="!renForm.preview.impacts.length">
+              <div class="mut">这张订单目前没有下游单据挂着，改号只影响订单本身。</div>
+            </template>
+            <template v-else>
+              <div>会连带改 <b>{{ renForm.preview.total_rows }}</b> 行：</div>
+              <div class="ren-imp">
+                <span v-for="im in renForm.preview.impacts" :key="im.table">
+                  {{ im.label }} {{ im.rows }} 行
+                </span>
+              </div>
+            </template>
+          </div>
+
+          <div class="row" style="display:flex;gap:8px;align-items:flex-start;margin-top:12px">
+            <label style="font-size:12.5px;color:#5b6b80;white-space:nowrap;padding-top:8px">改号原因</label>
+            <textarea class="input" style="flex:1" rows="2" v-model="renForm.reason"
+              placeholder="必填（至少 6 字），如：客户要求改用其系统 PO 号 / 下单时打错一位（至少 6 字）"></textarea>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
+            <button class="btn btn-ghost" @click="renForm.open = false">取消</button>
+            <button class="btn btn-primary" :disabled="renForm.saving || !renForm.preview || !renForm.preview.changed || renForm.preview.conflict"
+              @click="doRename">
+              {{ renForm.saving ? '改号中…' : '确认改号' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="rollbackOpen" class="modal-mask" @click.self="rollbackOpen = false">
       <div class="modal">
         <div class="modal-head">
@@ -806,6 +948,9 @@ const showCreate = ref(false);
 const saving = ref(false);
 const detail = ref(null);
 const busy = ref(false);
+const itemsEditing = ref(false);
+const itemEditBusy = ref(false);
+const itemEditForm = ref([]);
 
 const techpacks = ref([]);
 const cost = ref(null);
@@ -854,6 +999,7 @@ const attUploading = ref(false);
 
 const allChecked = computed(() => list.value.length > 0 && selected.value.length === list.value.length);
 const batchToLabel = computed(() => labels.value[batchTo.value] || batchTo.value || '未选');
+const batchLabels = computed(() => Object.fromEntries(Object.entries(labels.value).filter(([key]) => !['instock', 'shipped'].includes(key))));
 
 function toggleAll() {
   selected.value = allChecked.value ? [] : list.value.map((o) => o.id);
@@ -925,7 +1071,65 @@ const blockCheck = ref(null);
 const blockOrder = ref(null);
 
 const canCreate = computed(() => can('order.create'));
+const canEditItems = computed(() => Boolean(detail.value && detail.value.status === 'draft' && can('order.create')));
 const canExport = computed(() => can('order.export'));
+
+/* ---------------- 改订单号 ---------------- */
+const renForm = reactive({ open: false, oldNo: '', next: '', reason: '', preview: null, checking: false, saving: false });
+
+/**
+ * 能不能改号
+ *
+ * 与后端同一套判断（后端仍会再拦一次，这里只是别让人白点）：
+ *   已发货 / 已结案 / 已取消 —— 号已经在系统外（面单、对账单、结算），不许改
+ *   生产中 / 已入库 —— 车间仓库正按这个号找货，只有管理员能改
+ */
+function canRename(o) {
+  if (!o || !can('order.rename')) return false;
+  if (['shipped', 'closed', 'cancelled'].includes(o.status)) return false;
+  if (['production', 'instock'].includes(o.status) && auth.user && auth.user.role !== 'admin') return false;
+  return true;
+}
+
+function openRename() {
+  Object.assign(renForm, { open: true, oldNo: detail.value.order_no, next: detail.value.order_no, reason: '', preview: null, checking: false, saving: false });
+}
+
+async function doPreview() {
+  renForm.checking = true;
+  try {
+    renForm.preview = await api.orderNoPreview(detail.value.id, renForm.next);
+  } catch (e) {
+    alert(e.message);
+    renForm.preview = null;
+  } finally {
+    renForm.checking = false;
+  }
+}
+
+async function doRename() {
+  if (!renForm.reason.trim() || renForm.reason.trim().length < 6) {
+    alert('请写清改号原因（至少 6 个字）');
+    return;
+  }
+  renForm.saving = true;
+  try {
+    const r = await api.renameOrderNo(detail.value.id, { order_no: renForm.next, reason: renForm.reason });
+    renForm.open = false;
+    const NL = String.fromCharCode(10);
+    const rows = r.synced.map((x) => `- ${x.label} ${x.rows} 行`);
+    const tip = r.total_rows
+      ? [`已改号：${r.old_no} → ${r.new_no}，同时更新了 ${r.total_rows} 行下游单据`, ...rows].join(NL)
+      : `已改号：${r.old_no} → ${r.new_no}（没有下游单据需要同步）`;
+    alert(tip);
+    detail.value = await api.order(detail.value.id);
+    await load();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    renForm.saving = false;
+  }
+}
 
 /**
  * 批量打印：拿当前列表里的订单一次性出工单。
@@ -955,6 +1159,11 @@ const orderQty = computed(() => {
   if (!detail.value) return 0;
   return detail.value.items.reduce((s, it) => s + Number(it.qty || 0), 0);
 });
+const dispatchedQty = computed(() => dispatches.value.reduce((sum, row) => {
+  const hasFactory = Boolean(row.factory_id || (String(row.factory_name || '').trim() && String(row.factory_name).trim() !== '未指定'));
+  return sum + (hasFactory ? Number(row.qty) || 0 : 0);
+}, 0));
+const dispatchRemaining = computed(() => Math.max(0, Math.round((orderQty.value - dispatchedQty.value) * 10000) / 10000));
 const doneCount = computed(() => nodes.value.filter((n) => n.status === 'done').length);
 const allMats = computed(() => [...fabrics.value, ...accessories.value]);
 const fabricCost = computed(() => orderMats.value.filter((m) => m.type === 'fabric').reduce((s, m) => s + Number(m.amount || 0), 0));
@@ -972,7 +1181,7 @@ function blankItem() {
   return { product_id: null, product_name: '', style_no: '', sku: '', colors: [blankColor()] };
 }
 function blankForm() {
-  return { type: 'custom', customer_id: null, style_name: '', cus_order_no: '', manager: '', order_date: '', delivery_method: '', packaging: '', trade_terms: '', shop_name: '', shop_order_no: '', delivery_days: 0, freight: 0, delivery_date: '', remark: '', items: [blankItem()] };
+  return { order_no: '', type: 'custom', customer_id: null, style_name: '', cus_order_no: '', manager: '', order_date: '', delivery_method: '', packaging: '', trade_terms: '', shop_name: '', shop_order_no: '', delivery_days: 0, freight: 0, delivery_date: '', remark: '', items: [blankItem()] };
 }
 const form = ref(blankForm());
 
@@ -1043,7 +1252,7 @@ const nextStates = computed(() => {
   const cur = detail.value.status;
   const next = [...(flow.value[cur] || [])];
   if (cur !== 'closed' && cur !== 'cancelled') next.push('cancelled');
-  return next.filter((t) => auth.user?.role === 'admin' || (roles.value[t] || []).includes(auth.user?.role));
+  return next.filter((t) => !['instock', 'shipped'].includes(t) && (auth.user?.role === 'admin' || (roles.value[t] || []).includes(auth.user?.role)));
 });
 
 const TAG = { draft: 'gray', tech: 'blue', finance: 'orange', assigned: 'purple', production: 'orange', instock: 'green', shipped: 'green', closed: 'gray', cancelled: 'red' };
@@ -1117,6 +1326,7 @@ function validateForm() {
     if (!it.product_name && !it.product_id) return '请为每个款选择或填写产品';
     for (const c of it.colors) {
       const filled = c.sizes.filter((s) => Number(s.qty) > 0);
+      if (filled.length && !String(c.color || '').trim()) return '存在有数量但未填写颜色的颜色组';
       if (filled.length && filled.some((s) => !s.size)) return '存在未填写尺码名的行';
     }
     if (!it.colors.some((c) => c.sizes.some((s) => Number(s.qty) > 0))) return `款「${it.product_name || '未命名'}」没有填写任何尺码数量`;
@@ -1137,9 +1347,15 @@ async function saveOrder() {
       sizes: c.sizes.filter((s) => Number(s.qty) > 0).map((s) => ({ size: s.size, qty: s.qty, usd_price: s.usd_price }))
     })).filter((c) => c.sizes.length)
   }));
+  // 订单号是全流程锚点：前端先拦一次，避免跑到后端才被打回（后端仍会校验唯一性）
+  if (!String(form.value.order_no || '').trim()) {
+    alert('请填写订单号 —— 业务手工填写，不能留空');
+    return;
+  }
   saving.value = true;
   try {
     await api.createOrder({
+      order_no: String(form.value.order_no).trim(),
       type: form.value.type,
       customer_id: form.value.customer_id,
       style_name: form.value.style_name,
@@ -1172,7 +1388,7 @@ async function loadP2(id) {
   nodes.value = nd || [];
   dispatches.value = dp || [];
   attachments.value = att || [];
-  dispatchForm.value.qty = orderQty.value || 0;
+  dispatchForm.value.qty = dispatchRemaining.value;
   const agg = {};
   (su || []).forEach((r) => { agg[r.node_id] = { ok: Number(r.ok) || 0, defect: Number(r.defect) || 0, hours: Number(r.hours) || 0 }; });
   reportAgg.value = agg;
@@ -1180,8 +1396,39 @@ async function loadP2(id) {
 }
 const aggOf = (id) => reportAgg.value[id] || { ok: 0, defect: 0, hours: 0 };
 async function openDetail(id) {
-  try { detail.value = await api.order(id); tpAdding.value = false; await loadP2(id); }
+  try { detail.value = await api.order(id); itemsEditing.value = false; tpAdding.value = false; await loadP2(id); }
   catch (e) { alert(e.message); }
+}
+function openItemsEditor() {
+  if (!canEditItems.value) return;
+  itemEditForm.value = (detail.value.items || []).map((it) => ({
+    product_id: it.product_id,
+    product_name: it.product_name || '',
+    style_no: it.style_no || '',
+    sku: it.sku || '',
+    remark: it.remark || '',
+    sizes: (it.sizes || []).map((s) => ({ color: s.color || '', size: s.size || '', qty: Number(s.qty) || 0, usd_price: Number(s.usd_price) || 0 }))
+  }));
+  if (!itemEditForm.value.length) itemEditForm.value.push({ product_id: null, product_name: '', style_no: '', sku: '', remark: '', sizes: [{ color: '', size: '', qty: 0, usd_price: 0 }] });
+  itemsEditing.value = true;
+}
+function addEditItem() {
+  itemEditForm.value.push({ product_id: null, product_name: '', style_no: '', sku: '', remark: '', sizes: [{ color: '', size: '', qty: 0, usd_price: 0 }] });
+}
+function addEditSize(item) { item.sizes.push({ color: '', size: '', qty: 0, usd_price: 0 }); }
+function removeEditSize(item, index) { item.sizes.splice(index, 1); }
+async function saveItemsEditor() {
+  if (!detail.value) return;
+  for (const item of itemEditForm.value) {
+    if (!item.product_name.trim()) return alert('每款都必须填写产品名称');
+    if (!item.sizes.some((s) => Number(s.qty) > 0)) return alert(`款「${item.product_name}」至少要有一条有效数量`);
+  }
+  itemEditBusy.value = true;
+  try {
+    detail.value = await api.updateOrderItems(detail.value.id, itemEditForm.value);
+    itemsEditing.value = false;
+    await load();
+  } catch (e) { alert(e.message); } finally { itemEditBusy.value = false; }
 }
 async function addTechpack() {
   if (!tpForm.value.product_name) return alert('请填写产品/款号');
@@ -1291,12 +1538,18 @@ async function doDispatch() {
     dispatches.value = r.dispatches;
     detail.value = await api.order(detail.value.id);
     await load();
-    dispatchForm.value = { factory_id: null, qty: orderQty.value, price: 0, remark: '' };
+    dispatchForm.value = { factory_id: null, qty: dispatchRemaining.value, price: 0, remark: '' };
   } catch (e) { alert(e.message); } finally { dispatchBusy.value = false; }
 }
 async function removeDispatch(id) {
   if (!confirm('确定删除该分单？')) return;
-  try { await api.deleteDispatch(id); dispatches.value = await api.dispatches(detail.value.id); }
+  try {
+    await api.deleteDispatch(id);
+    dispatches.value = await api.dispatches(detail.value.id);
+    dispatchForm.value.qty = dispatchRemaining.value;
+    detail.value = await api.order(detail.value.id);
+    await load();
+  }
   catch (e) { alert(e.message); }
 }
 
@@ -1446,6 +1699,15 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 订单号必填标记与说明：全局没有这两个类，不定义就是普通文字、看不出哪项必填 */
+.req { color: #d92d45; font-weight: 700; }
+.fitem .hint { font-size: 11px; color: #98a2b3; line-height: 1.55; margin-top: 4px; }
+/* 改号弹窗里的影响面清单 */
+.ren-imp { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.ren-imp span { font-size: 11.5px; background: #eef3fa; color: #1f5fae; border-radius: 20px; padding: 2px 9px; }
+.ren-arrow { display: flex; align-items: center; gap: 10px; font-size: 13px; margin: 10px 0; flex-wrap: wrap; }
+.ren-arrow .old { color: #98a2b3; text-decoration: line-through; }
+.ren-arrow .new { color: #16233b; font-weight: 700; }
 /* 工序表 7 列挤在弹窗里会把「成品入库」压成竖排：外层横向滚动 + 单元格不折行 */
 .rollback-btn { border-color: #f0c9cf; color: #d92d45; }
 .rollback-btn:hover { background: #fdecee; }

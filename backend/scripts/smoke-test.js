@@ -10227,6 +10227,194 @@ async function req(path, { method = 'GET', body, token } = {}) {
   }
 
 
+
+  /* ================================================================== *
+   * 订单号手填（业务必填 + 唯一 + 改号级联同步 + 采购关联）
+   * 夹具订单号统一 TEST-NO- 前缀，清理按前缀删，绝不碰真实订单
+   * ================================================================== */
+  {
+    const { db: NDB } = require('../src/db');
+    console.log('\n[订单号手填]');
+
+    const PFX = 'TEST-NO-';
+    const cleanSmoke = () => {
+      const ids = NDB.prepare(`SELECT id FROM orders WHERE order_no LIKE '${PFX}%'`).all().map((r) => r.id);
+      ids.forEach((id) => {
+        NDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
+        NDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+        NDB.prepare('DELETE FROM order_logs WHERE order_id = ?').run(id);
+        NDB.prepare('DELETE FROM order_no_logs WHERE order_id = ?').run(id);
+        NDB.prepare('DELETE FROM material_issues WHERE order_id = ?').run(id);
+        NDB.prepare('DELETE FROM piece_wage_items WHERE order_id = ?').run(id);
+      });
+      NDB.prepare(`DELETE FROM orders WHERE order_no LIKE '${PFX}%'`).run();
+      NDB.prepare(`DELETE FROM purchase_orders WHERE order_no LIKE '${PFX}%'`).run();
+      NDB.prepare('DELETE FROM purchase_items WHERE po_id NOT IN (SELECT id FROM purchase_orders)').run();
+      // 转单产生的订单号是 SO 开头、与手填号不同，单独按备注清
+      const convIds = NDB.prepare("SELECT id FROM orders WHERE remark LIKE '由报价单 QT-TEST-NO-%'").all().map((r) => r.id);
+      convIds.forEach((id) => {
+        NDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
+        NDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+        NDB.prepare('DELETE FROM order_logs WHERE order_id = ?').run(id);
+        NDB.prepare('DELETE FROM orders WHERE id = ?').run(id);
+      });
+      NDB.prepare("DELETE FROM quotation_items WHERE quote_id IN (SELECT id FROM quotations WHERE quote_no LIKE 'QT-TEST-NO-%')").run();
+      NDB.prepare("DELETE FROM quotations WHERE quote_no LIKE 'QT-TEST-NO-%'").run();
+    };
+    cleanSmoke();
+
+    const mkItems = () => [{ product_name: '烟测款', colors: [{ color: '黑', sizes: [{ size: 'M', qty: 10, usd_price: 5 }] }] }];
+    const mkOrder = (orderNo) => req('/api/orders', { method: 'POST', token, body: { order_no: orderNo, type: 'custom', items: mkItems() } });
+
+    // ---------- 1. 必填与格式 ----------
+    const noNo = await req('/api/orders', { method: 'POST', token, body: { type: 'custom', items: mkItems() } });
+    ok('★ 订单号必填（不再自动生成兜底）',
+      noNo.status === 400 && /必填/.test(noNo.json.message || ''), `HTTP ${noNo.status}`);
+
+    const sym = await mkOrder('----');
+    ok('★ 纯符号不能当订单号（无法检索）', sym.status === 400, `HTTP ${sym.status}`);
+
+    const tooShort = await mkOrder('A');
+    ok('订单号至少 2 个字符', tooShort.status === 400, `HTTP ${tooShort.status}`);
+
+    const no1 = await mkOrder(`${PFX}001`);
+    ok('手填订单号可以建单', no1.status === 200 && no1.json.data.order_no === `${PFX}001`,
+      `HTTP ${no1.status} ${no1.json.data ? no1.json.data.order_no : no1.json.message || ''}`);
+    const oid = no1.json.data.id;
+
+    const dup = await mkOrder(`${PFX}001`.toLowerCase());
+    ok('★ 重复订单号被拒，且不分大小写（so001 与 SO001 在人眼里是同一个号）',
+      dup.status === 409, `HTTP ${dup.status} ${(dup.json.message || '').slice(0, 40)}`);
+
+    const norm = await req('/api/orders', {
+      method: 'POST', token, body: { order_no: `  ${PFX}　002  `, type: 'custom', items: mkItems() }
+    });
+    ok('★ 全角空格与首尾空白被规范化（中文输入法下肉眼分不出）',
+      norm.status === 200 && norm.json.data.order_no === `${PFX} 002`,
+      `HTTP ${norm.status} ${JSON.stringify(norm.json.data && norm.json.data.order_no)}`);
+
+    // ---------- 2. 改号：预览与级联 ----------
+    const t0 = new Date().toISOString();
+    NDB.prepare(`INSERT INTO material_issues (issue_no, company_id, order_id, order_no, kind, receiver_type, status,
+        item_count, req_qty, issued_qty, amount, created_at, updated_at)
+      VALUES ('TESTMI-NO-1', 1, ?, ?, 'material', 'factory', 'draft', 1, 10, 0, 0, ?, ?)`).run(oid, `${PFX}001`, t0, t0);
+
+    const pvNo = await req(`/api/orders/order-no/${oid}/preview?no=${PFX}001B`, { token });
+    ok('★ 改号前能预览影响面（会连带改哪些表多少行）',
+      pvNo.status === 200 && pvNo.json.data.total_rows >= 1
+      && (pvNo.json.data.impacts || []).some((x) => x.table === 'material_issues'),
+      pvNo.json.data ? `影响 ${pvNo.json.data.total_rows} 行：${pvNo.json.data.impacts.map((x) => x.table + ':' + x.rows).join(',')}` : '无预览');
+
+    const renNoReason = await req(`/api/orders/order-no/${oid}`, { method: 'POST', token, body: { order_no: `${PFX}001B` } });
+    ok('★ 改号必须写原因（下游单据会跟着变，事后要说得清）', renNoReason.status === 400, `HTTP ${renNoReason.status}`);
+
+    const ren = await req(`/api/orders/order-no/${oid}`, {
+      method: 'POST', token, body: { order_no: `${PFX}001B`, reason: '烟测：客户要求改用其系统 PO 号' }
+    });
+    const miAfter = NDB.prepare('SELECT order_no FROM material_issues WHERE order_id = ?').get(oid);
+    ok('★ 改号级联同步下游（生产单/领料单印的号必须跟着变，否则车间按号找货找不到）',
+      ren.status === 200 && ren.json.data.new_no === `${PFX}001B`
+      && miAfter && miAfter.order_no === `${PFX}001B`,
+      `HTTP ${ren.status} 领料单号 ${miAfter ? miAfter.order_no : '?'} / 同步 ${ren.json.data ? ren.json.data.total_rows : '?'} 行`);
+
+    const logs = await req(`/api/orders/order-no/${oid}/logs`, { token });
+    ok('★ 改号留痕（旧号、新号、原因、连带行数）',
+      logs.status === 200 && (logs.json.data || []).length === 1
+      && logs.json.data[0].old_no === `${PFX}001` && /客户要求/.test(logs.json.data[0].reason || ''),
+      `HTTP ${logs.status} ${(logs.json.data || []).length} 条`);
+
+    const trace = await req(`/api/orders/order-no/trace?no=${PFX}001B`, { token });
+    ok('★ 按订单号能反查挂着哪些单（业务敲错一位能立刻看出来）',
+      trace.status === 200 && trace.json.data.found === true && trace.json.data.total >= 1,
+      trace.json.data ? `挂 ${trace.json.data.total} 张` : '?');
+
+    // ---------- 3. 采购关联 ----------
+    const sup = NDB.prepare("SELECT id, name FROM suppliers WHERE status IS NULL OR status <> 'paused' ORDER BY id LIMIT 1").get();
+    let poOk = null;
+    if (sup) {
+      poOk = await req('/api/purchases', {
+        method: 'POST', token,
+        body: { supplier_id: sup.id, order_no: `${PFX}001B`, items: [{ name: '烟测面料', qty: 100, price: 2 }] }
+      });
+      ok('★ 采购单能关联订单号（带出订单状态，备货采购不填也可以）',
+        poOk.status === 200 && poOk.json.data.order && poOk.json.data.order.order_no === `${PFX}001B`,
+        `HTTP ${poOk.status} ${poOk.json.data ? poOk.json.data.po_no : (poOk.json.message || '')}`);
+
+      const poBad = await req('/api/purchases', {
+        method: 'POST', token,
+        body: { supplier_id: sup.id, order_no: 'NO-SUCH-ORDER-XYZ', items: [{ name: '烟测面料', qty: 1, price: 1 }] }
+      });
+      ok('★ 挂到不存在的订单号被拒（敲错一位就永远查无此单）', poBad.status === 400, `HTTP ${poBad.status}`);
+
+      const ren2 = await req(`/api/orders/order-no/${oid}`, {
+        method: 'POST', token, body: { order_no: `${PFX}001C`, reason: '烟测：二次改号，验证采购单同步' }
+      });
+      const poRow = NDB.prepare('SELECT order_no FROM purchase_orders WHERE order_id = ?').get(oid);
+      ok('★ 订单改号时采购单上的订单号同步（采购单显示的永远是当前号）',
+        ren2.status === 200 && poRow && poRow.order_no === `${PFX}001C`,
+        poRow ? `采购单号 ${poRow.order_no}` : '采购单未同步');
+
+      const od = await req(`/api/orders/${oid}`, { token });
+      ok('订单详情能反看关联采购（这张单的料买了没有）',
+        od.status === 200 && (od.json.data.purchases || []).length === 1,
+        `采购 ${od.json.data ? (od.json.data.purchases || []).length : '?'} 张`);
+    } else {
+      ok('采购关联订单号', true, '没有可用供应商，跳过');
+    }
+
+    // ---------- 4. 报价单转订单：没填号才系统出号 ----------
+    // 这条路径最容易漏：转单走的是 quotations.js，不经过下单接口，
+    // 曾经因为漏了 nextNo 的 require 而变成 500（业务校验在它之前，手工点不出来）
+    const acQ = NDB.prepare(`INSERT INTO quotations (quote_no, customer_id, status, rate, total_qty, total_usd, total_amount, created_at, updated_at)
+      VALUES ('QT-TEST-NO-1', NULL, 'accepted', 6.5, 10, 50, 325, ?, ?)`).run(t0, t0);
+    const acQid = Number(acQ.lastInsertRowid);
+    NDB.prepare(`INSERT INTO quotation_items (quote_id, product_name, qty, price_usd, amount_usd, amount_cny)
+      VALUES (?, '烟测款', 10, 5, 50, 325)`).run(acQid);
+
+    const conv1 = await req(`/api/quotations/${acQid}/convert`, { method: 'POST', token, body: {} });
+    ok('★ 报价单转订单没填号时由系统出号（且不再是 COUNT(*)+1）',
+      conv1.status === 200 && /^SO\d{12}$/.test(conv1.json.data.order_no || ''),
+      `HTTP ${conv1.status} ${conv1.json.data ? conv1.json.data.order_no : (conv1.json.message || '')}`);
+
+    const acQ2 = NDB.prepare(`INSERT INTO quotations (quote_no, customer_id, status, rate, total_qty, total_usd, total_amount, created_at, updated_at)
+      VALUES ('QT-TEST-NO-2', NULL, 'accepted', 6.5, 10, 50, 325, ?, ?)`).run(t0, t0);
+    const acQid2 = Number(acQ2.lastInsertRowid);
+    NDB.prepare(`INSERT INTO quotation_items (quote_id, product_name, qty, price_usd, amount_usd, amount_cny)
+      VALUES (?, '烟测款', 10, 5, 50, 325)`).run(acQid2);
+
+    const conv2 = await req(`/api/quotations/${acQid2}/convert`, {
+      method: 'POST', token, body: { order_no: `${PFX}FROM-QUOTE` }
+    });
+    ok('★ 报价单转订单可以带着业务填的订单号进来',
+      conv2.status === 200 && conv2.json.data.order_no === `${PFX}FROM-QUOTE`,
+      `HTTP ${conv2.status} ${conv2.json.data ? conv2.json.data.order_no : (conv2.json.message || '')}`);
+
+    const conv2Dup = await req(`/api/quotations/${acQid2}/convert`, {
+      method: 'POST', token, body: { order_no: `${PFX}001C` }
+    });
+    ok('转单时手填号重复也会被拒（走同一套校验）', conv2Dup.status === 400 || conv2Dup.status === 409,
+      `HTTP ${conv2Dup.status}`);
+
+    // ---------- 5. 已发货不许改号 ----------
+    NDB.prepare("UPDATE orders SET status = 'shipped' WHERE id = ?").run(oid);
+    const locked = await req(`/api/orders/order-no/${oid}`, {
+      method: 'POST', token, body: { order_no: `${PFX}999`, reason: '烟测：已发货还想改号' }
+    });
+    ok('★ 已发货/已结案/已取消不许改号（号已印在面单、进了结算、已作废）',
+      locked.status === 400 && /不能再改/.test(locked.json.message || ''),
+      `HTTP ${locked.status} ${(locked.json.message || '').slice(0, 40)}`);
+
+    // ---------- 5. 清理 ----------
+    cleanSmoke();
+    ok('冒烟夹具已清干净',
+      NDB.prepare(`SELECT COUNT(*) c FROM orders WHERE order_no LIKE '${PFX}%'`).get().c === 0
+      && NDB.prepare("SELECT COUNT(*) c FROM material_issues WHERE issue_no = 'TESTMI-NO-1'").get().c === 0
+      && NDB.prepare(`SELECT COUNT(*) c FROM purchase_orders WHERE order_no LIKE '${PFX}%'`).get().c === 0
+      && NDB.prepare("SELECT COUNT(*) c FROM quotations WHERE quote_no LIKE 'QT-TEST-NO-%'").get().c === 0
+      && NDB.prepare("SELECT COUNT(*) c FROM orders WHERE remark LIKE '由报价单 QT-TEST-NO-%'").get().c === 0,
+      `订单 ${NDB.prepare(`SELECT COUNT(*) c FROM orders WHERE order_no LIKE '${PFX}%'`).get().c} / 领料 ${NDB.prepare("SELECT COUNT(*) c FROM material_issues WHERE issue_no = 'TESTMI-NO-1'").get().c}`);
+  }
+
   /* ================================================================== *
    * 上线检查清单（上线准备）
    *
