@@ -7720,6 +7720,212 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 技能矩阵与岗位资格（TS-N13-06） =================
+  // 自建一条 __SMOKE工序__ 的门槛与技能，跑完删净；不动演示数据里的人和门槛。
+  {
+    console.log('\n[技能矩阵与岗位资格]');
+    const { db: DB } = require('../src/db');
+    const asUser = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return (r.json && r.json.data && r.json.data.token) || '';
+    };
+    const PROC = '__SMOKE工序__';
+    const cleanUp = () => {
+      DB.prepare('DELETE FROM employee_skills WHERE process_name = ?').run(PROC);
+      DB.prepare('DELETE FROM skill_overrides WHERE process_name = ?').run(PROC);
+      DB.prepare('DELETE FROM skill_requirements WHERE process_name = ?').run(PROC);
+    };
+    cleanUp();
+
+    const metaRes = await req('/api/skills/meta', { token });
+    const m = metaRes.json.data || {};
+    ok('技能字典可读（等级 4 档 / 证据来源 3 种）',
+      metaRes.status === 200 && (m.levels || []).length === 4 && (m.sources || []).length === 3,
+      `${(m.levels || []).length} 级 / ${(m.sources || []).length} 来源`);
+    ok('工序门槛已从工序标准播种', (m.processes || []).length >= 5, `${(m.processes || []).length} 道`);
+
+    // 矩阵：默认只列有技能记录的人，但没记录的必须报出来（不能假装全公司只有 7 个人）
+    const mx = (await req('/api/skills/matrix', { token })).json.data || {};
+    const activeCount = DB.prepare("SELECT COUNT(*) c FROM employees WHERE IFNULL(status,'active')='active'").get().c;
+    ok('矩阵只列有技能记录的人',
+      (mx.rows || []).every((r) => Object.keys(r.cells || {}).length > 0), `${(mx.rows || []).length} 行`);
+    ok('没有技能记录的人单独计数（不显示 ≠ 不存在）',
+      (mx.rows || []).length + (mx.without_skill || 0) === activeCount,
+      `${(mx.rows || []).length} + ${mx.without_skill} vs 在职 ${activeCount}`);
+    ok('矩阵格子带证据来源（否则分不清评定与报工）',
+      (mx.rows || []).every((r) => Object.values(r.cells || {}).every((c) => !!c.source && !!c.source_label)));
+
+    // 覆盖：人数自洽 + 与库内直算一致
+    const cov = (await req('/api/skills/coverage', { token })).json.data || {};
+    ok('覆盖清单每人头都能对上合格名单',
+      (cov.list || []).every((x) => x.qualified === (x.people || []).length),
+      (cov.list || []).map((x) => `${x.process_name} ${x.qualified}/${(x.people || []).length}`).join(' '));
+    const one = (cov.list || [])[0];
+    if (one) {
+      const dbCount = DB.prepare(
+        `SELECT COUNT(*) c FROM employee_skills
+          WHERE process_name = ? AND status = 'active' AND level >= ?
+            AND (IFNULL(valid_until,'') = '' OR valid_until >= ?)`
+      ).get(one.process_name, one.min_level, new Date().toISOString().slice(0, 10)).c;
+      ok('覆盖人数与库内直算一致（等级达标且未过期才算）', dbCount === one.qualified,
+        `接口 ${one.qualified} vs 库 ${dbCount}（${one.process_name}）`);
+    } else {
+      ok('覆盖人数与库内直算一致（等级达标且未过期才算）', true, '没有门槛行，跳过');
+    }
+    ok('用到但没建门槛的工序被单列（条数要对得上）',
+      (cov.unmapped || []).length === ((cov.summary || {}).unmapped || 0),
+      `清单 ${(cov.unmapped || []).length} / 汇总 ${(cov.summary || {}).unmapped}`);
+
+    // 建立门槛：受限 + 2 级
+    const mkReq = await req('/api/skills/requirements', {
+      method: 'PUT', token, body: { process_name: PROC, min_level: 2, restricted: true, min_headcount: 1 }
+    });
+    ok('可新建受限工序门槛', mkReq.status === 200 && mkReq.json.data.restricted === 1, `HTTP ${mkReq.status}`);
+
+    const emp = DB.prepare("SELECT id, name FROM employees WHERE IFNULL(status,'active')='active' ORDER BY id LIMIT 1").get();
+
+    // 评定：依据太短必须拒
+    const shortEv = await req('/api/skills/assess', {
+      method: 'POST', token, body: { employee_id: emp.id, process_name: PROC, level: 2, evidence: '行' }
+    });
+    ok('评定必须写依据（否则矩阵就是谁都能填的数字）', shortEv.status === 400, `HTTP ${shortEv.status}`);
+
+    // 评定：1 级（低于门槛）
+    const a1 = await req('/api/skills/assess', {
+      method: 'POST', token, body: { employee_id: emp.id, process_name: PROC, level: 1, evidence: '冒烟用例：只做过辅助，未独立操作' }
+    });
+    ok('评定写入并转成「考核评定」来源',
+      a1.status === 200 && a1.json.data.level === 1, `HTTP ${a1.status} 等级 ${a1.json.data && a1.json.data.level}`);
+
+    const chk1 = (await req(`/api/skills/check?employee_id=${emp.id}&process_name=${encodeURIComponent(PROC)}`, { token })).json.data;
+    ok('受限工序 + 等级不够 → 不许上机', chk1 && chk1.allowed === false, chk1 && chk1.reason);
+    ok('拒绝原因说清是「等级不够」还是「没评定」', /受限工序/.test(chk1.reason || ''), chk1 && chk1.reason);
+
+    // 评定升级到 2 级 → 放行
+    await req('/api/skills/assess', {
+      method: 'POST', token, body: { employee_id: emp.id, process_name: PROC, level: 2, evidence: '冒烟用例：补做 2 周后考核通过' }
+    });
+    const chk2 = (await req(`/api/skills/check?employee_id=${emp.id}&process_name=${encodeURIComponent(PROC)}`, { token })).json.data;
+    ok('等级达标后放行', chk2 && chk2.allowed === true, chk2 && chk2.reason);
+
+    // 降级要显式告知（多半是复评没过，别让人以为点错）
+    const down = await req('/api/skills/assess', {
+      method: 'POST', token, body: { employee_id: emp.id, process_name: PROC, level: 1, evidence: '冒烟用例：复评未通过，降回学徒' }
+    });
+    ok('降级返回 downgraded 标记', down.status === 200 && down.json.data.downgraded === true, `HTTP ${down.status}`);
+
+    // 破格：理由太短拒；正常放行；非受限工序不许破格
+    const ovShort = await req('/api/skills/overrides', {
+      method: 'POST', token, body: { employee_id: emp.id, process_name: PROC, valid_until: '2027-06-30', reason: '急' }
+    });
+    ok('破格理由至少 6 个字', ovShort.status === 400, `HTTP ${ovShort.status}`);
+
+    const ov = await req('/api/skills/overrides', {
+      method: 'POST', token, body: { employee_id: emp.id, process_name: PROC, valid_until: '2027-06-30', reason: '冒烟用例：旺季临时协助，限铺布辅助' }
+    });
+    ok('破格放行能开且带期限', ov.status === 200 && ov.json.data.valid_until === '2027-06-30', `HTTP ${ov.status}`);
+    const chk3 = (await req(`/api/skills/check?employee_id=${emp.id}&process_name=${encodeURIComponent(PROC)}`, { token })).json.data;
+    ok('破格期间放行但标明 via_override', chk3 && chk3.allowed === true && chk3.via_override === true, chk3 && chk3.reason);
+
+    // 门禁真的接在报工上：把「裁剪」临时设为受限，用没有该工序资格的人报工 → 必须 400
+    const cutNode = DB.prepare(
+      "SELECT n.id nid, n.order_id oid FROM order_nodes n WHERE n.name = '裁剪' ORDER BY n.id LIMIT 1"
+    ).get();
+    const cutReq = DB.prepare("SELECT * FROM skill_requirements WHERE process_name = '裁剪'").get();
+    if (cutNode && cutReq) {
+      const oldRestricted = cutReq.restricted;
+      const before = DB.prepare('SELECT COUNT(*) c FROM production_reports WHERE order_id = ?').get(cutNode.oid).c;
+      try {
+        DB.prepare("UPDATE skill_requirements SET restricted = 1 WHERE process_name = '裁剪'").run();
+        // 造一个明确没有裁剪资格的人：临时插入 0 级不可行，直接挑一个没有裁剪技能记录的在职员工
+        const noSkill = DB.prepare(
+          `SELECT e.id, e.name FROM employees e
+            WHERE IFNULL(e.status,'active')='active'
+              AND NOT EXISTS (SELECT 1 FROM employee_skills s WHERE s.employee_id = e.id AND s.process_name = '裁剪')
+            ORDER BY e.id LIMIT 1`
+        ).get();
+        if (noSkill) {
+          const blocked = await req('/api/reports', {
+            method: 'POST', token,
+            body: { order_id: cutNode.oid, node_id: cutNode.nid, employee_id: noSkill.id, qty_ok: 1, hours: 1 }
+          });
+          ok('受限工序无资格 → 报工被拦下（门禁接在报工上，不只是查询）',
+            blocked.status === 400 && /受限工序|资格|技能/.test(blocked.json.message || ''),
+            `HTTP ${blocked.status} ${blocked.json.message || ''}`);
+          ok('被拦的报工没有落库',
+            DB.prepare('SELECT COUNT(*) c FROM production_reports WHERE order_id = ?').get(cutNode.oid).c === before);
+          const afterId = blocked.json.data && blocked.json.data.id;
+          if (afterId) await req(`/api/reports/${afterId}`, { method: 'DELETE', token });
+        } else {
+          ok('受限工序无资格 → 报工被拦下（门禁接在报工上，不只是查询）', true, '所有在职员工都有裁剪记录，跳过');
+          ok('被拦的报工没有落库', true, '跳过');
+        }
+      } finally {
+        DB.prepare("UPDATE skill_requirements SET restricted = ? WHERE process_name = '裁剪'").run(oldRestricted);
+      }
+    } else {
+      ok('受限工序无资格 → 报工被拦下（门禁接在报工上，不只是查询）', true, '没有裁剪节点或门槛，跳过');
+      ok('被拦的报工没有落库', true, '跳过');
+    }
+
+    // 培训：不通过与不扣款、不自动降级
+    const tr = await req('/api/skills/trainings', {
+      method: 'POST', token, body: { employee_id: emp.id, course_name: '__SMOKE培训__', course_type: 'skill', planned_at: '2026-10-01' }
+    });
+    if (tr.status === 200) {
+      const tid = tr.json.data.id;
+      const failed = await req(`/api/skills/trainings/${tid}/finish`, {
+        method: 'POST', token, body: { result: 'fail', score: 55 }
+      });
+      ok('培训不通过会提示复训、且不因此降级',
+        failed.status === 200 && /不因.*扣款|复训/.test(failed.json.data.note || ''), failed.json.data && failed.json.data.note);
+      const lv = DB.prepare('SELECT level FROM employee_skills WHERE employee_id = ? AND process_name = ?').get(emp.id, PROC);
+      ok('培训不通过不改技能等级', lv && Number(lv.level) === 1, lv ? `等级 ${lv.level}` : '没有技能行');
+      DB.prepare('DELETE FROM training_records WHERE id = ?').run(tid);
+    } else {
+      ok('培训不通过会提示复训、且不因此降级', false, `HTTP ${tr.status} ${tr.json.message || ''}`);
+      ok('培训不通过不改技能等级', false, '培训没建起来');
+    }
+
+    // 到期：过期行必须是负天数，未过期行不能是负的
+    const exp = (await req('/api/skills/expiring?days=90', { token })).json.data || {};
+    ok('到期清单的「已过期」与剩余天数一致（不自相矛盾）',
+      (exp.rows || []).every((x) => (x.overdue === true) === (x.days_left < 0)),
+      (exp.rows || []).slice(0, 3).map((x) => `${x.item}:${x.days_left}`).join(' '));
+
+    // 权限：销售/仓库不看技能；生产能看不能改门槛
+    const salesTok = await asUser('sales01');
+    if (salesTok) {
+      const deny = await req('/api/skills/matrix', { token: salesTok });
+      ok('销售看不到技能矩阵', deny.status === 403, `HTTP ${deny.status}`);
+      const denyW = await req('/api/skills/assess', {
+        method: 'POST', token: salesTok, body: { employee_id: emp.id, process_name: PROC, level: 4, evidence: '销售想给自己人评个师傅' }
+      });
+      ok('销售不能评定技能', denyW.status === 403, `HTTP ${denyW.status}`);
+    } else {
+      ok('销售看不到技能矩阵', true, '没有 sales01，跳过');
+      ok('销售不能评定技能', true, '跳过');
+    }
+    const prodTok = await asUser('prod01');
+    if (prodTok) {
+      const canRead = await req('/api/skills/coverage', { token: prodTok });
+      ok('生产能看覆盖缺口（要排产）', canRead.status === 200, `HTTP ${canRead.status}`);
+      const denyRule = await req('/api/skills/requirements', {
+        method: 'PUT', token: prodTok, body: { process_name: PROC, restricted: false, min_level: 2 }
+      });
+      ok('生产不能自己改受限开关（会决定全厂能不能开工）', denyRule.status === 403, `HTTP ${denyRule.status}`);
+    } else {
+      ok('生产能看覆盖缺口（要排产）', true, '没有 prod01，跳过');
+      ok('生产不能自己改受限开关（会决定全厂能不能开工）', true, '跳过');
+    }
+
+    cleanUp();
+    ok('冒烟夹具已清干净',
+      !DB.prepare('SELECT 1 FROM skill_requirements WHERE process_name = ?').get(PROC)
+      && !DB.prepare('SELECT 1 FROM employee_skills WHERE process_name = ?').get(PROC));
+  }
+
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

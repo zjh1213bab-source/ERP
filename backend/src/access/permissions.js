@@ -214,6 +214,14 @@ const PERMS = {
   'flowchange.read': ['admin', 'boss'],
   'flowchange.write': ['admin'],
 
+  // ===== 技能矩阵与岗位资格（TS-N13-06）=====
+  // read：人事/生产/技术要排产，老板要盘家底。销售、仓库、财务不需要知道谁能车缝。
+  // write：评定与培训登记。生产主管能评自己线上的人 —— 车间里谁行谁不行，主管最清楚。
+  // rule：改「受限工序」开关会直接决定车间能不能开工，只给人事与管理员。
+  'skill.read': ['admin', 'boss', 'hr', 'production', 'tech'],
+  'skill.write': ['admin', 'hr', 'production'],
+  'skill.rule': ['admin', 'hr'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -324,6 +332,9 @@ const GUARDED = [
   { perm: 'paymentreq.write', method: 'PUT', prefix: '/api/payment-requests' },
   { perm: 'paymentreq.write', method: 'DELETE', prefix: '/api/payment-requests' },
   { perm: 'payable.write', method: 'PUT', prefix: '/api/payable' },
+  // 技能：评级会决定谁能上机，改门槛会决定全厂能不能开工 —— 两层都拦
+  { perm: 'skill.write', method: 'POST', prefix: '/api/skills' },
+  { perm: 'skill.rule', method: 'PUT', prefix: '/api/skills' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

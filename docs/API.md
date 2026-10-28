@@ -2922,3 +2922,48 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 那是内部编码（`CN-ICBC-001`），真实账号本来就只存 `account_masked`。
 强行脱敏内部编码只会让对账变难 —— 系统从一开始就没存真实明文账号。
+
+## 技能矩阵与岗位资格（`/api/skills`）
+
+> 回答三个排产要问的问题：**这道工序现在有几个人真能上**、**这个人能不能上**、**下个月谁会掉资格**。
+> 权限：`skill.read`（admin/boss/hr/production/tech）、`skill.write`（admin/hr/production）、
+> `skill.rule`（admin/hr，改受限开关）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/skills/meta | read | 字典（4 级等级 / 3 种来源 / 部门 / 工序门槛）+ 统计 |
+| GET | /api/skills/matrix?department_id=&q=&include_empty= | read | 人 × 工序矩阵。**默认只列有技能记录的人**，`without_skill` 单独返回 |
+| GET | /api/skills/coverage | read | 覆盖缺口：每道工序合格几人/需要几人/缺口/仅报工/过期/破格 + 未建门槛工序 + 未归属报工 |
+| GET | /api/skills/expiring?days=60 | read | 到期清单（技能复评 / 资格证书 / 复训三合一） |
+| GET | /api/skills/stats | read | 顶部统计 |
+| GET | /api/skills/check?employee_id=&process_name= | read | 某人能不能上某工序（派工前先问一句） |
+| GET | /api/skills/mine?employee_id= | 登录 | 员工视角：我的技能、证书、培训。非 hr/production/admin 只能看自己 |
+| POST | /api/skills/assess | write | 评定技能（**唯一能改等级的地方**）：`{employee_id, process_name, level, evidence, valid_until}`，evidence ≥4 字 |
+| POST | /api/skills/revoke | write | 撤销技能：`{employee_id, process_name, reason}`，reason ≥4 字 |
+| PUT | /api/skills/requirements | rule | 维护工序门槛：`{process_name, min_level, restricted, min_headcount, work_center}` |
+| GET | /api/skills/certs?employee_id= | read | 员工资格证书清单 |
+| POST | /api/skills/certs | write | 登记证书：到期日早于今天会直接落成 `expired` |
+| POST | /api/skills/certs/:id/revoke | write | 作废证书（写原因 ≥4 字） |
+| GET | /api/skills/trainings?employee_id= | read | 培训记录 |
+| POST | /api/skills/trainings | write | 安排培训：`{employee_id, course_name, course_type, planned_at}` |
+| POST | /api/skills/trainings/:id/finish | write | 登记结果：`{result: pass/fail, score?, expire_date?}` |
+| POST | /api/skills/overrides | rule | 破格放行：`{employee_id, process_name, reason≥6字, valid_until}`。**只对受限工序**，必须有期限 |
+
+**数据依赖**
+
+- 工序清单取 `process_standards`（排程真正认的那份），没有则用内置 9 道工序兜底。
+- 报工回填：`production_reports.employee_id` + `node_name` → 生成 `source='actual'` 的占位技能行（`level=1`），
+  `report_count` 记录次数。**它证明「做过」，不证明「合格」**。
+
+**五条硬口径**
+
+1. **等级只来自评定** —— `assess()` 是唯一写 `level` 的入口；报工只更新 `report_count`。
+2. **只有 evaluated 且达标才算可上岗** —— `canWork()` 返回 `allowed` 只代表「不拦」，
+   是否「有资格」要看 `level >= min_level && 未过期`。
+3. **默认全都不受限** —— `restricted=0` 时只提示。打开受限时若 0 人合格，接口在 `warnings` 里明确告知会停线。
+4. **查不到人不拦** —— `employee_id` 为空时 `gateForReport` 直接放行，只在覆盖缺口的
+   `report_no_employee` 里计数（当前 89 条报工中 2 条查不到人）。
+5. **证书过期即失效、记录不删** —— 状态转 `expired`，矩阵显示「有·已过期」。
+
+**门禁挂在报工上**（`POST /api/reports`）：保存前调 `gateForReport(employeeId, nodeName)`，
+受限工序且无有效资格 → 400；有破格放行 → 放行并在返回里标 `via_override`。

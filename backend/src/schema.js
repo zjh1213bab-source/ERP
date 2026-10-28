@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 666 个对象
- * （320 张表 + 346 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 678 个对象
+ * （325 张表 + 353 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -671,5 +671,17 @@ module.exports = [
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_fieldguard ON field_guards(table_name, field_name);",
   "CREATE TABLE IF NOT EXISTS sensitive_access_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  username TEXT,\n  user_name TEXT,\n  role TEXT,\n  table_name TEXT NOT NULL,\n  field_name TEXT,\n  target_id INTEGER,\n  target_label TEXT,                            -- 看的是谁（员工姓名/客户名）\n  action TEXT NOT NULL,                         -- view 查看明细 / list 列表带到 / export 导出 / reveal 一次性查看\n  granted INTEGER NOT NULL DEFAULT 0,           -- 1 有权限看到明文 / 0 走了申请通道\n  reason TEXT,                                  -- granted=0 时必填\n  ip TEXT,\n  ua TEXT,\n  created_at TEXT NOT NULL\n, row_count INTEGER NOT NULL DEFAULT 1);",
   "CREATE INDEX IF NOT EXISTS idx_salog_user ON sensitive_access_logs(username);",
-  "CREATE INDEX IF NOT EXISTS idx_salog_time ON sensitive_access_logs(created_at);"
+  "CREATE INDEX IF NOT EXISTS idx_salog_time ON sensitive_access_logs(created_at);",
+  "CREATE TABLE IF NOT EXISTS skill_requirements (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  process_name TEXT NOT NULL,                   -- 与 process_standards.process_name / order_nodes.name 对齐\n  work_center TEXT,\n  min_level INTEGER NOT NULL DEFAULT 2,         -- 可独立上岗的最低等级\n  restricted INTEGER NOT NULL DEFAULT 0,        -- 1=受限工序，无资格不许报工；0=只提示\n  cert_type TEXT,                               -- 该工序要求的资格证类型（可空）\n  min_headcount INTEGER NOT NULL DEFAULT 1,     -- 至少几人能上（覆盖分析的基准）\n  note TEXT,\n  updated_by TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_skillreq ON skill_requirements(process_name);",
+  "CREATE TABLE IF NOT EXISTS employee_skills (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  employee_id INTEGER NOT NULL,\n  employee_name TEXT,\n  process_name TEXT NOT NULL,\n  level INTEGER NOT NULL DEFAULT 1,             -- 1 学徒 / 2 熟练 / 3 骨干 / 4 师傅\n  source TEXT NOT NULL DEFAULT 'assessed',      -- assessed 评定 / actual 仅报工事实 / self 自报\n  assessed_by TEXT,                             -- 评定人：评级这事必须有人负责\n  assessed_at TEXT,\n  evidence TEXT,                                -- 评定依据（考了什么、做了几件、谁看的）\n  valid_until TEXT,                             -- 技能有效期（复评到期）\n  status TEXT NOT NULL DEFAULT 'active',        -- active / expired / revoked\n  report_count INTEGER NOT NULL DEFAULT 0,      -- 报工次数（证据，不参与评级）\n  last_report_at TEXT,\n  remark TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_skill ON employee_skills(employee_id, process_name);",
+  "CREATE INDEX IF NOT EXISTS idx_skill_proc ON employee_skills(process_name);",
+  "CREATE TABLE IF NOT EXISTS skill_certs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  employee_id INTEGER NOT NULL,\n  employee_name TEXT,\n  cert_type TEXT NOT NULL,                      -- 电工 / 叉车 / 质检资格 / 特种作业…\n  cert_no TEXT,\n  issuer TEXT,                                  -- 发证机关\n  issue_date TEXT,\n  expire_date TEXT,                             -- 空=长期有效\n  attachment TEXT,\n  status TEXT NOT NULL DEFAULT 'valid',         -- valid / expired / revoked\n  remark TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_cert_emp ON skill_certs(employee_id);",
+  "CREATE INDEX IF NOT EXISTS idx_cert_expire ON skill_certs(expire_date);",
+  "CREATE TABLE IF NOT EXISTS skill_overrides (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  employee_id INTEGER NOT NULL,\n  employee_name TEXT,\n  process_name TEXT NOT NULL,\n  reason TEXT NOT NULL,                         -- 必填：为什么这次可以破格\n  approved_by TEXT,\n  valid_until TEXT NOT NULL,                    -- 必须有期限，避免变成永久后门\n  status TEXT NOT NULL DEFAULT 'active',        -- active / expired / revoked\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_override_emp ON skill_overrides(employee_id, process_name);",
+  "CREATE TABLE IF NOT EXISTS training_records (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  employee_id INTEGER NOT NULL,\n  employee_name TEXT,\n  course_name TEXT NOT NULL,\n  course_type TEXT NOT NULL DEFAULT 'skill',    -- onboard 入职 / skill 技能 / refresh 复训 / safety 安全\n  planned_at TEXT,                              -- 计划日期（没完成也算进完成率分母）\n  finished_at TEXT,\n  hours REAL,\n  score REAL,\n  result TEXT NOT NULL DEFAULT 'pending',       -- pending / pass / fail\n  expire_date TEXT,                             -- 复训到期日\n  trainer TEXT,\n  remark TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_train_emp ON training_records(employee_id);"
 ];

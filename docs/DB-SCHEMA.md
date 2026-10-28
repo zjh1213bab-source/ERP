@@ -1079,3 +1079,27 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 >
 > **`bank_accounts` 不进规则表**：`account_no` 是内部编码，真实账号只存 `account_masked`，
 > 本来就没有明文可脱。
+
+## 技能矩阵与岗位资格（M-SKILL）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| skill_requirements | process_name(唯一), work_center, min_level(1–4), restricted, cert_type, min_headcount, note, updated_by/at | 工序门槛。`restricted=1` 才是「没资格不许上机」；默认 0（只提示）—— 一上来全拦会让车间当天停线 |
+| employee_skills | employee_id + process_name（唯一）, level(1 学徒/2 熟练/3 骨干/4 师傅), source(assessed/actual/self), assessed_by/at, evidence, valid_until, status, report_count, last_report_at | 矩阵的格子。**`level` 只由 `assess()` 写**；报工只更新 `report_count` —— 干得多不等于干得好 |
+| skill_certs | employee_id, cert_type, cert_no, issuer, issue_date, expire_date, status(valid/expired/revoked), attachment | 员工个人资格证书。与 `certificates`（公司证照：营业执照/保险/消防）是两回事 |
+| skill_overrides | employee_id, process_name, reason(≥6 字), approved_by, valid_until(必填), status | 破格放行。**必须带期限** —— 没期限的破格等于永久后门 |
+| training_records | employee_id, course_name, course_type(onboard/skill/refresh/safety), planned_at, finished_at, hours, score, result(pending/pass/fail), expire_date | 培训/考试/复训。`result='fail'` **不扣款、不自动降级**，只提示安排复训 |
+
+> **`source` 这一列是整个模块的关键**：`assessed` 才是派工依据，`actual` 只证明「做过」。
+> 上线时库里 33 条技能记录里只有 10 条是评定的，23 条只有报工事实 —— 页面上必须把这个差距摆出来，
+> 否则「技能矩阵」会变成一张全员达标的假表。
+>
+> **`valid_until` 为空表示长期有效**，但证书类（`skill_certs`）空值含义不同：
+> `expire_date` 为空 = 长期有效；一旦填了日期且过期，`status` 转 `expired` 而不是删记录。
+>
+> **报工回填的边界**：`production_reports.employee_id` 为空时（当前 89 条里 2 条），
+> 这条报工永远进不了矩阵，只能在覆盖缺口的 `report_no_employee` 里看到。
+> 处理方式是「补档案」，不是「堵报工」。
+>
+> 底层事实来源：`process_standards`（工序清单）、`production_reports`（技能证据）、
+> `employees` / `departments`（人）。**本模块不回写这些表，唯一例外是报工前的门禁校验。**

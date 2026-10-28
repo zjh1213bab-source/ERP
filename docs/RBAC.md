@@ -791,6 +791,22 @@
 | settings | PUT | `/` | ✅ | — | — | — | — | — | — | — |
 | sizeTemplates | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | sizeTemplates | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| skills | POST | `/assess` | ✅ | — | — | — | ✅ | — | — | ✅ |
+| skills | GET | `/certs` | ✅ | ✅ | — | ✅ | ✅ | — | — | ✅ |
+| skills | POST | `/certs` | ✅ | — | — | — | ✅ | — | — | ✅ |
+| skills | POST | `/certs/:id/revoke` | ✅ | — | — | — | ✅ | — | — | ✅ |
+| skills | GET | `/check` | ✅ | ✅ | — | ✅ | ✅ | — | — | ✅ |
+| skills | GET | `/coverage` | ✅ | ✅ | — | ✅ | ✅ | — | — | ✅ |
+| skills | GET | `/expiring` | ✅ | ✅ | — | ✅ | ✅ | — | — | ✅ |
+| skills | GET | `/matrix` | ✅ | ✅ | — | ✅ | ✅ | — | — | ✅ |
+| skills | GET | `/meta` | ✅ | ✅ | — | ✅ | ✅ | — | — | ✅ |
+| skills | POST | `/overrides` | ✅ | — | — | — | — | — | — | ✅ |
+| skills | PUT | `/requirements` | ✅ | — | — | — | — | — | — | ✅ |
+| skills | POST | `/revoke` | ✅ | — | — | — | ✅ | — | — | ✅ |
+| skills | GET | `/stats` | ✅ | ✅ | — | ✅ | ✅ | — | — | ✅ |
+| skills | GET | `/trainings` | ✅ | ✅ | — | ✅ | ✅ | — | — | ✅ |
+| skills | POST | `/trainings` | ✅ | — | — | — | ✅ | — | — | ✅ |
+| skills | POST | `/trainings/:id/finish` | ✅ | — | — | — | ✅ | — | — | ✅ |
 | spot | GET | `/aging` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | spot | GET | `/dict` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | spot | GET | `/overview` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
@@ -1039,6 +1055,9 @@
 | `prodreport.read` | 系统管理员、总经理、生产车间、财务会计、技术打版、销售跟单 |
 | `flowchange.read` | 系统管理员、总经理 |
 | `flowchange.write` | 系统管理员 |
+| `skill.read` | 系统管理员、总经理、人事行政、生产车间、技术打版 |
+| `skill.write` | 系统管理员、人事行政、生产车间 |
+| `skill.rule` | 系统管理员、人事行政 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |

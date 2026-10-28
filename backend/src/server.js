@@ -63,6 +63,7 @@ const exceptionRoutes = require('./routes/exceptions');      // 异常协同与�
 const prodReportRoutes = require('./routes/prodReport');     // 生产交付效率与质量报表（八项指标 + 覆盖率）
 const flowChangeRoutes = require('./routes/flowChanges');    // 流程变更发布与审计（版本化 + 试运行 + 回滚）
 const privacyRoutes = require('./routes/privacy');           // 字段级脱敏与访问审计
+const skillRoutes = require('./routes/skills');              // 技能矩阵与岗位资格（人×工序 + 受限工序门禁）
 // 【暂停】坏账准备计提：后端已实现（services/badDebt.js + routes/badDebt.js），
 // 财务模块暂缓上线，接口先不挂载（返回 404），代码与表结构、已生成的凭证全部保留。
 // 恢复：解开下面一行 + 解开 services/gl.js 里 bad_debt 关账检查项。
@@ -226,6 +227,7 @@ app.use('/api/exceptions', exceptionRoutes); // 异常协同与日清（六类�
 app.use('/api/prod-report', prodReportRoutes); // 生产交付效率与质量报表（准交/效率/质量/在制龄/计划偏差）
 app.use('/api/flow-changes', flowChangeRoutes); // 流程变更发布与审计（草稿→试运行→发布→回滚）
 app.use('/api/privacy', privacyRoutes); // 字段级脱敏与访问审计（服务端掩码 + 一次性查看 + 留痕）
+app.use('/api/skills', skillRoutes); // 技能矩阵与岗位资格（评定→矩阵→受限工序门禁→到期提醒）
 // 【暂停】app.use('/api/bad-debt', badDebtRoutes); // 坏账准备计提（按账龄差额补提/冲回，生成 6702/1231 凭证）
 app.use('/api/payrolls', payrollRoutes); // 薪酬核算
 app.use('/api/assets', assetRoutes); // 固定资产

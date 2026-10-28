@@ -289,6 +289,24 @@ export const api = {  // 登录
   fcReject: (id, d) => req(`/api/flow-changes/changes/${id}/reject`, { method: 'POST', body: d }),
   fcAudits: (params) => req('/api/flow-changes/audits' + qs(params)),
 
+  // 技能矩阵与岗位资格
+  skMeta: () => req('/api/skills/meta'),
+  skMatrix: (params) => req('/api/skills/matrix' + qs(params)),
+  skCoverage: () => req('/api/skills/coverage'),
+  skExpiring: (params) => req('/api/skills/expiring' + qs(params)),
+  skStats: () => req('/api/skills/stats'),
+  skCheck: (params) => req('/api/skills/check' + qs(params)),
+  skAssess: (d) => req('/api/skills/assess', { method: 'POST', body: d }),
+  skRevoke: (d) => req('/api/skills/revoke', { method: 'POST', body: d }),
+  skSaveReq: (d) => req('/api/skills/requirements', { method: 'PUT', body: d }),
+  skCerts: (params) => req('/api/skills/certs' + qs(params)),
+  skAddCert: (d) => req('/api/skills/certs', { method: 'POST', body: d }),
+  skRevokeCert: (id, d) => req(`/api/skills/certs/${id}/revoke`, { method: 'POST', body: d }),
+  skTrainings: (params) => req('/api/skills/trainings' + qs(params)),
+  skAddTraining: (d) => req('/api/skills/trainings', { method: 'POST', body: d }),
+  skFinishTraining: (id, d) => req(`/api/skills/trainings/${id}/finish`, { method: 'POST', body: d }),
+  skOverride: (d) => req('/api/skills/overrides', { method: 'POST', body: d }),
+
   // 字段级脱敏与访问审计
   pvMeta: () => req('/api/privacy/meta'),
   pvRules: () => req('/api/privacy/rules'),

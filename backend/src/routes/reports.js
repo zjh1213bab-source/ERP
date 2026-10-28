@@ -14,6 +14,7 @@ const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { faGate, PRE_NODES } = require('./firstArticles');
+const SKILL = require('../services/skillMatrix');
 
 const router = express.Router();
 const WRITE = ['admin', 'production'];
@@ -76,6 +77,14 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
       .get(orderId, bundleNo);
     if (!hit) return fail(res, 400, `扎号「${bundleNo}」不属于这张订单，报工未保存`);
     bundleNo = hit.bundle_no;
+  }
+
+  // 技能门禁：受限工序没资格不许上机（原型 TS-N13-06「受限岗位才拦」）。
+  // 只拦「能认出是谁」的报工 —— 报工人不在员工档案时不拦，否则 HR 少录一个人
+  // 就会让整条线开不了工；这部分会进技能矩阵的「未归属报工」清单，去补档案而不是堵生产。
+  const skillGate = SKILL.gateForReport(employeeId, nodeName);
+  if (!skillGate.ok) {
+    return fail(res, 400, `「${nodeName}」报工被拦下：${skillGate.reason}`);
   }
 
   const info = db.prepare(
