@@ -222,6 +222,16 @@ const PERMS = {
   'skill.write': ['admin', 'hr', 'production'],
   'skill.rule': ['admin', 'hr'],
 
+  // ===== 员工自助（TS-N13-10）=====
+  // 自助是「人人都有」的权限，但**范围由服务端的绑定关系卡死**：只能看自己。
+  // 给所有角色 read/submit 不等于给了看别人的能力 —— 越权在服务层按 employee_id 拦。
+  'self.read': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'self.submit': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  // 受理申请：人事（补卡/请假/资料）与财务（薪资申诉）都要能处理
+  'self.manage': ['admin', 'hr', 'finance'],
+  // 绑定账号 ↔ 员工：绑错了就是「看到别人的工资」，只给人事与管理员
+  'self.bind': ['admin', 'hr'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -335,6 +345,12 @@ const GUARDED = [
   // 技能：评级会决定谁能上机，改门槛会决定全厂能不能开工 —— 两层都拦
   { perm: 'skill.write', method: 'POST', prefix: '/api/skills' },
   { perm: 'skill.rule', method: 'PUT', prefix: '/api/skills' },
+  // 自助：受理会让调整单进工资，绑定会把账号连到别人的档案上 —— 都属高危。
+  // 注意受理路径单独用 /api/self/review：GUARDED 是前缀匹配，
+  // 若沿用 /api/self/requests/:id/review，会把员工本人提交申请（POST /api/self/requests）一起拦掉。
+  { perm: 'self.manage', method: 'POST', prefix: '/api/self/review' },
+  { perm: 'self.bind', method: 'POST', prefix: '/api/self/bind' },
+  { perm: 'self.bind', method: 'POST', prefix: '/api/self/unbind' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

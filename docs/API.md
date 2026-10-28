@@ -26,8 +26,9 @@
 | GET | /api/orders/export | 登录 | 导出 CSV |
 | GET | /api/orders/:id | 登录 | 详情（items[].colors[]、crafts、logs） |
 | POST | /api/orders | admin,sales | 新建（items[].colors[].sizes[]） |
+| PUT | /api/orders/:id/items | admin,sales | 仅草稿可用；补录/修改款式颜色尺码，原子重算金额并留变更记录 |
 | POST | /api/orders/:id/image | admin,sales,tech | 设置款图 |
-| POST | /api/orders/:id/transition | 按状态 | `{to,note,force}` 状态流转；与批量流转**共用同一套门槛**（`services/orderFlow.js`） |
+| POST | /api/orders/:id/transition | 按状态 | `{to,note,force}` 状态流转；与批量流转共用门槛；入库/发货必须走库存接口 |
 | POST | /api/orders/batch/transition | 按状态（排除 boss/hr） | `{ids,to,note,force,dry_run,all_or_nothing}` 批量流转。`dry_run=1` 只预检不写库；`all_or_nothing=1` 整批一致；默认逐单尽力。返回 `{batch_no,ok_count,fail_count,ok[],fail[{order_no,status,reason}]}`，**每单结果都在**；一次最多 200 单 |
 | POST | /api/orders/:id/rollback | 按状态 | `{to,reason}` **反审退回**：只退前置环节、原因必填、自动冲销库存 + 重置工序 |
 
@@ -60,7 +61,8 @@
 | PATCH/DELETE | /api/order-nodes/:id | 改状态/日期/责任人 |
 | GET | /api/reports?node_id=&order_id= | 报工列表 |
 | GET | /api/reports/summary?order_id= | 报工汇总 |
-| POST/DELETE | /api/reports | 报工增删 |
+| POST | /api/reports | 报工必须关联本订单工序且订单为生产中；累计量不能超过订单量 |
+| DELETE | /api/reports/:id | 仅订单仍在生产状态时可删 |
 
 ## 成本财务
 | 方法 | 路径 | 说明 |
@@ -82,8 +84,8 @@
 | GET | /api/dispatch?order_id= | 登录 | 订单分单列表（也支持 `factory_id`/`status`） |
 | GET | /api/dispatch/recon | 登录 | 外协对账汇总（按外协厂：分单数/件数/金额/未结） |
 | POST | /api/dispatch/:id/settle | admin,finance | 结算/取消结算 `{settled:true|false}` |
-| POST | /api/dispatch | admin,sales,production | 分单（`{order_id,factory_id,qty,price,remark}`；财务通过后，首次分单→assigned，可多次拆分） |
-| DELETE | /api/dispatch/:id | 同上 | 删除分单 |
+| POST | /api/dispatch | admin,sales,production | 分单（`{order_id,factory_id,qty,price,remark}`；须财务通过并指定工厂；可多次拆分，累计不超订单量，分配覆盖整单后→assigned） |
+| DELETE | /api/dispatch/:id | 同上 | 仅订单仍在财务审核/已分单时可删除 |
 
 ## 附件 / 审批 / 人事
 | 方法 | 路径 | 角色 | 说明 |
@@ -222,8 +224,8 @@
 | POST | /api/stock/adjust | 手工调整 |
 | POST | /api/stock/transfer | 调拨 |
 | POST | /api/stock/auto-transfer | 缺货一键补货（cn→us） |
-| POST | /api/stock/instock | 按订单入库（→instock） |
-| POST | /api/stock/ship | 按订单发货（→shipped，校验库存） |
+| POST | /api/stock/instock | 按生产报工与尾期验货放行后的整单明细入库（→instock） |
+| POST | /api/stock/ship | 按订单发货（→shipped，校验库存和信用）；通用状态接口不能替代 |
 | GET | /api/stock/ship-board?warehouse=us | 美仓发货核对 |
 
 ## 报表
@@ -2967,3 +2969,49 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 **门禁挂在报工上**（`POST /api/reports`）：保存前调 `gateForReport(employeeId, nodeName)`，
 受限工序且无有效资格 → 400；有破格放行 → 放行并在返回里标 `via_override`。
+
+## 员工自助与薪资申诉（`/api/self`）
+
+> 员工看自己的考勤/工资条/技能，提交补卡、请假、资料更正、薪资申诉。
+> **范围由「账号 ↔ 员工档案」绑定决定，不按姓名猜**；未绑定账号只能看到一句「请联系人事绑定」。
+> 权限：`self.read` / `self.submit`（全角色）/ `self.manage`（admin/hr/finance）/ `self.bind`（admin/hr）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/self/meta | read | 字典（申请类型 / 状态 / 可更正字段 / 调整项目）+ 统计 |
+| GET | /api/self/overview | read | 我的：档案、本月考勤、已休假期、工资条摘要、技能到期、未结申请。未绑定返回 `bound:false` + `hint` |
+| GET | /api/self/payslips | read | 我的工资条（**只含 confirmed / paid**，draft 不给看） |
+| GET | /api/self/payslips/:id | read | 工资条明细。只能看自己的（越权 403）；**本人查看也写访问日志**（`granted=1`） |
+| GET | /api/self/requests | read | 我的申请（含是否超期） |
+| POST | /api/self/requests | submit | 提交申请：`{type, reason≥5字, payload}` |
+| POST | /api/self/requests/:id/withdraw | submit | 撤回未处理的申请 |
+| GET | /api/self/team | read | 主管看的团队摘要（出勤/迟到/缺勤/请假**天数**；**不含金额、不含请假类型**） |
+| GET | /api/self/bindings | bind | 账号绑定清单（含未绑定账号） |
+| GET | /api/self/employees-for-bind | bind | 可绑定员工（已绑的标 `bound_user` 不可选） |
+| POST | /api/self/bind | bind | 绑定：`{user_id, employee_id}`。一个员工只能绑一个在职账号 |
+| POST | /api/self/unbind/:userId | bind | 解绑 |
+| GET | /api/self/all-requests | manage | 受理台：全部申请（可按 status/type/owner 过滤，带 `overdue`） |
+| POST | /api/self/review/:id | manage | 受理：`{approve, conclusion≥5字, adjust_amount?, adjust_item?}` |
+| GET | /api/self/adjustments | manage | 工资调整单（下一期生效） |
+
+> **受理路径是 `/review/:id` 而不是 `/requests/:id/review`**：`GUARDED` 是高危前缀匹配，
+> 若沿用 `/api/self/requests` 前缀，会把「员工本人提交申请」（`POST /api/self/requests`）一起拦掉。
+
+**四类申请与各自的校验**
+
+| 类型 | 主责 | 期限 | 关键校验 |
+|---|---|---|---|
+| `makeup` 补卡 | hr | 3 天 | 日期不能是未来、只能补 30 天内、至少填上班或下班一个时间、**同一天不许两条处理中** |
+| `leave` 请假 | hr | 3 天 | 结束日期不早于开始；系统**不自动生成请假单**（避免与请假额度两套状态） |
+| `profile` 资料更正 | hr | 5 天 | 只能改**手机号 / 紧急联系人**；部门、岗位、工资、银行卡一律走线下（返回 400 明确说明） |
+| `payroll` 薪资申诉 | finance | 5 天 | 只能申诉自己的、已确认/已发放的、**30 天窗口内**；**同一张工资单不许重复申诉** |
+
+**四条硬口径**
+
+1. **批准不改已付历史**：薪资申诉批准必须填调整金额，生成 `payroll_adjustments`，
+   落在**下一期**；被申诉那一期的 `net_pay` / `status` / `updated_at` 一律不动（冒烟有断言锁住）。
+2. **补卡批准会真的写考勤**：写入/更新 `attendance`，状态用与考勤模块一致的 `normal`
+   （不是另造 `present`），`remark` 记 `补卡：单号`。
+3. **驳回也要写结论**（≥5 字）——员工拿到「已驳回」三个字等于没回复。
+4. **未绑定不猜人**：`users.employee_id` 为空时所有自助接口都不返回个人数据，
+   只在绑定页提示人事去绑。库里有 10 个账号一个都对不上员工档案，按姓名猜必然出错。

@@ -1103,3 +1103,27 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 >
 > 底层事实来源：`process_standards`（工序清单）、`production_reports`（技能证据）、
 > `employees` / `departments`（人）。**本模块不回写这些表，唯一例外是报工前的门禁校验。**
+
+## 员工自助与薪资申诉（M-SELF）
+
+| 表 / 列 | 关键字段 | 说明 |
+|---|---|---|
+| users.**employee_id** | INTEGER | 账号 ↔ 员工档案。**自助的唯一凭据**；为空则所有自助接口不返回任何个人数据。不自动按姓名匹配 —— 库里 10 个账号没有一个能对上员工档案 |
+| self_requests | ticket_no(SR+yyyymmdd+4 位), employee_id, employee_name, type(makeup/leave/profile/payroll), title, reason, payload(JSON), status(submitted/reviewing/approved/rejected/withdrawn), owner_role(hr/finance), due_date, conclusion, decided_by/at, adjust_id | 自助申请。**受理人、期限、结论三件都要有** —— 只有状态没有结论，员工等于没得到回复 |
+| payroll_adjustments | adj_no(PA+…), request_id, employee_id, period(**生效期，下一期**), item, amount(正=补发/负=扣回), reason, status(pending/applied/void), source_period(原始出问题的期数，仅追溯), created_by | 工资调整单。**批准申诉不改已付历史**，只在这里记一笔下一期生效；`source_period` 只用于追溯，不参与计算 |
+
+> **为什么必须先把 `employee_id` 补上**：没有绑定，「员工看自己的」就只能靠姓名匹配。
+> 重名、花名、离职重入职随便碰上一个，就会把 A 的工资条展示给 B —— 这不是显示问题，是数据泄露。
+>
+> **`status` 与 `conclusion` 的关系**：`approved/rejected` 必须有 `conclusion`（≥5 字）。
+> 服务层强制校验，因为「已驳回」三个字对员工毫无信息量，他下次还会提同样的单。
+>
+> **`payload` 是 JSON 快照**：补卡的日期与时间、请假区间、要改的字段原名与新值、申诉的工资单 id 与期间。
+> 批准时按 payload 回写考勤/档案，所以 payload 里的字段名必须与目标表一致（`check_in`/`check_out`/`date`）。
+> 演示数据用 `payload._demo=true` 做标记，**不往给人看的字段里塞「【演示】」**。
+>
+> **不自动生成请假单**：请假要占额度、要扣薪，若自助批准再自动开请假单，就会出现
+> 「自助单已批 + 请假单未批」两套状态。自助只给结论，请假单由人事在请假模块登记。
+>
+> 底层依赖：`employees` / `attendance`（`status` 取值为 `normal / late / leave / absent`）、
+> `payrolls`（只有 `confirmed` / `paid` 对员工可见）、`leave_requests`、`sensitive_access_logs`（本人查看留痕）。

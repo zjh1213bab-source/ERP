@@ -83,6 +83,7 @@ watch(() => route.path, () => { loadMailUnread(); });
 const navModel = [
   { key: 'dash', label: '工作台', icon: '📊', to: '/dashboard' },
   // 日清放在工作台紧后面：它是全员每天第一件事，不该藏在某个模块里
+  { key: 'self', label: '我的自助', icon: '🙋', to: '/self' },
   { key: 'exceptions', label: '异常日清', icon: '🚨', to: '/exceptions' },
   { key: 'scan', label: '扫码查询', icon: '📷', to: '/scan' },
   { key: 'assist', label: '智能助手', icon: '🤖', to: '/assistant' },

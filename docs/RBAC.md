@@ -590,6 +590,7 @@
 | orderNodes | POST | `/init` | ✅ | — | — | — | ✅ | — | — | — |
 | orders | POST | `/` | ✅ | — | ✅ | — | — | — | — | — |
 | orders | POST | `/:id/image` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| orders | PUT | `/:id/items` | ✅ | — | ✅ | — | — | — | — | — |
 | orders | POST | `/batch/transition` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | org | GET | `/dict` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | org | POST | `/employees/:id/transfer` | ✅ | — | — | — | — | — | — | ✅ |
@@ -788,6 +789,21 @@
 | segments | POST | `/reports` | ✅ | — | — | — | — | — | ✅ | — |
 | segments | GET | `/reports/:id` | ✅ | — | ✅ | — | — | — | ✅ | — |
 | segments | POST | `/reports/:id/confirm` | ✅ | — | — | — | — | — | ✅ | — |
+| self | GET | `/adjustments` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| self | GET | `/all-requests` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| self | POST | `/bind` | ✅ | — | — | — | — | — | — | ✅ |
+| self | GET | `/bindings` | ✅ | — | — | — | — | — | — | ✅ |
+| self | GET | `/employees-for-bind` | ✅ | — | — | — | — | — | — | ✅ |
+| self | GET | `/meta` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| self | GET | `/overview` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| self | GET | `/payslips` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| self | GET | `/payslips/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| self | GET | `/requests` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| self | POST | `/requests` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| self | POST | `/requests/:id/withdraw` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| self | POST | `/review/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| self | GET | `/team` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| self | POST | `/unbind/:userId` | ✅ | — | — | — | — | — | — | ✅ |
 | settings | PUT | `/` | ✅ | — | — | — | — | — | — | — |
 | sizeTemplates | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | sizeTemplates | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
@@ -1058,6 +1074,10 @@
 | `skill.read` | 系统管理员、总经理、人事行政、生产车间、技术打版 |
 | `skill.write` | 系统管理员、人事行政、生产车间 |
 | `skill.rule` | 系统管理员、人事行政 |
+| `self.read` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `self.submit` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `self.manage` | 系统管理员、人事行政、财务会计 |
+| `self.bind` | 系统管理员、人事行政 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |

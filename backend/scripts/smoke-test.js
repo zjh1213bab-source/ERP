@@ -7829,7 +7829,8 @@ async function req(path, { method = 'GET', body, token } = {}) {
 
     // 门禁真的接在报工上：把「裁剪」临时设为受限，用没有该工序资格的人报工 → 必须 400
     const cutNode = DB.prepare(
-      "SELECT n.id nid, n.order_id oid FROM order_nodes n WHERE n.name = '裁剪' ORDER BY n.id LIMIT 1"
+      "SELECT n.id nid, n.order_id oid FROM order_nodes n JOIN orders o ON o.id = n.order_id " +
+      "WHERE n.name = '裁剪' AND o.status = 'production' ORDER BY n.id LIMIT 1"
     ).get();
     const cutReq = DB.prepare("SELECT * FROM skill_requirements WHERE process_name = '裁剪'").get();
     if (cutNode && cutReq) {
@@ -7923,6 +7924,210 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('冒烟夹具已清干净',
       !DB.prepare('SELECT 1 FROM skill_requirements WHERE process_name = ?').get(PROC)
       && !DB.prepare('SELECT 1 FROM employee_skills WHERE process_name = ?').get(PROC));
+  }
+
+
+  // ================= 员工自助与薪资申诉（TS-N13-10） =================
+  // 自建一个临时账号绑到某位有已确认工资单的员工，跑完删净；不动演示账号。
+  {
+    console.log('\n[员工自助与薪资申诉]');
+    const { db: DB } = require('../src/db');
+    const T = require('../src/utils/time');
+    const { hashPassword } = require('../src/auth/password');
+    const asUser = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return (r.json && r.json.data && r.json.data.token) || '';
+    };
+
+    // 未绑定账号：只看得到「未绑定」，拿不到任何个人数据
+    const salesTok = await asUser('sales01');
+    if (salesTok) {
+      const ov = await req('/api/self/overview', { token: salesTok });
+      ok('未绑定账号看不到个人数据（不按姓名猜人）',
+        ov.status === 200 && ov.json.data.bound === false && !ov.json.data.me,
+        `bound=${ov.json.data && ov.json.data.bound}`);
+      const slips = await req('/api/self/payslips', { token: salesTok });
+      ok('未绑定账号拿不到工资条列表',
+        slips.status === 200 && (slips.json.data.rows || []).length === 0);
+      const sub = await req('/api/self/requests', {
+        method: 'POST', token: salesTok, body: { type: 'makeup', reason: '未绑定也要提补卡', payload: { date: '2026-10-20', check_out: '18:00' } }
+      });
+      ok('未绑定账号不能提交申请', sub.status === 400, `HTTP ${sub.status} ${sub.json.message || ''}`);
+    } else {
+      ok('未绑定账号看不到个人数据（不按姓名猜人）', true, '没有 sales01，跳过');
+      ok('未绑定账号拿不到工资条列表', true, '跳过');
+      ok('未绑定账号不能提交申请', true, '跳过');
+    }
+
+    // 找一个「有已确认工资单且未绑定账号」的员工，建临时账号绑上去
+    const target = DB.prepare(
+      `SELECT p.employee_id, p.id pid, p.period, p.net_pay, e.name
+         FROM payrolls p JOIN employees e ON e.id = p.employee_id
+        WHERE p.status = 'confirmed'
+          AND NOT EXISTS (SELECT 1 FROM users u WHERE u.employee_id = p.employee_id AND u.active = 1)
+        ORDER BY p.id LIMIT 1`
+    ).get();
+
+    const SKU = '__smoke_self__';
+    DB.prepare('DELETE FROM users WHERE username = ?').run(SKU);
+    let uid = null;
+    const reqIds = [];
+    const adjIds = [];
+
+    try {
+      const info = DB.prepare(
+        `INSERT INTO users (username, password_hash, name, role, company_id, active, created_at)
+         VALUES (?,?,?, 'production', 1, 1, ?)`
+      ).run(SKU, hashPassword(PASS), SKU, new Date().toISOString());
+      uid = Number(info.lastInsertRowid);
+
+      if (!target) {
+        ok('可把账号绑定到员工档案', true, '库里没有可用的已确认工资单，跳过绑定用例');
+      } else {
+        const bindRes = await req('/api/self/bind', { method: 'POST', token, body: { user_id: uid, employee_id: target.employee_id } });
+        ok('可把账号绑定到员工档案', bindRes.status === 200 && bindRes.json.data.employee_id === target.employee_id,
+          `HTTP ${bindRes.status} ${bindRes.json.message || ''}`);
+
+        const tok = await asUser(SKU);
+        const ov = await req('/api/self/overview', { token: tok });
+        ok('绑定后能看自己的档案与工资',
+          ov.status === 200 && ov.json.data.bound === true && ov.json.data.me.name === target.name,
+          `bound=${ov.json.data.bound} name=${ov.json.data.me && ov.json.data.me.name}`);
+        ok('出勤按库里的 normal/late 统计（字段名对不上就会全显示 0 天）',
+          typeof ov.json.data.attendance.present === 'number' && ov.json.data.attendance.normal !== undefined,
+          `出勤 ${ov.json.data.attendance.present} 天`);
+
+        // 越权：看别人的工资条必须 403
+        const otherPid = DB.prepare('SELECT id FROM payrolls WHERE employee_id <> ? AND status = ? LIMIT 1')
+          .get(target.employee_id, 'confirmed');
+        if (otherPid) {
+          const deny = await req(`/api/self/payslips/${otherPid.id}`, { token: tok });
+          ok('不能看别人的工资条', deny.status === 403, `HTTP ${deny.status} ${deny.json.message || ''}`);
+        } else {
+          ok('不能看别人的工资条', true, '库里只有一张已确认工资单，跳过');
+        }
+
+        const mine = await req(`/api/self/payslips/${target.pid}`, { token: tok });
+        ok('能看自己的工资条（服务端校验归属）',
+          mine.status === 200 && mine.json.data.viewer === 'self', `viewer=${mine.json.data && mine.json.data.viewer}`);
+        ok('看自己的工资条也留痕（granted=1）',
+          DB.prepare("SELECT COUNT(*) c FROM sensitive_access_logs WHERE table_name='payrolls' AND action='view' AND granted=1 AND reason LIKE '%本人%'").get().c > 0);
+
+        // 申诉：先生成一条，再试重复提交
+        const ap = await req('/api/self/requests', {
+          method: 'POST', token: tok,
+          body: { type: 'payroll', reason: '这个月计件件数对不上，请复核报工记录', payload: { payroll_id: target.pid, claim_amount: 120 } }
+        });
+        ok('能对自己的工资单提申诉（窗口内）', ap.status === 200, `HTTP ${ap.status} ${ap.json.message || ''}`);
+        if (ap.status === 200) reqIds.push(ap.json.data.id);
+        const dup = await req('/api/self/requests', {
+          method: 'POST', token: tok,
+          body: { type: 'payroll', reason: '再提一次同一张工资单看看', payload: { payroll_id: target.pid } }
+        });
+        ok('同一张工资单不许重复申诉（防重复补款）', dup.status === 400, `HTTP ${dup.status}`);
+
+        const badField = await req('/api/self/requests', {
+          method: 'POST', token: tok,
+          body: { type: 'profile', reason: '我要改一下基本工资', payload: { field: 'base_salary', value: '30000' } }
+        });
+        ok('资料更正不能自助改工资/岗位', badField.status === 400 && /不能自助更正/.test(badField.json.message || ''),
+          `HTTP ${badField.status}`);
+
+        // 受理：申诉批准必须填金额；填了只生成调整单，不改已发工资
+        const payBefore = JSON.stringify(DB.prepare('SELECT net_pay, status, updated_at FROM payrolls WHERE id = ?').get(target.pid));
+        if (reqIds.length) {
+          const noAmount = await req(`/api/self/review/${reqIds[0]}`, {
+            method: 'POST', token, body: { approve: true, conclusion: '核实后确认少算，同意补发' }
+          });
+          ok('薪资申诉批准必须填调整金额', noAmount.status === 400, `HTTP ${noAmount.status} ${noAmount.json.message || ''}`);
+
+          const appr = await req(`/api/self/review/${reqIds[0]}`, {
+            method: 'POST', token,
+            body: { approve: true, conclusion: '核实报工记录确认少算，按计件单价补 120 元并入下期', adjust_amount: 120, adjust_item: 'piece_wage' }
+          });
+          ok('申诉批准后生成调整单', appr.status === 200 && !!appr.json.data.adjust_id, `HTTP ${appr.status}`);
+          if (appr.json.data && appr.json.data.adjust_id) adjIds.push(appr.json.data.adjust_id);
+          const adj = adjIds.length ? DB.prepare('SELECT * FROM payroll_adjustments WHERE id = ?').get(adjIds[0]) : null;
+          ok('调整单落在「下一期」而不是被申诉那一期',
+            adj && adj.period > adj.source_period, adj ? `${adj.source_period} → ${adj.period}` : '无调整单');
+          ok('批准不改已发放的工资单（金额/状态/更新时间都不动）',
+            payBefore === JSON.stringify(DB.prepare('SELECT net_pay, status, updated_at FROM payrolls WHERE id = ?').get(target.pid)),
+            payBefore);
+        } else {
+          ok('薪资申诉批准必须填调整金额', false, '申诉没提交成功');
+          ok('申诉批准后生成调整单', false, '申诉没提交成功');
+          ok('调整单落在「下一期」而不是被申诉那一期', false, '申诉没提交成功');
+          ok('批准不改已发放的工资单（金额/状态/更新时间都不动）', false, '申诉没提交成功');
+        }
+
+        // 补卡批准 → 真的写进考勤（考勤不是已付历史，可以改）
+        // 日期必须挑「本来没有考勤记录」的一天，否则断言分不清是补建还是覆盖
+        let mkDate = null;
+        for (let i = 3; i <= 25; i += 1) {
+          const d = T.localDate(new Date(Date.now() - i * 86400000).toISOString());
+          if (!DB.prepare('SELECT 1 x FROM attendance WHERE employee_id = ? AND date = ?').get(target.employee_id, d)) { mkDate = d; break; }
+        }
+        if (mkDate) {
+          const mk = await req('/api/self/requests', {
+            method: 'POST', token: tok,
+            body: { type: 'makeup', reason: '那天下午外出办事，回来忘了打下班卡', payload: { date: mkDate, check_out: '18:20' } }
+          });
+          if (mk.status === 200) {
+            reqIds.push(mk.json.data.id);
+            const res = await req(`/api/self/review/${mk.json.data.id}`, {
+              method: 'POST', token, body: { approve: true, conclusion: '核对门禁记录当日 18:20 离厂，予以补卡' }
+            });
+            const afterRow = DB.prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?').get(target.employee_id, mkDate);
+            ok('补卡批准后会写进考勤（不是只改申请状态）',
+              res.status === 200 && !!afterRow && afterRow.check_out === '18:20',
+              afterRow ? `${afterRow.date} ${afterRow.check_out} ${afterRow.status}` : '没有考勤记录');
+            ok('补卡写入的状态是 normal（与考勤模块同一口径，不是 present）',
+              !!afterRow && afterRow.status === 'normal', afterRow && afterRow.status);
+          } else {
+            ok('补卡批准后会写进考勤（不是只改申请状态）', false, `补卡提交失败 HTTP ${mk.status}`);
+            ok('补卡写入的状态是 normal（与考勤模块同一口径，不是 present）', false, '补卡提交失败');
+          }
+        } else {
+          ok('补卡批准后会写进考勤（不是只改申请状态）', true, '近 30 天每天都有考勤记录，跳过');
+          ok('补卡写入的状态是 normal（与考勤模块同一口径，不是 present）', true, '跳过');
+        }
+
+        // 权限：普通员工看不到受理台与绑定
+        const denyAll = await req('/api/self/all-requests', { token: tok });
+        ok('普通员工看不到受理台', denyAll.status === 403, `HTTP ${denyAll.status}`);
+        const denyBind = await req('/api/self/bindings', { token: tok });
+        ok('普通员工看不到账号绑定', denyBind.status === 403, `HTTP ${denyBind.status}`);
+
+        // 主管摘要：只看天数，不给钱、不给病假
+        const prodTok = await asUser('prod01');
+        if (prodTok) {
+          const team = await req('/api/self/team', { token: prodTok });
+          const rows = (team.json.data && team.json.data.rows) || [];
+          ok('主管能看到团队出勤摘要', team.status === 200 && rows.length > 0, `${rows.length} 人`);
+          ok('主管摘要里没有工资金额字段',
+            rows.every((r) => r.money === null && r.net_pay === undefined && r.base_salary === undefined));
+          ok('主管摘要里没有请假类型（病假属敏感）',
+            rows.every((r) => r.leave_type === undefined && r.leave_days !== undefined));
+        } else {
+          ok('主管能看到团队出勤摘要', true, '没有 prod01，跳过');
+          ok('主管摘要里没有工资金额字段', true, '跳过');
+          ok('主管摘要里没有请假类型（病假属敏感）', true, '跳过');
+        }
+      }
+    } finally {
+      adjIds.forEach((id) => DB.prepare('DELETE FROM payroll_adjustments WHERE id = ?').run(id));
+      reqIds.forEach((id) => DB.prepare('DELETE FROM self_requests WHERE id = ?').run(id));
+      if (target) {
+        // 补卡写进去的考勤要清掉，别污染演示数据
+        DB.prepare("DELETE FROM attendance WHERE employee_id = ? AND IFNULL(remark,'') LIKE '补卡%'").run(target.employee_id);
+      }
+      if (uid) DB.prepare('DELETE FROM users WHERE id = ?').run(uid);
+      DB.prepare('DELETE FROM users WHERE username = ?').run(SKU);
+    }
+
+    ok('自助夹具已清干净',
+      !DB.prepare('SELECT 1 FROM users WHERE username = ?').get(SKU)
+      && reqIds.every((id) => !DB.prepare('SELECT 1 x FROM self_requests WHERE id = ?').get(id)));
   }
 
 

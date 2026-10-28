@@ -76,6 +76,7 @@ export const api = {  // 登录
   orderMeta: () => req('/api/orders/meta'),
   orderStats: () => req('/api/orders/stats/summary'),
   createOrder: (d) => req('/api/orders', { method: 'POST', body: d }),
+  updateOrderItems: (id, items) => req(`/api/orders/${id}/items`, { method: 'PUT', body: { items } }),
   transitionOrder: (id, to, note) =>
     req(`/api/orders/${id}/transition`, { method: 'POST', body: { to, note } }),
   // 批量流转：dry_run=1 只预检（不写库）；all_or_nothing=1 整批一致；默认逐单尽力
@@ -306,6 +307,23 @@ export const api = {  // 登录
   skAddTraining: (d) => req('/api/skills/trainings', { method: 'POST', body: d }),
   skFinishTraining: (id, d) => req(`/api/skills/trainings/${id}/finish`, { method: 'POST', body: d }),
   skOverride: (d) => req('/api/skills/overrides', { method: 'POST', body: d }),
+
+  // 员工自助（只看自己；范围由服务端按账号绑定关系卡）
+  selfMeta: () => req('/api/self/meta'),
+  selfOverview: () => req('/api/self/overview'),
+  selfPayslips: () => req('/api/self/payslips'),
+  selfPayslip: (id) => req(`/api/self/payslips/${id}`),
+  selfRequests: (params) => req('/api/self/requests' + qs(params)),
+  selfSubmit: (d) => req('/api/self/requests', { method: 'POST', body: d }),
+  selfWithdraw: (id) => req(`/api/self/requests/${id}/withdraw`, { method: 'POST' }),
+  selfTeam: () => req('/api/self/team'),
+  selfBindings: (params) => req('/api/self/bindings' + qs(params)),
+  selfBindable: (params) => req('/api/self/employees-for-bind' + qs(params)),
+  selfBind: (d) => req('/api/self/bind', { method: 'POST', body: d }),
+  selfUnbind: (userId) => req(`/api/self/unbind/${userId}`, { method: 'POST' }),
+  selfAllRequests: (params) => req('/api/self/all-requests' + qs(params)),
+  selfReview: (id, d) => req(`/api/self/review/${id}`, { method: 'POST', body: d }),
+  selfAdjustments: (params) => req('/api/self/adjustments' + qs(params)),
 
   // 字段级脱敏与访问审计
   pvMeta: () => req('/api/privacy/meta'),
