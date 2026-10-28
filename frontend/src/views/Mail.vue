@@ -64,7 +64,7 @@
             <div class="t-top">
               <span class="tag blue">{{ t.task_no }}</span>
               <b>{{ t.title }}</b>
-              <span class="muted">期限 {{ t.due_at || '未定' }}</span>
+              <span class="muted">期限 {{ t.due_at ? $fmt(t.due_at) : '未定' }}</span>
             </div>
             <div class="t-req">{{ t.requirement || '（未填完成要求）' }}</div>
             <div class="t-foot">
@@ -156,7 +156,7 @@
               <b>{{ cur.task.title }}</b>
               <span class="tag" :class="cur.task.status === 'done' ? 'green' : 'orange'">{{ cur.task.status === 'done' ? '已完成' : '待办' }}</span>
             </div>
-            <div class="t-req">主责 {{ cur.task.owner }} · 期限 {{ cur.task.due_at || '未定' }} · {{ cur.task.requirement || '未填完成要求' }}</div>
+            <div class="t-req">主责 {{ cur.task.owner }} · 期限 {{ cur.task.due_at ? $fmt(cur.task.due_at) : '未定' }} · {{ cur.task.requirement || '未填完成要求' }}</div>
             <div v-if="cur.task.status !== 'done'" class="t-foot">
               <span class="muted">一项交付物一名主责，不许抄送人人有份</span>
               <button class="link-btn" @click="doneTask(cur.task)">标记完成</button>
@@ -417,7 +417,7 @@
                   <td>{{ d.owner }}</td>
                   <td>{{ d.agent }}</td>
                   <td>{{ d.scope === 'all' ? '全部' : d.scope === 'ack' ? '只代确认' : '只代发' }}</td>
-                  <td class="muted">{{ d.start_at }} ~ {{ d.end_at }}</td>
+                  <td class="muted nowrap">{{ $fmt(d.start_at) }} ~ {{ $fmt(d.end_at) }}</td>
                   <td>
                     <span class="tag" :class="d.effective ? 'green' : 'gray'">{{ d.effective ? '有效' : d.expired ? '已过期' : d.status }}</span>
                   </td>

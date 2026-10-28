@@ -164,8 +164,8 @@
                 <td class="tiny">{{ t.work_center }}</td>
                 <td class="num tiny">{{ num(t.qty) }}</td>
                 <td class="num tiny">{{ num(t.est_hours) }}<span v-if="t.setup_hours" class="muted"> +换款{{ num(t.setup_hours) }}</span></td>
-                <td class="tiny">{{ t.start_at }}</td>
-                <td class="tiny">{{ t.end_at }}</td>
+                <td class="tiny nowrap">{{ $fmt(t.start_at) }}</td>
+                <td class="tiny nowrap">{{ $fmt(t.end_at) }}</td>
                 <td class="tiny" :class="{ red: !t.finish_by_due }">{{ t.due_date || '—' }}</td>
                 <td class="num tiny">{{ t.segments > 1 ? t.segments + ' 段' : '1 段' }}</td>
                 <td>

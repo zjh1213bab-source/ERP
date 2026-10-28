@@ -692,7 +692,7 @@
           <div class="wk-sec" v-if="wk.content.open.length">
             <div class="wk-title">未完成（当前待办）</div>
             <div v-for="(d, i) in wk.content.open" :key="'o' + i" class="wk-item">
-              · {{ d.label }}<span v-if="d.due_at" class="tiny muted"> · 要求 {{ d.due_at }} 前</span>
+              · {{ d.label }}<span v-if="d.due_at" class="tiny muted"> · 要求 {{ $fmt(d.due_at) }} 前</span>
             </div>
           </div>
 

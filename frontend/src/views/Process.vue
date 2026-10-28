@@ -53,7 +53,7 @@
                 <div class="tiny muted">{{ t.target_type }} #{{ t.target_id }}</div>
               </td>
               <td class="tiny">{{ t.step_name }}<div class="muted">{{ t.role }}</div></td>
-              <td class="mono tiny">{{ t.due_at || '-' }}<div class="muted">SLA {{ t.sla_hours }}h</div></td>
+              <td class="mono tiny" style="white-space: nowrap">{{ $fmt(t.due_at) }}<div class="muted">SLA {{ t.sla_hours }}h</div></td>
               <td class="tiny">
                 <span v-if="t.hours_left === null" class="muted">-</span>
                 <span v-else-if="t.hours_left < 0" class="amt-red">超时 {{ Math.abs(t.hours_left) }}h</span>
