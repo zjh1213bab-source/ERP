@@ -152,6 +152,7 @@
 | collections | GET | `/export` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
 | collections | POST | `/generate` | ✅ | — | — | — | — | — | ✅ | — |
 | collections | GET | `/meta` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| collections | GET | `/stats` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
 | commitments | POST | `/:id/nodes/:nodeId` | ✅ | — | ✅ | — | ✅ | — | — | — |
 | commitments | POST | `/:id/review` | ✅ | — | ✅ | — | ✅ | — | — | — |
 | commitments | POST | `/capacity` | ✅ | — | — | — | — | — | — | — |

@@ -104,6 +104,7 @@
 | GET | /api/cashflow/plan?weeks=13&base_date=&scenario=base\|conservative\|optimistic&collect_rate= | cashflow.read | **资金计划**：`summary`（期初现金 / 流入 / 流出 / 期末 / `min_cash` 最低点 / `first_neg_week` 首次转负 / `gap` 缺口 / `ar_at_risk` 大概率收不回的部分）+ `weeks_detail`（逐周，含 `inflow_items`/`outflow_items` 每笔依据）+ `buckets`（按逾期档的回收率）。**支出侧三档完全相同** |
 | GET | /api/cashflow/compare?weeks=13 | cashflow.read | 三档情景并排；`outflow_consistent` 表示三档支出是否一致（必须为 true） |
 | GET | /api/collections/meta | collection.read | 枚举（状态/等级/渠道/结果/结案原因）+ 可指派的账号 + `stats` |
+| GET | /api/collections/stats | collection.read | 汇总：各状态 count/amount、`active_amount` 在催金额、`no_owner_count` 无人负责、**`broken_count`/`broken_amount` 承诺跳票** |
 | GET | /api/collections/board | collection.read | **逾期台账**：按客户汇总逾期，含 `is_internal`（集团内部不催）/ `has_task` / `owner`（三级解析结果与 `source`）/ `can_generate`；`summary` 把外部与内部金额分开 |
 | POST | /api/collections/generate | collection.close | `{all?\|customer_ids?, min_overdue_days?}`。**幂等**：已有未结任务的客户跳过；**集团内部往来跳过** |
 | GET | /api/collections?status=&level=&owner=&no_owner=1&q= | collection.read | 任务列表；排序为「跳票 → 承诺 → 已联系 → 待跟进」；销售强制只看自己名下 |

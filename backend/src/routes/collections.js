@@ -3,6 +3,7 @@
  *
  * GET    /api/collections/meta                 枚举（状态/等级/渠道/结果/结案原因）+ 统计
  * GET    /api/collections/board                逾期台账（谁欠、多久、有没有人在催）
+ * GET    /api/collections/stats                汇总（与 meta.stats 同源）
  * POST   /api/collections/generate             批量生成任务 {all|customer_ids, min_overdue_days}
  * GET    /api/collections                      任务列表
  * GET    /api/collections/:id                  详情（含发票与跟进记录）
@@ -54,6 +55,13 @@ router.get(
   authRequired,
   requireRole(READ),
   wrap(async (req, res) => ok(res, C.board(req.query)))
+);
+
+router.get(
+  '/stats',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) => ok(res, C.stats()))
 );
 
 router.post(
