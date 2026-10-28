@@ -2601,3 +2601,37 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 `POST /api/reports` 支持 `bundle_no`（可选）。服务端校验该扎属于同一订单，否则 400 拒收。
 该字段**只用于追溯**，报工累计 / 工序状态 / 成本分摊仍按 `order_id + node_id` 聚合。
+
+## 扎级完工进度（`/api/labels/progress`）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/labels/progress | 登录 | 有扎的订单清单：扎数、扎件合计、带扎报工数、未归扎报工数 |
+| GET | /api/labels/progress/:orderId | 登录 | 矩阵：`processes` + `bundles[].cells` + `summary` + `unassigned_by_node` + `notices` |
+
+**返回结构要点**
+
+```js
+{
+  processes: [{ name: '成品入库', seq: 12 }],        // 按 seq 升序，同名已合并
+  bundles: [{
+    bundle_no, qty, cells: { '车缝': { ok, defect, last_date, n } | null },
+    final_ok, touched, over,
+    status: 'done' | 'short' | 'doing' | 'idle'
+  }],
+  summary: { bundles, total_qty, done, done_qty, short, short_qty, doing, idle, over,
+             unassigned_reports, unassigned_qty, final_process, process_count },
+  unassigned_by_node: [{ name: '车缝', qty: 390 }],
+  notices: [{ level: 'warn' | 'bad', text: '…' }]
+}
+```
+
+**口径（服务层写死，前端不再判断）**
+
+1. **只统计 `bundle_no` 非空的报工**。没记扎号的单独汇总进 `unassigned_*`，不摊派到扎上。
+2. **按工序名聚合**，不按 `node_id` —— 库里有重复工序列与跨单脏数据；对不上工序列的报工
+   单独成一列并计入 `summary.unknown_process_reports`，不丢弃。
+3. **末道 = 名字含「入库」的工序**；没有再取 seq 最大且非「出库/发运」的那道
+   （出库发运是整单动作，拿它判完工会让所有扎永不完工）。
+4. `done` 要求 `final_ok >= qty` 且 `qty > 0`；`short` 要求 `0 < final_ok < qty`；
+   `over` 是独立标记（任一工序 `ok > qty`），不改状态。

@@ -967,3 +967,14 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 
 > **扎标本身不建表**。扎的数据来自既有的 `cut_bundles` + `cut_lots`（缸号/床次）+ `cut_orders`（裁剪单号/混缸标记），
 > 标签是「渲染视图」，不产生新数据 —— 否则扎会存两份，迟早不一致。
+
+## 扎级完工进度（M-BUNDLE-PROGRESS）
+
+**不建表**。整页是 `cut_bundles`（扎）+ `order_nodes`（工序）+ `production_reports`（`bundle_no` 归扎）
+三张表的聚合视图，任何一份落库的「进度快照」都会立刻与源数据不一致。
+
+> 上一轮给 `production_reports` 加 `bundle_no` 时定的规矩在这里兑现：
+> 该列**只用于追溯，不参与任何汇总**。所以这一轮做扎级进度时，
+> 订单级报工累计、工序状态、成本分摊口径**一行都没改**——新页面只是换了个维度看同一批数据。
+>
+> 唯一的索引支撑：`idx_preport_bundle(bundle_no)`（上一轮已建），以及按订单查报工走 `order_id`。

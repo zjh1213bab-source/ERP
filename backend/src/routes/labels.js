@@ -8,10 +8,24 @@
  */
 const express = require('express');
 const L = require('../services/labels');
+const BP = require('../services/bundleProgress');
 const { ok, wrap } = require('../utils/http');
 const { authRequired } = require('../middleware/auth');
 
 const router = express.Router();
+
+// 扎级完工进度（读接口，车间/生产/销售都要看，不卡权限）
+router.get(
+  '/progress',
+  authRequired,
+  wrap(async (req, res) => ok(res, BP.ordersWithBundles(req.query.limit)))
+);
+
+router.get(
+  '/progress/:orderId',
+  authRequired,
+  wrap(async (req, res) => ok(res, BP.progressOf(req.params.orderId)))
+);
 
 router.get(
   '/bundles/:orderId',

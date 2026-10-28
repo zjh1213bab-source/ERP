@@ -88,6 +88,7 @@ import MobileReport from './views/MobileReport.vue';
 import MobilePhoto from './views/MobilePhoto.vue';
 import Photos from './views/Photos.vue';
 import InspectionReport from './views/InspectionReport.vue';
+import BundleProgress from './views/BundleProgress.vue';
 import QuotePrint from './views/QuotePrint.vue';
 import MallAdmin from './views/MallAdmin.vue';
 import Quality from './views/Quality.vue';
@@ -143,6 +144,7 @@ const routes = [
       { path: 'costing', component: Costing, meta: { title: '成本与毛利' } },
       { path: 'commitments', component: Commitments, meta: { title: '接单评审与交期' } },
       { path: 'requirements', component: Requirements, meta: { title: '齐套与缺料' } },
+      { path: 'bundle-progress', component: BundleProgress, meta: { title: '扎级完工进度' } },
       { path: 'cuts', component: Cuts, meta: { title: '裁床与扎包' } },
       { path: 'first-article', component: FirstArticle, meta: { title: '首件确认' } },
       { path: 'receipts', component: Receipts, meta: { title: '原料收货检验' } },

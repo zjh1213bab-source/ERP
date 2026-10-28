@@ -127,6 +127,7 @@ const navModel = [
       { label: '齐套与缺料', to: '/requirements' },
       { label: '有限产能排程', to: '/schedule' },
       { label: '裁床与扎包', to: '/cuts' },
+      { label: '扎级完工进度', to: '/bundle-progress' },
       { label: '裁片外发与外协验货', to: '/cut-dispatch' },
       { label: '首件确认', to: '/first-article' },
       { label: '生产管理', to: '/production' },

@@ -5536,6 +5536,125 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 扎级完工进度 =================
+  {
+    console.log('\n[扎级完工进度]');
+    const list = await req('/api/labels/progress', { token });
+    ok('有扎的订单清单可读', list.status === 200 && Array.isArray(list.json.data), `HTTP ${list.status}`);
+
+    const ordersWithBundles = list.json.data || [];
+    ok(
+      '清单里每单都带扎数与件数',
+      ordersWithBundles.every((o) => typeof o.bundles === 'number' && typeof o.bundle_qty === 'number'),
+      JSON.stringify(ordersWithBundles[0] || null)
+    );
+
+    const od = ordersWithBundles.find((o) => o.bundles > 0);
+    if (!od) {
+      ok('扎级进度明细', true, '库里没有扎包，跳过');
+    } else {
+      const dRes = await req(`/api/labels/progress/${od.id}`, { token });
+      const d = dRes.json.data || {};
+      const s = d.summary || {};
+      ok('明细可读', dRes.status === 200 && Array.isArray(d.bundles), `HTTP ${dRes.status}`);
+      ok(
+        '四种状态合计 = 扎数（不多算不漏算）',
+        s.done + s.doing + s.short + s.idle === s.bundles,
+        `${s.done}+${s.doing}+${s.short}+${s.idle} vs ${s.bundles}`
+      );
+      ok(
+        '逐扎件数合计 = 汇总件数',
+        d.bundles.reduce((a, b) => a + b.qty, 0) === s.total_qty,
+        `${d.bundles.reduce((a, b) => a + b.qty, 0)} vs ${s.total_qty}`
+      );
+      ok(
+        '工序列无重名（同名 node 已合并）',
+        new Set(d.processes.map((p) => p.name)).size === d.processes.length,
+        d.processes.map((p) => p.name).join(',')
+      );
+      ok(
+        '工序按 seq 升序',
+        d.processes.every((p, i) => i === 0 || p.seq >= d.processes[i - 1].seq),
+        JSON.stringify(d.processes.map((p) => p.seq))
+      );
+      ok('末道不取「出库发运」（整单动作，不是单扎动作）', s.final_process !== '出库发运', s.final_process);
+
+      // 状态与数据自洽：这是整页结论的可信度来源
+      const finalName = s.final_process;
+      const badState = d.bundles.filter((b) => {
+        const f = b.cells[finalName];
+        const fo = f ? f.ok : 0;
+        if (b.status === 'done') return !(b.qty > 0 && fo >= b.qty);
+        if (b.status === 'short') return !(fo > 0 && fo < b.qty);
+        if (b.status === 'idle') return b.touched !== 0;
+        if (b.status === 'doing') return !(fo === 0 && b.touched > 0);
+        return true;
+      });
+      ok('每扎状态与末道数据自洽', badState.length === 0, badState.map((b) => b.bundle_no + ':' + b.status).join(','));
+
+      // 超报标记必须与单元格一致（任一工序合格超过件数）
+      const misOver = d.bundles.filter((b) => {
+        const over = Object.values(b.cells).some((c) => c && b.qty > 0 && c.ok > b.qty);
+        return over !== !!b.over;
+      });
+      ok('超报标记与单元格数据一致', misOver.length === 0, misOver.map((b) => b.bundle_no).join(','));
+
+      // 未归扎：与库里对，且明细合计等于汇总
+      const { db } = require('../src/db');
+      const unCnt = db
+        .prepare('SELECT COUNT(*) c FROM production_reports WHERE order_id = ? AND bundle_no IS NULL')
+        .get(od.id).c;
+      ok('未归扎报工数与库一致', s.unassigned_reports === unCnt, `${s.unassigned_reports} vs ${unCnt}`);
+      ok(
+        '未归扎明细件数合计 = 汇总件数',
+        (d.unassigned_by_node || []).reduce((a, x) => a + x.qty, 0) === s.unassigned_qty,
+        JSON.stringify(d.unassigned_by_node || [])
+      );
+
+      // 报工带扎号 → 归到这一扎（造一条，验完就清）
+      const idle = d.bundles.find((b) => b.status === 'idle');
+      if (idle) {
+        const node = db
+          .prepare('SELECT id, name FROM order_nodes WHERE order_id = ? ORDER BY seq LIMIT 1')
+          .get(od.id);
+        const created = await req('/api/reports', {
+          method: 'POST',
+          token,
+          body: { order_id: od.id, node_id: node.id, qty_ok: 1, bundle_no: idle.bundle_no }
+        });
+        ok('记扎号的报工能提交', created.status === 200, `HTTP ${created.status} ${created.json.message || ''}`);
+
+        const d2 = (await req(`/api/labels/progress/${od.id}`, { token })).json.data;
+        const b2 = d2.bundles.find((b) => b.bundle_no === idle.bundle_no);
+        ok('报工后该扎由「未开工」变「在制」', b2.status === 'doing' && b2.touched === 1, `${b2.status}/${b2.touched}`);
+        ok(
+          '该扎对应工序格出现 1 件',
+          !!b2.cells[node.name] && b2.cells[node.name].ok === 1,
+          JSON.stringify(b2.cells[node.name] || null)
+        );
+        ok(
+          '记了扎号的报工不进「未归扎」',
+          d2.summary.unassigned_reports === s.unassigned_reports,
+          `${d2.summary.unassigned_reports} vs ${s.unassigned_reports}`
+        );
+
+        const rid = created.json.data && created.json.data.id;
+        if (rid) await req(`/api/reports/${rid}`, { method: 'DELETE', token });
+        const d3 = (await req(`/api/labels/progress/${od.id}`, { token })).json.data;
+        const b3 = d3.bundles.find((b) => b.bundle_no === idle.bundle_no);
+        ok('清理后该扎回到未开工（用例可重复跑）', b3.status === 'idle', b3.status);
+      } else {
+        ok('有未开工的扎可测报工归扎', true, '本单所有扎都已开工，跳过');
+      }
+
+      const nf = await req('/api/labels/progress/999999', { token });
+      ok('不存在的订单返回 404', nf.status === 404, `HTTP ${nf.status}`);
+    }
+
+    const noAuth = await req('/api/labels/progress');
+    ok('扎级进度需要登录', noAuth.status === 401, `HTTP ${noAuth.status}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');
