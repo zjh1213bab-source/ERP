@@ -172,6 +172,9 @@ export const api = {  // 登录
 
   // 计件工资（单价版本化 + 月度核算单）
   pieceMeta: () => req('/api/piece-wage/meta'),
+  pieceConfig: () => req('/api/piece-wage/config'),
+  pieceConfigSave: (d) => req('/api/piece-wage/config', { method: 'PUT', body: d }),
+  pieceAttBoard: (period) => req('/api/piece-wage/attendance-board' + qs({ period })),
   pieceRates: (params) => req('/api/piece-wage/rates' + qs(params)),
   pieceRateSave: (d) => req('/api/piece-wage/rates', { method: 'POST', body: d }),
   pieceRateUpdate: (id, d) => req(`/api/piece-wage/rates/${id}`, { method: 'PUT', body: d }),

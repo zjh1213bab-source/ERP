@@ -2,6 +2,9 @@
  * 计件工资（`/api/piece-wage`）
  *
  * GET    /api/piece-wage/meta                工序清单 / 款号清单（配单价用）
+ * GET    /api/piece-wage/config               考勤联动配置（日上限 / 策略 / 月度封顶）
+ * PUT    /api/piece-wage/config               改配置
+ * GET    /api/piece-wage/attendance-board     考勤 × 计件对照看板（每人的月上限与余额）
  * GET    /api/piece-wage/rates               单价列表
  * POST   /api/piece-wage/rates               新增单价（按生效日版本化，不改历史）
  * PUT    /api/piece-wage/rates/:id           改单价（已被核算用过的只许改备注/停用）
@@ -18,6 +21,7 @@
  */
 const express = require('express');
 const PW = require('../services/pieceWage');
+const ATT = require('../services/pieceAttendance');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { db, now } = require('../db');
@@ -70,6 +74,33 @@ router.get(
       .all()
       .map((r) => r.period);
     return ok(res, { processes, styles, periods });
+  })
+);
+
+router.get(
+  '/config',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) => ok(res, ATT.getConfig()))
+);
+
+router.put(
+  '/config',
+  authRequired,
+  requireRole(WRITE),
+  wrap(async (req, res) => ok(res, ATT.saveConfig(req.body || {}, operatorOf(req))))
+);
+
+// 考勤 × 计件对照：每人出勤天数 / 月上限 / 已用 / 余额。
+// 复用同一份试算，保证页面上三处数字（试算、看板、明细）口径一致。
+router.get(
+  '/attendance-board',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) => {
+    const period = req.query.period;
+    const p = PW.preview(period);
+    return ok(res, ATT.board(p, p.config || ATT.getConfig()));
   })
 );
 
@@ -150,9 +181,11 @@ router.get(
   wrap(async (req, res) => {
     const run = PW.getRun(req.query.run_id);
     const head = [
-      '员工编号', '姓名', '部门', '订单号', '扎号', '工序', '款号',
+      '员工编号', '姓名', '部门', '订单号', '扎号', '工序', '报工日期', '当天考勤', '款号',
       '报工合格数', '计件数量', '是否封顶', '单价', '金额', '取价来源', '归人方式'
     ];
+    const ATT_LABEL = { normal: '正常', late: '迟到', leave: '请假', absent: '旷工', none: '无记录' };
+    const CAP_LABEL = { bundle: '扎件数', daily: '单日上限', month: '缺勤封顶' };
     const rows = run.items.map((it) => [
       it.employee_code || '',
       it.employee_name || '',
@@ -160,10 +193,12 @@ router.get(
       it.order_no || '',
       it.bundle_no || '',
       it.process_name || '',
+      it.report_date || '',
+      ATT_LABEL[it.att_status] || '',
       it.style_no || '',
       it.raw_qty,
       it.qty,
-      it.capped ? '是' : '',
+      it.capped ? (CAP_LABEL[it.cap_kind] || '是') : '',
       it.unit_price,
       it.amount,
       it.rate_source === 'style' ? '款专属' : '通用',

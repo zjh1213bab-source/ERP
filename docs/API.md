@@ -2641,16 +2641,19 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | /api/piece-wage/meta | 人事/财务/总经理 | 工序清单（工序表 + 报工里出现过的）、款号清单、有报工的月份 |
+| GET | /api/piece-wage/config | 同上 | 考勤联动配置：`daily_cap_qty`（每人每日上限，0=不限）、`month_cap`、`attendance_policy` |
+| PUT | /api/piece-wage/config | piecewage.write | 改配置；策略只能 warn/exclude/block，负上限与 >5000 直接拒 |
+| GET | /api/piece-wage/attendance-board?period= | 同上 | 考勤 × 计件对照：每人出勤/迟到/请假/旷工、月上限、剩余、被削件数 |
 | GET | /api/piece-wage/rates | 同上 | 单价列表 |
 | POST | /api/piece-wage/rates | piecewage.write | `{style_no, process_name, unit_price, effective_from, effective_to, note}`；同款同工序同生效日重复直接拒 |
 | PUT | /api/piece-wage/rates/:id | piecewage.write | 改单价；**已被核算用过的只许改备注/停用** |
-| GET | /api/piece-wage/preview?period= | 同上 | 实时试算（不落库）：明细 + 按人汇总 + 四类诊断 |
+| GET | /api/piece-wage/preview?period= | 同上 | 实时试算（不落库）：明细 + 按人汇总 + 九类诊断（含考勤冲突 / 无出勤记录 / 剔除 / 日封顶 / 月封顶） |
 | GET | /api/piece-wage/runs | 同上 | 核算单列表（近 60） |
 | POST | /api/piece-wage/runs | piecewage.write | `{period, note}` 生成草案（同月草案覆盖且**编号不变**） |
-| GET | /api/piece-wage/runs/:id | 同上 | 详情（明细 + 诊断快照） |
-| POST | /api/piece-wage/runs/:id/confirm | piecewage.approve | 确认；**缺单价一条都不许过**；无法归属时要求备注 ≥4 字说明怎么处理 |
+| GET | /api/piece-wage/runs/:id | 同上 | 详情（明细 + 诊断快照，含当时的策略与日上限） |
+| POST | /api/piece-wage/runs/:id/confirm | piecewage.approve | 确认；**缺单价一条都不许过**；无法归属 / 考勤冲突时要求备注 ≥4 字；策略 `block` 时冲突笔直接拒 |
 | POST | /api/piece-wage/runs/:id/void | piecewage.approve | `{reason}` 作废（理由 ≥4 字） |
-| GET | /api/piece-wage/export?run_id= | 同上 | 明细 CSV（带 BOM） |
+| GET | /api/piece-wage/export?run_id= | 同上 | 明细 CSV（带 BOM，含报工日期与当天考勤） |
 
 **取价规则**
 

@@ -564,6 +564,20 @@
 | photos | POST | `/` | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | — |
 | photos | DELETE | `/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | — |
 | photos | POST | `/batch` | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | — |
+| pieceWage | GET | `/attendance-board` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| pieceWage | GET | `/config` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| pieceWage | PUT | `/config` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| pieceWage | GET | `/export` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| pieceWage | GET | `/meta` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| pieceWage | GET | `/preview` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| pieceWage | GET | `/rates` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| pieceWage | POST | `/rates` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| pieceWage | PUT | `/rates/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| pieceWage | GET | `/runs` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| pieceWage | POST | `/runs` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| pieceWage | GET | `/runs/:id` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| pieceWage | POST | `/runs/:id/confirm` | ✅ | — | — | — | — | — | ✅ | — |
+| pieceWage | POST | `/runs/:id/void` | ✅ | — | — | — | — | — | ✅ | — |
 | priceTiers | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | priceTiers | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | pricing | POST | `/books` | ✅ | — | ✅ | — | — | — | ✅ | — |
@@ -881,6 +895,8 @@
 | `leave.write` | 销售跟单、技术打版、财务会计、生产车间、仓库采购、人事行政 |
 | `leave.review` | 人事行政、生产车间、销售跟单 |
 | `payroll.write` | 人事行政、财务会计 |
+| `piecewage.write` | 人事行政、财务会计 |
+| `piecewage.approve` | 财务会计 |
 | `kpi.write` | 人事行政 |
 | `kpi.review` | 人事行政、销售跟单、生产车间 |
 | `admincontract.write` | 人事行政 |

@@ -45,6 +45,9 @@
     <div class="tabs-row">
       <div class="tabs">
         <button :class="{ on: tab === 'calc' }" @click="tab = 'calc'">本月核算</button>
+        <button :class="{ on: tab === 'att' }" @click="tab = 'att'">
+          考勤联动<i v-if="attConflictCount" class="dot-bad"></i>
+        </button>
         <button :class="{ on: tab === 'rates' }" @click="tab = 'rates'">单价维护</button>
         <button :class="{ on: tab === 'runs' }" @click="tab = 'runs'">历史核算</button>
       </div>
@@ -76,7 +79,63 @@
         </span>
       </div>
 
-      <!-- 诊断：三块，都是「钱算不到人/算不准」的地方 -->
+      <!-- 诊断：都是「钱算不到人 / 算错人 / 算不准」的地方 -->
+      <div v-if="attConflicts.length" class="diag bad">
+        <div class="diag-h">
+          <b>报工日请假/缺勤 {{ attConflicts.length }} 条</b>
+          <span>
+            考勤明确记了请假/旷工，那天却有以他名义的报工 —— 钱多半付错了人（代报 / 点错下拉框 / 虚报）。
+            当前策略：<b>{{ attPolicyLabel }}</b>
+          </span>
+        </div>
+        <table class="data sm">
+          <thead>
+            <tr><th>姓名</th><th>日期</th><th>当天考勤</th><th>订单</th><th>扎号</th><th>工序</th><th class="num">件数</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(c, i) in attConflicts.slice(0, 12)" :key="i">
+              <td>{{ c.employee_name }}<span class="emp-code">{{ c.employee_code }}</span></td>
+              <td class="tiny">{{ c.report_date }}</td>
+              <td><span class="tag red">{{ c.att_label }}</span></td>
+              <td class="mono tiny">{{ c.order_no }}</td>
+              <td class="mono tiny">{{ c.bundle_no || '—' }}</td>
+              <td>{{ c.process_name }}</td>
+              <td class="num">{{ c.qty }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="tiny muted">
+          处置：把报工改到真正干活的人名下；或到「考勤联动」把策略改成「剔除不计」（不付这笔）/「不许确认」（先清干净）。
+        </p>
+      </div>
+
+      <div v-if="capRows.length" class="diag warn">
+        <div class="diag-h">
+          <b>件数封顶 {{ capRows.length }} 条</b>
+          <span>日上限 / 缺勤封顶削掉的部分没计钱（先报先算，逐笔列出来核对）</span>
+        </div>
+        <table class="data sm">
+          <thead>
+            <tr><th>姓名</th><th>日期</th><th>订单</th><th>工序</th><th class="num">原报</th><th class="num">计入</th><th class="num">削掉</th><th>原因</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(c, i) in capRows.slice(0, 12)" :key="i">
+              <td>{{ c.employee_name }}</td>
+              <td class="tiny">{{ c.report_date }}</td>
+              <td class="mono tiny">{{ c.order_no }}</td>
+              <td>{{ c.process_name }}</td>
+              <td class="num">{{ c.raw_qty }}</td>
+              <td class="num">{{ c.counted }}</td>
+              <td class="num over">{{ c.over }}</td>
+              <td class="tiny">
+                <span v-if="c.cap_kind === 'daily'">单日超 {{ c.daily_cap }} 件</span>
+                <span v-else>月度超 {{ c.month_cap }} 件（出勤 {{ c.attended_days }} 天）</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <div v-if="diag.missing_rate && diag.missing_rate.length" class="diag bad">
         <div class="diag-h">
           <b>缺单价 {{ diag.missing_rate.length }} 条</b>
@@ -148,6 +207,16 @@
         </div>
       </div>
 
+      <div v-if="noAttCount" class="diag info">
+        <div class="diag-h">
+          <b>无出勤记录 {{ noAttCount }} 条</b>
+          <span>
+            这些报工当天查不到考勤 —— <b>不等于缺勤</b>（计件车间常常不打卡、或考勤漏录），
+            只作提示，不影响金额。要看细节去「考勤联动」页签。
+          </span>
+        </div>
+      </div>
+
       <!-- 按人汇总 -->
       <div class="panel-card">
         <h3>按人汇总（{{ viewByEmployee.length }} 人）</h3>
@@ -189,7 +258,7 @@
           <table class="data">
             <thead>
               <tr>
-                <th>姓名</th><th>订单</th><th>扎号</th><th>工序</th><th>款号</th>
+                <th>姓名</th><th>订单</th><th>扎号</th><th>工序</th><th>款号</th><th>报工日</th><th>考勤</th>
                 <th class="num">报工合格</th><th class="num">计件数量</th><th class="num">单价</th>
                 <th class="num">金额</th><th>取价</th><th>归人</th>
               </tr>
@@ -201,19 +270,174 @@
                 <td class="mono tiny">{{ it.bundle_no || '—' }}</td>
                 <td>{{ it.process_name }}</td>
                 <td class="tiny">{{ it.style_no || '（通用）' }}</td>
+                <td class="tiny">{{ it.report_date || '—' }}</td>
+                <td>
+                  <span class="tag" :class="attTagClass(it.att_status)">{{ attLabel(it.att_status) }}</span>
+                </td>
                 <td class="num">{{ it.raw_qty }}</td>
                 <td class="num">
-                  {{ it.qty }}<i v-if="it.capped" class="cap">封顶</i>
+                  {{ it.qty }}<i v-if="it.capped" class="cap">{{ it.cap_kind === 'month' ? '月封顶' : it.cap_kind === 'daily' ? '日封顶' : '封顶' }}</i>
                 </td>
                 <td class="num">{{ money(it.unit_price) }}</td>
                 <td class="num strong">¥{{ money(it.amount) }}</td>
                 <td class="tiny">{{ it.rate_source === 'style' ? '款专属' : '通用' }}</td>
                 <td class="tiny">{{ it.matched_by === 'id' ? '员工编号' : '姓名匹配' }}</td>
               </tr>
-              <tr v-if="!viewItems.length"><td colspan="11" class="empty">没有明细</td></tr>
+              <tr v-if="!viewItems.length"><td colspan="13" class="empty">没有明细</td></tr>
             </tbody>
           </table>
         </div>
+      </div>
+    </template>
+
+    <!-- ================= 考勤联动 ================= -->
+    <template v-else-if="tab === 'att'">
+      <div class="banner info">
+        <b>报工那天人到底在不在</b>
+        <span>
+          计件的输入是报工，报工是人填的。<b>考勤明确写了请假/旷工，那天却有一笔以他名义的报工</b>，
+          钱多半付错了人（代报 / 点错人 / 虚报）。这里只管这一件事，另加两道可选闸门：
+          <b>单日件数上限</b>与<b>缺勤封顶</b>（月上限 = 日上限 × 出勤天数）。
+          <b>查不到考勤不算异常</b> —— 计件车间常常不打卡，不能当旷工。
+        </span>
+      </div>
+
+      <div v-if="canWrite" class="panel-card">
+        <h3>闸门配置</h3>
+        <div class="fgrid">
+          <label>
+            <span>每人每日计件上限（件，0 = 不限制）</span>
+            <input v-model="cfgForm.daily_cap_qty" class="input" type="number" min="0" step="10" placeholder="0" />
+          </label>
+          <label>
+            <span>月度封顶（按「日上限 × 出勤天数」）</span>
+            <select v-model="cfgForm.month_cap" class="select">
+              <option :value="1">启用（缺勤越多，能拿的件数越少）</option>
+              <option :value="0">不启用（只按单日上限管）</option>
+            </select>
+          </label>
+          <label class="full">
+            <span>请假/缺勤当日报工怎么处理</span>
+            <select v-model="cfgForm.attendance_policy" class="select">
+              <option value="warn">只提示：照算金额，确认时要求写一句说明（默认，不误伤）</option>
+              <option value="exclude">剔除不计：这些笔不算钱，逐笔列出给人核对</option>
+              <option value="block">不许确认：先改报工归属，清干净才允许确认</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-foot">
+          <button class="btn btn-primary" :disabled="busy" @click="saveConfig">保存配置</button>
+          <span class="tiny muted">
+            日上限是「车间一天最多能做多少件」，只有厂里知道，系统不猜 —— 填 0 就是完全不管件数，只做考勤核对。
+          </span>
+        </div>
+      </div>
+
+      <div class="cards four">
+        <div class="stat-card">
+          <div class="label">有报工的人</div>
+          <div class="value">{{ attBoard.summary ? attBoard.summary.employees : 0 }}<small>人</small></div>
+        </div>
+        <div class="stat-card">
+          <div class="label">整月无考勤</div>
+          <div class="value">{{ attBoard.summary ? attBoard.summary.no_attendance : 0 }}<small>人</small></div>
+        </div>
+        <div class="stat-card">
+          <div class="label">被削件数</div>
+          <div class="value" :style="{ color: attBoard.summary && attBoard.summary.capped_people ? '#d92d45' : '#8a94a6' }">
+            {{ attBoard.summary ? attBoard.summary.capped_people : 0 }}<small>人 / {{ attBoard.summary ? attBoard.summary.total_over : 0 }} 件</small>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="label">考勤冲突</div>
+          <div class="value" :style="{ color: attBoard.summary && attBoard.summary.conflict_count ? '#d92d45' : '#8a94a6' }">
+            {{ attBoard.summary ? attBoard.summary.conflict_count : 0 }}<small>笔</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-card">
+        <div class="panel-h">
+          <h3 style="margin: 0">考勤 × 计件对照（{{ period }}）</h3>
+          <span class="tiny muted">
+            月上限 = 日上限 {{ cfg.daily_cap_qty || 0 }} 件 × 出勤天数；日上限为 0 时不封顶
+          </span>
+        </div>
+        <table class="data">
+          <thead>
+            <tr>
+              <th>员工</th><th>部门</th>
+              <th class="num">出勤</th><th class="num">迟到</th><th class="num">请假</th><th class="num">旷工</th>
+              <th class="num">计件件数</th><th class="num">金额</th>
+              <th class="num">月上限</th><th class="num">剩余</th><th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in attBoard.rows || []" :key="r.employee_id">
+              <td><b>{{ r.employee_name }}</b><span class="emp-code">{{ r.employee_code }}</span></td>
+              <td class="tiny">{{ r.department || '—' }}</td>
+              <td class="num">{{ r.attended_days }}</td>
+              <td class="num">{{ r.late_days || 0 }}</td>
+              <td class="num" :style="{ color: r.leave_days ? '#d97706' : '' }">{{ r.leave_days || 0 }}</td>
+              <td class="num" :style="{ color: r.absent_days ? '#d92d45' : '' }">{{ r.absent_days || 0 }}</td>
+              <td class="num">{{ r.qty }}</td>
+              <td class="num strong">¥{{ money(r.amount) }}</td>
+              <td class="num">
+                {{ r.month_cap === null ? '不封顶' : r.month_cap }}
+                <div v-if="r.cap_note" class="tiny muted">{{ r.cap_note }}</div>
+              </td>
+              <td class="num">{{ r.remain === null ? '—' : r.remain }}</td>
+              <td class="tiny">
+                <span v-if="!r.attendance_records" class="tag gray">整月无考勤</span>
+                <span v-else-if="r.over > 0" class="tag red">削掉 {{ r.over }} 件</span>
+                <span v-else-if="r.flagged" class="tag orange">冲突 {{ r.flagged }} 笔</span>
+                <span v-else class="tag green">正常</span>
+              </td>
+            </tr>
+            <tr v-if="!(attBoard.rows || []).length"><td colspan="11" class="empty">本月没有可计件的报工</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="attConflicts.length" class="diag bad">
+        <div class="diag-h">
+          <b>请假/缺勤当日的报工 {{ attConflicts.length }} 条</b>
+          <span>当前策略：{{ attPolicyLabel }}</span>
+        </div>
+        <table class="data sm">
+          <thead><tr><th>姓名</th><th>日期</th><th>考勤</th><th>订单</th><th>工序</th><th class="num">件数</th></tr></thead>
+          <tbody>
+            <tr v-for="(c, i) in attConflicts.slice(0, 20)" :key="i">
+              <td>{{ c.employee_name }}</td>
+              <td class="tiny">{{ c.report_date }}</td>
+              <td><span class="tag red">{{ c.att_label }}</span></td>
+              <td class="mono tiny">{{ c.order_no }}</td>
+              <td>{{ c.process_name }}</td>
+              <td class="num">{{ c.qty }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="attExcluded.length" class="diag warn">
+        <div class="diag-h">
+          <b>已剔除不计 {{ attExcluded.length }} 条（合计 ¥{{ money(attExcludedAmount) }}）</b>
+          <span>策略是「剔除不计」，这些笔不付钱。人请假了活谁干的，得线下问清楚</span>
+        </div>
+        <table class="data sm">
+          <thead><tr><th>姓名</th><th>日期</th><th>考勤</th><th>订单</th><th>工序</th><th class="num">件数</th><th class="num">金额</th></tr></thead>
+          <tbody>
+            <tr v-for="(c, i) in attExcluded.slice(0, 20)" :key="i">
+              <td>{{ c.employee_name }}</td>
+              <td class="tiny">{{ c.report_date }}</td>
+              <td><span class="tag red">{{ c.att_label }}</span></td>
+              <td class="mono tiny">{{ c.order_no }}</td>
+              <td>{{ c.process_name }}</td>
+              <td class="num">{{ c.qty }}</td>
+              <td class="num">¥{{ money(c.amount) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </template>
 
@@ -310,7 +534,7 @@
           <thead>
             <tr>
               <th>编号</th><th>月份</th><th>状态</th><th class="num">人数</th><th class="num">件数</th>
-              <th class="num">金额</th><th class="num">缺价</th><th class="num">未归属</th>
+              <th class="num">金额</th><th class="num">缺价</th><th class="num">未归属</th><th class="num">考勤冲突</th>
               <th>制单</th><th>确认</th><th>操作</th>
             </tr>
           </thead>
@@ -328,6 +552,7 @@
               <td class="num strong">¥{{ money(r.total_amount) }}</td>
               <td class="num" :style="{ color: r.missing_rate_count ? '#d92d45' : '#8a94a6' }">{{ r.missing_rate_count }}</td>
               <td class="num" :style="{ color: r.unassigned_count ? '#d97706' : '#8a94a6' }">{{ r.unassigned_count }}</td>
+              <td class="num" :style="{ color: r.att_conflict_count ? '#d92d45' : '#8a94a6' }">{{ r.att_conflict_count || 0 }}</td>
               <td class="tiny">{{ r.created_by || '' }}<br />{{ $fmt(r.created_at) }}</td>
               <td class="tiny">{{ r.confirmed_by || '—' }}<br />{{ r.confirmed_at ? $fmt(r.confirmed_at) : '' }}</td>
               <td>
@@ -335,7 +560,7 @@
                 <button v-if="r.status === 'confirmed'" class="link-btn" @click="exportRun(r.id)">导出</button>
               </td>
             </tr>
-            <tr v-if="!runs.length"><td colspan="11" class="empty">还没有核算单</td></tr>
+            <tr v-if="!runs.length"><td colspan="12" class="empty">还没有核算单</td></tr>
           </tbody>
         </table>
       </div>
@@ -391,6 +616,54 @@ const viewItems = computed(() =>
 );
 const diag = computed(() => (run.value ? run.value.diagnostics || {} : (preview.value && preview.value.diagnostics) || {}));
 
+// ---------- 考勤联动 ----------
+const cfg = ref({ daily_cap_qty: 0, month_cap: 1, attendance_policy: 'warn' });
+const attBoard = ref({ rows: [], summary: null });
+const cfgForm = reactive({ daily_cap_qty: 0, month_cap: 1, attendance_policy: 'warn' });
+
+/** 请假/缺勤当日报工（铁证冲突） */
+const attConflicts = computed(() => diag.value.attendance_conflict || []);
+const attExcluded = computed(() => diag.value.excluded || []);
+const attExcludedAmount = computed(() => attExcluded.value.reduce((s, x) => s + (Number(x.amount) || 0), 0));
+const noAttCount = computed(() => (diag.value.no_attendance || []).length);
+
+/** 日封顶与月封顶合成一张表（都是「削掉多少件」，分开显示反而看不清） */
+const capRows = computed(() => {
+  const d = diag.value;
+  const rows = [
+    ...(d.daily_capped || []).map((x) => ({ ...x, cap_kind: 'daily' })),
+    ...(d.month_capped || []).map((x) => ({ ...x, cap_kind: 'month' }))
+  ];
+  return rows.sort(
+    (a, b) => String(b.report_date || '').localeCompare(String(a.report_date || '')) || (b.over || 0) - (a.over || 0)
+  );
+});
+
+/** 当前生效策略：优先看实时试算（配置刚改过就是新值），没有就退回核算单快照 */
+const attPolicy = computed(() => {
+  if (preview.value && preview.value.summary && preview.value.summary.att_policy) return preview.value.summary.att_policy;
+  if (run.value && run.value.diagnostics && run.value.diagnostics.att_policy) return run.value.diagnostics.att_policy;
+  return cfg.value.attendance_policy || 'warn';
+});
+const attPolicyLabel = computed(
+  () =>
+    ({ warn: '只提示（照算，确认要写说明）', exclude: '剔除不计（不付这笔钱）', block: '不许确认（先清干净）' }[
+      attPolicy.value
+    ] || attPolicy.value)
+);
+const attConflictCount = computed(() =>
+  run.value ? Number(run.value.att_conflict_count) || 0 : attConflicts.value.length
+);
+
+const ATT_LABEL = { normal: '正常', late: '迟到', leave: '请假', absent: '旷工', none: '无记录' };
+const attLabel = (s) => ATT_LABEL[s] || ATT_LABEL.none;
+function attTagClass(s) {
+  if (s === 'leave' || s === 'absent') return 'red';
+  if (s === 'late') return 'orange';
+  if (s === 'none' || !s) return 'gray';
+  return 'green';
+}
+
 /** 草案金额与实时试算不一致 → 提示重算（报告改了/单价调了） */
 const drift = computed(() => {
   if (!run.value || !preview.value || run.value.status !== 'draft') return false;
@@ -422,9 +695,38 @@ async function loadRates() {
   rates.value = await api.pieceRates({});
 }
 
+async function loadConfig() {
+  const c = await api.pieceConfig();
+  cfg.value = c;
+  cfgForm.daily_cap_qty = c.daily_cap_qty;
+  cfgForm.month_cap = c.month_cap;
+  cfgForm.attendance_policy = c.attendance_policy;
+}
+
+async function loadBoard() {
+  if (!period.value) return;
+  attBoard.value = await api.pieceAttBoard(period.value);
+}
+
+async function saveConfig() {
+  busy.value = true;
+  try {
+    cfg.value = await api.pieceConfigSave({
+      ...cfgForm,
+      daily_cap_qty: Number(cfgForm.daily_cap_qty) || 0
+    });
+    await Promise.all([loadPreview(), loadBoard()]);
+    tab.value = 'att';
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function reload() {
   try {
-    await Promise.all([loadPreview(), loadRuns(), loadRates()]);
+    await Promise.all([loadPreview(), loadRuns(), loadRates(), loadConfig(), loadBoard()]);
   } catch (e) {
     alert(e.message);
   }
@@ -447,12 +749,15 @@ async function confirmRun() {
   if (!run.value) return;
   let note = run.value.note || '';
   const un = Number(run.value.unassigned_count) || 0;
-  // 无法归属的报工不阻塞确认（临时工很常见），但必须留一句处理说明
-  if (un > 0 && String(note).trim().length < 4) {
+  const conf = Number(run.value.att_conflict_count) || 0;
+  // 无法归属（临时工）与「请假/缺勤日报工」都不阻塞确认，但必须留一句处理说明
+  if ((un > 0 || conf > 0) && String(note).trim().length < 4) {
+    const parts = [];
+    if (un > 0) parts.push(`${un} 条报工无法归属到人（临时工/姓名对不上档案）`);
+    if (conf > 0) parts.push(`${conf} 条报工落在请假/缺勤日（钱可能付错人）`);
     const t = prompt(
-      `还有 ${un} 条报工无法归属到人（临时工/姓名对不上档案）。\n` +
-        '确认可以继续，但请写一句怎么处理（至少 4 个字）：',
-      '临时工另行结算'
+      `${parts.join('；')}。\n确认可以继续，但请写一句怎么处理（至少 4 个字）：`,
+      un > 0 ? '临时工另行结算' : '请假当天为代报，已线下确认'
     );
     if (t === null) return;
     note = t;
@@ -705,6 +1010,16 @@ table.data.sm td {
 }
 .row-off td {
   opacity: 0.55;
+}
+/* 页签上的红点：有考勤冲突却在别的页签时也要看得见 */
+.dot-bad {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: #d92d45;
+  vertical-align: middle;
 }
 @media (max-width: 900px) {
   .cards.four {

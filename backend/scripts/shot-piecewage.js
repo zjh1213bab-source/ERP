@@ -86,20 +86,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('指标卡:', await ev(`JSON.stringify([...document.querySelectorAll('.stat-card')].map(c=>c.innerText.replace(/\\n/g,'/')))`));
   console.log('诊断块:', await ev(`JSON.stringify([...document.querySelectorAll('.diag-h b')].map(b=>b.textContent.trim()))`));
   console.log('按人汇总行数:', await ev('document.querySelectorAll(".panel-card .data tbody tr").length'));
+  console.log('明细考勤列:', await ev(`JSON.stringify([...document.querySelectorAll('.panel-card .data tbody tr')].slice(0,4).map(tr=>[...tr.children].map(td=>td.innerText.trim()).slice(0,8)))`));
   console.log('横向溢出:', await ev('document.documentElement.scrollWidth - document.documentElement.clientWidth'));
   await fitShot('01-本月核算');
+
+  // 考勤联动
+  await ev(`(()=>{const b=[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.includes('考勤联动'));if(b){b.click();return true}return false})()`);
+  await sleep(1500);
+  console.log('考勤配置:', await ev(`JSON.stringify([...document.querySelectorAll('.fgrid label span')].map(s=>s.innerText.trim()))`));
+  console.log('对照表首行:', await ev(`(()=>{const tr=document.querySelector('.panel-card .data tbody tr');return tr?[...tr.children].map(td=>td.innerText.trim()).join(' | '):'（空）'})()`));
+  console.log('看板卡:', await ev(`JSON.stringify([...document.querySelectorAll('.stat-card')].map(c=>c.innerText.replace(/\\n/g,'/')))`));
+  await fitShot('02-考勤联动');
 
   // 单价维护
   await ev(`(()=>{const b=[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.includes('单价维护'));if(b){b.click();return true}return false})()`);
   await sleep(1200);
   console.log('单价条数:', await ev('document.querySelectorAll(".panel-card .data tbody tr").length'));
-  await fitShot('02-单价维护');
+  await fitShot('03-单价维护');
 
   // 历史核算
   await ev(`(()=>{const b=[...document.querySelectorAll('.tabs button')].find(x=>x.textContent.includes('历史核算'));if(b){b.click();return true}return false})()`);
   await sleep(1200);
   console.log('核算单行数:', await ev('document.querySelectorAll(".panel-card .data tbody tr").length'));
-  await fitShot('03-历史核算');
+  console.log('核算单表头:', await ev(`JSON.stringify([...document.querySelectorAll('table.data thead th')].map(th=>th.innerText.trim()))`));
+  await fitShot('04-历史核算');
 
   // 工资单页：计件列
   await send('Page.navigate', { url: BASE + '/payrolls' });
@@ -110,14 +120,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(400);
   console.log('工资单表头:', await ev(`JSON.stringify([...document.querySelectorAll('table.data thead th')].map(th=>th.innerText.trim()))`));
   console.log('计件列合计行:', await ev(`(()=>{const m=document.body.innerText.match(/计件合计[^　\\n]*/);return m?m[0]:'（未找到）'})()`));
-  await fitShot('04-工资单计件列');
+  await fitShot('05-工资单计件列');
 
   // 移动端
   await vp(414, 896, true);
   await send('Page.navigate', { url: BASE + '/piece-wage' });
   await sleep(5200);
   console.log('移动端横向溢出:', await ev('document.documentElement.scrollWidth - document.documentElement.clientWidth'));
-  await shot('05-移动端');
+  await shot('06-移动端');
 
   proc.kill();
   process.exit(0);

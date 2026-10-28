@@ -984,12 +984,17 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 | 表 | 关键字段 | 说明 |
 |---|---|---|
 | piece_rates | style_no(可空=通用), process_name, unit_price, effective_from, effective_to, status(active/disabled), note | **单价版本化**。唯一索引 `(IFNULL(style_no,''), process_name, effective_from)` 防同键重复导致取价摇摆。改价 = 新增一条，不动旧记录 |
-| piece_wage_runs | run_no, period, status(draft/confirmed/void), items_count, employees_count, total_qty, total_amount, missing_rate_count, unassigned_count, capped_count, payload(JSON 诊断快照), note, created_by/confirmed_by | **部分唯一索引** `WHERE status='confirmed'` 保证一个月份只有一份已确认。作废需 `void_reason` |
-| piece_wage_items | run_id, employee_id, employee_code, employee_name, department, style_no, process_name, order_id, order_no, bundle_no, **raw_qty / qty / capped**, unit_price, amount, rate_id, rate_source(style/generic), matched_by(id/name) | 明细粒度「人 × 工序 × 订单 × 扎」。`raw_qty` 是报工原值、`qty` 是封顶后计入值，两者不等就是超报 |
+| piece_wage_config | id(恒为 1), daily_cap_qty, month_cap(0/1), attendance_policy(warn/exclude/block), updated_by/at | **单行配置表**。`daily_cap_qty = 0` 时所有件数闸门全部不生效（默认 0）。策略默认 `warn` = 照算但确认要说明，改扣钱必须人工切 `exclude`/`block` |
+| piece_wage_runs | run_no, period, status(draft/confirmed/void), items_count, employees_count, total_qty, total_amount, missing_rate_count, unassigned_count, capped_count, **att_conflict_count / att_excluded_count / att_capped_count**, payload(JSON 诊断快照 + 当时的策略与日上限), note, created_by/confirmed_by | **部分唯一索引** `WHERE status='confirmed'` 保证一个月份只有一份已确认。作废需 `void_reason`。payload 里连策略一起存，改配置后也能解释这份单当时按什么规则算的 |
+| piece_wage_items | run_id, employee_id, employee_code, employee_name, department, style_no, process_name, order_id, order_no, bundle_no, **report_date**, **raw_qty / qty / capped / cap_kind(bundle/daily/month)**, **att_status(normal/late/leave/absent/none) / att_flagged / excluded / exclude_reason**, unit_price, amount, rate_id, rate_source(style/generic), matched_by(id/name) | 明细粒度「人 × 工序 × 订单 × 扎」。`raw_qty` 是报工原值、`qty` 是封顶后计入值，两者不等就是被削过；`cap_kind` 说明是哪道闸门削的 |
 | payrolls.piece_wage | REAL | 计件金额，**只能由核算单带入**，工资单页禁止手填 |
 
-> `payload` 存的是生成那一刻的四类诊断清单（缺单价/无法归属/超报/未记扎）。
+> `payload` 存的是生成那一刻的九类诊断清单（缺单价/无法归属/超报/未记扎/考勤冲突/无出勤记录/剔除/日封顶/月封顶）。
 > 存快照而不是每次现算：报告发出去（确认了）之后，诊断内容要能原样复原。
+>
+> **考勤核对只认 `leave` / `absent`**：`attendance` 里查不到当天记录时只记 `no_attendance`
+> 提示，不进冲突清单 —— 计件车间常常不打卡，把「没记录」当旷工会大面积误伤。
+> 缺勤封顶同理：`attendance` 整月没有一条记录时**不封顶**（否则所有人都算 0 件）。
 >
 > **为什么不在 `production_reports` 上加「是否已计件」标记**：报工是事实，计件是结算，
 > 两者生命周期不同（报工可补、计件按月锁定）。用 `(period + 单价生效日)` 反推，

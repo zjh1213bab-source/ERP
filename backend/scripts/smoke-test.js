@@ -5674,6 +5674,7 @@ async function req(path, { method = 'GET', body, token } = {}) {
     // 清理（幂等：重复跑不会堆数据）
     const cleanup = () => {
       db.prepare("DELETE FROM production_reports WHERE remark = 'SMOKE-PW'").run();
+      db.prepare("DELETE FROM attendance WHERE remark = 'SMOKE-PW'").run();
       db.prepare('DELETE FROM piece_rates WHERE process_name = ?').run(TEST_PROC);
       const runs = db.prepare("SELECT id FROM piece_wage_runs WHERE period = ?").all(TEST_PERIOD);
       runs.forEach((r) => {
@@ -5682,6 +5683,18 @@ async function req(path, { method = 'GET', body, token } = {}) {
       });
     };
     cleanup();
+
+    // 全局配置会被临时改，跑完必须还原（否则演示库的工钱口径被测试带偏）
+    const cfgOrigin = db.prepare('SELECT * FROM piece_wage_config WHERE id = 1').get();
+    const restoreCfg = () => {
+      if (!cfgOrigin) return;
+      db.prepare(
+        'UPDATE piece_wage_config SET daily_cap_qty=?, month_cap=?, attendance_policy=?, updated_by=?, updated_at=? WHERE id=1'
+      ).run(
+        cfgOrigin.daily_cap_qty, cfgOrigin.month_cap, cfgOrigin.attendance_policy,
+        cfgOrigin.updated_by, cfgOrigin.updated_at
+      );
+    };
 
     // 找一个有扎的订单 + 一名在职员工
     // 挑「件数最少」的扎：一报就能占满，再补 5 件必然超报，才测得到封顶
@@ -5788,14 +5801,135 @@ async function req(path, { method = 'GET', body, token } = {}) {
       const mk4 = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
       ok('作废后可以重新生成', mk4.status === 200, `HTTP ${mk4.status} ${mk4.json.message || ''}`);
 
+      // ---------- 考勤联动 ----------
+      {
+        const cfgRead = await req('/api/piece-wage/config', { token });
+        ok('可读考勤联动配置', cfgRead.status === 200 && typeof cfgRead.json.data.attendance_policy === 'string',
+          `HTTP ${cfgRead.status}`);
+        const badPolicy = await req('/api/piece-wage/config', {
+          method: 'PUT', token, body: { daily_cap_qty: 0, month_cap: 1, attendance_policy: 'whatever' }
+        });
+        ok('非法考勤策略被拒', badPolicy.status === 400, `HTTP ${badPolicy.status}`);
+        const badCap = await req('/api/piece-wage/config', {
+          method: 'PUT', token, body: { daily_cap_qty: -1, month_cap: 1, attendance_policy: 'warn' }
+        });
+        ok('负的日上限被拒', badCap.status === 400, `HTTP ${badCap.status}`);
+
+        // 10 号请假、11 号查不到考勤 —— 两种情形要分开算：前者是铁证冲突，后者只提示
+        db.prepare("DELETE FROM attendance WHERE remark = 'SMOKE-PW'").run();
+        db.prepare(
+          `INSERT INTO attendance (employee_id, employee_name, date, check_in, check_out, status, remark, created_at)
+           VALUES (?,?,?,NULL,NULL,'leave','SMOKE-PW','1999-01-10 00:00:00')`
+        ).run(emp.id, emp.name, '1999-01-10');
+
+        const pvAtt = await req('/api/piece-wage/preview?period=' + TEST_PERIOD, { token });
+        const sd = pvAtt.json.data.summary;
+        ok('请假当日的报工被识别为考勤冲突', sd.att_conflict_count >= 1, `conflict=${sd.att_conflict_count}`);
+        ok('查不到考勤的日期只提示、不算冲突', sd.no_attendance_count >= 1 && sd.att_conflict_count < 2,
+          `no_att=${sd.no_attendance_count} conflict=${sd.att_conflict_count}`);
+        const warnAmount = Number(sd.total_amount);
+
+        const bd = await req('/api/piece-wage/attendance-board?period=' + TEST_PERIOD, { token });
+        const bRow = ((bd.json.data && bd.json.data.rows) || []).find((r) => r.employee_id === emp.id);
+        ok('考勤×计件对照可读', bd.status === 200 && !!bRow, `HTTP ${bd.status}`);
+        ok('对照表带出请假天数', !!bRow && Number(bRow.leave_days) === 1 && Number(bRow.attended_days) === 0,
+          JSON.stringify(bRow && { a: bRow.attended_days, l: bRow.leave_days }));
+        ok('未设日上限时不封顶（不拿 0 当前提）', !!bRow && bRow.month_cap === null,
+          JSON.stringify(bRow && bRow.month_cap));
+
+        // warn 策略：照算，但确认要一句说明
+        const mkAtt = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
+        const ridAtt = mkAtt.json.data && mkAtt.json.data.id;
+        const cfNoNote = await req(`/api/piece-wage/runs/${ridAtt}/confirm`, { method: 'POST', token, body: {} });
+        ok('warn 策略下考勤冲突需写说明才能确认', cfNoNote.status === 400, `HTTP ${cfNoNote.status}`);
+        const cfWithNote = await req(`/api/piece-wage/runs/${ridAtt}/confirm`, {
+          method: 'POST', token, body: { note: '请假当天为代报，已线下确认' }
+        });
+        ok('写了说明可确认，且核算单记下冲突笔数',
+          cfWithNote.status === 200 && Number(cfWithNote.json.data.att_conflict_count) >= 1,
+          `HTTP ${cfWithNote.status} conflict=${cfWithNote.json.data && cfWithNote.json.data.att_conflict_count}`);
+        await req(`/api/piece-wage/runs/${ridAtt}/void`, {
+          method: 'POST', token, body: { reason: '冒烟测试作废' }
+        });
+
+        // exclude 策略：这笔不付钱，但要逐笔列出来
+        await req('/api/piece-wage/config', {
+          method: 'PUT', token, body: { daily_cap_qty: 0, month_cap: 1, attendance_policy: 'exclude' }
+        });
+        const pvEx = await req('/api/piece-wage/preview?period=' + TEST_PERIOD, { token });
+        const sex = pvEx.json.data.summary;
+        ok('exclude 策略下冲突笔被剔除且金额可查',
+          sex.att_excluded_count >= 1 && Number(sex.att_excluded_amount) > 0,
+          `excluded=${sex.att_excluded_count} amount=${sex.att_excluded_amount}`);
+        ok('剔除后总金额变小（不静默吞掉）', Number(sex.total_amount) < warnAmount,
+          `${sex.total_amount} vs ${warnAmount}`);
+        ok('剔除清单带得出「请假」原因',
+          (pvEx.json.data.diagnostics.excluded || []).some((x) => x.att_label === '请假'),
+          JSON.stringify((pvEx.json.data.diagnostics.excluded || []).map((x) => x.att_label)));
+
+        // block 策略：不许确认
+        await req('/api/piece-wage/config', {
+          method: 'PUT', token, body: { daily_cap_qty: 0, month_cap: 1, attendance_policy: 'block' }
+        });
+        const mkBlk = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
+        const cfBlk = await req(`/api/piece-wage/runs/${mkBlk.json.data.id}/confirm`, {
+          method: 'POST', token, body: { note: '随便写点什么都行' }
+        });
+        ok('block 策略下不许确认（写说明也不放行）', cfBlk.status === 400, `HTTP ${cfBlk.status}`);
+
+        // 日上限 + 缺勤封顶：给他一天正常出勤，日上限 10 件
+        db.prepare("UPDATE attendance SET status = 'normal', check_in = '08:50' WHERE remark = 'SMOKE-PW'").run();
+        // 再补一条「无扎」报工：同扎的第二条会被扎封顶削成 0，那样测不到月度封顶
+        db.prepare(
+          `INSERT INTO production_reports
+             (order_id, node_id, node_name, report_date, qty_ok, qty_defect, hours, operator, employee_id, remark, created_at, bundle_no)
+           VALUES (?, NULL, ?, '1999-01-20', 5, 0, 0, ?, ?, 'SMOKE-PW', '1999-01-20 10:00:00', NULL)`
+        ).run(bundle.order_id, TEST_PROC, emp.name, emp.id);
+        await req('/api/piece-wage/config', {
+          method: 'PUT', token, body: { daily_cap_qty: 10, month_cap: 1, attendance_policy: 'warn' }
+        });
+        const pvCap = await req('/api/piece-wage/preview?period=' + TEST_PERIOD, { token });
+        const scap = pvCap.json.data.summary;
+        ok('每人每日上限生效（同日超出的被削）', scap.daily_capped_count >= 1, `daily=${scap.daily_capped_count}`);
+        ok('缺勤封顶：月上限 = 日上限 × 出勤天数', scap.month_capped_count >= 1, `month=${scap.month_capped_count}`);
+        ok('封顶后计件件数不超月上限（10 件/日 × 1 天）',
+          Number(scap.total_qty) <= 10, `qty=${scap.total_qty}`);
+
+        // 整月没有考勤记录时不能做「缺勤封顶」（否则等同于所有人都没来，件数全归零）
+        db.prepare("DELETE FROM attendance WHERE remark = 'SMOKE-PW'").run();
+        const pvNo = await req('/api/piece-wage/preview?period=' + TEST_PERIOD, { token });
+        ok('整月无考勤记录时不封顶（只保留单日上限）',
+          Number(pvNo.json.data.summary.month_capped_count) === 0,
+          `month=${pvNo.json.data.summary.month_capped_count}`);
+
+        // 权限：销售不能改配置
+        const salesCfgToken = await loginAs('sales01');
+        if (salesCfgToken) {
+          const denyCfg = await req('/api/piece-wage/config', {
+            method: 'PUT', token: salesCfgToken, body: { daily_cap_qty: 100, month_cap: 1, attendance_policy: 'warn' }
+          });
+          ok('销售不能改考勤联动配置', denyCfg.status === 403, `HTTP ${denyCfg.status}`);
+        } else {
+          ok('销售不能改考勤联动配置', true, '没有 sales01，跳过');
+        }
+
+        restoreCfg();
+        // 配置已还原，但刚才的草案是临时口径 —— 重新生成一份（覆盖）留给后面的用例
+        const mkReset = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
+        ok('考勤联动用例结束：配置已还原、草案按原口径重生成',
+          mkReset.status === 200 && Number(db.prepare('SELECT daily_cap_qty FROM piece_wage_config WHERE id = 1').get().daily_cap_qty) === Number(cfgOrigin.daily_cap_qty),
+          `HTTP ${mkReset.status} cap=${db.prepare('SELECT daily_cap_qty FROM piece_wage_config WHERE id = 1').get().daily_cap_qty}`);
+      }
+
       // ---------- 缺单价：确认必须被拒 ----------
       db.prepare('DELETE FROM piece_rates WHERE process_name = ?').run(TEST_PROC);
-      const runId2 = mk4.json.data && mk4.json.data.id;
+      // 用「当前还存在的草案」：草案覆盖是删旧插新，id 会变，拿老 id 会假 404
+      const curDraft = db
+        .prepare("SELECT id FROM piece_wage_runs WHERE period = ? AND status = 'draft' ORDER BY id DESC LIMIT 1")
+        .get(TEST_PERIOD);
+      const runId2 = (curDraft && curDraft.id) || (mk4.json.data && mk4.json.data.id);
       if (runId2) {
-        // 再生成一份（覆盖）让缺价体现在明细里
-        const mk5 = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
-        const rid5 = (mk5.json.data && mk5.json.data.id) || runId2;
-        const cfNoRate = await req(`/api/piece-wage/runs/${rid5}/confirm`, { method: 'POST', token, body: {} });
+        const cfNoRate = await req(`/api/piece-wage/runs/${runId2}/confirm`, { method: 'POST', token, body: {} });
         ok('缺单价时确认被拒（不许按 0 算白干）', cfNoRate.status === 400, `HTTP ${cfNoRate.status}`);
       }
 

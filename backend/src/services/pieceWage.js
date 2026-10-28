@@ -24,10 +24,16 @@
  * 6. **单价按生效日版本化，改价不改历史**。查找取「生效日 ≤ 报工日期」里最新的一条，
  *    款专属价优先于通用价。这样上个月算过的钱不会因为今天调价而变。
  *
+ * 7. **报工要看那天人在不在**（`pieceAttendance.js`）。报工是人填的，人请假/旷工
+ *    那天却有一笔以他名义的报工，钱多半付错了人。考勤明确写了 leave/absent 的算冲突；
+ *    查不到考勤只提示（计件车间常常不打卡，不能当旷工）。冲突默认照算但确认要说明，
+ *    要真扣钱得人工切策略。日上限 / 缺勤封顶同理：`daily_cap_qty = 0` 时全部不生效。
+ *
  * 计件金额**不直接发钱**：确认后由 `payrolls/generate` 带进工资单的 `piece_wage` 列，
  * 与基本工资、社保、个税一起走正常的工资流程。
  */
 const { db, now } = require('../db');
+const ATT = require('./pieceAttendance');
 
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
@@ -243,6 +249,9 @@ function bundleQtyMap() {
  */
 function preview(period) {
   const { from, to } = periodRange(period);
+  const cfg = ATT.getConfig();
+  const att = ATT.monthMap(from, to);
+  const dailyCap = Number(cfg.daily_cap_qty) || 0;
   const reports = db
     .prepare(
       `SELECT r.id, r.order_id, r.node_name, r.bundle_no, r.qty_ok, r.qty_defect,
@@ -264,7 +273,12 @@ function preview(period) {
   const capped = [];    // 超报被拦
   const noBundle = [];  // 没记扎号（不封顶）
   const multiStyle = []; // 多款订单按通用价
+  const attConflict = []; // 报工日请假/缺勤（铁证冲突）
+  const noAttendance = []; // 当天查不到考勤记录（只提示）
+  const excluded = [];   // 策略=exclude 时被剔除不计的笔
+  const dailyCapped = []; // 单日超上限被削
   const used = new Map(); // order|bundle|process → 已计入数量
+  const dayUsed = new Map(); // employee|date → 当日已计入数量
 
   reports.forEach((r) => {
     const processName = String(r.node_name || '').trim() || '（未记工序）';
@@ -285,10 +299,30 @@ function preview(period) {
       multiStyle.push({ order_no: r.order_no, report_id: r.id, process_name: processName });
     }
 
-    // 2) 超报封顶（同单同扎同工序累计不超过扎件数）
+    // 2) 那天人在不在 —— 请假/旷工当日报工是铁证冲突；查不到考勤只提示
+    const attStatus = att.statusOf(who.employee.id, r.report_date);
+    const attFlagged = attStatus === 'leave' || attStatus === 'absent';
+    if (attFlagged) {
+      attConflict.push({
+        report_id: r.id, employee_id: who.employee.id, employee_code: who.employee.code,
+        employee_name: who.employee.name, department: who.employee.dept_name || '',
+        order_no: r.order_no, bundle_no: r.bundle_no, process_name: processName,
+        qty: Number(r.qty_ok) || 0, report_date: r.report_date,
+        att_status: attStatus, att_label: attStatus === 'leave' ? '请假' : '缺勤'
+      });
+    } else if (!attStatus) {
+      noAttendance.push({
+        report_id: r.id, employee_id: who.employee.id, employee_name: who.employee.name,
+        order_no: r.order_no, process_name: processName,
+        qty: Number(r.qty_ok) || 0, report_date: r.report_date
+      });
+    }
+
+    // 3) 超报封顶（同单同扎同工序累计不超过扎件数）
     let qty = Number(r.qty_ok) || 0;
     const rawQty = qty;
     let isCapped = 0;
+    let capKind = null;
     if (r.bundle_no) {
       const capKey = `${r.order_id}|${r.bundle_no}|${processName}`;
       const cap = bundleQty.get(`${r.order_id}|${r.bundle_no}`);
@@ -304,6 +338,7 @@ function preview(period) {
           });
           qty = remain;
           isCapped = 1;
+          capKind = 'bundle';
         }
         used.set(capKey, already + qty);
       }
@@ -314,7 +349,7 @@ function preview(period) {
       });
     }
 
-    // 3) 单价
+    // 4) 单价
     if (!rate) {
       missing.push({
         order_no: r.order_no, style_no: st.style_no, process_name: processName,
@@ -326,6 +361,40 @@ function preview(period) {
 
     if (qty <= 0) return;
 
+    // 5) 策略 = exclude：请假/缺勤当天的报工直接不计金额（列出来给人核对，不静默吞）
+    if (attFlagged && cfg.attendance_policy === 'exclude') {
+      excluded.push({
+        report_id: r.id, employee_id: who.employee.id, employee_code: who.employee.code,
+        employee_name: who.employee.name, department: who.employee.dept_name || '',
+        order_no: r.order_no, bundle_no: r.bundle_no, process_name: processName,
+        report_date: r.report_date, qty, unit_price: round2(rate.unit_price),
+        amount: round2(qty * rate.unit_price),
+        att_status: attStatus, att_label: attStatus === 'leave' ? '请假' : '缺勤',
+        reason: '报工日' + (attStatus === 'leave' ? '请假' : '缺勤') + '，按当前策略不计金额'
+      });
+      return;
+    }
+
+    // 6) 单日上限（同一人同一天计件件数不超过日产能）
+    if (dailyCap > 0 && qty > 0) {
+      const dk = `${who.employee.id}|${r.report_date}`;
+      const usedD = dayUsed.get(dk) || 0;
+      const remainD = Math.max(0, dailyCap - usedD);
+      if (qty > remainD) {
+        dailyCapped.push({
+          report_id: r.id, employee_id: who.employee.id, employee_name: who.employee.name,
+          order_no: r.order_no, bundle_no: r.bundle_no, process_name: processName,
+          report_date: r.report_date, raw_qty: round2(qty), counted: round2(remainD),
+          over: round2(qty - remainD), daily_cap: round2(dailyCap)
+        });
+        qty = remainD;
+        isCapped = 1;
+        capKind = 'daily';
+      }
+      dayUsed.set(dk, round2(usedD + qty));
+      if (qty <= 0) return;
+    }
+
     items.push({
       employee_id: who.employee.id,
       employee_code: who.employee.code,
@@ -336,9 +405,13 @@ function preview(period) {
       order_id: r.order_id,
       order_no: r.order_no,
       bundle_no: r.bundle_no || null,
+      report_date: r.report_date,
       raw_qty: rawQty,
       qty,
       capped: isCapped,
+      cap_kind: capKind,
+      att_status: attStatus || 'none',
+      att_flagged: attFlagged ? 1 : 0,
       unit_price: round2(rate.unit_price),
       amount: round2(qty * rate.unit_price),
       rate_id: rate.id,
@@ -347,9 +420,14 @@ function preview(period) {
     });
   });
 
+  // 7) 缺勤封顶：月上限 = 日上限 × 当月出勤天数（未配日上限 / 整月无考勤 → 不封顶）
+  const mc = ATT.applyMonthCap(items, att, cfg);
+  const monthCapped = mc.capped || [];
+  const cappedItems = mc.items || items;
+
   // 同一人同工序同单同扎合并（多条报工合成一行，便于核对）
   const merged = new Map();
-  items.forEach((it) => {
+  cappedItems.forEach((it) => {
     const k = [it.employee_id, it.process_name, it.order_id, it.bundle_no || '', it.unit_price].join('|');
     const hit = merged.get(k);
     if (hit) {
@@ -357,6 +435,9 @@ function preview(period) {
       hit.raw_qty = round2(hit.raw_qty + it.raw_qty);
       hit.amount = round2(hit.amount + it.amount);
       hit.capped = hit.capped || it.capped ? 1 : 0;
+      hit.att_flagged = hit.att_flagged || it.att_flagged ? 1 : 0;
+      // 封顶原因保留「更严重」的那一种，前端只用来说明，不影响金额
+      if (!hit.cap_kind && it.cap_kind) hit.cap_kind = it.cap_kind;
     } else {
       merged.set(k, { ...it });
     }
@@ -397,13 +478,23 @@ function preview(period) {
     unassigned_count: unassigned.length,
     capped_count: capped.length,
     no_bundle_count: noBundle.length,
-    multi_style_count: multiStyle.length
+    multi_style_count: multiStyle.length,
+    // 考勤联动
+    att_conflict_count: attConflict.length,
+    att_excluded_count: excluded.length,
+    att_excluded_amount: round2(excluded.reduce((s, x) => s + x.amount, 0)),
+    daily_capped_count: dailyCapped.length,
+    month_capped_count: monthCapped.length,
+    no_attendance_count: noAttendance.length,
+    att_policy: cfg.attendance_policy,
+    daily_cap_qty: round2(cfg.daily_cap_qty)
   };
 
   return {
     period,
     from,
     to,
+    config: cfg,
     summary,
     items: finalItems,
     by_employee: Object.values(byEmployee).sort((a, b) => b.amount - a.amount),
@@ -412,7 +503,12 @@ function preview(period) {
       unassigned,
       capped,
       no_bundle: noBundle,
-      multi_style: multiStyle
+      multi_style: multiStyle,
+      attendance_conflict: attConflict,
+      no_attendance: noAttendance,
+      excluded,
+      daily_capped: dailyCapped,
+      month_capped: monthCapped
     }
   };
 }
@@ -466,25 +562,34 @@ function createRun(period, operator, note) {
       .prepare(
         `INSERT INTO piece_wage_runs
            (run_no, period, status, items_count, employees_count, total_qty, total_amount,
-            missing_rate_count, unassigned_count, capped_count, payload, note, created_by, created_at)
-         VALUES (?,?, 'draft', ?,?,?,?,?,?,?,?,?,?,?)`
+            missing_rate_count, unassigned_count, capped_count,
+            att_conflict_count, att_excluded_count, att_capped_count,
+            payload, note, created_by, created_at)
+         VALUES (?,?, 'draft', ?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         runNo, period, s.items_count, s.employees_count, s.total_qty, s.total_amount,
         s.missing_rate_count, s.unassigned_count, s.capped_count,
-        JSON.stringify(p.diagnostics), note || null, operator, t
+        s.att_conflict_count, s.att_excluded_count,
+        round2(s.daily_capped_count + s.month_capped_count),
+        // payload 里连当时的策略一起存：以后改了配置，也能解释这份单当时按什么规则算的
+        JSON.stringify({ ...p.diagnostics, att_policy: s.att_policy, daily_cap_qty: s.daily_cap_qty }),
+        note || null, operator, t
       ).lastInsertRowid;
 
     const ins = db.prepare(
       `INSERT INTO piece_wage_items
          (run_id, employee_id, employee_code, employee_name, department, style_no, process_name,
-          order_id, order_no, bundle_no, raw_qty, qty, capped, unit_price, amount, rate_id, rate_source, matched_by, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          order_id, order_no, bundle_no, report_date, raw_qty, qty, capped, cap_kind,
+          att_status, att_flagged, unit_price, amount, rate_id, rate_source, matched_by, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     p.items.forEach((it) => {
       ins.run(
         runId, it.employee_id, it.employee_code, it.employee_name, it.department, it.style_no,
-        it.process_name, it.order_id, it.order_no, it.bundle_no, it.raw_qty, it.qty, it.capped,
+        it.process_name, it.order_id, it.order_no, it.bundle_no, it.report_date,
+        it.raw_qty, it.qty, it.capped, it.cap_kind || null,
+        it.att_status || null, it.att_flagged || 0,
         it.unit_price, it.amount, it.rate_id, it.rate_source, it.matched_by, t
       );
     });
@@ -580,6 +685,27 @@ function confirmRun(id, operator, extraNote) {
         '先把「单价维护」补齐再确认 —— 缺价按 0 算等于白干'
     );
   }
+
+  // 考勤冲突：请假/旷工那天却有报工
+  const conflict = Number(p.summary.att_conflict_count) || 0;
+  if (conflict > 0) {
+    if (p.summary.att_policy === 'block') {
+      throw bad(
+        `有 ${conflict} 笔报工落在请假/缺勤日，当前策略是「不许确认」。` +
+          '先把这些报工改到真正干活的人名下，或到「考勤联动」把策略改成「剔除不计」'
+      );
+    }
+    if (p.summary.att_policy === 'warn') {
+      const names = [...new Set(p.diagnostics.attendance_conflict.map((c) => c.employee_name))].slice(0, 5);
+      if (!note || String(note).trim().length < 4) {
+        throw bad(
+          `有 ${conflict} 笔报工落在请假/缺勤日（${names.join('、')}${names.length >= 5 ? ' 等' : ''}）。` +
+            '可以照算，但请在备注里写一句怎么处理（例如「张三请假当天为代报，已线下确认」）'
+        );
+      }
+    }
+  }
+
   if (p.summary.unassigned_count > 0) {
     // 无法归属不阻塞（可能是临时工），但必须在确认前让人看见
     if (!note || String(note).trim().length < 4) {
