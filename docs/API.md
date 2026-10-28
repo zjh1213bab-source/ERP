@@ -3343,3 +3343,60 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 4. **缺工资单默认补发**（金额取 `piece_expected` 正数），不是扣回。
 5. **境外主体不套国内口径**。
 6. **完成核对前必须逐行处理**（登记调整单或写说明），否则 400 列出未处理的人。
+
+## 数据导出与订阅（`/api/exports`）
+
+> 数据出系统的**唯一白名单出口**。管理口径：导什么、谁导的、掩了哪些字段、带没带水印。
+> 业务端点若还自己拼 CSV，也必须调 `exportGuard.logExternal()` 补一条记录
+> （已接入：应收催收 / 付款申请 / 应付台账 / 行政费用）。
+>
+> 权限：`export.read`（全角色，看清单与自己导的记录）、`export.run`（执行导出）、
+> `export.subscribe`（建/停订阅）、`export.audit`（看所有人的记录、水印反查、领他人产出）。
+> **数据集自身还有一层业务权限**（工资需 `paycheck.read`、应收需 `collection.read`），两层都要过。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/exports/meta | read | 数据集白名单（按权限标 `allowed`）、字典、统计 |
+| GET | /api/exports/preview/:defKey | read | 预览前 5 行（**与导出同一条管道**：同脱敏、同抑制），含 `masked_fields` / `suppressed_rows` |
+| POST | /api/exports/download/:defKey | run | 导出 CSV：`{params, reason}`；返回文件 + `X-Export-Job` / `X-Export-Watermark` / `X-Export-Masked-Fields` 头 |
+| GET | /api/exports/jobs | read | 导出记录；无 `export.audit` 时只返回自己的（`scope=self`） |
+| GET | /api/exports/jobs/:id | read | 记录详情（含投递） |
+| GET | /api/exports/trace?token= | read | 水印或单号反查；无审计权限时对方姓名返回「（需要审计权限查看）」 |
+| GET | /api/exports/stats | read | 本月次数/行数、敏感以上次数、掩码行、抑制组、到期订阅、待领取 |
+| GET | /api/exports/subs | read | 订阅列表（无订阅权限只看自己的） |
+| POST | /api/exports/subs | subscribe | 建订阅：`{name, def_key, params, freq, day_of_month|day_of_week, channel, recipients[], valid_from, valid_until, note}` |
+| POST | /api/exports/subs/pause/:id · resume/:id · cancel/:id | subscribe | 暂停 / 恢复 / 终止 |
+| POST | /api/exports/run-due | subscribe | 执行到期订阅：`{as_of}`；返回 `{due_count, ok[], failed[]}` |
+| GET | /api/exports/deliveries | read | 我的订阅产出（审计权限可看全部） |
+| POST | /api/exports/deliveries/:id/take | read | 领取产出（下载）：只有收件人或审计权限可下；`X-Export-Changed=1` 表示源数据已变 |
+
+### 九个数据集与敏感级
+
+| def_key | 名称 | 敏感级 | 额外权限 | 特殊口径 |
+|---|---|---|---|---|
+| ar_aging | 应收发票与账龄 | 敏感 | collection.read | 只出未收余额 > 0 的 |
+| ap_ledger | 应付发票台账 | 敏感 | payable.read | 同上（未付） |
+| customer_list | 客户档案 | 敏感 | — | 电话/邮箱按 `field_guards` 掩码 |
+| payroll_summary | 工资汇总 | 受限 | paycheck.read | 工资字段全掩（除非有 `payroll.sensitive`） |
+| employee_roster | 员工花名册 | 受限 | — | 身份证/手机/紧急联系人掩码 |
+| stock_balance | 成品库存结存 | 一般 | — | — |
+| order_list | 销售订单清单 | 一般 | — | 可按下单日区间 |
+| custody_onhand | 实物在手清单 | 一般 | custody.read | 带「在谁手上」 |
+| headcount_by_dept | 部门人数分布 | 敏感 | — | **聚合 + 小样本抑制**（<5 人抑制，互补抑制第二条） |
+
+### 六条硬规则
+
+1. **白名单唯一来源是代码**（`services/exportGuard.js` 的 `DEFS`），启动时同步进 `export_defs`；
+   页面只能选不能填，不提供自定义 SQL。
+2. **参数白名单**：未在 `def.params` 声明的键一律丢弃（防 `?status=void` 导走作废单据）。
+3. **行数上限**（`row_cap`，默认 5000）超了直接 400，**不提供截断导出** —— 截断的报表会被当全量用。
+4. **水印两处**：首行注释 + 敏感数据集每行末列；水印串唯一索引，可反查。
+5. **订阅必须有到期日**（≤24 个月）且收件人必须存在；执行时按订阅人**当前**权限取数。
+6. **不假装发邮件**：`channel='email'` 且未配 SMTP 时投递标 `blocked`，产出仍站内可取。
+
+### 状态机
+
+- `export_jobs.trigger_by`：`manual` 手工 / `subscription` 订阅执行。
+- `export_subscriptions.status`：`active` 生效中 → `paused` 暂停 → `active`（恢复）
+  → `expired` 已到期/已终止（`cancel` 直接进 expired）。
+- `export_deliveries.status`：`pending` 待领取 → `taken` 已领取；`blocked` 通道未配置；`failed` 失败。

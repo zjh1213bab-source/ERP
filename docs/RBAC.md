@@ -370,6 +370,18 @@
 | exceptions | PUT | `/rules/:code` | ✅ | — | — | — | — | — | — | — |
 | exceptions | POST | `/scan` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | exceptions | GET | `/stats` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | GET | `/deliveries` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | POST | `/deliveries/:id/take` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | POST | `/download/:defKey` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | GET | `/jobs` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | GET | `/jobs/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | GET | `/meta` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | GET | `/preview/:defKey` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | POST | `/run-due` | ✅ | — | ✅ | — | — | — | ✅ | ✅ |
+| exports | GET | `/stats` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | GET | `/subs` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exports | POST | `/subs` | ✅ | — | ✅ | — | — | — | ✅ | ✅ |
+| exports | GET | `/trace` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | facility | POST | `/certificates` | ✅ | — | — | — | — | ✅ | — | ✅ |
 | facility | PUT | `/certificates/:id` | ✅ | — | — | — | — | ✅ | — | ✅ |
 | facility | POST | `/certificates/:id/void` | ✅ | — | — | — | — | ✅ | — | ✅ |
@@ -1191,6 +1203,10 @@
 | `paycheck.read` | 系统管理员、总经理、人事行政、财务会计 |
 | `paycheck.run` | 系统管理员、人事行政、财务会计 |
 | `paycheck.fix` | 系统管理员、人事行政、财务会计 |
+| `export.read` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `export.run` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `export.subscribe` | 系统管理员、销售跟单、财务会计、人事行政 |
+| `export.audit` | 系统管理员、人事行政、财务会计 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |

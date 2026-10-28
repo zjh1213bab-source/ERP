@@ -88,9 +88,20 @@ router.get('/export', authRequired, wrap(async (req, res) => {
     lines.push([r.expense_date, r.category, r.amount, r.payee || '', r.handler || '', r.payment_method || '', r.remark || '']
       .map(csvCell).join(','));
   });
+  // 接入统一导出出口：补导出记录 + 文件头水印（费用明细含收款方与经办人，属敏感数据）
+  const ex = require('../services/exportGuard').logExternal({
+    def_key: null,
+    params: { ...req.query },
+    user: req.user,
+    ctx: require('../utils/reqCtx').reqCtx(req, { action: 'export' }),
+    note: '行政费用明细（既有端点）',
+    row_count: rows.length
+  });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="admin-expenses.csv"');
-  return res.send('\uFEFF' + lines.join('\r\n'));
+  res.setHeader('X-Export-Job', ex.job_no);
+  res.setHeader('X-Export-Watermark', ex.watermark);
+  return res.send('\uFEFF' + ex.watermark_line + '\r\n' + lines.join('\r\n'));
 }));
 
 router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {

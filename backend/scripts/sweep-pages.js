@@ -21,7 +21,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PAGES = [
   '/dashboard', '/exceptions', '/prod-report', '/flow-changes', '/privacy', '/skills', '/self', '/customer-progress', '/after-sales', '/office-supply', '/custody', '/assets', '/orders', '/quality', '/process', '/mail', '/audit', '/ai-center', '/backup',
   '/photos', '/inventory', '/purchases', '/receipts', '/hr', '/finance-books', '/integration',
-  '/marketing', '/admin-contracts', '/admin-expenses', '/admin-ops', '/payrolls', '/payroll-check', '/facility', '/equipment', '/schedule', '/segments', '/spot-ops',
+  '/marketing', '/admin-contracts', '/admin-expenses', '/admin-ops', '/payrolls', '/payroll-check', '/export-center', '/facility', '/equipment', '/schedule', '/segments', '/spot-ops',
   '/mall-admin', '/suppliers', '/customers', '/reports', '/assess', '/users', '/notify', '/budget',
   '/bank', '/group-books', '/cockpit', '/credit', '/payable', '/cashflow', '/payment-requests', '/collections', '/approval-flows', '/access-review', '/import-data',
   '/development', '/sample-archive', '/pattern-board', '/cuts', '/bundle-progress', '/piece-wage', '/first-article',

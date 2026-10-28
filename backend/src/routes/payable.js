@@ -73,10 +73,24 @@ router.get(
       ['说明', '统计口径以导出时间点为准', b.as_of],
       ['', '', '']
     ];
+
+    // 接入统一导出出口：补一条导出记录（谁、什么时候、多少行、理由），文件头带水印。
+    // 这些端点是历史实现（自己拼 CSV），不在白名单数据集里 —— 所以 def_key 记 'legacy'，
+    // 页面上单列一栏「既有端点」，宁可显得不全，也不假装已经收编。
+    const ex = require('../services/exportGuard').logExternal({
+      def_key: null,
+      params: { ...req.query },
+      user: req.user,
+      ctx: require('../utils/reqCtx').reqCtx(req, { action: 'export' }),
+      note: '应付台账（既有端点）',
+      row_count: body.length
+    });
     const csv = toCsv([...note, head, ...body]);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('X-Export-Job', ex.job_no);
+    res.setHeader('X-Export-Watermark', ex.watermark);
     res.setHeader('Content-Disposition', `attachment; filename="payable-${b.as_of}.csv"`);
-    return res.send(csv);
+    return res.send(ex.watermark_line + '\r\n' + csv);
   })
 );
 

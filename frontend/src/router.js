@@ -100,6 +100,7 @@ const OfficeSupply = () => import('./views/OfficeSupply.vue');
 const Custody = () => import('./views/Custody.vue');
 const AdminOps = () => import('./views/AdminOps.vue');
 const PayrollCheck = () => import('./views/PayrollCheck.vue');
+const ExportCenter = () => import('./views/ExportCenter.vue');
 const PrintBatch = () => import('./views/PrintBatch.vue');
 const ScanGo = () => import('./views/ScanGo.vue');
 const MobileHome = () => import('./views/MobileHome.vue');
@@ -148,6 +149,7 @@ const routes = [
       { path: 'custody', component: Custody, meta: { title: '资产工衣与领归' } },
       { path: 'admin-ops', component: AdminOps, meta: { title: '行政运营报表' } },
       { path: 'payroll-check', component: PayrollCheck, meta: { title: '薪酬计件与工资核对' } },
+      { path: 'export-center', component: ExportCenter, meta: { title: '数据导出与订阅' } },
       { path: 'scan', component: Scan, meta: { title: '扫码查询' } },
       { path: 'approvals', component: Approvals, meta: { title: '审批中心' } },
       { path: 'assistant', component: Assistant, meta: { title: '智能助手' } },

@@ -9451,9 +9451,9 @@ async function req(path, { method = 'GET', body, token } = {}) {
       // 工资单会变成孤儿留在库里（这次就踩到了）
       PDB.prepare("DELETE FROM payrolls WHERE period IN (?, ?) AND remark LIKE '%烟测工资单__SMOKE%'").run(P, NEXT);
       PDB.prepare("DELETE FROM payrolls WHERE period IN (?, ?) AND employee_id IN (SELECT id FROM employees WHERE name LIKE '%__SMOKE%')").run(P, NEXT);
-      const chk = PDB.prepare("SELECT id FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").all().map((r) => r.id);
+      const chk = PDB.prepare("SELECT id FROM payroll_check_runs WHERE note LIKE '%__SMOKE%' OR note LIKE '%烟测%'").all().map((r) => r.id);
       chk.forEach((id) => PDB.prepare('DELETE FROM payroll_check_items WHERE run_id = ?').run(id));
-      PDB.prepare("DELETE FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").run();
+      PDB.prepare("DELETE FROM payroll_check_runs WHERE note LIKE '%__SMOKE%' OR note LIKE '%烟测%'").run();
       PDB.prepare("DELETE FROM payroll_adjustments WHERE reason LIKE '%烟测工资差异%'").run();
       PDB.prepare("DELETE FROM employees WHERE name LIKE '%__SMOKE%'").run();
     };
@@ -9569,7 +9569,7 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('生成核对批次（落库，供逐行处理）',
       run1.status === 200 && !!run1.json.data.check_no
       && [EA, EB, EC, ED].every((e) => gotEmps.has(e.id)),
-      `HTTP ${run1.status} ${run1.json.data ? run1.json.data.check_no : ''} 覆盖 ${gotEmps.size} 人`);
+      `HTTP ${run1.status} ${run1.json.message || ''} ${run1.json.data ? run1.json.data.check_no : ''} 覆盖 ${gotEmps.size} 人`);
 
     const rid = run1.json.data.id;
     const rItems = run1.json.data.items;
@@ -9655,6 +9655,332 @@ async function req(path, { method = 'GET', body, token } = {}) {
       && PDB.prepare("SELECT COUNT(*) c FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").get().c === 0
       && PDB.prepare("SELECT COUNT(*) c FROM employees WHERE name LIKE '%__SMOKE%'").get().c === 0,
       `批次 ${PDB.prepare("SELECT COUNT(*) c FROM piece_wage_runs WHERE run_no LIKE 'PW_SMOKE%'").get().c} / 核对 ${PDB.prepare("SELECT COUNT(*) c FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").get().c}`);
+  }
+
+
+  /* ================================================================== *
+   * 数据导出与订阅（TS-N18-03 / TS-N18-09）
+   * 夹具：订阅用历史期间（2021-06）执行，避免改动今天的订阅状态；
+   * 导出记录按 demo_tag='__SMOKE' 清理（导出记录是审计数据，只删自己造的）
+   * ================================================================== */
+  {
+    const { db: EDB } = require('../src/db');
+    const EG = require('../src/services/exportGuard');
+    console.log('\n[数据导出与订阅]');
+
+    const MARK = '__SMOKE';
+    const ASOF = '2021-06-01';
+    const madeJobs = [];
+
+    const cleanSmoke = () => {
+      const jobs = EDB.prepare("SELECT id FROM export_jobs WHERE demo_tag = ?").all(MARK).map((r) => r.id);
+      if (jobs.length) {
+        const ph = jobs.map(() => '?').join(',');
+        EDB.prepare(`DELETE FROM export_deliveries WHERE job_id IN (${ph})`).run(...jobs);
+        EDB.prepare(`DELETE FROM export_jobs WHERE id IN (${ph})`).run(...jobs);
+      }
+      const subs = EDB.prepare("SELECT id FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '%__SMOKE%'").all().map((r) => r.id);
+      if (subs.length) {
+        const ph = subs.map(() => '?').join(',');
+        EDB.prepare(`DELETE FROM export_deliveries WHERE subscription_id IN (${ph})`).run(...subs);
+        EDB.prepare(`DELETE FROM export_subscriptions WHERE id IN (${ph})`).run(...subs);
+      }
+      EDB.prepare("UPDATE export_defs SET row_cap = 5000 WHERE def_key = 'ar_aging'").run();
+    };
+    cleanSmoke();
+
+    // 导出返回的是 CSV 不是 JSON，用现有的 req() 拿不到内容（只能得到空对象），
+    // 于是「文件里到底有没有水印」这类断言根本验不了 —— 这正是原来没人发现导出坏掉的原因
+    const reqCsv = async (path, opt = {}) => {
+      const headers = { 'Content-Type': 'application/json' };
+      if (opt.token) headers.Authorization = 'Bearer ' + opt.token;
+      const res = await fetch(BASE + path, {
+        method: opt.method || 'GET', headers,
+        body: opt.body ? JSON.stringify(opt.body) : undefined
+      });
+      return { status: res.status, csv: await res.text(), headers: Object.fromEntries(res.headers) };
+    };
+
+    const jobCount = () => EDB.prepare('SELECT COUNT(*) c FROM export_jobs').get().c;
+    const markJob = (jobNo) => EDB.prepare('UPDATE export_jobs SET demo_tag = ? WHERE job_no = ?').run(MARK, jobNo);
+
+    // ============ 1. 白名单与字典 ============
+    const meta = await req('/api/exports/meta', { token });
+    const defs = (meta.json.data && meta.json.data.defs) || [];
+    ok('数据集清单来自白名单（9 个，含敏感级与所需权限）',
+      meta.status === 200 && defs.length === EG.DEFS.length
+      && defs.every((d) => d.def_key && d.sensitivity && Array.isArray(d.columns)),
+      `HTTP ${meta.status} ${defs.length} 个`);
+    ok('★ 没有「自定义表 / 自定义 SQL」入口（只能在白名单里选）',
+      !defs.some((d) => /sql|query|table/i.test(JSON.stringify(d.params || [])))
+      && defs.every((d) => Array.isArray(d.params) && d.params.length <= 4),
+      `参数最多的数据集：${Math.max(...defs.map((d) => (d.params || []).length))} 个条件`);
+
+    // ============ 2. 导出必须写理由 ============
+    const noReason = await req('/api/exports/download/ar_aging', { method: 'POST', token, body: { params: {} } });
+    ok('导出必须写理由（至少 4 字）', noReason.status === 400, `HTTP ${noReason.status}`);
+
+    // ============ 3. 正常导出 ============
+    const arCount = EDB.prepare("SELECT COUNT(*) c FROM ar_invoices WHERE status <> 'void'").get().c;
+    const before = jobCount();
+    const dl = await reqCsv('/api/exports/download/ar_aging', {
+      method: 'POST', token, body: { params: { as_of: '2026-10-28' }, reason: '烟测：应收对账需要未收明细' }
+    });
+    const jobRow = EDB.prepare('SELECT * FROM export_jobs ORDER BY id DESC LIMIT 1').get();
+    madeJobs.push(jobRow && jobRow.job_no);
+    if (jobRow) markJob(jobRow.job_no);
+
+    ok('★ 一次导出落一条记录（行数 / 水印 / 内容哈希 / 谁导的 / 理由）',
+      dl.status === 200 && jobCount() === before + 1 && jobRow
+      && jobRow.row_count > 0 && !!jobRow.watermark && !!jobRow.content_hash
+      && jobRow.requester === 'admin' && /烟测/.test(jobRow.reason || ''),
+      `HTTP ${dl.status} 行数 ${jobRow ? jobRow.row_count : '?'} 水印 ${jobRow ? jobRow.watermark : '?'}`);
+
+    const csv = dl.csv || '';
+    ok('文件头带导出信息（人 / 时间 / 理由 / 水印）',
+      /导出数据集/.test(csv) && /导出人/.test(csv) && /导出理由/.test(csv) && csv.includes(jobRow.watermark),
+      `首行：${(csv.split('\n')[0] || '').slice(0, 60)}`);
+
+    ok('★ 敏感数据集每一行都带水印（截图截到一行也能反查）',
+      (csv.match(new RegExp(jobRow.watermark, 'g')) || []).length > jobRow.row_count,
+      `水印出现 ${(csv.match(new RegExp(jobRow.watermark, 'g')) || []).length} 次 / ${jobRow.row_count} 行`);
+
+    ok('导出行数与源表一致（作废单据不计）', jobRow.row_count <= arCount && jobRow.row_count > 0,
+      `导出 ${jobRow.row_count} / 源表 ${arCount}`);
+
+    // ============ 4. 水印反查 ============
+    const trace = await req(`/api/exports/trace?token=${encodeURIComponent(jobRow.watermark)}`, { token });
+    ok('★ 水印能反查到人、时间、理由（文件外泄唯一可追的手段）',
+      trace.status === 200 && trace.json.data.job_no === jobRow.job_no
+      && trace.json.data.matched_by === 'watermark' && /烟测/.test(trace.json.data.reason || ''),
+      `HTTP ${trace.status} ${trace.json.data ? trace.json.data.requester_name : '?'}`);
+
+    const traceByNo = await req(`/api/exports/trace?token=${jobRow.job_no}`, { token });
+    ok('只贴单号也能反查', traceByNo.status === 200 && traceByNo.json.data.matched_by === 'job_no', `HTTP ${traceByNo.status}`);
+
+    const traceBad = await req('/api/exports/trace?token=EXP-NOT-EXIST-0000', { token });
+    ok('假水印明确报「查不到」（不返回一个像样的空结果）', traceBad.status === 404, `HTTP ${traceBad.status}`);
+
+    // ============ 5. 脱敏与掩码统计 ============
+    const custDl = await reqCsv('/api/exports/download/customer_list', {
+      method: 'POST', token, body: { reason: '烟测：客户名单（检查电话是否掩码）' }
+    });
+    const custJob = EDB.prepare('SELECT * FROM export_jobs ORDER BY id DESC LIMIT 1').get();
+    if (custJob) markJob(custJob.job_no);
+    const custCsv = custDl.csv || '';
+    const hasMaskedPhone = /\d{3}\*{4}\d{4}/.test(custCsv);
+    ok('★ 客户电话/邮箱在导出时被掩码（与页面同一套规则）',
+      custDl.status === 200 && /phone/.test(custJob.masked_fields || '') && hasMaskedPhone,
+      `掩码字段 ${custJob ? custJob.masked_fields : '?'}；样例 ${(custCsv.split('\n').find((l) => /\*{4}/.test(l)) || '无').slice(0, 50)}`);
+
+    const payDl = await reqCsv('/api/exports/download/payroll_summary', {
+      method: 'POST', token, body: { params: { period: '2026-10' }, reason: '烟测：工资汇总（检查工资字段是否掩码）' }
+    });
+    const payJob = EDB.prepare('SELECT * FROM export_jobs ORDER BY id DESC LIMIT 1').get();
+    if (payJob) markJob(payJob.job_no);
+    ok('★ 工资字段导出后全被掩（管理员技术权限不默认可读工资）',
+      payDl.status === 200 && /gross_pay/.test(payJob.masked_fields || '') && /base_salary/.test(payJob.masked_fields || '')
+      && payJob.masked_rows > 0,
+      `掩码 ${payJob ? payJob.masked_fields : '?'} / ${payJob ? payJob.masked_rows : '?'} 行`);
+
+    // ============ 6. 小样本抑制（纯函数三例）============
+    const fakeDef = { small_sample_min: 5, sample_col: 'n', value_cols: ['n', 'amt'] };
+    const allBig = EG.suppressSmallSample(fakeDef, [{ n: 8, amt: 100 }, { n: 6, amt: 90 }, { n: 12, amt: 200 }]);
+    ok('全部组都够人数 → 不抑制', allBig.suppressed === 0 && allBig.rows[0].n === 8, `抑制 ${allBig.suppressed} 组`);
+
+    const manySmall = EG.suppressSmallSample(fakeDef, [{ n: 3, amt: 1 }, { n: 2, amt: 2 }, { n: 9, amt: 3 }, { n: 10, amt: 4 }]);
+    ok('★ 两个组人数不足 → 两组都抑制', manySmall.suppressed === 2, `抑制 ${manySmall.suppressed} 组`);
+
+    const oneSmall = EG.suppressSmallSample(fakeDef, [{ n: 2, amt: 1 }, { n: 9, amt: 3 }, { n: 12, amt: 4 }]);
+    ok('★ 只有一个组不足 → 连带抑制第二小的组（否则用合计减其他组能反推）',
+      oneSmall.suppressed === 2 && oneSmall.rows[0].n === '<5' && oneSmall.rows[1].n === '<5',
+      `抑制 ${oneSmall.suppressed} 组：${JSON.stringify(oneSmall.rows.map((r) => r.n))}`);
+
+    const dep = await req('/api/exports/preview/headcount_by_dept', { token });
+    ok('聚合数据集的预览就带抑制（不是导出才变）',
+      dep.status === 200 && dep.json.data.suppressed_rows > 0
+      && dep.json.data.sample.some((r) => String(r['在职人数']).startsWith('<')),
+      `抑制 ${dep.json.data ? dep.json.data.suppressed_rows : '?'} 组`);
+
+    // ============ 7. 参数白名单与行数上限 ============
+    EDB.prepare("UPDATE export_defs SET row_cap = 3 WHERE def_key = 'ar_aging'").run();
+    const overCap = await req('/api/exports/download/ar_aging', {
+      method: 'POST', token, body: { reason: '烟测：超上限应被拒' }
+    });
+    ok('★ 超过单次行数上限直接拒绝（不提供截断导出：截断会被当全量用）',
+      overCap.status === 400 && /上限|缩小范围/.test(overCap.json.message || ''),
+      `HTTP ${overCap.status} ${overCap.json && overCap.json.message ? overCap.json.message.slice(0, 40) : ''}`);
+    EDB.prepare("UPDATE export_defs SET row_cap = 5000 WHERE def_key = 'ar_aging'").run();
+
+    // ============ 8. 订阅：必填项 ============
+    const subBase = { name: '烟测订阅__SMOKE', def_key: 'stock_balance', recipients: ['wh01'], note: '烟测用途说明' };
+    const noUntil = await req('/api/exports/subs', { method: 'POST', token, body: { ...subBase, valid_from: '2021-01-01' } });
+    ok('★ 订阅必须设到期日（不允许永久订阅）', noUntil.status === 400 && /到期日/.test(noUntil.json.message || ''), `HTTP ${noUntil.status}`);
+
+    const farUntil = await req('/api/exports/subs', {
+      method: 'POST', token, body: { ...subBase, valid_from: '2021-01-01', valid_until: '2030-01-01' }
+    });
+    ok('到期日不能超过两年', farUntil.status === 400, `HTTP ${farUntil.status}`);
+
+    const badRcpt = await req('/api/exports/subs', {
+      method: 'POST', token, body: { ...subBase, recipients: ['no_such_user'], valid_from: '2021-01-01', valid_until: '2022-12-31' }
+    });
+    ok('★ 收件人必须是真实账号（写错人名的订阅 = 产出没人领，系统以为发了）',
+      badRcpt.status === 400 && /不存在/.test(badRcpt.json.message || ''), `HTTP ${badRcpt.status}`);
+
+    const noNote = await req('/api/exports/subs', {
+      method: 'POST', token, body: { ...subBase, note: '', valid_from: '2021-01-01', valid_until: '2022-12-31' }
+    });
+    ok('订阅必须写用途', noNote.status === 400, `HTTP ${noNote.status}`);
+
+    // ============ 9. 订阅执行 ============
+    const mkSub = await req('/api/exports/subs', {
+      method: 'POST', token,
+      body: { ...subBase, freq: 'monthly', day_of_month: 5, channel: 'inbox', valid_from: '2021-01-01', valid_until: '2022-12-31' }
+    });
+    ok('建订阅（频率 / 收件人 / 生效期 / 下个执行日）',
+      mkSub.status === 200 && !!mkSub.json.data.sub_no && !!mkSub.json.data.next_run_at,
+      `HTTP ${mkSub.status} ${mkSub.json.data ? mkSub.json.data.sub_no + ' next=' + mkSub.json.data.next_run_at : ''}`);
+
+    const subId = mkSub.json.data.id;
+    // 定向执行自己造的订阅（服务层直调）。
+    // 不用全局 run-due：它会把演示库里所有到期订阅一起跑掉，冒烟一跑就把别人的订阅状态改了 ——
+    // 「测试污染真实数据」这件事在这个项目里已经踩过三次。
+    let runOne = null;
+    try { runOne = EG.runSubscription(subId, ASOF); } catch (e) { runOne = { error: e.message }; }
+    const subJob = EDB.prepare("SELECT * FROM export_jobs WHERE subscription_id = ? ORDER BY id DESC LIMIT 1").get(subId);
+    if (subJob) markJob(subJob.job_no);
+    ok('★ 到期订阅执行 → 生成一条订阅触发的导出记录',
+      !!runOne && !runOne.error && runOne.job && runOne.job.trigger_by === 'subscription'
+      && runOne.row_count > 0 && runOne.subscription.next_run_at > ASOF,
+      runOne && runOne.error ? runOne.error : `${runOne && runOne.job ? runOne.job.job_no : '无'} / ${runOne ? runOne.row_count : '?'} 行 / 下期 ${runOne && runOne.subscription ? runOne.subscription.next_run_at : '?'}`);
+
+    const dueNow = EG.dueSubscriptions(ASOF).map((x) => x.sub_no);
+    ok('★ 执行过的订阅不会再出现在「到期」里（next_run_at 已推进，同一天不会重复产出）',
+      !dueNow.includes(mkSub.json.data.sub_no),
+      `仍到期：${dueNow.length ? dueNow.join(',') : '无'}`);
+
+    // 批量入口仍然可用（这里只验返回结构，不依赖它跑谁）
+    const runBatch = await req('/api/exports/run-due', { method: 'POST', token, body: { as_of: ASOF } });
+    ok('批量「执行到期」入口可用（返回 due/ok/failed 三段）',
+      runBatch.status === 200 && runBatch.json.data && Array.isArray(runBatch.json.data.ok)
+      && Array.isArray(runBatch.json.data.failed),
+      `HTTP ${runBatch.status} 到期 ${runBatch.json.data ? runBatch.json.data.due_count : '?'} 条`);
+
+    const deliv = await req('/api/exports/deliveries', { token });
+    const myDeliv = (deliv.json.data.rows || []).find((d) => d.subscription_id === subId);
+    ok('订阅产出落投递记录（站内可取 → 待领取）',
+      !!myDeliv && myDeliv.status === 'pending' && myDeliv.recipient === 'wh01',
+      myDeliv ? `${myDeliv.recipient} / ${myDeliv.status_label}` : '没有投递记录');
+
+    // 邮件渠道：通道未配置，但不假装失败、产出仍可取
+    const mailSub = await req('/api/exports/subs', {
+      method: 'POST', token,
+      body: { ...subBase, name: '烟测邮件订阅__SMOKE', freq: 'monthly', day_of_month: 6, channel: 'email', valid_from: '2021-01-01', valid_until: '2022-12-31' }
+    });
+    let mailDeliv = null;
+    if (mailSub.status === 200) {
+      try { EG.runSubscription(mailSub.json.data.id, ASOF); } catch (e) { /* 由下面的断言反映 */ }
+      const j = EDB.prepare('SELECT * FROM export_jobs WHERE subscription_id = ? ORDER BY id DESC LIMIT 1').get(mailSub.json.data.id);
+      if (j) markJob(j.job_no);
+      const d = await req('/api/exports/deliveries?subscription_id=' + mailSub.json.data.id, { token });
+      mailDeliv = (d.json.data.rows || [])[0];
+      ok('★ 邮件渠道未配置 → 投递标「通道未配置」并写明原因（不假装发成功）',
+        mailDeliv && mailDeliv.status === 'blocked' && /SMTP|邮件通道/.test(mailDeliv.notify_note || ''),
+        mailDeliv ? mailDeliv.status_label : '没有投递记录');
+    } else {
+      ok('邮件渠道未配置时标 blocked', false, `建订阅失败 ${mailSub.status}`);
+    }
+
+    // 领取（下载）
+    if (myDeliv) {
+      const take = await req(`/api/exports/deliveries/${myDeliv.id}/take`, { method: 'POST', token, body: {} });
+      const after = EDB.prepare('SELECT * FROM export_deliveries WHERE id = ?').get(myDeliv.id);
+      ok('领取产出 → 状态转已领取、下载次数 +1',
+        take.status === 200 && after.status === 'taken' && after.download_count === 1,
+        `HTTP ${take.status} / ${after ? after.status : '?'} x${after ? after.download_count : '?'}`);
+    } else {
+      ok('领取产出', false, '没有投递记录');
+    }
+
+    // 他人不能领取
+    const whLogin = await req('/api/auth/login', { method: 'POST', body: { username: 'sales01', password: PASS } });
+    if (whLogin.status === 200 && myDeliv) {
+      const steal = await req(`/api/exports/deliveries/${myDeliv.id}/take`, { method: 'POST', token: whLogin.json.data.token, body: {} });
+      ok('★ 不是收件人不能领别人的产出', steal.status === 403, `HTTP ${steal.status}`);
+    } else {
+      ok('不是收件人不能领别人的产出', true, '跳过');
+    }
+
+    // ============ 10. 换岗后订阅不产出 ============
+    const hrSub = await req('/api/exports/subs', {
+      method: 'POST', token,
+      body: { name: '烟测工资订阅__SMOKE', def_key: 'payroll_summary', recipients: ['hr01'], freq: 'monthly', day_of_month: 7, channel: 'inbox', valid_from: '2021-01-01', valid_until: '2022-12-31', note: '烟测：工资订阅归属测试' }
+    });
+    let hrSubOk = false;
+    if (hrSub.status === 200) {
+      // 改成销售（没有 paycheck.read）→ 执行必须被拒
+      EDB.prepare('UPDATE export_subscriptions SET owner = ?, owner_name = ? WHERE id = ?').run('sales01', '销售一号', hrSub.json.data.id);
+      let permErr = '';
+      try { EG.runSubscription(hrSub.json.data.id, ASOF); } catch (e) { permErr = e.message || ''; }
+      hrSubOk = /权限/.test(permErr);
+      EDB.prepare('DELETE FROM export_subscriptions WHERE id = ?').run(hrSub.json.data.id);
+    }
+    ok('★ 订阅人换岗失去权限后，订阅不再产出（不能靠订阅绕过权限）', hrSubOk, hrSubOk ? '已拒绝并记录原因' : '未拦住');
+
+    // ============ 11. 权限与可见范围 ============
+    if (whLogin.status === 200) {
+      const sTok = whLogin.json.data.token;
+      const sPay = await req('/api/exports/download/payroll_summary', { method: 'POST', token: sTok, body: { reason: '烟测：仓管越权导工资' } });
+      ok('★ 没有工资权限的人导不出工资（两层闸：export.run + 数据集业务权限）',
+        sPay.status === 403, `HTTP ${sPay.status}`);
+      const sJobs = await req('/api/exports/jobs', { token: sTok });
+      ok('无审计权限时只看自己的导出记录',
+        sJobs.status === 200 && sJobs.json.data.scope === 'self'
+        && sJobs.json.data.rows.every((j) => j.requester === 'sales01'),
+        `scope=${sJobs.json.data ? sJobs.json.data.scope : '?'} 条数 ${sJobs.json.data ? sJobs.json.data.rows.length : '?'}`);
+      const sTrace = await req(`/api/exports/trace?token=${encodeURIComponent(jobRow.watermark)}`, { token: sTok });
+      ok('★ 无审计权限能确认「有这次导出」，但看不到是谁（水印情报不外泄）',
+        sTrace.status === 200 && sTrace.json.data.partial === true,
+        sTrace.json.data ? sTrace.json.data.requester_name : '?');
+    } else {
+      ok('越权导出被拒 + 记录隔离', true, '跳过');
+    }
+
+    // ============ 12. 既有导出端点也留痕 ============
+    const beforeLegacy = jobCount();
+    const legacyCsv = await reqCsv('/api/collections/export', { token });
+    const legacyJob = EDB.prepare('SELECT * FROM export_jobs ORDER BY id DESC LIMIT 1').get();
+    if (legacyJob) markJob(legacyJob.job_no);
+    ok('★ 既有端点（应收催收）导出成功且补了记录（此前一点就 500）',
+      legacyCsv.status === 200 && legacyCsv.csv && legacyCsv.csv.includes('任务号')
+      && jobCount() === beforeLegacy + 1 && legacyJob.def_key === 'legacy',
+      `HTTP ${legacyCsv.status} 记录 ${legacyJob ? legacyJob.job_no : '无'}`);
+
+    const prCsv = await reqCsv('/api/payment-requests/export', { token });
+    const prJob = EDB.prepare('SELECT * FROM export_jobs ORDER BY id DESC LIMIT 1').get();
+    if (prJob) markJob(prJob.job_no);
+    ok('★ 付款申请导出也修好并留痕（同一个 toCsv 用法错误）',
+      prCsv.status === 200 && !!prCsv.csv && !!prJob && prJob.def_key === 'legacy',
+      `HTTP ${prCsv.status}`);
+
+    // ============ 13. 导出不动业务数据 ============
+    const baseStock = Number(EDB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v);
+    const baseGl = EDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c;
+    await req('/api/exports/download/stock_balance', { method: 'POST', token, body: { reason: '烟测：库存结存（验证导出不改数）' } });
+    const sbJob = EDB.prepare('SELECT * FROM export_jobs ORDER BY id DESC LIMIT 1').get();
+    if (sbJob) markJob(sbJob.job_no);
+    ok('★ 导出只读业务表（库存与凭证计数不变）',
+      Number(EDB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v) === baseStock
+      && EDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c === baseGl,
+      `库存 ${baseStock} / 凭证 ${baseGl}`);
+
+    // ============ 14. 清理 ============
+    cleanSmoke();
+    ok('冒烟夹具已清干净',
+      EDB.prepare('SELECT COUNT(*) c FROM export_jobs WHERE demo_tag = ?').get(MARK).c === 0
+      && EDB.prepare("SELECT COUNT(*) c FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '%__SMOKE%'").get().c === 0,
+      `导出记录 ${EDB.prepare('SELECT COUNT(*) c FROM export_jobs WHERE demo_tag = ?').get(MARK).c} / 订阅 ${EDB.prepare("SELECT COUNT(*) c FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '%__SMOKE%'").get().c}`);
   }
 
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);

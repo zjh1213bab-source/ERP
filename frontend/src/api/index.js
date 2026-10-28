@@ -425,6 +425,19 @@ export const api = {  // 登录
   pcAnnotate: (itemId, d) => req(`/api/payroll-check/annotate/${itemId}`, { method: 'POST', body: d }),
   pcReview: (id, d) => req(`/api/payroll-check/review/${id}`, { method: 'POST', body: d || {} }),
 
+  // 数据导出与订阅
+  exMeta: () => req('/api/exports/meta'),
+  exPreview: (defKey, params) => req(`/api/exports/preview/${defKey}` + qs(params)),
+  exJobs: (params) => req('/api/exports/jobs' + qs(params)),
+  exJob: (id) => req(`/api/exports/jobs/${id}`),
+  exTrace: (token) => req('/api/exports/trace' + qs({ token })),
+  exStats: () => req('/api/exports/stats'),
+  exSubs: (params) => req('/api/exports/subs' + qs(params)),
+  exSubSave: (d) => req('/api/exports/subs', { method: 'POST', body: d }),
+  exSubAction: (action, id) => req(`/api/exports/subs/${action}/${id}`, { method: 'POST', body: {} }),
+  exRunDue: (d) => req('/api/exports/run-due', { method: 'POST', body: d || {} }),
+  exDeliveries: (params) => req('/api/exports/deliveries' + qs(params)),
+
   // 字段级脱敏与访问审计
   pvMeta: () => req('/api/privacy/meta'),
   pvRules: () => req('/api/privacy/rules'),
@@ -1709,6 +1722,27 @@ export async function uploadBinary(path, file, query = {}) {
 }
 
 /** 通用带 Token 下载（返回 blob） */
+/** POST 下载（导出要带筛选条件与理由，GET 拼 query 太容易丢字段） */
+export async function downloadPost(path, body) {
+  const base = import.meta.env.VITE_API_BASE || '';
+  const headers = { 'Content-Type': 'application/json' };
+  if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+  const res = await fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body || {}) });
+  if (!res.ok) {
+    let msg = `导出失败（${res.status}）`;
+    try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (e) { /* 非 JSON */ }
+    throw new Error(msg);
+  }
+  return {
+    blob: await res.blob(),
+    jobNo: res.headers.get('X-Export-Job') || '',
+    watermark: res.headers.get('X-Export-Watermark') || '',
+    rows: res.headers.get('X-Export-Rows') || '',
+    maskedFields: decodeURIComponent(res.headers.get('X-Export-Masked-Fields') || ''),
+    changed: res.headers.get('X-Export-Changed') === '1'
+  };
+}
+
 export async function downloadFile(path) {
   const base = import.meta.env.VITE_API_BASE || '';
   const headers = {};

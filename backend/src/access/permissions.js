@@ -286,6 +286,15 @@ const PERMS = {
   'paycheck.run': ['admin', 'hr', 'finance'],
   'paycheck.fix': ['admin', 'hr', 'finance'],
 
+  // ===== 数据导出与订阅（TS-N18-03 / TS-N18-09）=====
+  // 导出是数据离开系统的最后一米：看清单全角色，真正导出执行要单独一点，
+  // 建订阅（定期外发）与审计（看别人的导出记录、水印反查）再各自收窄。
+  // 注意：数据集本身还有业务权限（工资要 paycheck.read），两层都要过。
+  'export.read': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'export.run': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'export.subscribe': ['admin', 'sales', 'finance', 'hr'],
+  'export.audit': ['admin', 'hr', 'finance'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -435,6 +444,10 @@ const GUARDED = [
   { perm: 'paycheck.fix', method: 'POST', prefix: '/api/payroll-check/diff' },
   { perm: 'paycheck.fix', method: 'POST', prefix: '/api/payroll-check/annotate' },
   { perm: 'paycheck.fix', method: 'POST', prefix: '/api/payroll-check/review' },
+  // 导出与订阅都是「数据外发」：导出留下带水印的文件、订阅会反复外发
+  { perm: 'export.run', method: 'POST', prefix: '/api/exports/download' },
+  { perm: 'export.subscribe', method: 'POST', prefix: '/api/exports/subs' },
+  { perm: 'export.subscribe', method: 'POST', prefix: '/api/exports/run-due' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

@@ -1285,3 +1285,32 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > 数据来源（只读）：`piece_wage_runs` / `piece_wage_items`、`payrolls`、`payroll_adjustments`、
 > `employees`、`departments`、`companies`。
 > **本模块不写工资单**，只写自己的两张表 + 登记差异时写一条 `payroll_adjustments`。
+
+## 数据导出与订阅（M-EXPORTGOV）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| export_defs | def_key(PK), name, module, table_name, perm, sensitivity(normal/sensitive/restricted), columns(JSON), small_sample, small_sample_min, row_cap, note, enabled | 数据集白名单。代码里的 `DEFS` 是唯一来源，启动时 upsert；`row_cap` 更新时保留表里已有值（安全阀要能不重启调小） |
+| export_jobs | job_no(CK+ymmdd+4), def_key, def_name, sensitivity, params(JSON), trigger_by(manual/subscription), row_count, col_count, masked_fields, masked_rows, suppressed_rows, watermark(UNIQUE), file_name, content_hash, reason, requester/name/role, ip, ua, subscription_id, demo_tag | 导出记录。`content_hash` 让「同一份数据导两次」可对比；`def_key='legacy'` 表示未纳入白名单的既有端点 |
+| export_subscriptions | sub_no(DY+ymmdd+4), name, def_key, params, freq(weekly/monthly), day_of_month(1-28), day_of_week(1-7), channel(inbox/email), recipients(JSON), valid_from, valid_until, next_run_at, last_run_at, last_job_id, run_count, status, owner, note | 周期订阅。`valid_until` 必填且 ≤24 个月；首期从 `valid_from` 起算 |
+| export_deliveries | job_id, subscription_id, recipient, channel, status(pending/taken/blocked/failed), notify_note, download_count, first/last_download_at, demo_tag | 订阅产出。`blocked` = 通道未配置，不是失败 |
+
+> **为什么导出记录要存 `content_hash` 而不是文件本身**：文件不入库（避免把业务数据再复制一份到审计表里，
+> 那等于绕过所有字段权限留了个后门），但哈希能回答「这两次导的是不是同一份数据」。
+> 领取时实时重生成，哈希不同就在响应头 `X-Export-Changed: 1` 里说清楚 ——
+> 而不是装作与当初一模一样。
+>
+> **为什么 `def_key='legacy'` 而不是硬塞进白名单**：既有端点各自拼 CSV、参数各异，
+> 硬套白名单会让「白名单即全部出口」这句话变成假话。宁可承认「这几个还没收编」，
+> 也不让人以为它们受同一套字段控制。
+>
+> **为什么水印要写进每一行**：首行注释只在完整文件里有效；截图、复制几行、
+> 转成微信图片都会丢掉首行。末列水印是被截断之后仍然能追的那一手。
+>
+> **为什么互补抑制**：只抑制一个小组时，`总计 − 其他组` 就是那个小组的值，
+> 抑制等于公开。这条逻辑与「人数」强相关，所以必须走 `small_sample_min` 而不是硬编码 5。
+>
+> 依赖（只读）：`ar_invoices` / `ap_invoices` / `customers` / `payrolls` / `employees` / `departments`
+> / `stock_items` / `orders` / `custody_items` / `custody_records`。
+> 脱敏规则复用 `field_guards`（`services/privacy.js`），本模块不新增规则。
+> **本模块不写任何业务表**，只写自己这四张。
