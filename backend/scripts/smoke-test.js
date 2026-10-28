@@ -5655,6 +5655,184 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('扎级进度需要登录', noAuth.status === 401, `HTTP ${noAuth.status}`);
   }
 
+
+  // ================= 计件工资 =================
+  {
+    console.log('\n[计件工资]');
+    const PW = require('../src/services/pieceWage');
+    const { db } = require('../src/db');
+
+    // 用 1999-01 这个空期间自造数据：不干扰真实月份的核算单
+    const TEST_PERIOD = '1999-01';
+    const TEST_PROC = '__计件测试工序__';
+    const TEST_STYLE = null; // 通用价
+    const loginAs = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    };
+
+    // 清理（幂等：重复跑不会堆数据）
+    const cleanup = () => {
+      db.prepare("DELETE FROM production_reports WHERE remark = 'SMOKE-PW'").run();
+      db.prepare('DELETE FROM piece_rates WHERE process_name = ?').run(TEST_PROC);
+      const runs = db.prepare("SELECT id FROM piece_wage_runs WHERE period = ?").all(TEST_PERIOD);
+      runs.forEach((r) => {
+        db.prepare('DELETE FROM piece_wage_items WHERE run_id = ?').run(r.id);
+        db.prepare('DELETE FROM piece_wage_runs WHERE id = ?').run(r.id);
+      });
+    };
+    cleanup();
+
+    // 找一个有扎的订单 + 一名在职员工
+    // 挑「件数最少」的扎：一报就能占满，再补 5 件必然超报，才测得到封顶
+    const bundle = db
+      .prepare(
+        `SELECT co.order_id AS order_id, b.bundle_no AS bundle_no, b.qty AS qty
+           FROM cut_bundles b JOIN cut_orders co ON co.id = b.cut_order_id
+          WHERE b.qty > 0 ORDER BY b.qty ASC LIMIT 1`
+      )
+      .get();
+    const emp = db.prepare("SELECT id, name FROM employees WHERE status = 'active' ORDER BY id LIMIT 1").get();
+
+    if (!bundle || !emp) {
+      ok('计件工资用例前置数据', true, '库里没有扎包或在职员工，跳过');
+    } else {
+      // ---------- 单价 ----------
+      const r1 = await req('/api/piece-wage/rates', {
+        method: 'POST', token,
+        body: { process_name: TEST_PROC, unit_price: 1, effective_from: '1999-01-01' }
+      });
+      ok('可新增工序单价', r1.status === 200, `HTTP ${r1.status} ${r1.json.message || ''}`);
+      const dup = await req('/api/piece-wage/rates', {
+        method: 'POST', token,
+        body: { process_name: TEST_PROC, unit_price: 2, effective_from: '1999-01-01' }
+      });
+      ok('同工序同生效日重复录入被拒', dup.status === 400, `HTTP ${dup.status}`);
+      const badPrice = await req('/api/piece-wage/rates', {
+        method: 'POST', token,
+        body: { process_name: TEST_PROC, unit_price: -1, effective_from: '1999-02-01' }
+      });
+      ok('负单价被拒', badPrice.status === 400, `HTTP ${badPrice.status}`);
+      const badDate = await req('/api/piece-wage/rates', {
+        method: 'POST', token,
+        body: { process_name: TEST_PROC, unit_price: 1, effective_from: '1999/01/01' }
+      });
+      ok('生效日格式不合规被拒', badDate.status === 400, `HTTP ${badDate.status}`);
+
+      // 版本化：6-01 起的新价应该接管 6 月，1 月仍用旧价
+      await req('/api/piece-wage/rates', {
+        method: 'POST', token,
+        body: { process_name: TEST_PROC, unit_price: 2.5, effective_from: '1999-06-01' }
+      });
+      const inJan = PW.rateOf(TEST_STYLE, TEST_PROC, '1999-01-15');
+      const inJun = PW.rateOf(TEST_STYLE, TEST_PROC, '1999-06-15');
+      ok('单价按生效日版本化（1 月用 1 元）', inJan.rate && Number(inJan.rate.unit_price) === 1,
+        JSON.stringify(inJan.rate && inJan.rate.unit_price));
+      ok('单价按生效日版本化（6 月用 2.5 元）', inJun.rate && Number(inJun.rate.unit_price) === 2.5,
+        JSON.stringify(inJun.rate && inJun.rate.unit_price));
+
+      // ---------- 造两条报工：第一条占满 15 件，第二条超报被封顶 ----------
+      const insRep = db.prepare(
+        `INSERT INTO production_reports
+           (order_id, node_id, node_name, report_date, qty_ok, qty_defect, hours, operator, employee_id, remark, created_at, bundle_no)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+      );
+      const cap = Number(bundle.qty);
+      // 第一条报满整扎，第二条再报 5 件 —— 必然超报，才测得到封顶
+      insRep.run(bundle.order_id, null, TEST_PROC, '1999-01-10', cap, 0, 0, emp.name, emp.id, 'SMOKE-PW', '1999-01-10 10:00:00', bundle.bundle_no);
+      insRep.run(bundle.order_id, null, TEST_PROC, '1999-01-11', 5, 0, 0, emp.name, emp.id, 'SMOKE-PW', '1999-01-11 10:00:00', bundle.bundle_no);
+
+      const pv = await req('/api/piece-wage/preview?period=' + TEST_PERIOD, { token });
+      const d = pv.json.data || {};
+      const s = d.summary || {};
+      ok('试算可读', pv.status === 200 && Array.isArray(d.items), `HTTP ${pv.status}`);
+      ok('超报被封顶（同扎同工序累计不超过扎件数）', s.capped_count >= 1, `capped=${s.capped_count}`);
+      ok(
+        '封顶后计件数量不超扎件数',
+        d.items.reduce((a, x) => a + x.qty, 0) <= cap,
+        `${d.items.reduce((a, x) => a + x.qty, 0)} vs 扎 ${cap}`
+      );
+      ok(
+        '明细金额 = 数量 × 单价',
+        d.items.every((x) => Math.abs(x.amount - Math.round(x.qty * x.unit_price * 100) / 100) < 0.01),
+        JSON.stringify(d.items.map((x) => [x.qty, x.unit_price, x.amount]))
+      );
+      ok(
+        '按人汇总 = 明细合计',
+        Math.abs((d.by_employee || []).reduce((a, x) => a + x.amount, 0) - s.total_amount) < 0.01,
+        `${(d.by_employee || []).reduce((a, x) => a + x.amount, 0)} vs ${s.total_amount}`
+      );
+
+      // ---------- 草案 → 确认 → 作废 ----------
+      const mk = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
+      ok('可生成核算草案', mk.status === 200 && mk.json.data.status === 'draft', `HTTP ${mk.status} ${mk.json.message || ''}`);
+      const runNo = mk.json.data && mk.json.data.run_no;
+
+      const mk2 = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
+      ok('草案可覆盖且编号不变（同一期间只是当前试算）',
+        mk2.status === 200 && mk2.json.data.run_no === runNo, `${runNo} vs ${mk2.json.data && mk2.json.data.run_no}`);
+      // 覆盖是「删旧行 + 插新行」，id 会变；后面一律用最新那份
+      const runId = mk2.json.data && mk2.json.data.id;
+
+      const cf = await req(`/api/piece-wage/runs/${runId}/confirm`, { method: 'POST', token, body: {} });
+      ok('可确认核算单', cf.status === 200 && cf.json.data.status === 'confirmed', `HTTP ${cf.status} ${cf.json.message || ''}`);
+      const cf2 = await req(`/api/piece-wage/runs/${runId}/confirm`, { method: 'POST', token, body: {} });
+      ok('重复确认被拒', cf2.status === 400, `HTTP ${cf2.status}`);
+      const mk3 = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
+      ok('已确认的月份不许再生成草案', mk3.status === 400, `HTTP ${mk3.status}`);
+
+      const voidNoReason = await req(`/api/piece-wage/runs/${runId}/void`, { method: 'POST', token, body: { reason: '短' } });
+      ok('作废必须写够理由', voidNoReason.status === 400, `HTTP ${voidNoReason.status}`);
+      const voidOk = await req(`/api/piece-wage/runs/${runId}/void`, { method: 'POST', token, body: { reason: '冒烟测试作废' } });
+      ok('写够理由可作废', voidOk.status === 200 && voidOk.json.data.status === 'void', `HTTP ${voidOk.status}`);
+      const mk4 = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
+      ok('作废后可以重新生成', mk4.status === 200, `HTTP ${mk4.status} ${mk4.json.message || ''}`);
+
+      // ---------- 缺单价：确认必须被拒 ----------
+      db.prepare('DELETE FROM piece_rates WHERE process_name = ?').run(TEST_PROC);
+      const runId2 = mk4.json.data && mk4.json.data.id;
+      if (runId2) {
+        // 再生成一份（覆盖）让缺价体现在明细里
+        const mk5 = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: TEST_PERIOD } });
+        const rid5 = (mk5.json.data && mk5.json.data.id) || runId2;
+        const cfNoRate = await req(`/api/piece-wage/runs/${rid5}/confirm`, { method: 'POST', token, body: {} });
+        ok('缺单价时确认被拒（不许按 0 算白干）', cfNoRate.status === 400, `HTTP ${cfNoRate.status}`);
+      }
+
+      // ---------- 权限边界 ----------
+      const salesToken = await loginAs('sales01');
+      if (salesToken) {
+        const deny = await req('/api/piece-wage/preview?period=' + TEST_PERIOD, { token: salesToken });
+        ok('销售看不到计件（工钱敏感，读写都限岗）', deny.status === 403, `HTTP ${deny.status}`);
+      } else {
+        ok('销售看不到计件（工钱敏感）', true, '没有 sales01，跳过');
+      }
+      const hrToken = await loginAs('hr01');
+      if (hrToken) {
+        const hrRead = await req('/api/piece-wage/preview?period=' + TEST_PERIOD, { token: hrToken });
+        ok('人事可读计件', hrRead.status === 200, `HTTP ${hrRead.status}`);
+        const hrConfirm = await req(`/api/piece-wage/runs/${runId2}/confirm`, { method: 'POST', token: hrToken, body: {} });
+        ok('人事不能自己确认（制单与审核分开）', hrConfirm.status === 403, `HTTP ${hrConfirm.status}`);
+      } else {
+        ok('人事可读计件 / 不能确认', true, '没有 hr01，跳过');
+      }
+
+      // ---------- 工资单带入 ----------
+      const gen = await req('/api/payrolls/generate', {
+        method: 'POST', token, body: { period: TEST_PERIOD, overwrite: true }
+      });
+      ok(
+        '没有已确认核算单时工资单计件为 0（不做「按报工现算」）',
+        gen.status === 200 && (gen.json.data.piece_wage_run === null || gen.json.data.piece_wage_total === 0),
+        JSON.stringify(gen.json.data && gen.json.data.piece_wage_run)
+      );
+      db.prepare('DELETE FROM payrolls WHERE period = ?').run(TEST_PERIOD);
+      cleanup();
+      ok('计件用例自清理（单价/报工/核算单已删）',
+        db.prepare('SELECT COUNT(*) c FROM production_reports WHERE remark = ?').get('SMOKE-PW').c === 0);
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

@@ -21,7 +21,7 @@
       <div class="stat-card"><div class="label">个税合计</div><div class="value">¥{{ money(summary.tax) }}</div></div>
     </div>
     <div class="muted" style="font-size: 12px; margin: -8px 0 14px">
-      个人社保合计 ¥{{ money(summary.social_insurance) }}　·　加班费合计 ¥{{ money(summary.overtime_pay) }}　·　奖金合计 ¥{{ money(summary.bonus) }}　·　当月工作日 {{ summary.work_days || 0 }} 天
+      个人社保合计 ¥{{ money(summary.social_insurance) }}　·　加班费合计 ¥{{ money(summary.overtime_pay) }}　·　奖金合计 ¥{{ money(summary.bonus) }}　·　<b>计件合计 ¥{{ money(summary.piece_wage) }}</b>　·　当月工作日 {{ summary.work_days || 0 }} 天
     </div>
 
     <div class="toolbar" style="margin-bottom: 12px">
@@ -53,6 +53,7 @@
             <th class="num">请假</th><th class="num">缺勤</th>
             <th class="num">加班(h)</th>
             <th class="num">加班费</th><th class="num">奖金</th><th class="num">补贴</th>
+            <th class="num">计件</th>
             <th class="num">扣款</th><th class="num">社保</th><th class="num">个税</th>
             <th class="num">应发</th><th class="num">实发</th>
             <th>状态</th><th style="width: 150px">操作</th>
@@ -72,6 +73,9 @@
             <td class="num">{{ money(r.overtime_pay) }}</td>
             <td class="num">{{ money(r.bonus) }}</td>
             <td class="num">{{ money(r.allowance) }}</td>
+            <td class="num" :style="{ color: r.piece_wage ? '#2563eb' : '#8a94a6', fontWeight: r.piece_wage ? 700 : 400 }">
+              {{ money(r.piece_wage) }}
+            </td>
             <td class="num">{{ money(r.deduction) }}</td>
             <td class="num">{{ money(r.social_insurance) }}</td>
             <td class="num">{{ money(r.tax) }}</td>
@@ -110,6 +114,10 @@
             <div class="fitem"><label>加班小时</label><input class="input" type="number" step="0.5" v-model.number="edit.overtime_hours" /></div>
             <div class="fitem"><label>奖金</label><input class="input" type="number" step="0.01" v-model.number="edit.bonus" /></div>
             <div class="fitem"><label>补贴</label><input class="input" type="number" step="0.01" v-model.number="edit.allowance" /></div>
+            <div class="fitem">
+              <label>计件工资（只读，来自计件核算单）</label>
+              <input class="input" :value="money(edit.piece_wage)" disabled />
+            </div>
             <div class="fitem"><label>其他扣款</label><input class="input" type="number" step="0.01" v-model.number="edit.deduction" /></div>
             <div class="fitem"><label>个人社保</label><input class="input" type="number" step="0.01" v-model.number="edit.social_insurance" /></div>
             <div class="fitem full"><label>备注</label><textarea v-model="edit.remark" rows="2"></textarea></div>
@@ -184,7 +192,25 @@ async function generate() {
   try {
     const r = await api.generatePayrolls(period.value, true);
     await load();
-    alert(`生成完成：新增 ${r.created} 条，重算 ${r.refreshed} 条，跳过 ${r.skipped} 条（已确认/已发放不覆盖）`);
+    const lines = [
+      `生成完成：新增 ${r.created} 条，重算 ${r.refreshed} 条，跳过 ${r.skipped} 条（已确认/已发放不覆盖）`
+    ];
+    if (r.piece_wage_run) {
+      lines.push(
+        `\n计件工资：带入 ${r.piece_wage_employees} 人 / ¥${money(r.piece_wage_total)}（核算单 ${r.piece_wage_run.run_no}，总额 ¥${money(r.piece_wage_run.total_amount)}）`
+      );
+      // 计件算出来了但工资单已确认/已发放 → 钱进不去，必须说出来
+      if (r.warnings && r.warnings.length) {
+        lines.push(`\n⚠ 有 ${r.warnings.length} 人的计件没进单：`);
+        r.warnings.slice(0, 6).forEach((w) => {
+          lines.push(`  · ${w.employee_name}：${w.reason}，计件 ¥${money(w.piece_wage)} 未带入`);
+        });
+        if (r.warnings.length > 6) lines.push(`  … 还有 ${r.warnings.length - 6} 人，去「计件工资」页核对`);
+      }
+    } else {
+      lines.push('\n本月还没有「已确认」的计件核算单，计件列全部为 0（去「计件工资」生成并确认）');
+    }
+    alert(lines.join('\n'));
   } catch (e) {
     alert(e.message);
   } finally {

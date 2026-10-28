@@ -16,7 +16,9 @@
  *   日薪   = 基本工资 / 应出勤
  *   缺勤扣款 = 日薪 × 缺勤天数
  *   加班费  = 日薪 / 8 × 加班小时 × 1.5
- *   应发   = 基本工资 + 加班费 + 奖金 + 补贴 − 其他扣款 − 缺勤扣款
+ *   应发   = 基本工资 + 加班费 + 奖金 + 补贴 + **计件工资** − 其他扣款 − 缺勤扣款
+ *   计件   = 由「计件工资」模块的已确认核算单带进来，**不允许在本页手填**
+ *            （手填的计件没有扎级报工依据，对不上账）
  *   个税   = (应发 − 个人社保 − 5000) 按月度税率表（3%~45%，含速算扣除数）
  *   实发   = 应发 − 个人社保 − 个税
  */
@@ -77,7 +79,11 @@ function recalc(r) {
   const daily = r.work_days > 0 ? r.base_salary / r.work_days : 0;
   const absentCut = round2(daily * r.absent_days);
   const overtimePay = round2((daily / 8) * r.overtime_hours * 1.5);
-  const gross = round2(r.base_salary + overtimePay + r.bonus + r.allowance - r.deduction - absentCut);
+  // 计件工资是「干出来的钱」，与基本工资并列计入应发；它只能来自已确认的计件核算单
+  const pieceWage = round2(r.piece_wage);
+  const gross = round2(
+    r.base_salary + overtimePay + r.bonus + r.allowance + pieceWage - r.deduction - absentCut
+  );
   const taxable = round2(gross - r.social_insurance - TAX_THRESHOLD);
   const tax = calcTax(taxable);
   const net = round2(gross - r.social_insurance - tax);
@@ -147,6 +153,7 @@ router.get('/summary', authRequired, requireRole(READ), wrap(async (req, res) =>
     tax: sum('tax'),
     social_insurance: sum('social_insurance'),
     bonus: sum('bonus'),
+    piece_wage: sum('piece_wage'),
     overtime_pay: sum('overtime_pay'),
     byStatus,
     byDept: Object.values(byDept).sort((a, b) => b.net - a.net)
@@ -164,13 +171,13 @@ router.get('/export', authRequired, requireRole(READ), wrap(async (req, res) => 
   if (!period) return fail(res, 400, '缺少 period（YYYY-MM）');
   const rows = listByPeriod(period);
   const header = ['月份', '部门', '姓名', '基本工资', '应出勤', '实出勤', '请假', '缺勤',
-    '加班小时', '加班费', '奖金', '补贴', '其他扣款', '个人社保', '个税', '应发', '实发', '状态', '备注'];
+    '加班小时', '加班费', '奖金', '补贴', '计件工资', '其他扣款', '个人社保', '个税', '应发', '实发', '状态', '备注'];
   const lines = [header.map(csvCell).join(',')];
   rows.forEach((r) => {
     lines.push([
       r.period, r.department || '', r.employee_name, r.base_salary, r.work_days, r.actual_days,
       r.leave_days, r.absent_days, r.overtime_hours, r.overtime_pay, r.bonus, r.allowance,
-      r.deduction, r.social_insurance, r.tax, r.gross_pay, r.net_pay,
+      r.piece_wage || 0, r.deduction, r.social_insurance, r.tax, r.gross_pay, r.net_pay,
       STATUS_LABELS[r.status] || r.status, r.remark || ''
     ].map(csvCell).join(','));
   });
@@ -196,20 +203,52 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
   const { from, to } = periodRange(period);
   const t = now();
 
+  // 计件工资：只认该月「已确认」的核算单。没有就一律 0 ——
+  // 不做「按报工现算」，否则同一份工资单两次生成可能得到不同金额。
+  const piece = require('../services/pieceWage').confirmedByEmployee(period);
+  const pieceOf = (empId) => {
+    const hit = piece.map.get(Number(empId));
+    return hit ? round2(hit.amount) : 0;
+  };
+
   let created = 0, refreshed = 0, skipped = 0;
+  const warnings = [];   // 计件算出来了但没进单的人（已确认/已发放/未覆盖）
   const ins = db.prepare(
     `INSERT INTO payrolls (period, employee_id, employee_name, department, base_salary, work_days, actual_days,
-      leave_days, absent_days, overtime_hours, overtime_pay, bonus, allowance, deduction, social_insurance, tax,
-      gross_pay, net_pay, status, remark, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      leave_days, absent_days, overtime_hours, overtime_pay, bonus, allowance, piece_wage, deduction,
+      social_insurance, tax, gross_pay, net_pay, status, remark, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
 
   db.exec('BEGIN');
   try {
     for (const e of emps) {
       const exist = db.prepare('SELECT * FROM payrolls WHERE period = ? AND employee_id = ?').get(period, e.id);
-      if (exist && !overwrite) { skipped++; continue; }
-      if (exist && exist.status !== 'draft') { skipped++; continue; }
+      if (exist && !overwrite) {
+        skipped++;
+        const pw = pieceOf(e.id);
+        if (pw > 0) {
+          warnings.push({
+            employee_id: e.id, employee_name: e.name, reason: '工资单已存在（未选覆盖）',
+            piece_wage: pw
+          });
+        }
+        continue;
+      }
+      if (exist && exist.status !== 'draft') {
+        skipped++;
+        // 已确认/已发放的工资单不能被覆盖（这是对的），但这人的计件就进不了单了 ——
+        // 不报出来，钱就静默消失了
+        const pw = pieceOf(e.id);
+        if (pw > 0) {
+          warnings.push({
+            employee_id: e.id, employee_name: e.name,
+            reason: `工资单已「${STATUS_LABELS[exist.status]}」`,
+            piece_wage: pw
+          });
+        }
+        continue;
+      }
 
       const leaveDays = round2(
         db.prepare(
@@ -221,16 +260,19 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
           .get(e.id, from, to).c
       );
       const baseSalary = Number(e.base_salary) || 0;
+      // 已存在的草稿：保留人工调过的奖金/补贴/扣款/加班，只刷新出勤与计件；
+      // 新单：全部从 0 起算
       const row = {
         base_salary: baseSalary,
         work_days: workDays,
         actual_days: round2(Math.max(0, workDays - leaveDays - absentDays)),
         leave_days: leaveDays,
         absent_days: absentDays,
-        overtime_hours: 0,
-        bonus: 0,
-        allowance: 0,
-        deduction: 0,
+        overtime_hours: exist ? Number(exist.overtime_hours) || 0 : 0,
+        bonus: exist ? Number(exist.bonus) || 0 : 0,
+        allowance: exist ? Number(exist.allowance) || 0 : 0,
+        piece_wage: pieceOf(e.id),
+        deduction: exist ? Number(exist.deduction) || 0 : 0,
         social_insurance: 0
       };
       // 先按 0 社保算应发，再按比例取社保，最后算个税
@@ -241,14 +283,17 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
       if (exist) {
         db.prepare(
           `UPDATE payrolls SET employee_name=?, department=?, base_salary=?, work_days=?, actual_days=?,
-            leave_days=?, absent_days=?, overtime_hours=?, overtime_pay=?, social_insurance=?, tax=?,
+            leave_days=?, absent_days=?, overtime_hours=?, overtime_pay=?, bonus=?, allowance=?,
+            piece_wage=?, deduction=?, social_insurance=?, tax=?,
             gross_pay=?, net_pay=?, updated_at=? WHERE id=?`
         ).run(e.name, e.dept_name || null, baseSalary, workDays, row.actual_days, leaveDays, absentDays,
-          0, c.overtimePay, row.social_insurance, c.tax, c.gross, c.net, t, exist.id);
+          row.overtime_hours, c.overtimePay, row.bonus, row.allowance,
+          row.piece_wage, row.deduction, row.social_insurance, c.tax, c.gross, c.net, t, exist.id);
         refreshed++;
       } else {
         ins.run(period, e.id, e.name, e.dept_name || null, baseSalary, workDays, row.actual_days,
-          leaveDays, absentDays, 0, c.overtimePay, 0, 0, 0, row.social_insurance, c.tax,
+          leaveDays, absentDays, row.overtime_hours, c.overtimePay, row.bonus, row.allowance,
+          row.piece_wage, row.deduction, row.social_insurance, c.tax,
           c.gross, c.net, 'draft', null, t, t);
         created++;
       }
@@ -258,7 +303,17 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
     db.exec('ROLLBACK');
     throw err;
   }
-  return ok(res, { period, work_days: workDays, created, refreshed, skipped });
+  return ok(res, {
+    period,
+    work_days: workDays,
+    created,
+    refreshed,
+    skipped,
+    piece_wage_run: piece.run ? { run_no: piece.run.run_no, total_amount: round2(piece.run.total_amount) } : null,
+    piece_wage_employees: piece.map.size,
+    piece_wage_total: round2([...piece.map.values()].reduce((a, x) => a + x.amount, 0)),
+    warnings
+  });
 }));
 
 // ---------- 调整 ----------
@@ -278,7 +333,9 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
     bonus: num('bonus'),
     allowance: num('allowance'),
     deduction: num('deduction'),
-    social_insurance: num('social_insurance')
+    social_insurance: num('social_insurance'),
+    // 计件金额只认核算单，这里原样带过去（不允许在本页改）
+    piece_wage: Number(row.piece_wage) || 0
   };
   if (next.absent_days < 0 || next.leave_days < 0) return fail(res, 400, '缺勤/请假天数不能为负');
   const c = recalc(next);

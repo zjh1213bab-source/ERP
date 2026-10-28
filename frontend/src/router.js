@@ -89,6 +89,7 @@ import MobilePhoto from './views/MobilePhoto.vue';
 import Photos from './views/Photos.vue';
 import InspectionReport from './views/InspectionReport.vue';
 import BundleProgress from './views/BundleProgress.vue';
+import PieceWage from './views/PieceWage.vue';
 import QuotePrint from './views/QuotePrint.vue';
 import MallAdmin from './views/MallAdmin.vue';
 import Quality from './views/Quality.vue';
@@ -123,6 +124,7 @@ const routes = [
       { path: 'leaves', component: Leaves, meta: { title: '请假管理' } },
       { path: 'attendance', component: Attendance, meta: { title: '考勤打卡' } },
       { path: 'payrolls', component: Payrolls, meta: { title: '薪酬核算' } },
+      { path: 'piece-wage', component: PieceWage, meta: { title: '计件工资' } },
       { path: 'hr', component: Hr, meta: { title: '招聘与合同' } },
       { path: 'facility', component: Facility, meta: { title: '后勤管理' } },
       { path: 'integration', component: Integration, meta: { title: '外部接口' } },

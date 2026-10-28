@@ -170,6 +170,21 @@ export const api = {  // 登录
   createPhotos: (d) => req('/api/photos/batch', { method: 'POST', body: d }),
   deletePhoto: (id) => req(`/api/photos/${id}`, { method: 'DELETE' }),
 
+  // 计件工资（单价版本化 + 月度核算单）
+  pieceMeta: () => req('/api/piece-wage/meta'),
+  pieceRates: (params) => req('/api/piece-wage/rates' + qs(params)),
+  pieceRateSave: (d) => req('/api/piece-wage/rates', { method: 'POST', body: d }),
+  pieceRateUpdate: (id, d) => req(`/api/piece-wage/rates/${id}`, { method: 'PUT', body: d }),
+  piecePreview: (period) => req('/api/piece-wage/preview' + qs({ period })),
+  pieceRuns: (params) => req('/api/piece-wage/runs' + qs(params)),
+  pieceRun: (id) => req(`/api/piece-wage/runs/${id}`),
+  pieceCreateRun: (d) => req('/api/piece-wage/runs', { method: 'POST', body: d }),
+  pieceConfirm: (id, note) =>
+    req(`/api/piece-wage/runs/${id}/confirm`, { method: 'POST', body: note ? { note } : {} }),
+  pieceVoid: (id, reason) =>
+    req(`/api/piece-wage/runs/${id}/void`, { method: 'POST', body: { reason } }),
+  pieceExportPath: (runId) => '/api/piece-wage/export' + qs({ run_id: runId }),
+
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),
   resolveScan: (code) => req('/api/labels/resolve?code=' + encodeURIComponent(code)),

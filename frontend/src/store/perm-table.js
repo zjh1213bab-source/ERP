@@ -59,6 +59,8 @@ export const PERM_TABLE = {
   'leave.write': ["sales","tech","finance","production","warehouse","hr"],
   'leave.review': ["hr","production","sales"],
   'payroll.write': ["hr","finance"],
+  'piecewage.write': ["hr","finance"],
+  'piecewage.approve': ["finance"],
   'kpi.write': ["hr"],
   'kpi.review': ["hr","sales","production"],
   'admincontract.write': ["hr"],

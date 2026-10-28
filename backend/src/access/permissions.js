@@ -112,6 +112,10 @@ const PERMS = {
   'leave.write': ['sales', 'tech', 'finance', 'production', 'warehouse', 'hr'],
   'leave.review': ['hr', 'production', 'sales'],     // 人事 + 部门负责人
   'payroll.write': ['hr', 'finance'],
+  // 计件工资：制单（单价维护、生成核算草案）人事/财务；确认与作废只给财务 ——
+  // 自己算的钱自己确认等于没审，工钱是最不该让同一个人闭环的地方
+  'piecewage.write': ['hr', 'finance'],
+  'piecewage.approve': ['finance'],
   'kpi.write': ['hr'],
   'kpi.review': ['hr', 'sales', 'production'],
   'admincontract.write': ['hr'],
@@ -274,7 +278,11 @@ const GUARDED = [
   { perm: 'photo.write', method: 'POST', prefix: '/api/photos' },
   { perm: 'photo.write', method: 'DELETE', prefix: '/api/photos' },
   // 验货报告一旦发出去就是对客户的承诺，属于对外文件
-  { perm: 'inspection.write', method: 'POST', prefix: '/api/inspection' }
+  { perm: 'inspection.write', method: 'POST', prefix: '/api/inspection' },
+  // 计件单价改动会重算所有人的工钱；确认/作废直接决定发多少钱
+  { perm: 'piecewage.write', method: 'POST', prefix: '/api/piece-wage/rates' },
+  { perm: 'piecewage.write', method: 'PUT', prefix: '/api/piece-wage/rates' },
+  { perm: 'piecewage.approve', method: 'POST', prefix: '/api/piece-wage/runs/' }
 ];
 
 /** 写方法（用于判断请求是否属于「写」） */

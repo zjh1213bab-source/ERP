@@ -2635,3 +2635,44 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
    （出库发运是整单动作，拿它判完工会让所有扎永不完工）。
 4. `done` 要求 `final_ok >= qty` 且 `qty > 0`；`short` 要求 `0 < final_ok < qty`；
    `over` 是独立标记（任一工序 `ok > qty`），不改状态。
+
+## 计件工资（`/api/piece-wage`）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/piece-wage/meta | 人事/财务/总经理 | 工序清单（工序表 + 报工里出现过的）、款号清单、有报工的月份 |
+| GET | /api/piece-wage/rates | 同上 | 单价列表 |
+| POST | /api/piece-wage/rates | piecewage.write | `{style_no, process_name, unit_price, effective_from, effective_to, note}`；同款同工序同生效日重复直接拒 |
+| PUT | /api/piece-wage/rates/:id | piecewage.write | 改单价；**已被核算用过的只许改备注/停用** |
+| GET | /api/piece-wage/preview?period= | 同上 | 实时试算（不落库）：明细 + 按人汇总 + 四类诊断 |
+| GET | /api/piece-wage/runs | 同上 | 核算单列表（近 60） |
+| POST | /api/piece-wage/runs | piecewage.write | `{period, note}` 生成草案（同月草案覆盖且**编号不变**） |
+| GET | /api/piece-wage/runs/:id | 同上 | 详情（明细 + 诊断快照） |
+| POST | /api/piece-wage/runs/:id/confirm | piecewage.approve | 确认；**缺单价一条都不许过**；无法归属时要求备注 ≥4 字说明怎么处理 |
+| POST | /api/piece-wage/runs/:id/void | piecewage.approve | `{reason}` 作废（理由 ≥4 字） |
+| GET | /api/piece-wage/export?run_id= | 同上 | 明细 CSV（带 BOM） |
+
+**取价规则**
+
+```
+单价 = 该款专属价（生效日 ≤ 报工日期 里最新的一条）
+       ?? 通用价（style_no 为空，同样取最新生效的一条）
+```
+
+同一个「款 + 工序 + 生效日」只能有一条（唯一索引），否则取价会摇摆。
+**改价不改历史**：新价是新记录，旧记录不动，历史核算单里的 `rate_id` 仍指向当时那条。
+
+**核算四类诊断**
+
+| 诊断 | 含义 | 处置 |
+|---|---|---|
+| `missing_rate` | 报工找不得单价 | 草案可存，**确认被拒**（按 0 算等于白干） |
+| `unassigned` | 归不到人（重名/姓名不在档案/没记人） | 不阻塞确认，但备注必须写处理办法 |
+| `capped` | 同扎同工序累计超过扎件数，超出部分不计 | 单独列出逐笔核对 |
+| `no_bundle` | 报工没记扎号，无法用扎件数封顶 | 照算，但少一层校验 |
+
+**与工资单的关系**
+
+计件金额**只由已确认的核算单带入** `payrolls.piece_wage`，工资单页不允许手填。
+`POST /api/payrolls/generate` 返回 `piece_wage_run` / `piece_wage_total` /
+`warnings`（工资单已确认/已发放导致计件没进单的人）。

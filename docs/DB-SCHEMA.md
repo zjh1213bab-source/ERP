@@ -978,3 +978,19 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > 订单级报工累计、工序状态、成本分摊口径**一行都没改**——新页面只是换了个维度看同一批数据。
 >
 > 唯一的索引支撑：`idx_preport_bundle(bundle_no)`（上一轮已建），以及按订单查报工走 `order_id`。
+
+## 计件工资（M-PIECE-WAGE）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| piece_rates | style_no(可空=通用), process_name, unit_price, effective_from, effective_to, status(active/disabled), note | **单价版本化**。唯一索引 `(IFNULL(style_no,''), process_name, effective_from)` 防同键重复导致取价摇摆。改价 = 新增一条，不动旧记录 |
+| piece_wage_runs | run_no, period, status(draft/confirmed/void), items_count, employees_count, total_qty, total_amount, missing_rate_count, unassigned_count, capped_count, payload(JSON 诊断快照), note, created_by/confirmed_by | **部分唯一索引** `WHERE status='confirmed'` 保证一个月份只有一份已确认。作废需 `void_reason` |
+| piece_wage_items | run_id, employee_id, employee_code, employee_name, department, style_no, process_name, order_id, order_no, bundle_no, **raw_qty / qty / capped**, unit_price, amount, rate_id, rate_source(style/generic), matched_by(id/name) | 明细粒度「人 × 工序 × 订单 × 扎」。`raw_qty` 是报工原值、`qty` 是封顶后计入值，两者不等就是超报 |
+| payrolls.piece_wage | REAL | 计件金额，**只能由核算单带入**，工资单页禁止手填 |
+
+> `payload` 存的是生成那一刻的四类诊断清单（缺单价/无法归属/超报/未记扎）。
+> 存快照而不是每次现算：报告发出去（确认了）之后，诊断内容要能原样复原。
+>
+> **为什么不在 `production_reports` 上加「是否已计件」标记**：报工是事实，计件是结算，
+> 两者生命周期不同（报工可补、计件按月锁定）。用 `(period + 单价生效日)` 反推，
+> 比在报工行上打标记更不容易出错 —— 打标记一旦漏打或打错，工钱就错了。
