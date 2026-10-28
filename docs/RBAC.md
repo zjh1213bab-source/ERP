@@ -75,7 +75,13 @@
 | assets | DELETE | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | assets | POST | `/:id/status` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | attendance | POST | `/clock` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| audit | GET | `/` | ✅ | — | — | — | — | — | — | — |
+| audit | GET | `/` | ✅ | ✅ | — | — | — | — | — | — |
+| audit | POST | `/archive` | ✅ | — | — | — | — | — | — | — |
+| audit | GET | `/archives` | ✅ | ✅ | — | — | — | — | — | — |
+| audit | GET | `/export` | ✅ | ✅ | — | — | — | — | — | — |
+| audit | GET | `/facets` | ✅ | ✅ | — | — | — | — | — | — |
+| audit | GET | `/stats` | ✅ | ✅ | — | — | — | — | — | — |
+| audit | GET | `/verify` | ✅ | ✅ | — | — | — | — | — | — |
 | backup | DELETE | `/:id` | ✅ | — | — | — | — | — | — | — |
 | backup | GET | `/:id/download` | ✅ | — | — | — | — | — | — | — |
 | backup | POST | `/:id/verify` | ✅ | — | — | — | — | — | — | — |
@@ -929,7 +935,8 @@
 | `pattern.review` | 技术打版 |
 | `settings.write` | 系统管理员 |
 | `user.manage` | 系统管理员 |
-| `audit.read` | 系统管理员 |
+| `audit.read` | 系统管理员、总经理 |
+| `audit.archive` | 系统管理员 |
 | `approvalflow.manage` | 系统管理员 |
 | `process.write` | 人事行政 |
 | `process.review` | 人事行政、财务会计、生产车间 |

@@ -9,6 +9,7 @@ const cors = require('cors');
 
 const config = require('./config');
 const { db } = require('./db'); // 初始化数据库 + 建表 + 播种
+const auditLog = require('./services/auditLog'); // 操作日志（哈希链 + 业务语义）
 
 const authRoutes = require('./routes/auth');
 const mindmapRoutes = require('./routes/mindmap'); // 业务蓝图（原脑图）
@@ -120,13 +121,23 @@ const corsOrigin =
 app.use(cors({ origin: corsOrigin, credentials: false }));
 
 // ---------- 操作日志（写操作留痕） ----------
+// 统一走 services/auditLog.append：算哈希链 + 翻译成业务语义（模块/动作/对象）。
+// 记的是「谁在什么时候动了什么」，**不记 body** —— 里面有密码和金额，日志不该成为泄密源。
 app.use((req, res, next) => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  const startedAt = Date.now();
   res.on('finish', () => {
     try {
-      db.prepare('INSERT INTO audit_logs (username, method, path, status, ip, created_at) VALUES (?,?,?,?,?,?)')
-        .run((req.user && req.user.username) || 'anonymous', req.method, req.originalUrl, res.statusCode, req.ip || '', new Date().toISOString());
-    } catch (e) { /* ignore */ }
+      auditLog.append({
+        username: req.auditUser || (req.user && req.user.username) || 'anonymous',
+        role: req.auditRole || (req.user && req.user.role),
+        method: req.method,
+        path: req.originalUrl,
+        status: res.statusCode,
+        ip: req.ip || '',
+        duration: Date.now() - startedAt
+      });
+    } catch (e) { /* 日志失败不能影响业务响应，但链会留下痕迹（水位与日志不一致） */ }
   });
   next();
 });

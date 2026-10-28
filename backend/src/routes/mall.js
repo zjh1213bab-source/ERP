@@ -261,9 +261,16 @@ router.post('/inquiries', customerRequired, permRequired('inquiry.create'), wrap
   }
 
   // 通知内部：给负责该客户的业务员留一条系统消息（用 ERP 审计日志承载）
+  // 客户商城是外部身份，这里自己写一条（不在 ERP 的登录态里，走不了统一中间件）
   try {
-    db.prepare('INSERT INTO audit_logs (username, method, path, status, ip, created_at) VALUES (?,?,?,?,?,?)')
-      .run('商城', 'INQUIRY', '/mall/inquiries', 200, '', now());
+    require('../services/auditLog').append({
+      username: '商城客户',
+      role: 'customer',
+      method: 'POST',
+      path: '/mall/inquiries',
+      status: 200,
+      ip: ''
+    });
   } catch (e) { /* ignore */ }
 
   return ok(res, inquiryFull(id));

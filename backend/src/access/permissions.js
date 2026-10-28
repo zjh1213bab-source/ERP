@@ -180,7 +180,8 @@ const PERMS = {
   // ===== 管理 =====
   'settings.write': ['admin'],
   'user.manage': ['admin'],
-  'audit.read': ['admin'],
+  'audit.read': ['admin', 'boss'],   // 老板要看操作日志（只读，写操作仍只有 admin）
+  'audit.archive': ['admin'],       // 归档会移出主表，是破坏性动作，只给管理员
   'approvalflow.manage': ['admin'],
   'process.write': ['hr'],
   'process.review': ['hr', 'finance', 'production'],
@@ -268,6 +269,7 @@ const GUARDED = [
   { perm: 'settings.write', method: '*', prefix: '/api/settings' },
   { perm: 'approvalflow.manage', method: '*', prefix: '/api/approval-flows' },
   { perm: 'audit.read', method: 'GET', prefix: '/api/audit' },
+  { perm: 'audit.archive', method: 'POST', prefix: '/api/audit/archive' },
   { perm: 'schedule.publish', method: 'POST', prefix: '/api/schedule/publish' },
   // 对外数据外泄与主数据篡改，同样算高危
   { perm: 'order.export', method: 'GET', prefix: '/api/orders/export' },

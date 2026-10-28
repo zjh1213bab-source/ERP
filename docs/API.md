@@ -100,7 +100,19 @@
 | GET/POST | /api/leaves | 读:登录 / 写:admin,sales | 请假列表/新增 |
 | POST | /api/leaves/:id/review | admin,sales | 审批 `{approve}` |
 | DELETE | /api/leaves/:id | admin,sales | 删除 |
-| GET | /api/audit?method=&q=&limit= | admin | 操作日志 |
+| GET | /api/audit?from=&to=&username=&group=&action=&result=&q=&page=&pageSize= | admin,boss | 操作日志列表（分页 + 多维筛选）；每条带业务语义 `module/module_group/action/target/summary` 与 `role_label` |
+| GET | /api/audit/facets | admin,boss | 筛选下拉（账号/大类/子域/动作，只给库里真出现过的值） |
+| GET | /api/audit/stats?days=14 | admin,boss | 统计：按大类/子域/动作/人汇总 + 按日趋势 + 失败数 |
+| GET | /api/audit/verify?from=&to= | admin,boss | **哈希链校验**：`{ok,checked,total,problems[],head,tail,state}`；problem.code = `HASH`(内容被改) / `LINK`(链接断) / `SEQ_GAP`(序号断档) / `HEAD_GAP`+`HEAD_HASH`(头部被删) / `TAIL_SEQ`+`TAIL_HASH`(尾部被删)，都带 `seq` |
+| GET | /api/audit/export?（同上筛选） | admin,boss | CSV（带 BOM）：4 行「导出人/范围/条数/序号区间/链校验结论」+ 13 列明细 + 每行哈希；响应头 `X-Audit-Rows`、`X-Audit-Seq-Range`、`X-Audit-Verified`、`X-Audit-File-SHA256`；空范围返回 400 |
+| POST | /api/audit/archive | audit.archive（仅 admin） | `{before_days≥30, note}` 归档：落 JSONL + 文件 sha256 → 写 `audit_archives` → 从主表移出 → 推进 `anchor_seq/anchor_hash`；**只切连续前缀** |
+| GET | /api/audit/archives | admin,boss | 归档记录（编号/序号区间/条数/文件/文件哈希/截止日期） |
+
+> **日志三条边界**：① 只记「谁在什么时候动了什么」，**永不读 req.body**（body 有密码和金额，记了日志本身就成了泄密源）；
+> ② 失败请求也记（401/403 反复出现是在试探权限）；③ **没有删除接口** —— 只追加，要减量只能归档且必须留文件与哈希。
+>
+> **为什么另存 `audit_chain_state`**：光有哈希链只防「改」不防「删」—— 删掉尾部 100 条，剩下的链依然自洽。
+> 水位表单独记 `last_seq/last_hash`，删日志不动它，「库里最大序号 < 水位」就是被删了。
 | GET | /api/assistant/insights | 登录 | 风险预警（逾期/临期/缺货/工序超期/工资未发/报价到期/资产年检/费用超支），每条带 `to` 跳转 |
 | GET | /api/assistant/report?period=YYYY-MM | 登录 | 经营解读：订单/交付/生产/库存/报价/费用/人工指标 + 自动结论（conclusions/risks/tips）+ 环比与同比 |
 | POST | /api/assistant/query | 登录 | 自然语言查数 `{q}`，返回 `{intent,title,summary,columns,rows,links}`；支持订单号、客户名、款号/SKU 及「逾期/缺货/库存/工资/费用/报价/审批/生产/资产」等主题 |

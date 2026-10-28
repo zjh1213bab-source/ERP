@@ -203,6 +203,12 @@ cd backend && node scripts/sweep-pages.js
 cd backend && MSYS_NO_PATHCONV=1 node scripts/diag-scroll.js /access-review "职责分离" --shot=access-review
 #   Git Bash 下路径参数会被转成 Windows 路径，必须加 MSYS_NO_PATHCONV=1（否则 URL 变 http://127.0.0.1:3000D:/...）
 
+# 审计归档演练（在临时库副本上真跑：改时间→重算链→归档→验文件/水位/链，不动生产库）
+cd backend && node scripts/drill-audit-archive.js 300
+
+# 审计页面取证（列表 / 链校验 / 只看失败 / 移动端，文本为准不靠肉眼）
+cd backend && node scripts/shot-audit.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

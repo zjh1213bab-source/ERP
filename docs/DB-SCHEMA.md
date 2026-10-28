@@ -38,7 +38,9 @@
 | attachments | id, target_type(order/techpack), target_id, filename, url, size, mime, uploader |
 | employees | id, code, name, department_id, position, phone, hire_date, status(active/left), remark |
 | leave_requests | id, employee_id, employee_name, type(annual/sick/personal/other), start_date, end_date, days, reason, status(pending/approved/rejected), reviewed_by |
-| audit_logs | id, username, method, path, status, ip, created_at |
+| audit_logs | id, username, method, path, status, ip, created_at, **seq, prev_hash, hash, module, module_group, action, target, summary, actor_role, duration_ms**；`hash = sha256(prev_hash|seq|账号|方法|路径|状态|时间)`，**改任一字段即断链**；语义列可重算、不参与哈希 |
+| audit_chain_state | id(恒为 1), last_seq, last_hash, anchor_seq, anchor_hash, updated_at；**删日志不动这张表** —— 最大 seq < last_seq 即尾部被删；归档推进 anchor 以区分「合法移除」与「偷删」 |
+| audit_archives | archive_no, from_seq, to_seq, rows, first_hash, last_hash, file, file_sha256, cutoff, note, created_by, created_at；归档只切**连续前缀**，否则剩余行 seq 断档、之后每次校验都报「头部不连续」 |
 | approval_flows | id, name, target_type(cost), min_amount, max_amount, steps(JSON[{role,name}]), active |
 | approval_instances | id, target_type, target_id, flow_id, current_step, status(pending/approved/rejected) |
 | approval_tasks | id, instance_id, step_no, role, step_name, status, approver, remark, acted_at |

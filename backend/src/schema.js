@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 613 个对象
- * （300 张表 + 313 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 619 个对象
+ * （302 张表 + 317 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -32,7 +32,7 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS attachments (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,                  -- order / techpack\n  target_id INTEGER NOT NULL,\n  filename TEXT NOT NULL,\n  url TEXT NOT NULL,\n  size INTEGER DEFAULT 0,\n  mime TEXT,\n  uploader TEXT,\n  created_at TEXT NOT NULL\n, cat TEXT NOT NULL DEFAULT 'other', note TEXT, node_id INTEGER, taken_at TEXT, deleted_at TEXT);",
   "CREATE TABLE IF NOT EXISTS employees (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT,\n  name TEXT NOT NULL,\n  department_id INTEGER,\n  position TEXT,\n  phone TEXT,\n  hire_date TEXT,\n  status TEXT NOT NULL DEFAULT 'active',      -- active / left\n  remark TEXT,\n  created_at TEXT NOT NULL\n, base_salary REAL DEFAULT 0, leave_date TEXT, employment_type TEXT DEFAULT 'fulltime', regular_date TEXT, id_card TEXT, emergency_contact TEXT, image_url TEXT);",
   "CREATE TABLE IF NOT EXISTS leave_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  employee_id INTEGER,\n  employee_name TEXT,\n  type TEXT NOT NULL DEFAULT 'annual',        -- annual 年假 / sick 病假 / personal 事假 / other\n  start_date TEXT,\n  end_date TEXT,\n  days REAL DEFAULT 0,\n  reason TEXT,\n  status TEXT NOT NULL DEFAULT 'pending',     -- pending / approved / rejected\n  reviewed_by TEXT,\n  created_at TEXT NOT NULL\n);",
-  "CREATE TABLE IF NOT EXISTS audit_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  username TEXT,\n  method TEXT,\n  path TEXT,\n  status INTEGER,\n  ip TEXT,\n  created_at TEXT NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS audit_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  username TEXT,\n  method TEXT,\n  path TEXT,\n  status INTEGER,\n  ip TEXT,\n  created_at TEXT NOT NULL\n, seq INTEGER, prev_hash TEXT, hash TEXT, module TEXT, action TEXT, target TEXT, summary TEXT, actor_role TEXT, duration_ms INTEGER, module_group TEXT);",
   "CREATE TABLE IF NOT EXISTS approval_flows (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  name TEXT NOT NULL,\n  target_type TEXT NOT NULL DEFAULT 'cost',\n  min_amount REAL DEFAULT 0,\n  max_amount REAL DEFAULT 999999999,\n  steps TEXT NOT NULL,                         -- JSON: [{\"role\":\"finance\",\"name\":\"财务审核\"}]\n  active INTEGER DEFAULT 1,\n  created_at TEXT NOT NULL\n, sla_hours REAL DEFAULT 24, escalate_role TEXT);",
   "CREATE TABLE IF NOT EXISTS approval_instances (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,\n  target_id INTEGER NOT NULL,\n  flow_id INTEGER,\n  current_step INTEGER DEFAULT 1,\n  status TEXT DEFAULT 'pending',               -- pending / approved / rejected\n  created_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS approval_tasks (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  instance_id INTEGER NOT NULL,\n  step_no INTEGER NOT NULL,\n  role TEXT NOT NULL,\n  step_name TEXT,\n  status TEXT DEFAULT 'pending',               -- pending / approved / rejected\n  approver TEXT,\n  remark TEXT,\n  acted_at TEXT\n, due_at TEXT, sla_hours REAL, remind_count INTEGER NOT NULL DEFAULT 0, last_remind_at TEXT, escalate_level TEXT, escalated_to TEXT, escalated_at TEXT, escalate_reason TEXT, original_approver TEXT, delegate_by TEXT, received_at TEXT, received_by TEXT);",
@@ -618,5 +618,11 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS piece_wage_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  run_id INTEGER NOT NULL,\n  employee_id INTEGER,\n  employee_code TEXT,\n  employee_name TEXT,\n  department TEXT,\n  style_no TEXT,\n  process_name TEXT,\n  order_id INTEGER,\n  order_no TEXT,\n  bundle_no TEXT,\n  raw_qty REAL DEFAULT 0,                 -- 报工原始合格数\n  qty REAL DEFAULT 0,                     -- 计件数量（超报封顶后）\n  capped INTEGER DEFAULT 0,               -- 是否被扎件数封顶\n  unit_price REAL DEFAULT 0,\n  amount REAL DEFAULT 0,\n  rate_id INTEGER,\n  rate_source TEXT,                       -- style / generic\n  matched_by TEXT,                        -- id / name（怎么认出这个人的）\n  created_at TEXT\n, att_status TEXT, att_flagged INTEGER NOT NULL DEFAULT 0, excluded INTEGER NOT NULL DEFAULT 0, exclude_reason TEXT, cap_kind TEXT, report_date TEXT);",
   "CREATE INDEX IF NOT EXISTS idx_piece_item_run ON piece_wage_items(run_id, employee_id);",
   "CREATE INDEX IF NOT EXISTS idx_piece_item_emp ON piece_wage_items(employee_id, run_id);",
-  "CREATE TABLE IF NOT EXISTS piece_wage_config (\n  id INTEGER PRIMARY KEY CHECK (id = 1),   -- 单行配置\n  daily_cap_qty REAL NOT NULL DEFAULT 0,   -- 每人每日计件上限（件）；0 = 不限制\n  month_cap INTEGER NOT NULL DEFAULT 1,    -- 1 = 按「日上限 × 出勤天数」封顶月度件数\n  attendance_policy TEXT NOT NULL DEFAULT 'warn',\n                                           -- warn 照算但确认需说明 / exclude 剔除不计 / block 不许确认\n  updated_by TEXT,\n  updated_at TEXT\n);"
+  "CREATE TABLE IF NOT EXISTS piece_wage_config (\n  id INTEGER PRIMARY KEY CHECK (id = 1),   -- 单行配置\n  daily_cap_qty REAL NOT NULL DEFAULT 0,   -- 每人每日计件上限（件）；0 = 不限制\n  month_cap INTEGER NOT NULL DEFAULT 1,    -- 1 = 按「日上限 × 出勤天数」封顶月度件数\n  attendance_policy TEXT NOT NULL DEFAULT 'warn',\n                                           -- warn 照算但确认需说明 / exclude 剔除不计 / block 不许确认\n  updated_by TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_seq ON audit_logs(seq);",
+  "CREATE INDEX IF NOT EXISTS idx_audit_module ON audit_logs(module, created_at);",
+  "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action, created_at);",
+  "CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(username, created_at);",
+  "CREATE TABLE IF NOT EXISTS audit_chain_state (\n  id INTEGER PRIMARY KEY CHECK (id = 1),\n  last_seq INTEGER NOT NULL DEFAULT 0,      -- 已写出的最大序号\n  last_hash TEXT,                           -- 最后一条的 hash\n  anchor_seq INTEGER NOT NULL DEFAULT 0,    -- 归档水位：这之前的日志已归档移出主表\n  anchor_hash TEXT,\n  updated_at TEXT\n);",
+  "CREATE TABLE IF NOT EXISTS audit_archives (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  archive_no TEXT UNIQUE,\n  from_seq INTEGER,\n  to_seq INTEGER,\n  rows INTEGER,\n  first_hash TEXT,\n  last_hash TEXT,\n  file TEXT,                                -- data/audit-archives/AUD20261028-01.jsonl\n  file_sha256 TEXT,\n  cutoff TEXT,                              -- 归档的保留期分界\n  note TEXT,\n  created_by TEXT,\n  created_at TEXT\n);"
 ];

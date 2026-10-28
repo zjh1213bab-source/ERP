@@ -29,6 +29,10 @@ router.post(
       config.jwtSecret,
       { expiresIn: config.tokenExpiresIn }
     );
+    // 登录这一刻还没有 req.user（token 刚签发），中间件默认会记成 anonymous。
+    // 这里把人和岗位挂到 req 上，审计里就能看到「谁在几点登录」而不是一堆匿名记录。
+    req.auditUser = u.username;
+    req.auditRole = u.role;
     return ok(res, {
       token,
       user: { id: u.id, username: u.username, name: u.name, role: u.role }

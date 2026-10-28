@@ -5967,6 +5967,114 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 操作日志 / 审计 =================
+  {
+    console.log('\n[操作日志 / 审计]');
+    const { db } = require('../src/db');
+    const loginAs = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    };
+
+    const list1 = await req('/api/audit?pageSize=3', { token });
+    const lrows = (list1.json.data && list1.json.data.rows) || [];
+    ok('管理员可读操作日志', list1.status === 200 && Array.isArray(lrows), `HTTP ${list1.status}`);
+    ok('分页参数生效（要 3 条给 3 条，不被下限卡住）', lrows.length === 3, `rows=${lrows.length}`);
+    ok('列表带业务语义（大类/模块/动作/摘要）',
+      lrows.every((r) => r.group_label && r.module_label && r.action_label && r.summary),
+      JSON.stringify(lrows[0] && [lrows[0].group_label, lrows[0].module_label]));
+
+    const failOnly = await req('/api/audit?result=fail&pageSize=5', { token });
+    ok('只看失败筛选生效', ((failOnly.json.data && failOnly.json.data.rows) || []).every((r) => r.status >= 400),
+      JSON.stringify(((failOnly.json.data && failOnly.json.data.rows) || []).map((r) => r.status)));
+
+    const byGroup = await req('/api/audit?group=finance&pageSize=5', { token });
+    ok('按大类筛选生效', ((byGroup.json.data && byGroup.json.data.rows) || []).every((r) => r.module_group === 'finance'),
+      JSON.stringify(((byGroup.json.data && byGroup.json.data.rows) || []).map((r) => r.module_group)));
+
+    const facets = await req('/api/audit/facets', { token });
+    ok('筛选下拉只给库里出现过的值',
+      facets.status === 200 && (facets.json.data.groups || []).length > 0 && (facets.json.data.actions || []).length > 0,
+      `HTTP ${facets.status}`);
+
+    const stat = await req('/api/audit/stats?days=7', { token });
+    ok('统计含大类汇总与趋势',
+      stat.status === 200 && (stat.json.data.by_group || []).length > 0 && Array.isArray(stat.json.data.trend),
+      `HTTP ${stat.status}`);
+
+    const tailSeq = Number(db.prepare('SELECT MAX(seq) m FROM audit_logs').get().m) || 0;
+    const scope = '?from=' + Math.max(1, tailSeq - 500);
+
+    const v1 = await req('/api/audit/verify' + scope, { token });
+    ok('链校验通过且给出水位',
+      v1.status === 200 && v1.json.data.ok === true && Number(v1.json.data.state.last_seq) > 0,
+      JSON.stringify(v1.json.data.problems));
+
+    // --- 篡改检测：改一条日志的路径，链必须断，且要点名序号 ---
+    const victim = db.prepare('SELECT id, seq, path FROM audit_logs WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1 OFFSET 2').get();
+    db.prepare('UPDATE audit_logs SET path = ? WHERE id = ?').run('/api/tampered/record', victim.id);
+    const vBad = await req('/api/audit/verify' + scope, { token });
+    ok('改过一条日志 → 校验报 HASH 并指出序号',
+      vBad.json.data.ok === false && (vBad.json.data.problems || []).some((p) => p.code === 'HASH' && Number(p.seq) === Number(victim.seq)),
+      JSON.stringify((vBad.json.data.problems || []).slice(0, 2)));
+    db.prepare('UPDATE audit_logs SET path = ? WHERE id = ?').run(victim.path, victim.id);
+    const vFix = await req('/api/audit/verify' + scope, { token });
+    ok('恢复原文后链重新通过', vFix.json.data.ok === true, JSON.stringify((vFix.json.data.problems || []).slice(0, 2)));
+
+    // --- 删尾部检测：只删最后一条，链自身仍自洽，只能靠水位抓 ---
+    const tail = db.prepare('SELECT * FROM audit_logs WHERE seq IS NOT NULL ORDER BY seq DESC LIMIT 1').get();
+    db.prepare('DELETE FROM audit_logs WHERE id = ?').run(tail.id);
+    const vTail = await req('/api/audit/verify' + scope, { token });
+    ok('删掉最后一条 → 校验报「尾部缺失」（水位机制）',
+      vTail.json.data.ok === false && (vTail.json.data.problems || []).some((p) => p.code === 'TAIL_SEQ'),
+      JSON.stringify((vTail.json.data.problems || []).slice(0, 2)));
+    const cols = Object.keys(tail).join(',');
+    const ph = Object.keys(tail).map(() => '?').join(',');
+    db.prepare(`INSERT INTO audit_logs (${cols}) VALUES (${ph})`).run(...Object.values(tail));
+    const vBack = await req('/api/audit/verify' + scope, { token });
+    ok('把那条原样插回 → 链恢复', vBack.json.data.ok === true, JSON.stringify((vBack.json.data.problems || []).slice(0, 2)));
+
+    // --- 导出 ---
+    const ex = await fetch(BASE + '/api/audit/export?group=hr', { headers: { Authorization: 'Bearer ' + token } });
+    const txt = await ex.text();
+    ok('导出 CSV 返回 200', ex.status === 200, `HTTP ${ex.status}`);
+    ok('导出带范围声明与链校验结论', txt.includes('# 操作日志导出') && txt.includes('链校验'), txt.slice(0, 40));
+    ok('导出带文件哈希与序号区间响应头',
+      !!ex.headers.get('x-audit-file-sha256') && !!ex.headers.get('x-audit-seq-range'),
+      ex.headers.get('x-audit-seq-range'));
+    ok('导出列含「大类/模块/动作」', txt.includes('大类,模块,动作'), '');
+
+    // --- 归档：参数与空档拦截（成功路径见 scripts/drill-audit-archive.js） ---
+    const archBad = await req('/api/audit/archive', { method: 'POST', token, body: { before_days: 7 } });
+    ok('保留期少于 30 天被拒（那等于删日志）', archBad.status === 400, `HTTP ${archBad.status}`);
+    const archNone = await req('/api/audit/archive', { method: 'POST', token, body: { before_days: 3650 } });
+    ok('没有更早日志时给出明确提示', archNone.status === 400, `HTTP ${archNone.status} ${archNone.json.message || ''}`);
+    const arcs = await req('/api/audit/archives', { token });
+    ok('归档记录可读', arcs.status === 200 && Array.isArray(arcs.json.data), `HTTP ${arcs.status}`);
+
+    // --- 权限 ---
+    const noAuthAudit = await req('/api/audit');
+    ok('审计日志需要登录', noAuthAudit.status === 401, `HTTP ${noAuthAudit.status}`);
+    const hrTok2 = await loginAs('hr01');
+    if (hrTok2) {
+      const hrDeny = await req('/api/audit', { token: hrTok2 });
+      ok('人事看不到全公司操作日志', hrDeny.status === 403, `HTTP ${hrDeny.status}`);
+      const hrArc = await req('/api/audit/archive', { method: 'POST', token: hrTok2, body: { before_days: 90 } });
+      ok('人事不能归档（破坏性动作）', hrArc.status === 403, `HTTP ${hrArc.status}`);
+    } else {
+      ok('人事看不到全公司操作日志 / 不能归档', true, '没有 hr01，跳过');
+    }
+    const bossTok = await loginAs('boss');
+    if (bossTok) {
+      const bossRead = await req('/api/audit?pageSize=5', { token: bossTok });
+      ok('老板可读操作日志（只读）', bossRead.status === 200, `HTTP ${bossRead.status}`);
+      const bossArc = await req('/api/audit/archive', { method: 'POST', token: bossTok, body: { before_days: 90 } });
+      ok('老板不能归档', bossArc.status === 403, `HTTP ${bossArc.status}`);
+    } else {
+      ok('老板可读 / 不能归档', true, '没有 boss 账号，跳过');
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');
