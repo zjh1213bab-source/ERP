@@ -164,7 +164,8 @@ const navModel = [
       { label: '审批中心', to: '/approvals' },
       { label: '超时升级与SOP', to: '/process' },
       { label: '审批流配置', to: '/approval-flows', adminOnly: true },
-      { label: '流程变更与发布', to: '/flow-changes', adminOnly: true }
+      { label: '流程变更与发布', to: '/flow-changes', adminOnly: true },
+      { label: '数据隐私与审计', to: '/privacy', adminOnly: true }
     ]
   },
   {

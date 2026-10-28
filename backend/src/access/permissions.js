@@ -213,6 +213,22 @@ const PERMS = {
   // 流程变更：改审批流等于改制度，只给管理员；老板只读（能看谁在什么时候改了哪条流程）
   'flowchange.read': ['admin', 'boss'],
   'flowchange.write': ['admin'],
+
+  // ===== 字段级明文权限（TS-N18-03）=====
+  // 一条原则：**谁真的需要看，才给谁**。
+  //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
+  //   payroll.sensitive 只给财务与人事 —— **admin 不在里面**，这是原型的硬要求
+  //   （「管理员技术权限不默认可读工资」）；脱敏层按「角色基础权限」判定，
+  //   所以 admin 即便在 requireRole 里恒通过，也读不到工资明文，只能走一次性查看。
+  'hr.pii': ['hr'],
+  'crm.pii': ['sales', 'finance'],
+  'supplier.pii': ['warehouse', 'finance'],
+  'payroll.sensitive': ['finance', 'hr'],
+  'bankaccount.sensitive': ['finance'],
+  'contract.sensitive': ['finance', 'boss'],
+  // 看脱敏规则与访问日志（日志是元数据，不是明文，所以 admin 可看）
+  'privacy.read': ['admin', 'boss'],
+  'privacy.admin': ['admin'],
   'paymentreq.read': ['admin', 'boss', 'finance', 'warehouse'],
   'paymentreq.write': ['admin', 'finance', 'warehouse'],
   'paymentreq.pay': ['admin', 'finance', 'warehouse'],

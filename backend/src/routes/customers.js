@@ -10,6 +10,8 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const privacy = require('../services/privacy');
+const { reqCtx } = require('../utils/reqCtx');
 
 const router = express.Router();
 const WRITE = ['admin', 'sales'];
@@ -34,7 +36,8 @@ router.get(
       (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') +
       'ORDER BY id DESC';
     const rows = db.prepare(sql).all(...params);
-    return ok(res, rows);
+    // 客户手机与邮箱按 crm.pii 脱敏（销售/财务可看明文，其余人看到掩码）
+    return ok(res, privacy.maskRows('customers', rows, reqCtx(req, { action: 'list' })));
   })
 );
 

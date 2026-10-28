@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 661 个对象
- * （318 张表 + 343 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 666 个对象
+ * （320 张表 + 346 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -666,5 +666,10 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS flow_changes (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  change_no TEXT UNIQUE,                        -- FC202610280001\n  flow_key TEXT NOT NULL,\n  target_type TEXT NOT NULL,\n  title TEXT NOT NULL,\n  reason TEXT NOT NULL,\n  impact_nodes TEXT,                            -- 影响节点（逗号分隔，人工填写）\n  from_version_id INTEGER,\n  to_version_id INTEGER,\n  status TEXT NOT NULL DEFAULT 'draft',         -- draft / trialed / published / rolled_back / rejected\n  trial_summary TEXT,\n  trial_at TEXT,\n  inflight_count INTEGER DEFAULT 0,             -- 发布时的在途单数（影响面）\n  inflight_migrated INTEGER DEFAULT 0,\n  migration_mode TEXT DEFAULT 'keep_old',       -- keep_old 在途单不动 / migrate 迁到新版本\n  migration_note TEXT,\n  critical_role_note TEXT,                      -- 删关键角色时必须写理由\n  effective_from TEXT,\n  created_by TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
   "CREATE INDEX IF NOT EXISTS idx_flowchg_key ON flow_changes(flow_key);",
   "CREATE TABLE IF NOT EXISTS flow_audits (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  change_no TEXT,\n  flow_key TEXT,\n  version_id INTEGER,\n  action TEXT NOT NULL,                         -- init / create / trial / publish / rollback / migrate / reject\n  actor TEXT,\n  detail TEXT,                                  -- JSON\n  created_at TEXT NOT NULL\n);",
-  "CREATE INDEX IF NOT EXISTS idx_flowaudit_key ON flow_audits(flow_key);"
+  "CREATE INDEX IF NOT EXISTS idx_flowaudit_key ON flow_audits(flow_key);",
+  "CREATE TABLE IF NOT EXISTS field_guards (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  table_name TEXT NOT NULL,                     -- employees / payrolls / customers ...\n  field_name TEXT NOT NULL,                     -- id_card / net_pay / phone ...\n  label TEXT NOT NULL,                          -- 中文名（页面上显示）\n  mask_type TEXT NOT NULL DEFAULT 'partial',    -- partial 部分保留 / hide 完全隐藏\n  keep_prefix INTEGER NOT NULL DEFAULT 0,       -- partial 时保留前几位\n  keep_suffix INTEGER NOT NULL DEFAULT 0,       -- partial 时保留后几位\n  required_perm TEXT NOT NULL,                  -- 看明文需要的权限点\n  log_access INTEGER NOT NULL DEFAULT 1,        -- 是否留痕（高敏字段必须 1）\n  require_reason INTEGER NOT NULL DEFAULT 0,    -- 无权限者查看时是否必须写理由\n  category TEXT NOT NULL DEFAULT 'pii',         -- pii / payroll / bank / contract\n  enabled INTEGER NOT NULL DEFAULT 1,\n  note TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_fieldguard ON field_guards(table_name, field_name);",
+  "CREATE TABLE IF NOT EXISTS sensitive_access_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  username TEXT,\n  user_name TEXT,\n  role TEXT,\n  table_name TEXT NOT NULL,\n  field_name TEXT,\n  target_id INTEGER,\n  target_label TEXT,                            -- 看的是谁（员工姓名/客户名）\n  action TEXT NOT NULL,                         -- view 查看明细 / list 列表带到 / export 导出 / reveal 一次性查看\n  granted INTEGER NOT NULL DEFAULT 0,           -- 1 有权限看到明文 / 0 走了申请通道\n  reason TEXT,                                  -- granted=0 时必填\n  ip TEXT,\n  ua TEXT,\n  created_at TEXT NOT NULL\n, row_count INTEGER NOT NULL DEFAULT 1);",
+  "CREATE INDEX IF NOT EXISTS idx_salog_user ON sensitive_access_logs(username);",
+  "CREATE INDEX IF NOT EXISTS idx_salog_time ON sensitive_access_logs(created_at);"
 ];

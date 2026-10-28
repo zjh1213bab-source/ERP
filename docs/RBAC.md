@@ -672,6 +672,11 @@
 | pricing | POST | `/pools/:id/distribute` | ✅ | — | — | — | — | — | ✅ | — |
 | pricing | POST | `/pools/:id/expenses` | ✅ | — | — | — | — | — | ✅ | — |
 | pricing | POST | `/pools/:id/revert` | ✅ | — | — | — | — | — | ✅ | — |
+| privacy | GET | `/logs` | ✅ | ✅ | — | — | — | — | — | — |
+| privacy | GET | `/meta` | ✅ | ✅ | — | — | — | — | — | — |
+| privacy | GET | `/rules` | ✅ | ✅ | — | — | — | — | — | — |
+| privacy | PUT | `/rules/:id` | ✅ | — | — | — | — | — | — | — |
+| privacy | GET | `/stats` | ✅ | ✅ | — | — | — | — | — | — |
 | process | GET | `/board` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | process | GET | `/delegates` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | process | POST | `/delegates` | ✅ | — | — | — | — | — | — | ✅ |
@@ -1034,6 +1039,14 @@
 | `prodreport.read` | 系统管理员、总经理、生产车间、财务会计、技术打版、销售跟单 |
 | `flowchange.read` | 系统管理员、总经理 |
 | `flowchange.write` | 系统管理员 |
+| `hr.pii` | 人事行政 |
+| `crm.pii` | 销售跟单、财务会计 |
+| `supplier.pii` | 仓库采购、财务会计 |
+| `payroll.sensitive` | 财务会计、人事行政 |
+| `bankaccount.sensitive` | 财务会计 |
+| `contract.sensitive` | 财务会计、总经理 |
+| `privacy.read` | 系统管理员、总经理 |
+| `privacy.admin` | 系统管理员 |
 | `paymentreq.read` | 系统管理员、总经理、财务会计、仓库采购 |
 | `paymentreq.write` | 系统管理员、财务会计、仓库采购 |
 | `paymentreq.pay` | 系统管理员、财务会计、仓库采购 |

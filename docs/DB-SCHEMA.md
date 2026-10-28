@@ -1058,3 +1058,24 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 >
 > **生效日不能倒签**：`effective_from < localDate()` 直接 400。倒签等于偷偷改历史，
 > 上个月的审批记录会突然「不符合当时生效的流程」。
+
+## 字段级脱敏与访问审计（M-PRIVACY）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| field_guards | table_name, field_name, label, mask_type(partial/hide), keep_prefix, keep_suffix, required_perm, log_access, require_reason, category(pii/payroll/bank/contract), enabled, note | 字段规则。唯一索引 `(table_name, field_name)`。`keep_prefix/suffix` 是「保留前几位/后几位」，手机 3/4、身份证 6/4、银行后 4 |
+| sensitive_access_logs | username, user_name, role, table_name, field_name, target_id, target_label, action(list/view/export/reveal), granted, reason, row_count, ip, ua, created_at | 访问留痕。**列表级一次请求写一条**（记 `row_count`），不逐行写 —— 25 个员工逐行写就是 50 条日志，日志本身会变成噪音 |
+
+> **判定用的是角色基础权限，不是 `hasPerm`**：
+> `access.hasPerm()` 里 admin 恒返回 true。脱敏层若调它，管理员就默认可读全公司工资。
+> 实际实现取 `access.effective().base`（角色本身配置的权限点）：
+> admin 的 base 里没有 `payroll.sensitive` 就是看不到，只能走一次性查看。
+>
+> **`granted` 字段区分两类访问**：`1` = 有权限直接看到明文；`0` = 无权限走「写理由一次性查看」。
+> 出数据安全事件时这两类性质完全不同，混在一起就没法追溯。
+>
+> **高敏分类（payroll / bank / contract）的 `log_access` 强制为 1**：
+> 规则页上的开关改不动，服务端在 `saveRule` 里硬写回 1 —— 关掉等于给「悄悄看」开后门。
+>
+> **`bank_accounts` 不进规则表**：`account_no` 是内部编码，真实账号只存 `account_masked`，
+> 本来就没有明文可脱。

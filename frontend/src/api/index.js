@@ -288,6 +288,15 @@ export const api = {  // 登录
   fcRollback: (id, d) => req(`/api/flow-changes/changes/${id}/rollback`, { method: 'POST', body: d }),
   fcReject: (id, d) => req(`/api/flow-changes/changes/${id}/reject`, { method: 'POST', body: d }),
   fcAudits: (params) => req('/api/flow-changes/audits' + qs(params)),
+
+  // 字段级脱敏与访问审计
+  pvMeta: () => req('/api/privacy/meta'),
+  pvRules: () => req('/api/privacy/rules'),
+  pvSaveRule: (id, d) => req(`/api/privacy/rules/${id}`, { method: 'PUT', body: d }),
+  pvReveal: (d) => req('/api/privacy/reveal', { method: 'POST', body: d }),
+  pvLogs: (params) => req('/api/privacy/logs' + qs(params)),
+  pvStats: () => req('/api/privacy/stats'),
+  pvCheck: (table) => req('/api/privacy/check?table=' + encodeURIComponent(table)),
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),
   resolveScan: (code) => req('/api/labels/resolve?code=' + encodeURIComponent(code)),

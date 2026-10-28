@@ -26,6 +26,8 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const privacy = require('../services/privacy');
+const { reqCtx } = require('../utils/reqCtx');
 
 const router = express.Router();
 const WRITE = ['admin', 'hr', 'finance'];
@@ -116,7 +118,8 @@ function listByPeriod(period, status) {
 // ---------- 列表 ----------
 router.get('/', authRequired, requireRole(READ), wrap(async (req, res) => {
   const { period = '', status = '' } = req.query;
-  return ok(res, listByPeriod(period, status));
+  // 工资金额一律走字段级脱敏：admin 技术权限不默认可读工资（原型的硬要求）
+  return ok(res, privacy.maskRows('payrolls', listByPeriod(period, status), reqCtx(req, { action: 'list' })));
 }));
 
 // ---------- 有数据的月份 ----------
@@ -169,7 +172,11 @@ function csvCell(v) {
 router.get('/export', authRequired, requireRole(READ), wrap(async (req, res) => {
   const period = String(req.query.period || '').trim();
   if (!period) return fail(res, 400, '缺少 period（YYYY-MM）');
-  const rows = listByPeriod(period);
+  // 导出是最大的泄漏口：无权限的人导出来必须是掩码，并且每次导出都留痕
+  const rawRows = listByPeriod(period);
+  const rows = privacy.maskRows('payrolls', rawRows, reqCtx(req, { action: 'export' }));
+  privacy.markExport('payrolls', ['base_salary', 'gross_pay', 'net_pay', 'tax', 'social_insurance', 'piece_wage'],
+    reqCtx(req, { note: `导出工资单 CSV ${period}`, row_count: rawRows.length }));
   const header = ['月份', '部门', '姓名', '基本工资', '应出勤', '实出勤', '请假', '缺勤',
     '加班小时', '加班费', '奖金', '补贴', '计件工资', '其他扣款', '个人社保', '个税', '应发', '实发', '状态', '备注'];
   const lines = [header.map(csvCell).join(',')];

@@ -10,6 +10,8 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const privacy = require('../services/privacy');
+const { reqCtx } = require('../utils/reqCtx');
 
 const router = express.Router();
 const WRITE = ['admin', 'tech', 'sales', 'warehouse'];
@@ -27,7 +29,8 @@ router.get('/', authRequired, wrap(async (req, res) => {
   }
   const sql = 'SELECT * FROM suppliers ' + (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') +
     'ORDER BY status, id DESC';
-  return ok(res, db.prepare(sql).all(...params));
+  // 供应商联系电话按 supplier.pii 脱敏
+  return ok(res, privacy.maskRows('suppliers', db.prepare(sql).all(...params), reqCtx(req, { action: 'list' })));
 }));
 
 router.get('/:id', authRequired, wrap(async (req, res) => {

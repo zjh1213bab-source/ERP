@@ -2876,3 +2876,49 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 **关键角色**：`finance`（财务）、`admin`（总经理）。删掉它们不是不能做，但会被记下来 ——
 这就是原型「关键财审、技术版本、分厂、质量和资金门槛不允许因加急被绕过」的落地。
+
+## 字段级脱敏与访问审计（`/api/privacy`）
+
+> 掩码发生在**服务端返回时**，不是前端隐藏。权限 `privacy.read`（admin/boss 看规则与日志）、
+> `privacy.admin`（改规则，仅 admin）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/privacy/meta | read | 字典（表/分类/掩码方式/权限点）+ 统计 |
+| GET | /api/privacy/rules | read | 脱敏规则（按表分组） |
+| PUT | /api/privacy/rules/:id | admin | 改掩码方式 / 保留位数 / 所需权限点 / 启停 |
+| POST | /api/privacy/reveal | 登录 | 一次性查看明文：`{table_name, field_name, target_id, reason}` |
+| GET | /api/privacy/logs | read | 访问日志（账号/表/字段/动作/是否授权/理由/条数） |
+| GET | /api/privacy/stats | read | 统计（规则数 / 今日访问 / 一次性查看 / 导出） |
+| GET | /api/privacy/check?table= | 登录 | 当前用户在该表上能看明文哪些字段 |
+
+**14 条默认规则（5 张表）**
+
+| 表 | 字段 | 方式 | 明文所需权限点 |
+|---|---|---|---|
+| employees | id_card / phone / emergency_contact | 身份证留前6后4；手机留前3后4；紧急联系人全掩码 | `hr.pii` |
+| employees | base_salary | 完全隐藏 | `payroll.sensitive` |
+| payrolls | base_salary / gross_pay / net_pay / tax / social_insurance / piece_wage | 完全隐藏 | `payroll.sensitive` |
+| customers | phone / email | 手机留前3后4；邮箱留前2+域名 | `crm.pii` |
+| suppliers | phone | 留前3后4 | `supplier.pii` |
+| admin_contracts | amount | 完全隐藏 | `contract.sensitive` |
+
+**判定口径（全篇最容易做错的一处）**
+
+`access.hasPerm()` 里 admin 恒返回 true。**脱敏层不能调它**，否则管理员默认可读全公司工资。
+这里用 `access.effective().base`（角色本身配置的权限点）判定：
+
+- 有该权限点 → 返回明文，记一条 `granted=1` 的日志
+- 没有（含 admin）→ 返回掩码；要明文必须走 `POST /reveal`，写理由，记 `granted=0`
+
+**四条硬约束**
+
+1. **工资/合同/银行三类的「留痕」开关关不掉**（服务端强制为 1）。
+2. **一次性查看必须写理由（≥6 字）**，一次只查一条记录的单个字段，不做批量。
+3. **导出也脱敏**：`GET /api/payrolls/export` 对无权限的人是 `***`，并记 `action='export'` 日志。
+4. **日志区分「有权限」与「申请查看」**（`granted` 字段）—— 出安全事件时性质完全不同。
+
+**为什么不脱敏 `bank_accounts.account_no`**
+
+那是内部编码（`CN-ICBC-001`），真实账号本来就只存 `account_masked`。
+强行脱敏内部编码只会让对账变难 —— 系统从一开始就没存真实明文账号。

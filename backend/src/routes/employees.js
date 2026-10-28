@@ -9,6 +9,8 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const privacy = require('../services/privacy');
+const { reqCtx } = require('../utils/reqCtx');
 
 const router = express.Router();
 const WRITE = ['admin', 'hr'];
@@ -23,11 +25,11 @@ router.get('/', authRequired, wrap(async (req, res) => {
     LEFT JOIN departments d ON d.id = e.department_id ` +
     (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY e.id DESC';
   const rows = db.prepare(sql).all(...params);
-  // 员工档案要全公司可选用（请假/考勤下拉），但身份证与基本工资只该人事与财务看到
-  const mine = req.user.roles && req.user.roles.length ? req.user.roles : [req.user.role];
-  const canSeePay = mine.some((r) => ['admin', 'boss', 'hr', 'finance'].includes(r));
-  if (canSeePay) return ok(res, rows);
-  return ok(res, rows.map((r) => ({ ...r, id_card: null, base_salary: null })));
+  // 员工档案要全公司可选用（请假/考勤下拉），但身份证/手机/紧急联系人/基本工资
+  // 只该人事与财务看到。这里不再手写角色白名单，统一走 privacy：
+  // 手写版把 admin 也算进「能看工资」，正好违反「管理员技术权限不默认可读工资」；
+  // 而且只处理了 id_card 与 base_salary，手机号与紧急联系人一直是明文。
+  return ok(res, privacy.maskRows('employees', rows, reqCtx(req, { action: 'list' })));
 }));
 
 router.get('/departments', authRequired, wrap(async (req, res) => {

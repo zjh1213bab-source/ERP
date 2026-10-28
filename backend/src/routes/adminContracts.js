@@ -15,6 +15,8 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const privacy = require('../services/privacy');
+const { reqCtx } = require('../utils/reqCtx');
 
 const router = express.Router();
 const READ = ['admin', 'boss', 'sales', 'tech', 'finance', 'production', 'warehouse', 'hr'];
@@ -269,7 +271,8 @@ router.get('/contracts', authRequired, requireRole(READ), wrap(async (req, res) 
   ).all(...params).map(contractView);
   if (expiring === '30') rows = rows.filter((r) => r.expiring === '30' || r.expiring === 'expired');
   if (expiring === '90') rows = rows.filter((r) => ['30', '90', 'expired'].includes(r.expiring));
-  return ok(res, { rows, dict: { type: CONTRACT_TYPE, status: CONTRACT_STATUS, ms_type: MS_TYPE } });
+  // 合同金额按 contract.sensitive 脱敏（财务与老板可看明文）
+  return ok(res, { rows: privacy.maskRows('admin_contracts', rows, reqCtx(req, { action: 'list' })), dict: { type: CONTRACT_TYPE, status: CONTRACT_STATUS, ms_type: MS_TYPE } });
 }));
 
 router.get('/contracts/:id', authRequired, requireRole(READ), wrap(async (req, res) => {

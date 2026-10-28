@@ -91,6 +91,7 @@ import Collections from './views/Collections.vue';
 import Exceptions from './views/Exceptions.vue';
 import ProdReport from './views/ProdReport.vue';
 import FlowChanges from './views/FlowChanges.vue';
+import Privacy from './views/Privacy.vue';
 import PrintBatch from './views/PrintBatch.vue';
 import ScanGo from './views/ScanGo.vue';
 import MobileHome from './views/MobileHome.vue';
@@ -130,6 +131,7 @@ const routes = [
       { path: 'exceptions', component: Exceptions, meta: { title: '异常日清' } },
       { path: 'prod-report', component: ProdReport, meta: { title: '生产交付与质量' } },
       { path: 'flow-changes', component: FlowChanges, meta: { title: '流程变更与发布' } },
+      { path: 'privacy', component: Privacy, meta: { title: '数据隐私与审计' } },
       { path: 'scan', component: Scan, meta: { title: '扫码查询' } },
       { path: 'approvals', component: Approvals, meta: { title: '审批中心' } },
       { path: 'assistant', component: Assistant, meta: { title: '智能助手' } },

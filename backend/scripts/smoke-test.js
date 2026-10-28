@@ -4964,7 +4964,10 @@ async function req(path, { method = 'GET', body, token } = {}) {
 
       const emp = await req('/api/employees', { token: st });
       const empRows = emp.status === 200 ? emp.json.data || [] : [];
-      const masked = empRows.length > 0 && empRows.every((e) => e.id_card === null && e.base_salary === null);
+      // 老版本是把字段置 null（页面显示空白，分不清「没填」还是「没权限」）；
+      // 现在统一走字段级脱敏：没权限时给掩码，所以这里同时接受 null 与含 * 的值
+      const hidden = (v) => v === null || v === undefined || (typeof v === 'string' && v.includes('*'));
+      const masked = empRows.length > 0 && empRows.every((e) => hidden(e.id_card) && hidden(e.base_salary));
       ok('销售可读员工花名册（选人用）但看不到身份证与基本工资',
         emp.status === 200 && masked, `HTTP ${emp.status} / ${empRows.length} 行`);
     }
@@ -7601,6 +7604,119 @@ async function req(path, { method = 'GET', body, token } = {}) {
       ok('老板不能改流程', bossWrite.status === 403, `HTTP ${bossWrite.status}`);
     } else {
       ok('老板可看 / 不能改流程', true, '没有 boss 账号，跳过');
+    }
+  }
+
+  // ================= 字段级脱敏与访问审计（TS-N18-03） =================
+  // 只读为主，会写少量访问日志（日志本来就该有），不留业务数据。
+  {
+    console.log('\n[字段级脱敏与访问审计]');
+    const asUser = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return (r.json && r.json.data && r.json.data.token) || '';
+    };
+    const hasMask = (v) => typeof v === 'string' && v.includes('*');
+
+    const rulesRes = await req('/api/privacy/rules', { token });
+    const rl = rulesRes.json.data || [];
+    ok('脱敏规则可读', rulesRes.status === 200 && rl.length >= 5, `${rl.length} 张表`);
+    ok('每个字段都写了所需权限点', rl.every((t) => t.fields.every((f) => !!f.required_perm)));
+    ok('工资类字段必须留痕', rl.filter((t) => t.table_name === 'payrolls')
+      .every((t) => t.fields.every((f) => f.log_access)), 'payrolls 有字段关了留痕');
+    ok('工资类要求的权限点是 payroll.sensitive', rl.find((t) => t.table_name === 'payrolls')
+      ?.fields.every((f) => f.required_perm === 'payroll.sensitive'));
+
+    // admin：技术权限不默认可读工资
+    const empAdmin = await req('/api/employees', { token });
+    const adminRows = empAdmin.json.data || [];
+    ok('管理员看员工：手机或工资被掩码', adminRows.some((r) => hasMask(r.phone) || hasMask(r.base_salary)),
+      JSON.stringify(adminRows.slice(0, 2).map((r) => ({ p: r.phone, s: r.base_salary }))));
+    const payAdmin = await req('/api/payrolls?period=2026-10', { token });
+    const payRows = payAdmin.json.data || [];
+    ok('管理员看工资被掩码（管理员技术权限不默认可读工资）',
+      payRows.length > 0 && payRows.every((r) => r.net_pay === '***'), JSON.stringify((payRows[0] || {}).net_pay));
+
+    // 财务：能看工资明文
+    const finTok = await asUser('fin01');
+    if (finTok) {
+      const payFin = await req('/api/payrolls?period=2026-10', { token: finTok });
+      const finRows = payFin.json.data || [];
+      ok('财务看工资是明文', finRows.length > 0 && finRows.some((r) => r.net_pay !== '***' && Number(r.net_pay) > 0),
+        JSON.stringify((finRows[0] || {}).net_pay));
+      const empFin = await req('/api/employees', { token: finTok });
+      ok('财务看员工手机被掩码（没有 hr.pii）',
+        (empFin.json.data || []).filter((r) => r.phone).every((r) => hasMask(r.phone)) || !(empFin.json.data || []).some((r) => r.phone));
+    } else {
+      ok('财务看工资是明文 / 员工手机被掩码', true, '没有 fin01，跳过');
+    }
+
+    // 人事：能看员工身份证与手机
+    const hrTok2 = await asUser('hr01');
+    if (hrTok2) {
+      const empHr = await req('/api/employees', { token: hrTok2 });
+      const hrRows = empHr.json.data || [];
+      ok('人事看员工是明文', hrRows.some((r) => r.phone && !hasMask(r.phone)), JSON.stringify((hrRows.find((r) => r.phone) || {}).phone));
+      const payHr = await req('/api/payrolls?period=2026-10', { token: hrTok2 });
+      ok('人事也能看工资（薪资复核职责）', (payHr.json.data || []).some((r) => r.net_pay !== '***'));
+    } else {
+      ok('人事看员工与工资是明文', true, '没有 hr01，跳过');
+    }
+
+    // 销售：客户手机明文、员工手机掩码
+    const salesTok2 = await asUser('sales01');
+    if (salesTok2) {
+      const cusSales = await req('/api/customers', { token: salesTok2 });
+      const sRows = cusSales.json.data || [];
+      ok('销售看客户手机是明文', sRows.some((r) => r.phone && !hasMask(r.phone)));
+      const empSales = await req('/api/employees', { token: salesTok2 });
+      ok('销售看员工手机被掩码', (empSales.json.data || []).filter((r) => r.phone).every((r) => hasMask(r.phone)));
+    } else {
+      ok('销售看客户明文 / 员工掩码', true, '没有 sales01，跳过');
+    }
+
+    // 一次性查看：必须写理由
+    const target = adminRows.find((r) => r.id);
+    const noReason2 = await req('/api/privacy/reveal', {
+      method: 'POST', token, body: { table_name: 'employees', field_name: 'id_card', target_id: target ? target.id : 1 }
+    });
+    ok('一次性查看不写理由被拦', noReason2.status === 400 && /理由/.test(noReason2.json.message || ''), `HTTP ${noReason2.status}`);
+    const withReason2 = await req('/api/privacy/reveal', {
+      method: 'POST', token,
+      body: { table_name: 'employees', field_name: 'id_card', target_id: target ? target.id : 1, reason: '冒烟测试：验证一次性查看与留痕是否生效' }
+    });
+    ok('写理由后可一次性查看', withReason2.status === 200 && 'value' in (withReason2.json.data || {}), `HTTP ${withReason2.status}`);
+
+    const logs2 = await req('/api/privacy/logs', { token });
+    const lrows = logs2.json.data || [];
+    ok('访问日志有记录', lrows.length > 0, `${lrows.length} 条`);
+    ok('日志区分「有权限」与「申请查看」', lrows.some((l) => l.granted === 1) && lrows.some((l) => l.granted === 0));
+    ok('日志记了表名与字段', lrows.every((l) => !!l.table_name));
+
+    // 导出的工资单必须是掩码
+    const csv2 = await fetch(BASE + '/api/payrolls/export?period=2026-10', { headers: { Authorization: 'Bearer ' + token } });
+    const csvTxt = await csv2.text();
+    ok('管理员导出工资单是掩码', csv2.status === 200 && csvTxt.includes('***'), `HTTP ${csv2.status}`);
+
+    // 留痕关不掉（工资类）
+    const payField = (rl.find((t) => t.table_name === 'payrolls') || { fields: [] }).fields[0];
+    if (payField) {
+      const tryOff = await req(`/api/privacy/rules/${payField.id}`, { method: 'PUT', token, body: { log_access: false } });
+      const after = ((tryOff.json.data || []).find((t) => t.table_name === 'payrolls') || { fields: [] }).fields
+        .find((f) => f.id === payField.id);
+      ok('工资类字段的留痕关不掉', tryOff.status === 200 && after && after.log_access === true,
+        after ? String(after.log_access) : '没取到');
+    } else {
+      ok('工资类字段的留痕关不掉', true, '没有工资规则，跳过');
+    }
+
+    // 权限：业务角色看不到规则与日志
+    if (salesTok2) {
+      const denyRules = await req('/api/privacy/rules', { token: salesTok2 });
+      ok('销售看不到脱敏规则', denyRules.status === 403, `HTTP ${denyRules.status}`);
+      const denyLogs = await req('/api/privacy/logs', { token: salesTok2 });
+      ok('销售看不到访问日志', denyLogs.status === 403, `HTTP ${denyLogs.status}`);
+    } else {
+      ok('销售看不到规则与日志', true, '没有 sales01，跳过');
     }
   }
 
