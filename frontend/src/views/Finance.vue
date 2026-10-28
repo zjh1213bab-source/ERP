@@ -91,6 +91,7 @@
             <td class="center">{{ r.aging_days }} 天</td>
             <td><span class="tag" :class="statusTag(r.status)">{{ statusText(r.status) }}</span></td>
             <td class="ops">
+              <button v-if="tab === 'ar' && r.customer_id" class="link-btn" @click="openStatement(r.customer_id)">对账单</button>
               <button v-if="r.status !== 'paid' && r.status !== 'void'" class="link-btn" @click="openPay(tab === 'ar' ? 'in' : 'out', r)">登记</button>
               <button v-if="r.status !== 'void' && !r.paid_amount" class="link-btn danger" @click="voidInvoice(r)">作废</button>
               <span v-if="r.status === 'void'" class="sub-cell">{{ r.void_reason || '已作废' }}</span>
@@ -271,7 +272,16 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '../api';
+
+const router = useRouter();
+
+/** 出客户对账单（对账函）：按客户 + 期间汇总开票/收款/结欠，A4 打印盖章 */
+function openStatement(customerId) {
+  if (!customerId) return alert('这张发票没关联客户档案，出不了对账单');
+  router.push('/statement/' + customerId);
+}
 
 const tab = ref('ar');
 const q = ref('');

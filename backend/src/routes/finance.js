@@ -15,6 +15,7 @@ const express = require('express');
 const { db, now, getSettings } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const { payValidOf, PAY_VALID } = require('../services/paymentStatus');
 
 const router = express.Router();
 const WRITE = ['admin', 'finance'];
@@ -65,9 +66,11 @@ function syncStatus(kind, invoiceId) {
   const { table } = INVOICE[kind];
   const inv = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(invoiceId);
   if (!inv || inv.status === 'void') return;
+  // 口径统一走 services/paymentStatus：原来这里只认 status='valid'，
+  // 而登记接口与 bank/crm 用的是 ('valid','confirmed') —— 口径不一致会让核销永远回写不上
   const paid = r2(db.prepare(
     `SELECT COALESCE(SUM(a.amount),0) AS s FROM payment_allocations a
-     JOIN payments p ON p.id = a.payment_id AND p.status = 'valid'
+     JOIN payments p ON p.id = a.payment_id AND ${payValidOf('p')}
      WHERE a.invoice_kind = ? AND a.invoice_id = ?`
   ).get(kind, invoiceId).s);
   let status = 'unpaid';
@@ -171,8 +174,8 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
     "SELECT COALESCE(SUM(amount - paid_amount),0) AS s FROM ar_invoices WHERE status IN ('unpaid','partial') AND due_date IS NOT NULL AND due_date < ?",
     today()
   );
-  const paidIn = sum("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='in' AND status='valid' AND pay_date >= ?", ms);
-  const paidOut = sum("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='out' AND status='valid' AND pay_date >= ?", ms);
+  const paidIn = sum(`SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='in' AND ${PAY_VALID} AND pay_date >= ?`, ms);
+  const paidOut = sum(`SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='out' AND ${PAY_VALID} AND pay_date >= ?`, ms);
 
   // 美金口径：外贸客户欠的是美金，本币数字受汇率波动影响，业务更需要看原币
   const usdOpen = sum(

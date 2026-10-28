@@ -101,6 +101,8 @@
 | GET/POST | /api/leaves | 读:登录 / 写:admin,sales | 请假列表/新增 |
 | POST | /api/leaves/:id/review | admin,sales | 审批 `{approve}` |
 | DELETE | /api/leaves/:id | admin,sales | 删除 |
+| GET | /api/statements/customers | admin,boss,finance,sales | 有往来的客户 + `open_amount`（未收发票）/ `unallocated`（已到账未核销）/ `real_open`（实际结欠） |
+| GET | /api/statements/:customerId?from=&to= | 同上 | **客户对账单（对账函）**：期初 / 本期开票 / 本期收款 / 期末结欠 + 逐笔流水（滚动余额）；`check_diff≠0` 表示流水口径与「未收发票 − 未核销」不符（账坏了，不能发客户） |
 | GET | /api/audit?from=&to=&username=&group=&action=&result=&q=&page=&pageSize= | admin,boss | 操作日志列表（分页 + 多维筛选）；每条带业务语义 `module/module_group/action/target/summary` 与 `role_label` |
 | GET | /api/audit/facets | admin,boss | 筛选下拉（账号/大类/子域/动作，只给库里真出现过的值） |
 | GET | /api/audit/stats?days=14 | admin,boss | 统计：按大类/子域/动作/人汇总 + 按日趋势 + 失败数 |

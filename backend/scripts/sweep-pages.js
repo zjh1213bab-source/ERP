@@ -38,6 +38,9 @@ function withDynamicPages(base) {
       out.push('/payslip/' + r.id);
       out.push('/payslip/' + r.id + '?mode=public');
     }
+    // 对账单要真实客户 id：取第一个有发票的
+    const c = db.prepare("SELECT customer_id AS id FROM ar_invoices WHERE status != 'void' AND customer_id IS NOT NULL LIMIT 1").get();
+    if (c) out.push('/statement/' + c.id);
   } catch (e) { /* 库还没建好就跳过 */ }
   return out;
 }

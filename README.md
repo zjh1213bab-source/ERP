@@ -215,6 +215,12 @@ cd backend && node scripts/shot-orders-batch.js
 # 计件工资条 / 车间公示表取证（含 print 媒体模拟，验 A4 分页）
 cd backend && node scripts/shot-payslip.js
 
+# 应收/应付核销一致性体检（只读；加 --fix 按核销记录回写 paid_amount）
+cd backend && node scripts/check-ar-consistency.js
+
+# 客户对账单取证（屏幕版 + print 媒体）
+cd backend && node scripts/shot-statement.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

@@ -53,6 +53,7 @@ const importRoutes = require('./routes/imports');
 const priceTierRoutes = require('./routes/priceTiers');
 const quotationRoutes = require('./routes/quotations');
 const pieceWageRoutes = require('./routes/pieceWage');   // 计件工资（扎级合格数 × 工序单价）
+const statementRoutes = require('./routes/statements');   // 客户对账单（对账函）
 const payrollRoutes = require('./routes/payrolls');
 const assetRoutes = require('./routes/assets');
 const adminExpenseRoutes = require('./routes/adminExpenses');
@@ -202,6 +203,7 @@ app.use('/api/import', importRoutes); // CSV 批量导入
 app.use('/api/price-tiers', priceTierRoutes); // 阶梯报价
 app.use('/api/quotations', quotationRoutes); // 报价单
 app.use('/api/piece-wage', pieceWageRoutes); // 计件工资
+app.use('/api/statements', statementRoutes); // 客户对账单（对账函）
 app.use('/api/payrolls', payrollRoutes); // 薪酬核算
 app.use('/api/assets', assetRoutes); // 固定资产
 app.use('/api/admin-expenses', adminExpenseRoutes); // 行政费用

@@ -729,6 +729,8 @@
 | spotops | GET | `/runs/:id/decisions` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | spotops | POST | `/runs/:id/publish` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | spotops | GET | `/skus` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| statements | GET | `/:customerId` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| statements | GET | `/customers` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
 | stock | POST | `/adjust` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | stock | POST | `/auto-transfer` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | stock | POST | `/instock` | ✅ | — | — | — | ✅ | ✅ | — | — |

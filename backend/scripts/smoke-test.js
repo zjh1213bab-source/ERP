@@ -6118,6 +6118,91 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('批量用例自清理', db.prepare('SELECT COUNT(*) c FROM orders WHERE remark = ?').get(TAG).c === 0);
   }
 
+  // ================= 客户对账单（对账函） =================
+  {
+    console.log('\n[客户对账单]');
+    const { db } = require('../src/db');
+
+    const list = await req('/api/statements/customers', { token });
+    const custs = (list.json.data || []);
+    ok('有往来的客户清单可读', list.status === 200 && custs.length > 0, `HTTP ${list.status} 客户=${custs.length}`);
+    ok('清单带「实际结欠」（已扣未核销收款）',
+      custs.every((c) => typeof c.real_open === 'number' && typeof c.unallocated === 'number'),
+      JSON.stringify(custs[0] && { open: custs[0].open_amount, un: custs[0].unallocated, real: custs[0].real_open }));
+
+    const cid = custs[0].id;
+    const st = await req(`/api/statements/${cid}?from=2020-01-01&to=2030-12-31`, { token });
+    const d = st.json.data || {};
+    ok('对账单可读（客户/期间/流水/汇总齐全）',
+      st.status === 200 && d.customer && d.period && Array.isArray(d.rows) && d.summary,
+      `HTTP ${st.status}`);
+
+    // 逐行滚动余额必须自洽：上一行余额 + 借 − 贷 = 本行余额
+    const badRun = (d.rows || []).filter((r, i) => {
+      const prev = i === 0 ? d.opening : d.rows[i - 1].balance;
+      return Math.abs(Number(prev) + Number(r.debit) - Number(r.credit) - Number(r.balance)) >= 0.01;
+    });
+    ok('流水逐行余额自洽（期初 + 借 − 贷 滚动）', badRun.length === 0, `错 ${badRun.length} 行`);
+
+    ok('期末 = 期初 + 本期开票 − 本期收款',
+      Math.abs(Number(d.opening) + Number(d.summary.invoice_amount) - Number(d.summary.payment_amount) - Number(d.summary.closing)) < 0.01,
+      `${d.opening}+${d.summary.invoice_amount}-${d.summary.payment_amount} vs ${d.summary.closing}`);
+
+    // 恒等式：流水口径 = 未收发票口径 − 未核销收款。不等于 0 说明有人绕过核销改了 paid_amount
+    ok('对账恒等式成立（流水 = 未收发票 − 未核销）',
+      Math.abs(Number(d.summary.check_diff)) < 0.01,
+      `check_diff=${d.summary.check_diff}（open_by_invoice=${d.summary.open_by_invoice} unallocated=${d.summary.unallocated}）`);
+
+    // 对所有客户做同一断言：任何一处不平都要在冒烟里炸出来
+    const unbalanced = [];
+    for (const c of custs.slice(0, 12)) {
+      const r = await req(`/api/statements/${c.id}?from=2020-01-01&to=2030-12-31`, { token });
+      if (r.status !== 200 || Math.abs(Number(r.json.data.summary.check_diff)) >= 0.01) {
+        unbalanced.push(`${c.name}(${r.json.data ? r.json.data.summary.check_diff : 'HTTP ' + r.status})`);
+      }
+    }
+    ok('全部客户的应收核销口径一致（不许有人绕过核销改已收）',
+      unbalanced.length === 0, unbalanced.slice(0, 3).join('；'));
+
+    // 边界
+    // 期间内没有发生额时：流水为空，但期初余额仍要带出来（否则客户以为账被清零了）；
+    // 只有「期初 0 且无发生」才是真正的空单，这时后端会给提示
+    const empty = await req(`/api/statements/${cid}?from=2030-01-01&to=2030-01-31`, { token });
+    const e0 = empty.json.data || {};
+    ok('空期间：流水为空但期初余额仍带出（不是空白单）',
+      empty.status === 200 && (e0.rows || []).length === 0 &&
+        (Math.abs(Number(e0.opening)) > 0.005 || (e0.warnings || []).length > 0),
+      `rows=0 opening=${e0.opening} warn=${(e0.warnings || []).length}`);
+    ok('期间格式不合规被拒', (await req(`/api/statements/${cid}?from=2026/01/01&to=2026-01-31`, { token })).status === 400);
+    ok('开始晚于结束被拒', (await req(`/api/statements/${cid}?from=2026-12-01&to=2026-01-01`, { token })).status === 400);
+    ok('不存在的客户 404', (await req('/api/statements/999999', { token })).status === 404);
+
+    // 权限
+    const salesStToken = await (async () => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: 'sales01', password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    })();
+    if (salesStToken) {
+      const s1 = await req(`/api/statements/${cid}`, { token: salesStToken });
+      ok('销售能看对账单（要拿去催款）', s1.status === 200, `HTTP ${s1.status}`);
+    } else {
+      ok('销售能看对账单（要拿去催款）', true, '没有 sales01，跳过');
+    }
+    const hrStToken = await (async () => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: 'hr01', password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    })();
+    if (hrStToken) {
+      const h1 = await req(`/api/statements/${cid}`, { token: hrStToken });
+      ok('人事看不到客户欠款明细', h1.status === 403, `HTTP ${h1.status}`);
+    } else {
+      ok('人事看不到客户欠款明细', true, '没有 hr01，跳过');
+    }
+
+    const noAuthSt = await req(`/api/statements/${cid}`);
+    ok('对账单需要登录', noAuthSt.status === 401, `HTTP ${noAuthSt.status}`);
+  }
+
   // ================= 操作日志 / 审计 =================
   {
     console.log('\n[操作日志 / 审计]');

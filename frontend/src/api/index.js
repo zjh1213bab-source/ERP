@@ -190,6 +190,9 @@ export const api = {  // 登录
     req(`/api/piece-wage/runs/${id}/void`, { method: 'POST', body: { reason } }),
   pieceExportPath: (runId) => '/api/piece-wage/export' + qs({ run_id: runId }),
   piecePayslips: (runId, mode) => req(`/api/piece-wage/runs/${runId}/payslips` + qs({ mode })),
+  // 客户对账单（对账函）
+  statementCustomers: () => req('/api/statements/customers'),
+  statement: (customerId, params) => req(`/api/statements/${customerId}` + qs(params)),
 
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),
