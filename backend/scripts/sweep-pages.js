@@ -84,6 +84,20 @@ const PAGES = [
       `(()=>{const t=document.body.innerText;return ['请求失败','加载失败','Cannot read properties of undefined','无权限执行'].filter(x=>t.includes(x))})()`
     );
     const problems = [...errs, ...(hits || [])];
+    // 底部被裁：.page 若还是「100vh + overflow:hidden」，超出部分既看不见也滚不到
+    //（外层 .erp-content 的滚动高度只按 .page 的盒子算）。权限复核的职责分离页曾因此丢掉后半截。
+    const clip = await ev([
+      '(()=>{',
+      "const pg=document.querySelector('.page');",
+      'if(!pg) return null;',
+      'const cs=getComputedStyle(pg);',
+      "const oh=cs.overflowY==='hidden'||cs.overflow==='hidden';",
+      'if(!oh) return null;',
+      'const cut=pg.scrollHeight-pg.clientHeight;',
+      'return cut>4?{h:pg.clientHeight,need:pg.scrollHeight,cut}:null;',
+      '})()'
+    ].join(''));
+    if (clip) problems.push(`底部被裁(露出${clip.h}px/需要${clip.need}px,缺${clip.cut}px)`);
     if (!len || len < 40) problems.push('页面空白(len=' + len + ')');
     if (problems.length) bad.push(p + ' -> ' + problems.slice(0, 2).join(' / '));
     else good++;

@@ -1,5 +1,55 @@
 # 变更日志（CHANGELOG）
 
+## v1.19.1 — 2026-10-28
+
+### 修：页面底部内容看不见，也滚不到
+
+**现象**：「权限复核 → 职责分离」只显示到 SOD-06，鼠标滚到底也出不来。
+实际有 **10 条** SOD 规则 —— 后 4 条（SOD-07 排程发布、SOD-08 权限授予与日志审计、
+SOD-09 供方选择与供方评价、SOD-10 薪酬核算与总账记账）根本看不到。
+
+**根因不是这个页面，是全局布局。** `main.css` 里 `.page` 是「整屏骨架」：
+
+```css
+.page { display:flex; flex-direction:column; height:100vh; overflow:hidden }
+```
+
+但现在的页面被放进 `.erp-content`（顶栏下、有 padding 的可滚动区）。于是：
+
+- `.page` 高 = 100vh = 900px，比可视区（842px）还高；
+- 内容实际 1860px，超出部分被 `overflow:hidden` 裁掉；
+- 外层 `.erp-content` 的 `scrollHeight` **只按 `.page` 的盒子算**（≈900px + padding），
+  所以最大只能滚 110px —— 被裁掉的那 960px 永远滚不到。
+
+现象上就是「明明还有内容，滚到底也没有」。任何长页面都中招，只是这页最明显。
+
+**修法**（`erp.css`，一行约束，不动老骨架）：
+
+```css
+.erp-content > .page { height: auto; min-height: 100%; overflow: visible; }
+```
+
+登录页等不在 `.erp-content` 里的 `.page` 不受影响，滚动仍由 `.erp-content` 负责。
+修后量测：`.page` 高 1860（随内容）、`.erp-content` 可滚 1070px、滚到底后最后一块
+bottom 868 < 视口 900 —— 底部可见。手机（414×896）同样可滚到底。
+
+**为什么之前没被发现**：巡检只看「控制台报错 / 空白页 / 失败文案」，
+看不见「内容被裁」这种**有内容但够不着**的坏状态。
+已给 `sweep-pages.js` 加第 4 项检查：`.page` 仍是 `overflow:hidden` 且
+`scrollHeight > clientHeight` 就报「底部被裁(露出 X px / 需要 Y px)」。
+另加 `scripts/diag-scroll.js` 单页诊断（量高度、算裁掉多少、可截图）。
+
+**顺带记两个坑**（都写进 README 了）：
+
+- Git Bash 会把 `/access-review` 这类参数转成 Windows 路径，
+  拼出来的 URL 变成 `http://127.0.0.1:3000D:/...`，CDP 报 `Cannot navigate to invalid URL`
+  —— 必须 `MSYS_NO_PATHCONV=1`。
+- 桌面开着 Chrome 时，新起的 headless 实例会并进已有进程，`--remote-debugging-port` 失效
+  —— 必须给独立的 `--user-data-dir`。
+
+**验证**：50 页巡检 0 问题（含新检查项）；工作台 / 生产 / 库存 / 开发管理 / 扎级进度
+截图复核布局无变形；桌面与手机都能滚到底。
+
 ## v1.19.0 — 2026-10-28
 
 ### 计件 × 考勤联动：人没来，就别付这笔钱

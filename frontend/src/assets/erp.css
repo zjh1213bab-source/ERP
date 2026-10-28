@@ -106,6 +106,19 @@
   padding: 20px 22px 32px;
 }
 
+/*
+ * .page 原本是「整屏骨架」：height:100vh + overflow:hidden（main.css 里定义，登录页等在用）。
+ * 但页面被塞进 .erp-content 之后，100vh 比可视区还高，且溢出被 hidden 裁掉 ——
+ * 而外层 .erp-content 的 scrollHeight 只按 .page 的盒子算（=100vh），
+ * 结果就是「底部还有内容，滚到底也看不见」（权限复核的职责分离页曾因此丢掉 6 条规则）。
+ * 放进内容区后改为高度随内容撑开，滚动交给 .erp-content。
+ */
+.erp-content > .page {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
 /* ---------- 通用块 ---------- */
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .page-head h2 { margin: 0; font-size: 19px; color: #16233b; }

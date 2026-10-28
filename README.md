@@ -196,8 +196,12 @@ cd backend && node scripts/shot-labels.js
 # 扎级进度演示数据（按扎造「完工/在制/短数/超报」四种状态）
 cd backend && node scripts/seed-bundleprogress-demo.js
 
-# 全站页面巡检（50 页：控制台报错 / 空白页 / 请求失败文案）
+# 全站页面巡检（50 页：控制台报错 / 空白页 / 请求失败文案 / **底部被裁**）
 cd backend && node scripts/sweep-pages.js
+
+# 单页滚动诊断：这页到底能不能滚到底（量 .page 与 .erp-content 的高度、裁掉多少）
+cd backend && MSYS_NO_PATHCONV=1 node scripts/diag-scroll.js /access-review "职责分离" --shot=access-review
+#   Git Bash 下路径参数会被转成 Windows 路径，必须加 MSYS_NO_PATHCONV=1（否则 URL 变 http://127.0.0.1:3000D:/...）
 
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
