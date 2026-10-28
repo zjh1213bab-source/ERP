@@ -1243,3 +1243,24 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > 底层依赖：`employees` / `departments`（领用人）、`assets`（一物一码对应资产卡，只读净值与状态）、
 > `custody_claims`（损坏责任，**不写工资/应付/凭证**）。
 > **本模块不写 `stock_items` / `materials` / `material_ledger`，也不写 `payroll_adjustments` / `gl_entries`。**
+
+## 行政运营报表（M-ADMINOPS）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| admin_report_runs | run_no(XB+ymmdd+4), period, period_start/end, days, company_id/name, **snapshot**(JSON), **basis**, finding_count, open_count, high_count, generated_by/at, note, demo_tag | 定版快照。同期同主体可多版（回答「上次看不是这个数吗」）；`snapshot` 冻的是八段指标，`basis` 冻的是口径与未覆盖说明 |
+| admin_report_findings | run_id, period, metric(dorm/expense/meal/asset/office/budget/repair), severity(high/mid/low), subject, subject_kind, expected, actual, diff, unit, hint, assignee, due_date, status(open/assigned/fixed/closed/ignored), review_note, closed_by/at | 差异清单。`fixed` 与 `closed` 分开：处理完还要别人复核 |
+
+> **为什么快照要存 JSON 而不是每次重算**：报表最常被质疑的就是「数变了」。
+> 变的原因通常是数据补录（退宿晚录两天、维修单事后补登记），不是算错。
+> 没有快照就只能解释「系统就是这样」；有快照可以两版并排，指着差额说这次补了哪两张单。
+>
+> **为什么差异清单不是「报表的一部分」而是独立表**：报表是一次性的，
+> 差异项是要跟到关闭的（分派、期限、复核人）。挂在快照 JSON 里就没法按状态筛、没法回写。
+>
+> **为什么 `metric` 用短码**：差异清单的指标列只有 92px，长名会把整张表挤成横向滚动。
+>
+> 数据来源（全部只读）：`dorm_rooms` / `dorm_beds` / `dorm_stays`、`meal_accounts` / `meal_transactions`、
+> `admin_expenses`、`assets` + `custody_*`、`office_items` / `office_stock` / `office_ledger`、
+> `budgets` / `budget_items`、`repairs`、`companies`、`departments`。
+> **本模块不写上述任何一张表**，也不写 `stock_items` / `gl_entries` / `payroll_adjustments`。

@@ -270,6 +270,15 @@ const PERMS = {
   'custody.claim': ['admin', 'hr', 'finance'],
   'custody.finance': ['admin', 'finance'],
 
+  // ===== 行政运营报表（TS-N14-09）=====
+  // 看汇总：宿舍入住率、费用、饭卡余额这类合计，全员可见（本来就是行政月度通报的内容）。
+  // 看明细：**「谁住哪张床、谁饭卡还剩多少」不是全员可见**，只给人事/财务/管理员。
+  // 定版：定版后就是对外口径（含快照），与复核关闭同属人事/财务的活。
+  'adminops.read': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'adminops.detail': ['admin', 'hr', 'finance'],
+  'adminops.run': ['admin', 'hr', 'finance'],
+  'adminops.review': ['admin', 'hr', 'finance'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -408,6 +417,12 @@ const GUARDED = [
   { perm: 'custody.manage', method: 'POST', prefix: '/api/custody/restore' },
   { perm: 'custody.claim', method: 'POST', prefix: '/api/custody/review' },
   { perm: 'custody.finance', method: 'POST', prefix: '/api/custody/finance' },
+  // 报表定版会冻结口径，差异关闭会被当成「已处理」的依据 —— 都属高危
+  { perm: 'adminops.run', method: 'POST', prefix: '/api/admin-ops/run' },
+  { perm: 'adminops.review', method: 'POST', prefix: '/api/admin-ops/assign' },
+  { perm: 'adminops.review', method: 'POST', prefix: '/api/admin-ops/review' },
+  { perm: 'adminops.review', method: 'POST', prefix: '/api/admin-ops/close' },
+  { perm: 'adminops.review', method: 'POST', prefix: '/api/admin-ops/ignore' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

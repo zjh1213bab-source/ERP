@@ -9150,6 +9150,280 @@ async function req(path, { method = 'GET', body, token } = {}) {
       `实物 ${CDB.prepare("SELECT COUNT(*) c FROM custody_items WHERE name LIKE '%__SMOKE%'").get().c} / 资产 ${CDB.prepare("SELECT COUNT(*) c FROM assets WHERE name LIKE '%__SMOKE%'").get().c}`);
   }
 
+
+  /* ================================================================== *
+   * 行政运营报表（TS-N14-09）
+   * 夹具自带 __SMOKE：自建员工 / 床位 / 饭卡账户 / 工单 / 费用，
+   * 另借一条办公库存量做「恒等式断开」实验，测完还原
+   * ================================================================== */
+  {
+    const { db: ADB } = require('../src/db');
+    const BD = require('../src/services/bedDays');
+    console.log('\n[行政运营报表]');
+
+    const nowD = new Date();
+    const curPeriod = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+    const R = BD.periodRange(curPeriod);
+    const PAD = (n) => String(n).padStart(2, '0');
+    const dayStr = (offset) => {
+      const d = new Date(Date.now() + offset * 86400000);
+      return `${d.getFullYear()}-${PAD(d.getMonth() + 1)}-${PAD(d.getDate())}`;
+    };
+
+    const cleanSmoke = () => {
+      const runs = ADB.prepare("SELECT id FROM admin_report_runs WHERE note LIKE '%__SMOKE%'").all().map((r) => r.id);
+      runs.forEach((id) => ADB.prepare('DELETE FROM admin_report_findings WHERE run_id = ?').run(id));
+      ADB.prepare("DELETE FROM admin_report_runs WHERE note LIKE '%__SMOKE%'").run();
+      ADB.prepare("DELETE FROM admin_report_findings WHERE demo_tag = '__SMOKE'").run();
+      ADB.prepare("DELETE FROM repairs WHERE remark LIKE '%__SMOKE%'").run();
+      ADB.prepare("DELETE FROM admin_expenses WHERE remark LIKE '%__SMOKE%'").run();
+      ADB.prepare("DELETE FROM dorm_stays WHERE remark LIKE '%__SMOKE%'").run();
+      ADB.prepare("DELETE FROM dorm_beds WHERE bed_no LIKE 'SMK%'").run();
+      const accs = ADB.prepare("SELECT id FROM meal_accounts WHERE card_no LIKE 'SMK%'").all().map((r) => r.id);
+      accs.forEach((id) => {
+        ADB.prepare('DELETE FROM meal_transactions WHERE account_id = ?').run(id);
+        ADB.prepare('DELETE FROM meal_accounts WHERE id = ?').run(id);
+      });
+      const offItems = ADB.prepare("SELECT id FROM office_items WHERE name LIKE '%__SMOKE%'").all().map((r) => r.id);
+      offItems.forEach((id) => {
+        ADB.prepare('DELETE FROM office_ledger WHERE item_id = ?').run(id);
+        ADB.prepare('DELETE FROM office_stock WHERE item_id = ?').run(id);
+        ADB.prepare('DELETE FROM office_items WHERE id = ?').run(id);
+      });
+      ADB.prepare("DELETE FROM employees WHERE name LIKE '%__SMOKE%'").run();
+    };
+    cleanSmoke();
+
+    const mkEmp = (tag) => {
+      const name = `烟测报表员工${tag}__SMOKE`;
+      const info = ADB.prepare("INSERT INTO employees (name, code, status, created_at) VALUES (?,?, 'active', ?)")
+        .run(name, `SMK-${tag}`, new Date().toISOString());
+      return { id: Number(info.lastInsertRowid), name };
+    };
+    const EA = mkEmp('A');
+    const EB = mkEmp('B');
+    const EC = mkEmp('C');
+
+    const baseRunOpen = ADB.prepare("SELECT COUNT(*) c FROM admin_report_runs WHERE note LIKE '%__SMOKE%'").get().c;
+
+    const meta = await req('/api/admin-ops/meta', { token });
+    ok('行政报表字典（指标 / 严重度 / 状态 / 主体 / 期间）',
+      meta.status === 200 && (meta.json.data.metrics || []).length === 7 && (meta.json.data.periods || []).length >= 12,
+      `指标 ${meta.json.data ? (meta.json.data.metrics || []).length : '?'}`);
+
+    // 1. 期间边界：东区不能用 toISOString 算月末
+    const lastDay = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate();
+    const naive = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).toISOString().slice(0, 10);
+    const tz = new Date().getTimezoneOffset();
+    ok('★ 期间月末按本地日期算（东区不会被 toISOString 少一天）',
+      R.end === `${curPeriod}-${PAD(lastDay)}` && (tz >= 0 || R.end !== naive),
+      `${R.start} ~ ${R.end}（${R.days} 天），朴素写法会得到 ${naive}`);
+
+    // 2. 造床位：一张维修床 + 一张正常床，各住一个人（维修床有人住 → 报表要点名）
+    const room = ADB.prepare("SELECT id FROM dorm_rooms WHERE status='normal' ORDER BY id LIMIT 1").get();
+    const bedOk = Number(ADB.prepare("INSERT INTO dorm_beds (room_id, bed_no, status) VALUES (?, 'SMK1', 'normal')").run(room.id).lastInsertRowid);
+    const bedBad = Number(ADB.prepare("INSERT INTO dorm_beds (room_id, bed_no, status) VALUES (?, 'SMK2', 'maintenance')").run(room.id).lastInsertRowid);
+    const t = new Date().toISOString();
+    ADB.prepare(`INSERT INTO dorm_stays (bed_id, employee_id, start_date, end_date, rent_month, deposit, utilities, status, remark, created_at, updated_at)
+      VALUES (?,?,?,NULL,200,400,0,'active','烟测住宿__SMOKE',?,?)`).run(bedOk, EA.id, `${curPeriod}-01`, t, t);
+    ADB.prepare(`INSERT INTO dorm_stays (bed_id, employee_id, start_date, end_date, rent_month, deposit, utilities, status, remark, created_at, updated_at)
+      VALUES (?,?,?,NULL,200,400,0,'active','烟测住宿（维修床）__SMOKE',?,?)`).run(bedBad, EB.id, `${curPeriod}-01`, t, t);
+
+    // 3. 饭卡：余额比流水多 40
+    const acc = Number(ADB.prepare(`INSERT INTO meal_accounts (employee_id, card_no, balance, subsidy_balance, status, opened_at, remark, created_at, updated_at)
+      VALUES (?, 'SMK-C1', 100, 0, 'active', ?, '烟测账户__SMOKE', ?, ?)`).run(EC.id, `${curPeriod}-01`, t, t).lastInsertRowid);
+    ADB.prepare(`INSERT INTO meal_transactions (account_id, type, amount, personal_delta, subsidy_delta, source, receipt_no, balance_after, note, operator, created_at)
+      VALUES (?, 'recharge', 60, 60, 0, 'manual', 'SMK-RC-1', 60, '烟测充值__SMOKE', 'smoke', ?)`)
+      .run(acc, `${curPeriod}-02T03:00:00.000Z`);
+
+    // 4. 工单：跳过复验 / 超期未完成 / 已提交待复验
+    const lastRepair = ADB.prepare('SELECT repair_no FROM repairs ORDER BY id DESC LIMIT 1').get();
+    let rseq = lastRepair ? Number(String(lastRepair.repair_no).slice(-4)) + 1 : 1;
+    const mkRepair = (b) => {
+      const no = `BX${curPeriod.replace('-', '')}${String(rseq++).padStart(4, '0')}`;
+      ADB.prepare(`INSERT INTO repairs (repair_no, area, facility, description, severity, status, reporter, assignee,
+          reported_at, due_date, submitted_at, verified_by, verified_at, remark, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        no, b.area || null, b.facility, b.desc, b.severity, b.status, 'smoke', 'smoke',
+        b.reported_at, b.due_date || null, b.submitted_at || null, b.verified_by || null, b.verified_at || null,
+        `烟测工单__SMOKE`, t, t
+      );
+      return no;
+    };
+    const noVerify = mkRepair({
+      facility: '烟测门禁', desc: '门禁失灵', severity: 'minor', status: 'closed',
+      reported_at: `${curPeriod}-01T02:00:00.000Z`, submitted_at: `${curPeriod}-01T06:00:00.000Z`
+    });
+    const overdueNo = mkRepair({
+      facility: '烟测空调', desc: '不制冷', severity: 'major', status: 'repairing',
+      reported_at: `${curPeriod}-02T02:00:00.000Z`, due_date: dayStr(-3)
+    });
+    mkRepair({
+      facility: '烟测水龙头', desc: '漏水', severity: 'minor', status: 'submitted',
+      reported_at: `${curPeriod}-03T02:00:00.000Z`, submitted_at: `${curPeriod}-03T08:00:00.000Z`
+    });
+
+    // 5. 费用：一条无部门（未归口）
+    const deptAdmin = ADB.prepare("SELECT id FROM departments WHERE name='人事行政部'").get();
+    ADB.prepare(`INSERT INTO admin_expenses (expense_date, category, amount, payee, handler, payment_method, remark, created_at, department_id, company_id)
+      VALUES (?, '办公', 666, '烟测供应商', 'smoke', '转账', '烟测未归口费用__SMOKE', ?, NULL, 1)`)
+      .run(`${curPeriod}-05`, t);
+    ADB.prepare(`INSERT INTO admin_expenses (expense_date, category, amount, payee, handler, payment_method, remark, created_at, department_id, company_id)
+      VALUES (?, '培训', 888, '烟测培训机构', 'smoke', '转账', '烟测归口费用__SMOKE', ?, ?, 1)`)
+      .run(`${curPeriod}-06`, t, deptAdmin ? deptAdmin.id : null);
+
+    // 6. 办公仓：新建一个「有库存、无流水」的物品 —— 恒等式直接断开。
+    //    不借现有物品改数量：万一中途崩了，改过的真实库存不会自动还原。
+    ADB.prepare(`INSERT INTO office_items (item_no, name, category, unit, status, created_at, updated_at)
+      VALUES (?, '烟测耗材__SMOKE', 'stationery', '个', 'active', ?, ?)`)
+      .run(`SMK-OFF-${Date.now()}`, t, t);
+    const smokeItem = ADB.prepare("SELECT id FROM office_items WHERE name = '烟测耗材__SMOKE' ORDER BY id DESC LIMIT 1").get();
+    ADB.prepare('INSERT INTO office_stock (item_id, qty) VALUES (?, 10)').run(smokeItem.id);
+
+    // ================= 预览 =================
+    const pre = await req(`/api/admin-ops/preview?period=${curPeriod}`, { token });
+    ok('预览报表返回八段指标', pre.status === 200
+      && !!pre.json.data.dorm && !!pre.json.data.expense && !!pre.json.data.meal
+      && !!pre.json.data.asset && !!pre.json.data.office && !!pre.json.data.budget && !!pre.json.data.repair,
+      `HTTP ${pre.status}`);
+    const pv = pre.json.data;
+
+    const bedsNow = ADB.prepare('SELECT COUNT(*) c, SUM(CASE WHEN status=\'maintenance\' THEN 1 ELSE 0 END) m FROM dorm_beds').get();
+    ok('★ 可用床日 = 可用床数 × 期间天数（维修床与整间维修房间都扣）',
+      pv.dorm.beds_total === bedsNow.c && pv.dorm.available_bed_days === pv.dorm.beds_usable * R.days,
+      `床 ${pv.dorm.beds_total}（可用 ${pv.dorm.beds_usable} / 维修 ${pv.dorm.beds_maintenance}）× ${R.days} 天 = ${pv.dorm.available_bed_days}`);
+
+    const used = pv.dorm.used_bed_days;
+    ok('★ 入住率 = 住用床日 / 可用床日（不拿人数除床数）',
+      pv.dorm.available_bed_days > 0
+      && Math.abs(pv.dorm.occupancy_rate - Math.round((used / pv.dorm.available_bed_days) * 10000) / 100) < 0.02,
+      `${used} / ${pv.dorm.available_bed_days} = ${pv.dorm.occupancy_rate}%`);
+
+    const usedOnUnusable = (pv.findings || []).find((f) => f.metric === 'dorm' && f.severity === 'high' && /SMK2/.test(f.subject));
+    ok('★ 维修床上有人住 → 严重差异（不是「口径问题」，是数据矛盾）',
+      !!usedOnUnusable, usedOnUnusable ? usedOnUnusable.actual : '未识别');
+
+    const mealDiff = (pv.findings || []).find((f) => f.metric === 'meal' && f.severity === 'high');
+    ok('★ 饭卡余额与流水不符 → 严重差异，且提示「不要调平余额」',
+      !!mealDiff && /不要「调平」余额/.test(mealDiff.hint || ''), mealDiff ? `差 ${mealDiff.diff}` : '未识别');
+
+    const officeDiff = (pv.findings || []).find((f) => f.metric === 'office' && f.severity === 'high');
+    ok('★ 办公仓库存 ≠ 流水合计 → 严重差异（报表独立复核，不复用模块内余额函数）',
+      !!officeDiff, officeDiff ? officeDiff.actual : '未识别');
+
+    const skipVerify = (pv.findings || []).find((f) => f.metric === 'repair' && /跳过复验/.test(f.subject));
+    ok('★ 提交后直接关单（无复验）→ 严重差异', !!skipVerify, skipVerify ? skipVerify.subject : '未识别');
+
+    const overdueF = (pv.findings || []).find((f) => f.metric === 'repair' && /维修超期/.test(f.subject));
+    ok('未完成且过了期限 → 超期差异', !!overdueF, overdueF ? overdueF.actual : '未识别');
+
+    const noDeptF = (pv.findings || []).find((f) => f.metric === 'expense' && /未归口/.test(f.subject));
+    ok('费用未挂部门 → 差异（否则永远不会进部门预算）', !!noDeptF, noDeptF ? noDeptF.actual : '未识别');
+
+    // 样本规则：没工单的期间宁可给 null，也不能给 0%（0% 会被读成「复验制度形同虚设」）
+    const preEmpty = await req('/api/admin-ops/preview?period=2020-02', { token });
+    ok('★ 没有工单时复验率给「—」并写明不计算（不是 0%）',
+      preEmpty.status === 200 && preEmpty.json.data.repair.verify_rate === null
+      && (preEmpty.json.data.coverage || []).some((c) => /无报修工单/.test(c)),
+      `复验率 ${preEmpty.json.data ? preEmpty.json.data.repair.verify_rate : '?'}`);
+
+    const preOld = await req('/api/admin-ops/preview?period=2020-01', { token });
+    ok('无生效预算的期间：说「算不出来」而不是 0',
+      preOld.status === 200 && preOld.json.data.budget.budget_no === null
+      && (preOld.json.data.coverage || []).some((c) => /没有生效预算/.test(c)),
+      `HTTP ${preOld.status}`);
+
+    // ================= 定版 =================
+    const baseStockItems = Number(ADB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v);
+    const baseGl = ADB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c;
+    const basePay = ADB.prepare('SELECT COUNT(*) c FROM payroll_adjustments').get().c;
+
+    // 演示库本身可能已经定版过本月；这里用 force 保证夹具能建自己的版本
+    const run1 = await req('/api/admin-ops/run', { method: 'POST', token, body: { period: curPeriod, note: '烟测定版__SMOKE', force: true } });
+    ok('定版生成快照与差异清单',
+      run1.status === 200 && !!run1.json.data.run_no && (run1.json.data.findings || []).length > 0,
+      `HTTP ${run1.status} ${run1.json.data ? run1.json.data.run_no : ''}`);
+
+    const runDup = await req('/api/admin-ops/run', { method: 'POST', token, body: { period: curPeriod, note: '烟测重复__SMOKE' } });
+    ok('同期同主体已定版时，重跑必须确认（不悄悄覆盖）', runDup.status === 400, `HTTP ${runDup.status}`);
+
+    const runForce = await req('/api/admin-ops/run', { method: 'POST', token, body: { period: curPeriod, note: '烟测重跑__SMOKE', force: true } });
+    ok('确认后生成新版本，旧版本保留', runForce.status === 200 && runForce.json.data.id !== run1.json.data.id,
+      `旧 #${run1.json.data ? run1.json.data.id : '?'} → 新 #${runForce.json.data ? runForce.json.data.id : '?'}`);
+
+    ok('★ 定版不动任何业务数据（库存 / 凭证 / 工资调整）',
+      Number(ADB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v) === baseStockItems
+      && ADB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c === baseGl
+      && ADB.prepare('SELECT COUNT(*) c FROM payroll_adjustments').get().c === basePay,
+      `凭证 ${ADB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c - baseGl} / 工资 ${ADB.prepare('SELECT COUNT(*) c FROM payroll_adjustments').get().c - basePay}`);
+
+    const rid = runForce.json.data.id;
+    const fs = runForce.json.data.findings;
+    const target = fs.find((f) => f.severity === 'high') || fs[0];
+
+    // ================= 差异复核（两段式） =================
+    const noWho = await req(`/api/admin-ops/assign/${target.id}`, { method: 'POST', token, body: {} });
+    ok('分派必须填人', noWho.status === 400, `HTTP ${noWho.status}`);
+
+    const asg = await req(`/api/admin-ops/assign/${target.id}`, { method: 'POST', token, body: { assignee: '行政主管' } });
+    ok('分派写入处理人', asg.status === 200 && asg.json.data.status === 'assigned', `HTTP ${asg.status}`);
+
+    const closeEarly = await req(`/api/admin-ops/close/${target.id}`, { method: 'POST', token, body: { review_note: '想直接关' } });
+    ok('★ 没写处理结果不能直接关闭（自己处理自己关等于没有复核）', closeEarly.status === 400, `HTTP ${closeEarly.status}`);
+
+    const noNote = await req(`/api/admin-ops/review/${target.id}`, { method: 'POST', token, body: {} });
+    ok('处理必须写结果', noNote.status === 400, `HTTP ${noNote.status}`);
+
+    const fixed = await req(`/api/admin-ops/review/${target.id}`, { method: 'POST', token, body: { review_note: '已核对源单，属录入错误并已更正' } });
+    ok('处理后进入「已处理待复核」', fixed.status === 200 && fixed.json.data.status === 'fixed', `HTTP ${fixed.status}`);
+
+    const closed = await req(`/api/admin-ops/close/${target.id}`, { method: 'POST', token, body: { review_note: '复核无误，关闭' } });
+    ok('复核关闭并回写未关闭条数',
+      closed.status === 200 && closed.json.data.status === 'closed',
+      `HTTP ${closed.status} 状态 ${closed.json.data ? closed.json.data.status : '?'}`);
+
+    const runAfter = await req(`/api/admin-ops/runs/${rid}`, { token });
+    ok('关闭后报表的「未关闭」条数减少',
+      runAfter.json.data.open_count === fs.length - 1,
+      `${fs.length} → ${runAfter.json.data.open_count}`);
+
+    // ================= 权限与脱敏 =================
+    const salesTok = await req('/api/auth/login', { method: 'POST', body: { username: 'sales01', password: PASS } });
+    const sTok = salesTok.status === 200 ? salesTok.json.data.token : '';
+    if (sTok) {
+      const sRun = await req('/api/admin-ops/run', { method: 'POST', token: sTok, body: { period: curPeriod, note: '烟测越权__SMOKE', force: true } });
+      ok('销售不能定版（定版即对外口径）', sRun.status === 403, `HTTP ${sRun.status}`);
+
+      const sDrill = await req(`/api/admin-ops/drill?metric=dorm&period=${curPeriod}`, { token: sTok });
+      const masked = sDrill.json.data && sDrill.json.data.masked;
+      const stays = (sDrill.json.data && sDrill.json.data.rows && sDrill.json.data.rows.stays) || [];
+      const anyMasked = stays.some((x) => /\*/.test(String(x.employee_name || '')));
+      ok('★ 无明细权限时住宿人姓名脱敏（谁住哪张床不是全员可见）',
+        sDrill.status === 200 && masked === true && anyMasked,
+        `masked=${masked} 脱敏行 ${stays.filter((x) => /\*/.test(String(x.employee_name || ''))).length}`);
+    } else {
+      ok('销售不能定版 + 人名脱敏', true, '没有 sales01，跳过');
+    }
+
+    const hrTok = await req('/api/auth/login', { method: 'POST', body: { username: 'hr01', password: PASS } });
+    if (hrTok.status === 200) {
+      const hDrill = await req(`/api/admin-ops/drill?metric=dorm&period=${curPeriod}`, { token: hrTok.json.data.token });
+      ok('人事能看住宿全名（明细权限）', hDrill.status === 200 && hDrill.json.data.masked === false, `HTTP ${hDrill.status}`);
+    } else {
+      ok('人事能看住宿全名', true, '没有 hr01，跳过');
+    }
+
+    // ================= 清理 =================
+    cleanSmoke();
+    const left = ADB.prepare("SELECT COUNT(*) c FROM admin_report_runs WHERE note LIKE '%__SMOKE%'").get().c;
+    ok('冒烟夹具已清干净',
+      left === baseRunOpen
+      && ADB.prepare("SELECT COUNT(*) c FROM repairs WHERE remark LIKE '%__SMOKE%'").get().c === 0
+      && ADB.prepare("SELECT COUNT(*) c FROM dorm_beds WHERE bed_no LIKE 'SMK%'").get().c === 0
+      && ADB.prepare("SELECT COUNT(*) c FROM employees WHERE name LIKE '%__SMOKE%'").get().c === 0,
+      `报表 ${left} / 工单 ${ADB.prepare("SELECT COUNT(*) c FROM repairs WHERE remark LIKE '%__SMOKE%'").get().c} / 床位 ${ADB.prepare("SELECT COUNT(*) c FROM dorm_beds WHERE bed_no LIKE 'SMK%'").get().c}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

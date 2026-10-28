@@ -543,7 +543,7 @@ function refund(id, body = {}, operator) {
   return {
     id: row.id, refund_status: 'paid', refund_amount: amount,
     // 明确写出来，避免有人以为退款就完事了
-    note: '已登记退款。**库存未变动** —— 良品入库只由仓库的检验步骤写；若货要回厂，去仓库页点收与判定',
+    note: '已登记退款。库存未变动 —— 良品入库只由仓库的检验步骤写；若货要回厂，去仓库页点收与判定',
     stock_untouched: true
   };
 }

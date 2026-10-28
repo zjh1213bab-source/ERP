@@ -50,6 +50,17 @@
 | adminExpenses | POST | `/` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | adminExpenses | PUT | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | adminExpenses | DELETE | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| adminOps | POST | `/assign/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| adminOps | POST | `/close/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| adminOps | GET | `/drill` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| adminOps | GET | `/findings` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| adminOps | POST | `/ignore/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| adminOps | GET | `/meta` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| adminOps | GET | `/preview` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| adminOps | POST | `/review/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| adminOps | POST | `/run` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| adminOps | GET | `/runs` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| adminOps | GET | `/runs/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | afterSales | GET | `/` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
 | afterSales | POST | `/` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | afterSales | GET | `/:id` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
@@ -1164,6 +1175,10 @@
 | `custody.manage` | 系统管理员、人事行政 |
 | `custody.claim` | 系统管理员、人事行政、财务会计 |
 | `custody.finance` | 系统管理员、财务会计 |
+| `adminops.read` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `adminops.detail` | 系统管理员、人事行政、财务会计 |
+| `adminops.run` | 系统管理员、人事行政、财务会计 |
+| `adminops.review` | 系统管理员、人事行政、财务会计 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |

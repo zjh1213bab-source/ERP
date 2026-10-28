@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 745 个对象
- * （344 张表 + 401 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 751 个对象
+ * （346 张表 + 405 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -750,5 +750,11 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_custody_claim_emp ON custody_claims(employee_id);",
   "CREATE TABLE IF NOT EXISTS custody_actions (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,                      -- item / record / claim / clearance\n  target_id INTEGER NOT NULL,\n  action TEXT NOT NULL,                           -- create/issue/return/transfer/claim/review/finance/scrap/write_off\n  detail TEXT,\n  qty REAL,\n  actor TEXT,\n  created_at TEXT NOT NULL,\n  demo_tag TEXT\n);",
   "CREATE INDEX IF NOT EXISTS idx_custody_act_target ON custody_actions(target_type, target_id);",
-  "CREATE INDEX IF NOT EXISTS idx_custody_act_action ON custody_actions(action, created_at);"
+  "CREATE INDEX IF NOT EXISTS idx_custody_act_action ON custody_actions(action, created_at);",
+  "CREATE TABLE IF NOT EXISTS admin_report_runs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  run_no TEXT NOT NULL,\n  period TEXT NOT NULL,                            -- YYYY-MM\n  period_start TEXT NOT NULL,\n  period_end TEXT NOT NULL,\n  days INTEGER NOT NULL,\n  company_id INTEGER,                              -- 空 = 全公司\n  company_name TEXT,\n  snapshot TEXT NOT NULL,                          -- 八项指标 JSON（定版时冻结）\n  basis TEXT,                                      -- 口径与覆盖率说明（同期一起冻结）\n  finding_count INTEGER NOT NULL DEFAULT 0,\n  open_count INTEGER NOT NULL DEFAULT 0,\n  high_count INTEGER NOT NULL DEFAULT 0,\n  generated_by TEXT,\n  generated_at TEXT NOT NULL,\n  note TEXT,\n  demo_tag TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_admin_run_no ON admin_report_runs(run_no);",
+  "CREATE INDEX IF NOT EXISTS idx_admin_run_period ON admin_report_runs(period, company_id);",
+  "CREATE TABLE IF NOT EXISTS admin_report_findings (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  run_id INTEGER NOT NULL,\n  period TEXT NOT NULL,\n  metric TEXT NOT NULL,                            -- dorm / meal / office / asset / budget / repair / expense\n  severity TEXT NOT NULL DEFAULT 'mid',            -- high / mid / low\n  subject TEXT NOT NULL,                           -- 对象：房间 301 / 饭卡账户 李四 / 办公仓 打印纸\n  subject_kind TEXT,                               -- room / account / item / dept / repair / stay\n  expected TEXT,                                   -- 应该是什么\n  actual TEXT,                                     -- 实际是什么\n  diff REAL,                                       -- 差额（数字可比时给，不可比留空）\n  unit TEXT,\n  hint TEXT,                                       -- 系统给的推断（不是结论）\n  assignee TEXT,\n  due_date TEXT,\n  status TEXT NOT NULL DEFAULT 'open',             -- open / assigned / fixed / closed / ignored\n  review_note TEXT,                                -- 复核结论（关闭必填）\n  closed_by TEXT,\n  closed_at TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL,\n  demo_tag TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_admin_finding_run ON admin_report_findings(run_id, status);",
+  "CREATE INDEX IF NOT EXISTS idx_admin_finding_metric ON admin_report_findings(metric, severity);"
 ];

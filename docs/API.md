@@ -3251,3 +3251,52 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 → `returned` 已归还 / `lost` 遗失 / `written_off` 已核销。
 
 `custody_items.status`：`active` 在册 → `hold` 损坏待处理（不可发）→ `active`（恢复）或 `scrapped` 已处置。
+
+## 行政运营报表（`/api/admin-ops`）
+
+> 八项固定指标：宿舍入住率、床位与押金、行政费用、饭卡资金、资产与实物领归、
+> 耗材收发结存、行政预算差异、工单超时与复验。**只读业务表**，只写自己的两张表
+> （`admin_report_runs` 定版快照 / `admin_report_findings` 差异清单）。
+>
+> 权限：`adminops.read`（全角色，汇总）、`adminops.detail`（admin/hr/finance，人名与下钻）、
+> `adminops.run`（定版）、`adminops.review`（分派 / 处理 / 复核关闭 / 忽略）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/admin-ops/meta | read | 指标字典、严重度、差异状态、主体列表、可选期间 |
+| GET | /api/admin-ops/preview?period=&company_id= | read | **实时计算**整份报表（不落库），含 `coverage` 未覆盖说明 |
+| POST | /api/admin-ops/run | run | 定版：冻结八项指标与口径 + 生成差异清单；同期已定版需 `force:true` |
+| GET | /api/admin-ops/runs?period=&company_id= | read | 历史版本列表（同一期间可有多版） |
+| GET | /api/admin-ops/runs/:id | read | 某版详情：`snapshot`（八段指标）+ `basis`（口径）+ 差异 |
+| GET | /api/admin-ops/findings?run_id=&status=&metric=&severity= | read | 差异清单（按严重度排序） |
+| POST | /api/admin-ops/assign/:id | review | 分派：`{assignee, due_date}` |
+| POST | /api/admin-ops/review/:id | review | 处理：`{review_note}` → 状态 `fixed` |
+| POST | /api/admin-ops/close/:id | review | 复核关闭：`{review_note}`；**必须先 `fixed`** |
+| POST | /api/admin-ops/ignore/:id | review | 忽略：`{reason}` ≥6 字（不等同关闭） |
+| GET | /api/admin-ops/drill?metric=&period=&company_id= | read（detail 才看全名） | 下钻该指标的源单；无 `detail` 权限时姓名服务端掩码，`masked=true` |
+
+### 八项指标的口径
+
+| 指标 | 分子 / 分母 | 算不出来时 |
+|---|---|---|
+| 宿舍入住率 | 住用床日 / 可用床日 | 无可用床日 → `null`（显示「—」） |
+| 可用床日 | 可用床数 × 期间天数；维修床与整间封房都扣 | 期内临时维修无历史区间 → 写进 `coverage` |
+| 费用 | `admin_expenses` 期间合计 | 无 |
+| 饭卡 | 账户余额合计 vs 流水 `personal_delta` 合计 | 无流水 → 消费/补贴给 0 并写明 |
+| 耗材结存 | `office_stock.qty` vs `SUM(office_ledger.qty)` 逐项 | 无流水 → 结存为时点数 |
+| 预算差异 | 人事行政部预算 vs 该部门已入账费用 | 无生效预算 → 明说「无法计算」 |
+| 工单准时率 | (总数 − 超期) / 总数 | 样本 < 3 → `null` |
+| 复验率 | 有 `verified_at` / 已进入提交 | 无提交工单 → `null`；样本 < 3 → `null` |
+
+### 五条硬规则
+
+1. **不拿人数除床数**（原型原话）：入住率分子分母都是「床日」。
+2. **费用只认已入账事实**，不含预算占用（占用是承诺，不是花掉的钱）。
+3. **对账恒等式的差异不许「调平」**：饭卡只能走 `adjust` 留痕；办公仓库存不能绕过流水改。
+4. **两段式复核**：`fixed`（处理完）→ `closed`（别人复核）；`ignored` 必须写理由。
+5. **汇总可见、明细限权**：无 `adminops.detail` 时住宿/饭卡人名在服务端掩码，不是前端藏。
+
+### 复用的口径
+
+床日计算在 `services/bedDays.js`，`GET /api/facility/dorm/occupancy` 与报表共用同一份 ——
+两个页面各算一遍的结果是可预期的：开会先花二十分钟争论哪个数对。

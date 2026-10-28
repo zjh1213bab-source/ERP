@@ -24,6 +24,8 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+// 床日口径只维护一份（后勤页与行政运营报表共用）
+const B = require('../services/bedDays');
 
 const router = express.Router();
 const WRITE = ['admin', 'hr', 'warehouse'];
@@ -384,52 +386,32 @@ router.post('/dorm/transfer', authRequired, requireRole(WRITE), wrap(async (req,
   return ok(res, { old_stay: old.id, new_stay: newId, date });
 }));
 
-/** 入住率：实际住用床日 / 可用床日（不含维修床） */
+/**
+ * 入住率：实际住用床日 / 可用床日（不含维修床）
+ * 计算逻辑抽到 `services/bedDays.js` —— 行政运营报表要用同一个数，
+ * 两处各算一遍必然出现「后勤页 62%、报表 68%」。
+ */
 router.get('/dorm/occupancy', authRequired, wrap(async (req, res) => {
   const month = String(req.query.month || today().slice(0, 7));
-  const start = month + '-01';
-  const d = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0);
-  const end = d.toISOString().slice(0, 10);
-  const days = daysBetween(start, end) + 1;
-
-  const beds = db.prepare(
-    `SELECT COUNT(*) AS total, SUM(CASE WHEN status='maintenance' THEN 1 ELSE 0 END) AS maint FROM dorm_beds`
-  ).get();
-  const usableBeds = Math.max(0, (Number(beds.total) || 0) - (Number(beds.maint) || 0));
-  const availableBedDays = usableBeds * days;
-
-  const stays = db.prepare(
-    `SELECT * FROM dorm_stays WHERE status IN ('active','checked_out') AND start_date <= ? AND COALESCE(end_date, '9999-12-31') >= ?`
-  ).all(end, start);
-  let usedBedDays = 0;
-  stays.forEach((s) => {
-    const from = s.start_date > start ? s.start_date : start;
-    const to = (s.end_date && s.end_date < end) ? s.end_date : end;
-    if (to >= from) usedBedDays += daysBetween(from, to) + 1;
-  });
-
-  const rooms = db.prepare('SELECT * FROM dorm_rooms ORDER BY building, room_no').all();
-  const bedStmt = db.prepare('SELECT * FROM dorm_beds WHERE room_id = ?');
-  const detail = rooms.map((r) => {
-    const bs = bedStmt.all(r.id);
-    const maint = bs.filter((x) => x.status === 'maintenance').length;
-    return {
-      room: `${r.building || ''}${r.room_no}`,
-      gender: ROOM_GENDER[r.gender] || r.gender,
-      beds: bs.length,
-      maintenance: maint,
-      usable: bs.length - maint
-    };
-  });
-
+  const d = B.bedDays(month);
   return ok(res, {
     month,
-    days,
-    usable_beds: usableBeds,
-    available_bed_days: availableBedDays,
-    used_bed_days: usedBedDays,
-    occupancy_rate: availableBedDays > 0 ? Math.round((usedBedDays / availableBedDays) * 10000) / 100 : 0,
-    detail
+    days: d.days,
+    usable_beds: d.beds_usable,
+    available_bed_days: d.available_bed_days,
+    used_bed_days: d.used_bed_days,
+    occupancy_rate: d.occupancy_rate == null ? 0 : d.occupancy_rate,
+    maintenance_beds: d.beds_maintenance,
+    maintenance_note: d.maintenance_note,
+    detail: d.by_room.map((r) => ({
+      room: r.room,
+      gender: ROOM_GENDER[r.gender] || r.gender,
+      beds: r.beds,
+      maintenance: r.maintenance,
+      usable: r.usable,
+      used_days: r.used_days,
+      rate: r.rate
+    }))
   });
 }));
 

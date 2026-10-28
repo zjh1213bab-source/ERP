@@ -401,6 +401,19 @@ export const api = {  // 登录
   cuReview: (id, d) => req(`/api/custody/review/${id}`, { method: 'POST', body: d }),
   cuFinance: (id, d) => req(`/api/custody/finance/${id}`, { method: 'POST', body: d }),
 
+  // 行政运营报表
+  aoMeta: () => req('/api/admin-ops/meta'),
+  aoPreview: (params) => req('/api/admin-ops/preview' + qs(params)),
+  aoRuns: (params) => req('/api/admin-ops/runs' + qs(params)),
+  aoRunDetail: (id) => req(`/api/admin-ops/runs/${id}`),
+  aoRun: (d) => req('/api/admin-ops/run', { method: 'POST', body: d }),
+  aoFindings: (params) => req('/api/admin-ops/findings' + qs(params)),
+  aoAssign: (id, d) => req(`/api/admin-ops/assign/${id}`, { method: 'POST', body: d }),
+  aoReview: (id, d) => req(`/api/admin-ops/review/${id}`, { method: 'POST', body: d }),
+  aoClose: (id, d) => req(`/api/admin-ops/close/${id}`, { method: 'POST', body: d }),
+  aoIgnore: (id, d) => req(`/api/admin-ops/ignore/${id}`, { method: 'POST', body: d }),
+  aoDrill: (params) => req('/api/admin-ops/drill' + qs(params)),
+
   // 字段级脱敏与访问审计
   pvMeta: () => req('/api/privacy/meta'),
   pvRules: () => req('/api/privacy/rules'),

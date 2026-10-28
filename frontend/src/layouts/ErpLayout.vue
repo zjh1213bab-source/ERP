@@ -208,7 +208,8 @@ const navModel = [
       { label: '办公耗材与服务采购', to: '/office-supply' },
       { label: '资产工衣与领归', to: '/custody' },
       { label: '固定资产', to: '/assets' },
-      { label: '行政费用', to: '/admin-expenses' }
+      { label: '行政费用', to: '/admin-expenses' },
+      { label: '行政运营报表', to: '/admin-ops' }
     ]
   },
   {
