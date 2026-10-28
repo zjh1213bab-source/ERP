@@ -8327,6 +8327,22 @@ async function req(path, { method = 'GET', body, token } = {}) {
   {
     const { db: ASDB } = require('../src/db');
     const AS_MARK = '__smoke_as__';
+    // 上一次跑到一半崩了会留下售后单（cleanup 在块尾，抛异常就到不了）——
+    // 先按固定用例文案清一遍，避免演示库里出现「测试单」
+    (() => {
+      const stale = ASDB.prepare("SELECT id, ticket_no FROM after_sale_tickets WHERE reason = ? AND IFNULL(demo_tag,'') = ''")
+        .all('客户反馈包装破损，先提一条售后核对处理方式');
+      stale.forEach((t) => {
+        ASDB.prepare('SELECT id FROM stock_returns WHERE source_no = ?').all(t.ticket_no).forEach((r) => {
+          ASDB.prepare('DELETE FROM stock_return_items WHERE return_id = ?').run(r.id);
+          ASDB.prepare('DELETE FROM stock_returns WHERE id = ?').run(r.id);
+        });
+        ASDB.prepare("DELETE FROM attachments WHERE target_type='after_sale' AND target_id=?").run(t.id);
+        ASDB.prepare('DELETE FROM after_sale_tickets WHERE id = ?').run(t.id);
+      });
+      const staleSf = ASDB.prepare('DELETE FROM statement_files WHERE demo_tag = ?').run(AS_MARK).changes;
+      if (stale.length || staleSf) console.log('  （清掉上次残留：售后 ' + stale.length + ' 条 / 对账 ' + staleSf + ' 份）');
+    })();
     console.log('\n[售后与对账资料]');
 
     const meta = await req('/api/after-sales/meta', { token });
@@ -8493,7 +8509,8 @@ async function req(path, { method = 'GET', body, token } = {}) {
 
     /* ---------------- 对账资料 ---------------- */
     const sfDraft = await req('/api/statement-files/generate', {
-      method: 'POST', token, body: { customer_id: withItem ? (mallLoginCid || 1) : 1, period: '2026-09', kind: 'monthly' }
+      method: 'POST', token,
+      body: { customer_id: withItem ? (mallLoginCid || 1) : 1, period: '2026-09', kind: 'monthly', demo_tag: AS_MARK }
     });
     const sfId = sfDraft.json.data && sfDraft.json.data.id;
     ok('生成对账单草稿（含内部校验差额）', sfDraft.status === 200 && !!sfId,

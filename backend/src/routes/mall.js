@@ -834,6 +834,7 @@ router.get('/after-sales/:id', customerRequired, permRequired('order.view'), wra
 router.post('/after-sales', customerRequired, permRequired('order.view'), wrap(async (req, res) => {
   const b = req.body || {};
   // customer_id 只从登录态来，绝不接受请求体里的 customer_id（防越权给别家开单）
+  delete b.demo_tag;   // 演示标记只给内部/脚本用，客户端不该能给自己打标签
   const r = AS.submit({
     customerId: req.customer.cid,
     customerName: req.customer.name,
