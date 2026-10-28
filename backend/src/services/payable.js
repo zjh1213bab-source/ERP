@@ -96,9 +96,15 @@ function board({ q, only_overdue, asOf } = {}) {
     unbilledBySup.get(k).push(p);
   });
 
-  const rows = sups.map((s) => {
-    const invs = bySupplier.get(Number(s.id)) || [];
-    const pos = unbilledBySup.get(Number(s.id)) || [];
+  /**
+   * 算一个供应商的一行
+   *
+   * `s` 可能来自 suppliers 表，也可能是「只有名字、没有档案」的虚拟供应商
+   * （历史采购单 / 手工应付常这样）。后者以前被**整行丢掉** ——
+   * 因为老代码是 `sups.map(...)`，遍历的是档案表，档案里没有的就不存在。
+   * 于是台账比资金计划少 2000 元，两个模块对不上。
+   */
+  const buildRow = (s, invs, pos) => {
 
     let openAmount = 0;
     let overdue = 0;
@@ -189,6 +195,36 @@ function board({ q, only_overdue, asOf } = {}) {
         : (s.term_days === null || s.term_days === undefined) ? '未设账期'
         : '正常'
     };
+  };
+
+  // 档案内的供应商
+  const rows = sups.map((s) => buildRow(s, bySupplier.get(Number(s.id)) || [], unbilledBySup.get(Number(s.id)) || []));
+
+  // 档案外但有欠款的（只存了名字的老数据）—— 补出来，不能因为没档案就假装不存在
+  const knownIds = new Set(sups.map((s) => Number(s.id)));
+  const orphanKeys = new Set();
+  bySupplier.forEach((v, k) => { if (typeof k === 'string' && !knownIds.has(Number(k))) orphanKeys.add(k); });
+  unbilledBySup.forEach((v, k) => { if (typeof k === 'string') orphanKeys.add(k); });
+  orphanKeys.forEach((k) => {
+    const name = k.startsWith('name:') ? k.slice(5) : k;
+    rows.push(
+      buildRow(
+        {
+          id: null,
+          code: null,
+          name: name || '（未命名供应商）',
+          category: null,
+          contact: null,
+          phone: null,
+          payment_terms: null,
+          term_days: null,
+          status: 'active',
+          _orphan: true
+        },
+        bySupplier.get(k) || [],
+        unbilledBySup.get(k) || []
+      )
+    );
   });
 
   // 只留有钱的（否则 11 家供应商里一半是 0，看着像没数据）

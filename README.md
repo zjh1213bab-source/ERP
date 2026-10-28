@@ -239,6 +239,9 @@ cd backend && node scripts/apply-payable-ddl.js
 # 应付页面取证（台账 / 明细 / 改账期 / 付款计划 / 移动端）
 cd backend && node scripts/shot-payable.js
 
+# 资金计划取证（13 周现金流 / 展开某周明细 / 保守情景 / 移动端）
+cd backend && node scripts/shot-cashflow.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

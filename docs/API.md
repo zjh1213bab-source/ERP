@@ -101,6 +101,8 @@
 | GET/POST | /api/leaves | 读:登录 / 写:admin,sales | 请假列表/新增 |
 | POST | /api/leaves/:id/review | admin,sales | 审批 `{approve}` |
 | DELETE | /api/leaves/:id | admin,sales | 删除 |
+| GET | /api/cashflow/plan?weeks=13&base_date=&scenario=base\|conservative\|optimistic&collect_rate= | cashflow.read | **资金计划**：`summary`（期初现金 / 流入 / 流出 / 期末 / `min_cash` 最低点 / `first_neg_week` 首次转负 / `gap` 缺口 / `ar_at_risk` 大概率收不回的部分）+ `weeks_detail`（逐周，含 `inflow_items`/`outflow_items` 每笔依据）+ `buckets`（按逾期档的回收率）。**支出侧三档完全相同** |
+| GET | /api/cashflow/compare?weeks=13 | cashflow.read | 三档情景并排；`outflow_consistent` 表示三档支出是否一致（必须为 true） |
 | GET | /api/payable/board?q=&only_overdue= | payable.read | **供应商应付台账**：`figures`（`open_amount` 未付发票 / `unbilled_amount` 已收货未开票 / `payable_total` / `overdue` / `due_7` / `due_30` / `unbilled_est_due` 未开票预计到期 / `unbilled_overdue_est`）+ `risk`（overdue/unbilled/noterm/ok） |
 | GET | /api/payable/schedule?weeks=8 | payable.read | **付款计划**：按周分组（`buckets`，第一组固定 `overdue`），末尾 `pending` 是「已收货未开票」并带 `est_due`（收货日 + 账期，**仅供计划，不算逾期**） |
 | GET | /api/payable/export?q=&only_overdue= | payable.read | 台账 CSV（带 BOM，前四行写口径） |

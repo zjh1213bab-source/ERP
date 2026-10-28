@@ -89,11 +89,12 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in rows" :key="r.supplier.id">
+            <tr v-for="r in rows" :key="r.supplier.id || 'name:' + r.supplier.name">
               <td>
                 <b>{{ r.supplier.name }}</b>
                 <div class="tiny muted">
                   {{ r.supplier.code || '—' }}<template v-if="r.supplier.contact"> · {{ r.supplier.contact }}</template>
+                  <span v-if="!r.supplier.id" class="tag gray" style="margin-left: 6px" title="只有名字，供应商档案里没有这条记录">无档案</span>
                 </div>
               </td>
               <td class="term-cell">
@@ -122,8 +123,10 @@
               </td>
               <td><span class="tag" :class="riskTag(r.risk)">{{ r.risk_label }}</span></td>
               <td class="ops">
-                <button class="link-btn" @click="openDetail(r.supplier.id)">明细</button>
-                <button v-if="canWrite" class="link-btn" @click="openTerm(r)">改账期</button>
+                <!-- 没有档案的（老数据只存了名字）开不了明细也改不了账期，按钮直接不给，免得点了 404 -->
+                <button v-if="r.supplier.id" class="link-btn" @click="openDetail(r.supplier.id)">明细</button>
+                <button v-if="canWrite && r.supplier.id" class="link-btn" @click="openTerm(r)">改账期</button>
+                <span v-if="!r.supplier.id" class="tiny muted">去客户档案里补</span>
               </td>
             </tr>
             <tr v-if="!rows.length"><td colspan="9" class="empty">没有应付</td></tr>

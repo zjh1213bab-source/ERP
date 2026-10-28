@@ -219,6 +219,9 @@ export const api = {  // 登录
   payableDetail: (id) => req(`/api/payable/${id}`),
   payableSetTerm: (id, d) => req(`/api/payable/${id}`, { method: 'PUT', body: d }),
   payableExportPath: (params) => '/api/payable/export' + qs(params),
+  // 资金计划（13 周现金流）
+  cashflowPlan: (params) => req('/api/cashflow/plan' + qs(params)),
+  cashflowCompare: (params) => req('/api/cashflow/compare' + qs(params)),
 
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),

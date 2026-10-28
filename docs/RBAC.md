@@ -111,6 +111,8 @@
 | budget | POST | `/:id/close` | ✅ | — | — | — | — | — | — | — |
 | budget | POST | `/adjustments` | ✅ | — | ✅ | — | — | — | ✅ | — |
 | budget | POST | `/alerts/:id/ack` | ✅ | — | ✅ | — | — | — | ✅ | — |
+| cashflow | GET | `/compare` | ✅ | ✅ | — | — | — | — | ✅ | — |
+| cashflow | GET | `/plan` | ✅ | ✅ | — | — | — | — | ✅ | — |
 | channel | POST | `/after-sales` | ✅ | — | ✅ | — | — | — | ✅ | — |
 | channel | PUT | `/after-sales/:id` | ✅ | — | ✅ | — | — | — | ✅ | — |
 | channel | POST | `/after-sales/:id/confirm-refund` | ✅ | — | ✅ | — | — | — | ✅ | — |
@@ -954,6 +956,7 @@
 | `pattern.review` | 技术打版 |
 | `settings.write` | 系统管理员 |
 | `user.manage` | 系统管理员 |
+| `cashflow.read` | 系统管理员、总经理、财务会计 |
 | `payable.read` | 系统管理员、总经理、财务会计 |
 | `payable.write` | 系统管理员、财务会计 |
 | `credit.read` | 系统管理员、总经理、财务会计、销售跟单 |

@@ -6636,6 +6636,97 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('应付用例自清理', db.prepare('SELECT COUNT(*) c FROM suppliers WHERE code = ?').get(TAG).c === 0);
   }
 
+  // ================= 资金计划（13 周现金流） =================
+  {
+    console.log('\n— 资金计划（13 周现金流） —');
+    const { db } = require('../src/db');
+
+    const pl = await req('/api/cashflow/plan?weeks=13', { token });
+    const P = pl.json.data || {};
+    const S1 = P.summary || {};
+    ok('资金计划可读', pl.status === 200 && Array.isArray(P.weeks_detail) && P.weeks_detail.length === 13,
+      `HTTP ${pl.status} 周数 ${(P.weeks_detail || []).length}`);
+
+    // 期初现金必须等于总账 1002
+    const cash = Number(db.prepare(
+      `SELECT COALESCE(SUM(e.debit-e.credit),0) s FROM gl_entries e JOIN gl_vouchers v ON v.id=e.voucher_id
+        WHERE v.status='posted' AND e.account_code='1002'`
+    ).get().s);
+    ok('期初现金取总账 1002（不是银行账户的期初数）',
+      Math.abs(Number(S1.opening_cash) - cash) < 0.01, `${S1.opening_cash} vs ${cash}`);
+
+    ok('期初 + 流入 − 流出 = 期末',
+      Math.abs(Number(S1.opening_cash) + Number(S1.total_inflow) - Number(S1.total_outflow) - Number(S1.closing_cash)) < 0.01,
+      `${S1.opening_cash}+${S1.total_inflow}-${S1.total_outflow}=${S1.closing_cash}`);
+
+    // 逐周滚动自洽：本周期初 = 上周期末
+    const rollBad = P.weeks_detail.filter((w, i) => {
+      if (i === 0) return Math.abs(w.opening - Number(S1.opening_cash)) > 0.01;
+      return Math.abs(w.opening - P.weeks_detail[i - 1].closing) > 0.01;
+    });
+    ok('逐周滚动自洽（本周期初 = 上周期末）', rollBad.length === 0,
+      rollBad.map((w) => '第' + w.week_no + '周').join(','));
+
+    ok('每周期初 + 净额 = 期末',
+      P.weeks_detail.every((w) => Math.abs(w.opening + w.net - w.closing) < 0.01));
+
+    // ---------- 跨模块口径：资金计划的应付 = 应付台账 ----------
+    const pb = await req('/api/payable/board', { token });
+    ok('资金计划的应付总额 = 应付台账的已开票未付（两个模块不许两套口径）',
+      Math.abs(Number(S1.ap_open) - Number(pb.json.data.summary.open_amount)) < 0.01,
+      `资金计划 ${S1.ap_open} vs 应付台账 ${pb.json.data.summary.open_amount}`);
+    ok('待开票（已收货未开票）也进了流出',
+      Math.abs(Number(S1.ap_pending) - Number(pb.json.data.summary.unbilled_amount)) < 0.01,
+      `${S1.ap_pending} vs ${pb.json.data.summary.unbilled_amount}`);
+
+    // ---------- 逾期应付排第 1 周（不假设还能拖） ----------
+    const overdueAp = db.prepare(
+      "SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) s FROM ap_invoices WHERE status <> 'void' AND amount - COALESCE(paid_amount,0) > 0.005 AND due_date < ?"
+    ).get(P.base_date).s;
+    const w1ap = (P.weeks_detail[0].outflow_items || [])
+      .filter((x) => x.category === 'ap_pay')
+      .reduce((a, x) => a + Number(x.amount), 0);
+    ok('逾期应付全部排进第 1 周（做计划不能假设供应商会继续等）',
+      Number(overdueAp) <= 0.01 || w1ap + 0.01 >= Number(overdueAp),
+      `逾期 ${overdueAp} / 第1周应付 ${w1ap}`);
+
+    // ---------- 三档情景 ----------
+    const cp = await req('/api/cashflow/compare?weeks=13', { token });
+    const rows = (cp.json.data || {}).rows || [];
+    ok('三档情景并排返回', cp.status === 200 && rows.length === 3, `HTTP ${cp.status} 行数 ${rows.length}`);
+    ok('三档支出完全一致（「乐观」不能意味着「少还钱」）',
+      cp.json.data.outflow_consistent === true,
+      JSON.stringify(rows.map((r) => r.total_outflow)));
+    const byKey = {};
+    rows.forEach((r) => { byKey[r.scenario] = r; });
+    ok('保守 < 基准 < 乐观（回款）',
+      Number(byKey.conservative.total_inflow) < Number(byKey.base.total_inflow) &&
+        Number(byKey.base.total_inflow) < Number(byKey.optimistic.total_inflow),
+      [byKey.conservative, byKey.base, byKey.optimistic].map((r) => r.total_inflow).join(' < '));
+
+    // ---------- 应收折现口径 ----------
+    ok('应收按逾期档打折（未到期最高、逾期越久越低）',
+      (P.buckets || []).length > 0 && (P.buckets || []).every((b, i, arr) => i === 0 || b.rate <= arr[i - 1].rate),
+      JSON.stringify((P.buckets || []).map((b) => b.label + ':' + b.rate + '%')));
+    ok('应收风险敞口 = 未收 − 预计可收',
+      Math.abs(Number(S1.ar_open) - Number(S1.ar_expect) - Number(S1.ar_at_risk)) < 0.01,
+      `${S1.ar_open} - ${S1.ar_expect} = ${S1.ar_at_risk}`);
+
+    // ---------- 权限 ----------
+    const salesTk2 = await req('/api/auth/login', { method: 'POST', body: { username: 'sales01', password: PASS } });
+    if (salesTk2.status === 200) {
+      const x1 = await req('/api/cashflow/plan', { token: salesTk2.json.data.token });
+      ok('销售看不到资金计划（期初现金与断点周是老板/财务的事）', x1.status === 403, `HTTP ${x1.status}`);
+    }
+    const hrTk2 = await req('/api/auth/login', { method: 'POST', body: { username: 'hr01', password: PASS } });
+    if (hrTk2.status === 200) {
+      const x2 = await req('/api/cashflow/compare', { token: hrTk2.json.data.token });
+      ok('人事看不到资金计划', x2.status === 403, `HTTP ${x2.status}`);
+    }
+    const x3 = await req('/api/cashflow/plan', {});
+    ok('未登录拿不到资金计划', x3.status === 401, `HTTP ${x3.status}`);
+  }
+
   // ================= 操作日志 / 审计 =================
   {
     console.log('\n[操作日志 / 审计]');
