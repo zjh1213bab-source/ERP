@@ -295,6 +295,14 @@ const PERMS = {
   'export.subscribe': ['admin', 'sales', 'finance', 'hr'],
   'export.audit': ['admin', 'hr', 'finance'],
 
+  // ===== 上线检查清单（上线准备）=====
+  // 看：上线清单里有财务口径、权限矩阵、备份路径这类信息，只给管理层与人事/财务。
+  // 勾：推进上线的人（管理员/人事）负责验数据、跑体检、勾人工项。
+  // 签：签署是「决定今天能不能上线」，只给老板与管理员 —— 勾和签分开，否则自己勾完自己签。
+  'golive.read': ['admin', 'boss', 'hr', 'finance'],
+  'golive.run': ['admin', 'hr'],
+  'golive.sign': ['admin', 'boss'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -448,6 +456,13 @@ const GUARDED = [
   { perm: 'export.run', method: 'POST', prefix: '/api/exports/download' },
   { perm: 'export.subscribe', method: 'POST', prefix: '/api/exports/subs' },
   { perm: 'export.subscribe', method: 'POST', prefix: '/api/exports/run-due' },
+  // 签署与撤回是高危：一个决定上线、一个推翻已签结论
+  { perm: 'golive.sign', method: 'POST', prefix: '/api/go-live/sign' },
+  { perm: 'golive.sign', method: 'POST', prefix: '/api/go-live/withdraw' },
+  { perm: 'golive.run', method: 'POST', prefix: '/api/go-live/rounds' },
+  { perm: 'golive.run', method: 'POST', prefix: '/api/go-live/refresh' },
+  { perm: 'golive.run', method: 'POST', prefix: '/api/go-live/manual' },
+  { perm: 'golive.run', method: 'POST', prefix: '/api/go-live/assign' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

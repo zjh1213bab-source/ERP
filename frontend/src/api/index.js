@@ -438,6 +438,18 @@ export const api = {  // 登录
   exRunDue: (d) => req('/api/exports/run-due', { method: 'POST', body: d || {} }),
   exDeliveries: (params) => req('/api/exports/deliveries' + qs(params)),
 
+  // 上线检查清单
+  glMeta: () => req('/api/go-live/meta'),
+  glStats: () => req('/api/go-live/stats'),
+  glRounds: (params) => req('/api/go-live/rounds' + qs(params)),
+  glRound: (id) => req(`/api/go-live/rounds/${id}`),
+  glCreate: (d) => req('/api/go-live/rounds', { method: 'POST', body: d }),
+  glRefresh: (id) => req(`/api/go-live/refresh/${id}`, { method: 'POST', body: {} }),
+  glManual: (id, d) => req(`/api/go-live/manual/${id}`, { method: 'POST', body: d }),
+  glAssign: (id, d) => req(`/api/go-live/assign/${id}`, { method: 'POST', body: d }),
+  glSign: (id, d) => req(`/api/go-live/sign/${id}`, { method: 'POST', body: d }),
+  glWithdraw: (id, d) => req(`/api/go-live/withdraw/${id}`, { method: 'POST', body: d }),
+
   // 字段级脱敏与访问审计
   pvMeta: () => req('/api/privacy/meta'),
   pvRules: () => req('/api/privacy/rules'),

@@ -1334,3 +1334,29 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 >
 > **为什么差异要存快照**：客户三个月后问「为什么这次贵了」，答案必须在库里，
 > 而不是靠「当时页面提示过」。快照里连 `as_of` 一起存，说明是按哪个时点的价算的。
+
+## 上线检查清单（M-GOLIVE）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| golive_rounds | round_no(GL+ymmdd+4), scope(production/demo), env_label, plan_date, app_version, status(draft/blocked/ready/signed/withdrawn), auto_total/pass/fail/warn, manual_total/done, na_total, **blocker_open**, **snapshot**(JSON), conclusion, sign_note, signed_by/at, withdrawn_reason, created_by, demo_tag | 一次上线评估。`snapshot` 存签署那一刻的全部项与统计；`blocker_open` 冗余用于列表页排序 |
+| golive_items | round_id, section(data/access/backup/finance/runtime/org), item_key, title, detail, how, kind(auto/manual), **auto_check**, severity(blocker/required/nice), status(pass/fail/warn/na/pending), **result**, **evidence**, owner, done_by/at, na_reason, note, sort | 逐项记录。自动项 `result` 由检查器写，人工项 `evidence` 由人填 |
+
+> **为什么一轮一张单、而不是一份长期清单**：一份清单被反复勾选，就再也说不清
+> 「上线那天到底验了什么」。换成每次评估一轮，历史签署各留各的快照，
+> 三个月后翻出来的是**那天的**结论，不是今天重跑的数字。
+>
+> **为什么 `snapshot` 要连证据一起冻**：只冻「通过/不通过」回答不了「凭什么」。
+> 证据（签字单号、文件路径、会议纪要）才是复核的入口。
+>
+> **为什么 `auto_check` 存键不存代码**：检查逻辑在 `services/goLive.js` 的 `CHECKS` 里，
+> 表里只存键名。这样改检查口径不用迁移数据；而键名对不上时会明确报
+> 「检查器不存在，无法验证」—— 不会静默变成通过。
+>
+> **为什么 `scope` 影响判定**：演示库交付允许带 `demo_tag` 数据，正式上线不允许。
+> 两种要求混在一个开关里，要么演示交付被误拦，要么正式交付把演示订单带进客户库。
+>
+> 数据来源（只读）：`users`、`employees`、`customers`、`departments`、`products`、`materials`、
+> `backup_jobs`、`gl_vouchers` / `gl_entries` / `gl_periods`、`schema.js`（表结构快照）、
+> `scripts/audit-demo-data.js`（烟测残留与孤儿扫描）。
+> **本模块不写任何业务表**，只写自己这两张。

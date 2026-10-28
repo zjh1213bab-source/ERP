@@ -449,6 +449,16 @@
 | glBooks | POST | `/vouchers` | ✅ | — | — | — | — | — | ✅ | — |
 | glBooks | GET | `/vouchers/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | glBooks | POST | `/vouchers/:id/void` | ✅ | — | — | — | — | — | ✅ | — |
+| goLive | POST | `/assign/:id` | ✅ | — | — | — | — | — | — | ✅ |
+| goLive | POST | `/manual/:id` | ✅ | — | — | — | — | — | — | ✅ |
+| goLive | GET | `/meta` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| goLive | POST | `/refresh/:id` | ✅ | — | — | — | — | — | — | ✅ |
+| goLive | GET | `/rounds` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| goLive | POST | `/rounds` | ✅ | — | — | — | — | — | — | ✅ |
+| goLive | GET | `/rounds/:id` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| goLive | POST | `/sign/:id` | ✅ | ✅ | — | — | — | — | — | — |
+| goLive | GET | `/stats` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| goLive | POST | `/withdraw/:id` | ✅ | ✅ | — | — | — | — | — | — |
 | group | GET | `/companies` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | group | POST | `/companies` | ✅ | — | — | — | — | — | ✅ | — |
 | group | GET | `/companies/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
@@ -1207,6 +1217,9 @@
 | `export.run` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
 | `export.subscribe` | 系统管理员、销售跟单、财务会计、人事行政 |
 | `export.audit` | 系统管理员、人事行政、财务会计 |
+| `golive.read` | 系统管理员、总经理、人事行政、财务会计 |
+| `golive.run` | 系统管理员、人事行政 |
+| `golive.sign` | 系统管理员、总经理 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |

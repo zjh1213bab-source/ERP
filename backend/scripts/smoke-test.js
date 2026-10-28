@@ -10226,6 +10226,200 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+
+  /* ================================================================== *
+   * 上线检查清单（上线准备）
+   *
+   * 夹具自建一轮（demo_tag='__SMOKE'），绝不借用演示轮次 ——
+   * 演示轮次是有意留着给人看「被拦住」的样子，被冒烟签掉就废了。
+   * ================================================================== */
+  {
+    const { db: GDB } = require('../src/db');
+    console.log('\n[上线检查清单]');
+
+    const MARK = '__SMOKE';
+    const cleanSmoke = () => {
+      const ids = GDB.prepare('SELECT id FROM golive_rounds WHERE demo_tag = ?').all(MARK).map((r) => r.id);
+      ids.forEach((id) => GDB.prepare('DELETE FROM golive_items WHERE round_id = ?').run(id));
+      GDB.prepare('DELETE FROM golive_rounds WHERE demo_tag = ?').run(MARK);
+      return ids.length;
+    };
+    cleanSmoke();
+
+    const meta = await req('/api/go-live/meta', { token });
+    ok('清单字典：六大块 / 26 项 / 自动 16 人工 10',
+      meta.status === 200 && meta.json.data.item_count === 26
+      && meta.json.data.auto_count === 16 && meta.json.data.manual_count === 10
+      && (meta.json.data.sections || []).length === 6,
+      `HTTP ${meta.status} ${meta.json.data ? meta.json.data.item_count + ' 项' : ''}`);
+
+    const made = await req('/api/go-live/rounds', {
+      method: 'POST', token, body: { scope: 'production', env_label: '烟测环境', plan_date: '2026-12-01', app_version: 'smoke' }
+    });
+    ok('生成一轮评估（自动项立即跑完并落库）',
+      made.status === 200 && !!made.json.data.round_no
+      && made.json.data.sections.reduce((a, x) => a + x.items.length, 0) === 26,
+      `HTTP ${made.status} ${made.json.data ? made.json.data.round_no : ''}`);
+    const rid = made.json.data.id;
+    GDB.prepare('UPDATE golive_rounds SET demo_tag = ? WHERE id = ?').run(MARK, rid);
+
+    const items = made.json.data.sections.flatMap((x) => x.items);
+    const auto = items.filter((x) => x.kind === 'auto');
+    const manual = items.filter((x) => x.kind === 'manual');
+
+    ok('自动项全部有结论文字（不许只有「已通过」三个字）',
+      auto.every((x) => x.result && x.result.length >= 6),
+      `无结论 ${auto.filter((x) => !x.result).length} 项`);
+
+    ok('★ 自动项结论带数字（能复核，不是一句「已通过」）',
+      auto.filter((x) => /\d/.test(x.result || '')).length >= 12,
+      `带数字 ${auto.filter((x) => /\d/.test(x.result || '')).length} / ${auto.length}`);
+
+    ok('自动项覆盖数据/权限/备份/财务/运行五块',
+      ['data', 'access', 'backup', 'finance', 'runtime'].every((sec) => auto.some((x) => x.section === sec)),
+      `覆盖 ${new Set(auto.map((x) => x.section)).size} 块`);
+
+    const blockerItems = items.filter((x) => x.severity === 'blocker');
+    ok('阻塞项存在且被点名（默认密码 / 密钥 / 演示数据等）',
+      blockerItems.length >= 4 && made.json.data.open_blockers.length > 0,
+      `阻塞 ${blockerItems.length} 项，未通过 ${made.json.data.open_blockers.length} 项`);
+
+    // 1. 自动项不许人工改
+    const autoItem = auto[0];
+    const editAuto = await req(`/api/go-live/manual/${autoItem.id}`, {
+      method: 'POST', token, body: { status: 'pass', evidence: '想把红项直接点绿' }
+    });
+    ok('★ 自动项不能人工改成「通过」（否则清单就是橡皮章）',
+      editAuto.status === 400 && /自动检查项/.test(editAuto.json.message || ''),
+      `HTTP ${editAuto.status} ${editAuto.json.message || ''}`);
+
+    // 2. 人工项：通过必须有证据，不适用必须写理由
+    const m1 = manual[0];
+    const noEv = await req(`/api/go-live/manual/${m1.id}`, { method: 'POST', token, body: { status: 'pass' } });
+    ok('★ 判「通过」必须写证据', noEv.status === 400, `HTTP ${noEv.status}`);
+
+    const naShort = await req(`/api/go-live/manual/${m1.id}`, { method: 'POST', token, body: { status: 'na', na_reason: '不适用' } });
+    ok('★ 判「不适用」必须写理由（否则清单会被 na 填满）', naShort.status === 400, `HTTP ${naShort.status}`);
+
+    const badStatus = await req(`/api/go-live/manual/${m1.id}`, { method: 'POST', token, body: { status: 'whatever' } });
+    ok('非法状态被拒', badStatus.status === 400, `HTTP ${badStatus.status}`);
+
+    const doneOne = await req(`/api/go-live/manual/${m1.id}`, {
+      method: 'POST', token, body: { status: 'pass', evidence: '烟测证据 档号 SMOKE-001', result: '烟测确认', owner: '烟测责任人' }
+    });
+    const afterDone = doneOne.json.data.sections.flatMap((x) => x.items).find((x) => x.id === m1.id);
+    ok('人工判通过后记录证据、判定人与时间',
+      doneOne.status === 200 && afterDone.status === 'pass'
+      && /SMOKE-001/.test(afterDone.evidence || '') && !!afterDone.done_by && !!afterDone.done_at,
+      `HTTP ${doneOne.status} / ${afterDone ? afterDone.done_by : '?'}`);
+
+    // 3. 有阻塞项时只能签「暂不上线」
+    const signGo = await req(`/api/go-live/sign/${rid}`, { method: 'POST', token, body: { conclusion: 'go' } });
+    ok('★ 阻塞项未过时签「准予上线」被拒，并点名是哪几项',
+      signGo.status === 400 && /阻塞项未通过/.test(signGo.json.message || ''),
+      `HTTP ${signGo.status} ${(signGo.json.message || '').slice(0, 50)}`);
+
+    const signCond = await req(`/api/go-live/sign/${rid}`, { method: 'POST', token, body: { conclusion: 'conditional', note: '想带着阻塞项上线' } });
+    ok('★ 「有条件上线」同样拦住（遗留项必须是 required 级，不能是 blocker）',
+      signCond.status === 400, `HTTP ${signCond.status}`);
+
+    const signNoNote = await req(`/api/go-live/sign/${rid}`, { method: 'POST', token, body: { conclusion: 'no_go' } });
+    ok('「暂不上线」也必须写原因', signNoNote.status === 400, `HTTP ${signNoNote.status}`);
+
+    // 4. 解除阻塞后可以签 go —— 直接改库只为验证「签署判定」本身
+    //    （检查器读真实库状态，冒烟不可能真去改默认密码）
+    GDB.prepare("UPDATE golive_items SET status = 'pass', result = '烟测：强行置为通过以验证签署判定' WHERE round_id = ? AND severity = 'blocker'").run(rid);
+    const signGo2 = await req(`/api/go-live/sign/${rid}`, { method: 'POST', token, body: { conclusion: 'go' } });
+    ok('★ 阻塞项全部解除后可以签「准予上线」',
+      signGo2.status === 200 && signGo2.json.data.status === 'signed' && signGo2.json.data.conclusion === 'go',
+      `HTTP ${signGo2.status} ${signGo2.json.message || ''}`);
+
+    const snap = signGo2.json.data.snapshot;
+    ok('★ 签署冻结快照（全部 26 项的结论/证据/判定人一起存）',
+      snap && snap.items.length === 26 && !!snap.frozen_at
+      && snap.counts.pass + snap.counts.fail + snap.counts.warn + snap.counts.na + snap.counts.pending === 26,
+      snap ? `冻结 ${snap.items.length} 项，通过 ${snap.counts.pass}` : '没有快照');
+
+    ok('快照里带上证据（事后能复核「当时凭的什么」）',
+      (snap.items || []).some((x) => /SMOKE-001/.test(x.evidence || '')),
+      '证据未进快照');
+
+    // 5. 签署后冻结
+    const refreshSigned = await req(`/api/go-live/refresh/${rid}`, { method: 'POST', token, body: {} });
+    ok('★ 已签署不能再刷新（否则历史结论会跟着变）', refreshSigned.status === 400, `HTTP ${refreshSigned.status}`);
+
+    const editSigned = await req(`/api/go-live/manual/${m1.id}`, { method: 'POST', token, body: { status: 'fail', result: '改' } });
+    ok('★ 已签署不能再改人工判定', editSigned.status === 400, `HTTP ${editSigned.status}`);
+
+    const signTwice = await req(`/api/go-live/sign/${rid}`, { method: 'POST', token, body: { conclusion: 'no_go', note: '再签一次' } });
+    ok('不能重复签署', signTwice.status === 400, `HTTP ${signTwice.status}`);
+
+    // 6. 撤回
+    const wdShort = await req(`/api/go-live/withdraw/${rid}`, { method: 'POST', token, body: { reason: '短' } });
+    ok('撤回必须写原因（否则「签了又撤」没有任何线索）', wdShort.status === 400, `HTTP ${wdShort.status}`);
+
+    const wd = await req(`/api/go-live/withdraw/${rid}`, { method: 'POST', token, body: { reason: '烟测：上线前发现期初差异，需重新盘库' } });
+    const rowAfterWd = GDB.prepare('SELECT status, snapshot, withdrawn_reason FROM golive_rounds WHERE id = ?').get(rid);
+    ok('★ 撤回后状态与原因都留痕，快照不丢',
+      wd.status === 200 && rowAfterWd.status === 'withdrawn'
+      && /期初差异/.test(rowAfterWd.withdrawn_reason || '') && !!rowAfterWd.snapshot,
+      `HTTP ${wd.status} / ${rowAfterWd.status}`);
+
+    const signAfterWd = await req(`/api/go-live/sign/${rid}`, { method: 'POST', token, body: { conclusion: 'no_go', note: '撤回后再签' } });
+    ok('已撤回的轮次不能再签（要重新评估请新建一轮）', signAfterWd.status === 400, `HTTP ${signAfterWd.status}`);
+
+    // 7. 演示库口径：演示数据不算阻塞
+    const demoRound = await req('/api/go-live/rounds', {
+      method: 'POST', token, body: { scope: 'demo', env_label: '烟测演示口径' }
+    });
+    const demoItems = demoRound.json.data.sections.flatMap((x) => x.items);
+    const demoItem = demoItems.find((x) => x.item_key === 'demo_data');
+    ok('★ 演示库口径下演示数据按「允许」处理（两种交付要求不能混）',
+      demoRound.status === 200 && demoItem.status === 'pass' && /本口径允许/.test(demoItem.result || ''),
+      demoItem ? demoItem.result.slice(0, 40) : '无该项');
+    GDB.prepare('UPDATE golive_rounds SET demo_tag = ? WHERE id = ?').run(MARK, demoRound.json.data.id);
+
+    // 8. 权限
+    const salesLogin = await req('/api/auth/login', { method: 'POST', body: { username: 'sales01', password: PASS } });
+    if (salesLogin.status === 200) {
+      const sGet = await req('/api/go-live/rounds', { token: salesLogin.json.data.token });
+      ok('★ 销售看不到上线清单（内含财务口径与权限矩阵）', sGet.status === 403, `HTTP ${sGet.status}`);
+      const sSign = await req(`/api/go-live/sign/${demoRound.json.data.id}`, {
+        method: 'POST', token: salesLogin.json.data.token, body: { conclusion: 'go' }
+      });
+      ok('销售不能签署', sSign.status === 403, `HTTP ${sSign.status}`);
+    } else {
+      ok('销售看不到上线清单 + 不能签署', true, '没有 sales01，跳过');
+    }
+    const hrLogin = await req('/api/auth/login', { method: 'POST', body: { username: 'hr01', password: PASS } });
+    if (hrLogin.status === 200) {
+      const hGet = await req('/api/go-live/rounds', { token: hrLogin.json.data.token });
+      ok('人事能看能跑（推进上线的人）', hGet.status === 200, `HTTP ${hGet.status}`);
+      const hSign = await req(`/api/go-live/sign/${demoRound.json.data.id}`, {
+        method: 'POST', token: hrLogin.json.data.token, body: { conclusion: 'no_go', note: '人事不该能签署' }
+      });
+      ok('★ 人事不能签署（勾和签必须分开，否则自己勾完自己签）', hSign.status === 403, `HTTP ${hSign.status}`);
+    } else {
+      ok('人事能看不能签', true, '没有 hr01，跳过');
+    }
+
+    // 9. 只读业务表
+    const baseStock2 = Number(GDB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v);
+    const baseGl2 = GDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c;
+    await req(`/api/go-live/refresh/${demoRound.json.data.id}`, { method: 'POST', token, body: {} });
+    ok('★ 跑检查不改任何业务数据（库存与凭证计数不变）',
+      Number(GDB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v) === baseStock2
+      && GDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c === baseGl2,
+      `库存 ${baseStock2} / 凭证 ${baseGl2}`);
+
+    // 10. 清理
+    const removed = cleanSmoke();
+    ok('冒烟夹具已清干净',
+      GDB.prepare('SELECT COUNT(*) c FROM golive_rounds WHERE demo_tag = ?').get(MARK).c === 0
+      && GDB.prepare("SELECT COUNT(*) c FROM golive_items WHERE round_id NOT IN (SELECT id FROM golive_rounds)").get().c === 0,
+      `删除 ${removed} 轮，孤儿项 ${GDB.prepare('SELECT COUNT(*) c FROM golive_items WHERE round_id NOT IN (SELECT id FROM golive_rounds)').get().c}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

@@ -3451,3 +3451,55 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 3. **已下架不允许提交**；可售量不足允许提交（可能仍在产）。
 4. **MOQ 只提示不拦**，也不自动把数量加到 MOQ。
 5. **草稿/已取消单不能当历史单**（没有「再买一次」的意义）。
+
+## 上线检查清单（`/api/go-live`）
+
+> 回答一句话：**今天能不能上线，凭据是什么。**
+> 与 `deploy/GO-LIVE-CHECKLIST.md` 分工不同 —— 那份是装机手册（装 Node / 配 Nginx / 证书），
+> 这份是上线决策（数据 / 权限 / 备份 / 财务 / 人）。
+>
+> 权限：`golive.read`（admin/boss/hr/finance，看清单）、
+> `golive.run`（admin/hr，生成轮次 / 重跑检查 / 勾人工项）、
+> `golive.sign`（admin/boss，签署 / 撤回）。
+> **勾和签分开**：合成一个权限，等于谁都能自己勾完自己签。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/go-live/meta | read | 六块 / 严重度 / 状态 / 结论 / 口径 + 模板（26 项，自动 16 人工 10） |
+| GET | /api/go-live/stats | read | 总轮次、已签、准予/暂不、最近一轮摘要 |
+| GET | /api/go-live/rounds?status=&scope= | read | 轮次列表（含 `auto_rate`） |
+| GET | /api/go-live/rounds/:id | read | 轮次详情：六块分组 + `open_blockers` + `snapshot` |
+| POST | /api/go-live/rounds | run | **新建一轮**：`{scope, env_label, plan_date, app_version}`；立即跑 16 项自动检查 |
+| POST | /api/go-live/refresh/:id | run | 重跑自动项（人工项保留），返回 `refresh_changes` 列出结论变化 |
+| POST | /api/go-live/manual/:id | run | 人工判定：`{status: pass/fail/na/pending, evidence, result, na_reason, owner}`；**自动项调用直接 400** |
+| POST | /api/go-live/assign/:id | run | 认领责任人：`{owner, note}`（不改状态） |
+| POST | /api/go-live/sign/:id | sign | 签署：`{conclusion: go/conditional/no_go, note}`；阻塞项未过只能 `no_go` |
+| POST | /api/go-live/withdraw/:id | sign | 撤回已签：`{reason}`（≥6 字）；撤回后不能再签，需新建一轮 |
+
+### 26 项清单
+
+| 块 | 自动（16） | 人工（10） |
+|---|---|---|
+| 数据 | 烟测残留 · 孤儿行 · 演示数据 · 基础档案 · 表结构快照一致 | — |
+| 权限与账号 | 默认密码 · 账号绑员工 · 权限点悬空引用 | 岗位权限矩阵签署 |
+| 备份与恢复 | 近 7 天有备份 · 备份文件真实存在 · 恢复演练记录 | 回滚预案与发布包留底 |
+| 财务口径 | 借贷平衡与分录无孤儿 · 上期已关账 | 期初库存/往来/总账三方签认 |
+| 运行与发布 | 服务健康与目录可写 · JWT 密钥非默认 · 上传目录可写 | 版本号核对 · 切换窗口与值守 |
+| 组织与培训 | — | 手册签收 · 关键岗位培训 · 并行运行 · 账号开通 · 应急联系人 |
+
+### 五条硬规则
+
+1. **自动项不能人工改**。`POST /manual/:id` 碰到 `kind='auto'` 直接 400 ——
+   一个不通过的检查被点两下变绿，签字的人看到的就全是绿色。
+2. **判通过必须写证据**，判「不适用」必须写理由（≥6 字）。否则清单会被 `na` 填满。
+3. **阻塞项（`severity='blocker'`）未过**：`go` 与 `conditional` 都 400，只能 `no_go`。
+   允许 `no_go` 是故意的 —— 「决定不上线」是正当结论，拦住它只会让人绕过系统。
+4. **签署即冻结**：`signed` 后 `refresh` / `manual` 全部 400；要改先 `withdraw`。
+5. **检查器异常按不通过处理**。检查器缺失或抛错写 `fail` 并带上异常信息 ——
+   一个跑不动的检查比一个没通过更危险。
+
+### 轮次状态机
+
+`draft` 评估中 → `blocked` 有阻塞项（`blocker_open > 0`）→ `ready` 可签署（阻塞解除且人工项全验）
+→ `signed` 已签署 → `withdrawn` 已撤回（需新建一轮）。
+`conclusion`：`go` 准予上线 / `conditional` 有条件上线（遗留项限期关闭）/ `no_go` 暂不上线。

@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 771 个对象
- * （352 张表 + 419 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 778 个对象
+ * （354 张表 + 424 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -776,5 +776,12 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_export_del_job ON export_deliveries(job_id);",
   "CREATE INDEX IF NOT EXISTS idx_export_del_sub ON export_deliveries(subscription_id);",
   "CREATE INDEX IF NOT EXISTS idx_export_del_rcpt ON export_deliveries(recipient, status);",
-  "CREATE INDEX IF NOT EXISTS idx_mall_inq_source ON mall_inquiries(source_order_id);"
+  "CREATE INDEX IF NOT EXISTS idx_mall_inq_source ON mall_inquiries(source_order_id);",
+  "CREATE TABLE IF NOT EXISTS golive_rounds (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  round_no TEXT NOT NULL UNIQUE,                  -- GL+ymmdd+3\n  scope TEXT NOT NULL DEFAULT 'production',       -- production 正式库 / demo 演示库（口径不同：正式库要求无演示数据）\n  env_label TEXT,                                 -- 环境标签（生产 / 预发 / 客户现场），人填\n  plan_date TEXT,                                 -- 计划上线日\n  app_version TEXT,\n  status TEXT NOT NULL DEFAULT 'draft',           -- draft 评估中 / ready 可签署 / blocked 有阻塞 / signed 已签署 / withdrawn 已撤回\n  auto_total INTEGER NOT NULL DEFAULT 0,\n  auto_pass INTEGER NOT NULL DEFAULT 0,\n  auto_fail INTEGER NOT NULL DEFAULT 0,\n  auto_warn INTEGER NOT NULL DEFAULT 0,\n  manual_total INTEGER NOT NULL DEFAULT 0,\n  manual_done INTEGER NOT NULL DEFAULT 0,\n  na_total INTEGER NOT NULL DEFAULT 0,\n  blocker_open INTEGER NOT NULL DEFAULT 0,        -- 未解除的阻塞项数（>0 不许签「准予上线」）\n  snapshot TEXT,                                  -- 生成时的全部检查结果（JSON），冻结用\n  conclusion TEXT,                                -- 签署结论：go / conditional / no_go\n  sign_note TEXT,\n  signed_by TEXT,\n  signed_at TEXT,\n  withdrawn_reason TEXT,\n  created_by TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT,\n  last_refresh_at TEXT                            -- 最近一次重跑自动项的时间\n, demo_tag TEXT);",
+  "CREATE TABLE IF NOT EXISTS golive_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  round_id INTEGER NOT NULL,\n  section TEXT NOT NULL,                          -- data / access / backup / finance / runtime / org\n  item_key TEXT NOT NULL,\n  title TEXT NOT NULL,\n  detail TEXT,                                    -- 这一项为什么重要（写给签字的人看）\n  how TEXT,                                       -- 怎么验（自动项写检查器口径，人工项写动作）\n  kind TEXT NOT NULL DEFAULT 'manual',            -- auto / manual\n  auto_check TEXT,                                -- 检查器键（kind=auto 时必填）\n  severity TEXT NOT NULL DEFAULT 'required',      -- blocker 阻塞 / required 必需 / nice 建议\n  status TEXT NOT NULL DEFAULT 'pending',         -- pass / fail / warn / na / pending\n  result TEXT,                                    -- 自动检查的结论（含数字），或人工填的结论\n  evidence TEXT,                                  -- 证据：文件路径 / 单号 / 截图说明\n  owner TEXT,                                     -- 责任人\n  done_by TEXT,\n  done_at TEXT,\n  na_reason TEXT,                                 -- 判「不适用」必须写理由\n  note TEXT,\n  sort INTEGER NOT NULL DEFAULT 0,\n  created_at TEXT NOT NULL,\n  updated_at TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_glr_status ON golive_rounds(status);",
+  "CREATE INDEX IF NOT EXISTS idx_glr_no ON golive_rounds(round_no);",
+  "CREATE INDEX IF NOT EXISTS idx_gli_round ON golive_items(round_id, section, sort);",
+  "CREATE INDEX IF NOT EXISTS idx_gli_status ON golive_items(round_id, status);",
+  "CREATE INDEX IF NOT EXISTS idx_gli_key ON golive_items(round_id, item_key);"
 ];

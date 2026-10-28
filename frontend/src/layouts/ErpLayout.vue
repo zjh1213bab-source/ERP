@@ -224,6 +224,7 @@ const navModel = [
       { label: '系统设置', to: '/settings' },
       { label: '外部接口', to: '/integration' },
       { label: '权限复核', to: '/access-review', roles: ['admin', 'hr'] },
+      { label: '上线检查清单', to: '/go-live' },
       { label: '数据导出与订阅', to: '/export-center' },
       { label: '数据导出与订阅', to: '/export-center' },
       { label: '备份与恢复', to: '/backup', adminOnly: true },
