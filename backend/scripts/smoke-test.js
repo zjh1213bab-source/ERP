@@ -10328,6 +10328,35 @@ async function req(path, { method = 'GET', body, token } = {}) {
       trace.status === 200 && trace.json.data.found === true && trace.json.data.total >= 1,
       trace.json.data ? `挂 ${trace.json.data.total} 张` : '?');
 
+    ok('★ 反查带样例单号（不只知道挂几条，还知道挂的是哪一张）',
+      (trace.json.data.chains || []).some((x) => (x.samples || []).length > 0),
+      (trace.json.data.chains || []).map((x) => `${x.label}:${(x.samples || []).join('/')}`).join(' ') || '无样例');
+
+    // 敲错一位：PFX001C 此刻不存在，与已存在的 PFX001B 只差 1 个字符
+    const typo = await req(`/api/orders/order-no/trace?no=${PFX}001C`, { token });
+    ok('★ 敲错一位时给出相近号（只回「查无此单」，业务还是不知道该敲哪个）',
+      typo.status === 200 && typo.json.data.found === false
+      && (typo.json.data.similar || []).some((x) => x.order_no === `${PFX}001B`),
+      `相似 ${(typo.json.data.similar || []).map((x) => x.order_no + '(d' + x.diff + ')').join(',') || '无'}`);
+
+    // 孤儿：下游挂着这个号，订单主表却没有 → 是数据不一致，不是「查无此单」
+    const ghostNo = `${PFX}GHOST`;
+    const gt = new Date().toISOString();
+    NDB.prepare(`INSERT INTO material_issues (issue_no, company_id, order_id, order_no, kind, receiver_type, status,
+        item_count, req_qty, issued_qty, amount, created_at, updated_at)
+      VALUES ('TESTMI-NO-GHOST', 1, 999999, ?, 'material', 'factory', 'draft', 1, 1, 0, 0, ?, ?)`).run(ghostNo, gt, gt);
+    const ghost = await req(`/api/orders/order-no/trace?no=${ghostNo}`, { token });
+    ok('★ 下游有单、订单主表没单 → 报「数据不一致」而不是「查无此单」',
+      ghost.status === 200 && ghost.json.data.found === false && ghost.json.data.orphan === true
+      && ghost.json.data.total >= 1,
+      `found=${ghost.json.data ? ghost.json.data.found : '?'} orphan=${ghost.json.data ? ghost.json.data.orphan : '?'} 挂 ${ghost.json.data ? ghost.json.data.total : '?'} 条`);
+    NDB.prepare("DELETE FROM material_issues WHERE issue_no = 'TESTMI-NO-GHOST'").run();
+
+    const ghostGone = await req(`/api/orders/order-no/trace?no=${ghostNo}`, { token });
+    ok('★ 脏数据清掉后反查回到「干净的空」（不留缓存骗人）',
+      ghostGone.status === 200 && ghostGone.json.data.orphan === false && ghostGone.json.data.total === 0,
+      `orphan=${ghostGone.json.data ? ghostGone.json.data.orphan : '?'} total=${ghostGone.json.data ? ghostGone.json.data.total : '?'}`);
+
     // ---------- 3. 采购关联 ----------
     const sup = NDB.prepare("SELECT id, name FROM suppliers WHERE status IS NULL OR status <> 'paused' ORDER BY id LIMIT 1").get();
     let poOk = null;

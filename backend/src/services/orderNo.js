@@ -57,25 +57,25 @@ const bad = (msg, status = 400) => {
  * `byId`：有 `order_id`，按 id 精准更新。`byNo`：只有 `order_no`，按旧号更新。
  */
 const CHAINS = [
-  { table: 'cost_objects', byId: true, label: '成本对象' },
-  { table: 'commitments', byId: true, label: '订单承诺' },
-  { table: 'material_requirements', byId: true, label: '物料需求' },
-  { table: 'cut_orders', byId: true, label: '裁床单' },
-  { table: 'cut_dispatches', byId: true, label: '裁片外发' },
-  { table: 'first_articles', byId: true, label: '首件确认' },
-  { table: 'rework_orders', byId: true, label: '返修单' },
-  { table: 'production_closures', byId: true, label: '生产结案' },
-  { table: 'schedule_tasks', byId: true, label: '排产任务' },
-  { table: 'schedule_conflicts', byId: true, label: '排产冲突' },
-  { table: 'schedule_changes', byId: false, label: '排产变更' },
-  { table: 'material_issues', byId: true, label: '领料单' },
-  { table: 'material_returns', byId: true, label: '退料单' },
-  { table: 'piece_wage_items', byId: true, label: '计件明细' },
-  { table: 'cost_pool_allocations', byId: true, label: '费用池分摊' },
-  { table: 'kpi_items', byId: true, label: '绩效指标项' },
-  { table: 'stock_returns', byId: true, label: '退货单' },
-  { table: 'after_sale_tickets', byId: true, label: '售后工单' },
-  { table: 'purchase_orders', byId: true, label: '采购订单' }
+  { table: 'cost_objects', byId: true, noCol: 'cost_no', label: '成本对象' },
+  { table: 'commitments', byId: true, noCol: '', label: '订单承诺' },
+  { table: 'material_requirements', byId: true, noCol: '', label: '物料需求' },
+  { table: 'cut_orders', byId: true, noCol: 'cut_no', label: '裁床单' },
+  { table: 'cut_dispatches', byId: true, noCol: 'dispatch_no', label: '裁片外发' },
+  { table: 'first_articles', byId: true, noCol: 'fa_no', label: '首件确认' },
+  { table: 'rework_orders', byId: true, noCol: 'rw_no', label: '返修单' },
+  { table: 'production_closures', byId: true, noCol: 'close_no', label: '生产结案' },
+  { table: 'schedule_tasks', byId: true, noCol: '', label: '排产任务' },
+  { table: 'schedule_conflicts', byId: true, noCol: '', label: '排产冲突' },
+  { table: 'schedule_changes', byId: false, noCol: '', label: '排产变更' },
+  { table: 'material_issues', byId: true, noCol: 'issue_no', label: '领料单' },
+  { table: 'material_returns', byId: true, noCol: 'return_no', label: '退料单' },
+  { table: 'piece_wage_items', byId: true, noCol: '', label: '计件明细' },
+  { table: 'cost_pool_allocations', byId: true, noCol: '', label: '费用池分摊' },
+  { table: 'kpi_items', byId: true, noCol: '', label: '绩效指标项' },
+  { table: 'stock_returns', byId: true, noCol: 'return_no', label: '退货单' },
+  { table: 'after_sale_tickets', byId: true, noCol: 'ticket_no', label: '售后工单' },
+  { table: 'purchase_orders', byId: true, noCol: 'po_no', label: '采购订单' }
 ];
 
 const MAX_LEN = 50;
@@ -262,25 +262,107 @@ function renameLogs(orderId) {
  * 采购、生产、领料都要能回答「这个号现在挂了几张单」。手填之后尤为重要：
  * 业务敲错一位，可能挂到别人订单上，这里能立刻看出来。
  */
+/**
+ * 编辑距离：只在「查无此单」时用来找相近号，**不参与任何写入判断**
+ *
+ * 手填单号最常见的错法是敲错一位（漏一位、多一位、两位写反），
+ * 对应的编辑距离都是 1~2。所以这一个函数就够用，不需要引模糊匹配库。
+ */
+function editDistance(a, b) {
+  const s = String(a).toUpperCase();
+  const t = String(b).toUpperCase();
+  const m = s.length;
+  const n = t.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = [];
+  let cur = [];
+  for (let j = 0; j <= n; j += 1) prev[j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j += 1) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    const tmp = prev;
+    prev = cur;
+    cur = tmp;
+  }
+  return prev[n];
+}
+
+/**
+ * 查无此单时找相近号
+ *
+ * 回一句「查无此单」等于把找错推回给业务：他不知道是自己敲错、还是这单还没录。
+ * 所以给几个最像的号让他一眼认出 —— 但**只提示，不自动替换**。
+ * 猜错号比查不到危险得多（查不到会去问，猜错就直接挂到别人订单上了）。
+ *
+ * 阈值：距离 <= 2（短号 1），且距离小于号长一半。
+ * 后半条是防「AB01」报「你是不是要找 AB99」—— 短号差两位已经面目全非。
+ */
+function findSimilar(no, limit = 5) {
+  const key = String(no).toUpperCase();
+  const maxDist = key.length >= 6 ? 2 : 1;
+  const all = db.prepare('SELECT id, order_no, status, customer_id FROM orders').all();
+  const scored = [];
+  all.forEach((o) => {
+    if (String(o.order_no).toUpperCase() === key) return;
+    const d = editDistance(o.order_no, key);
+    if (d <= maxDist && d * 2 < key.length) scored.push({ o, d });
+  });
+  scored.sort((x, y) => x.d - y.d || String(x.o.order_no).localeCompare(String(y.o.order_no)));
+  return scored.slice(0, limit).map(({ o, d }) => {
+    const cus = o.customer_id
+      ? (db.prepare('SELECT name FROM customers WHERE id = ?').get(o.customer_id) || {}).name || null
+      : null;
+    return { id: o.id, order_no: o.order_no, status: o.status, customer_name: cus, diff: d };
+  });
+}
+
 function trace(orderNo) {
   const no = normalize(orderNo);
   if (!no) throw bad('请输入订单号');
   const order = db.prepare('SELECT id, order_no, status, customer_id, style_name, order_date FROM orders WHERE UPPER(order_no) = UPPER(?)').get(no);
-  const rows = [];
+
+  const chains = [];
   CHAINS.forEach((c) => {
     try {
-      const n = c.byId
-        ? (order ? db.prepare(`SELECT COUNT(*) c FROM ${c.table} WHERE order_id = ?`).get(order.id).c : 0)
-        : db.prepare(`SELECT COUNT(*) c FROM ${c.table} WHERE UPPER(order_no) = UPPER(?)`).get(no).c;
-      if (n) rows.push({ table: c.table, label: c.label, rows: n });
-    } catch (e) { /* 无此表 */ }
+      // 主表查到单就按 order_id 精准统计；**主表查不到时仍然按号扫一遍**。
+      // 否则「下游挂着单、订单表却没这条」这种数据不一致会被反查漏掉 ——
+      // 而这恰恰是最该被看见的情况（改号中途失败、历史导入残缺、别人绕过系统写库）。
+      const byId = c.byId && order;
+      const where = byId ? 'order_id = ?' : 'UPPER(order_no) = UPPER(?)';
+      const arg = byId ? order.id : no;
+      const n = db.prepare(`SELECT COUNT(*) c FROM ${c.table} WHERE ${where}`).get(arg).c;
+      if (!n) return;
+      const item = { table: c.table, label: c.label, rows: n, samples: [] };
+      if (c.noCol) {
+        try {
+          item.samples = db.prepare(
+            `SELECT ${c.noCol} no FROM ${c.table} WHERE ${where} AND COALESCE(${c.noCol}, '') <> '' ORDER BY id LIMIT 3`
+          ).all(arg).map((r) => r.no);
+        } catch (e2) { item.samples = []; }
+      }
+      chains.push(item);
+    } catch (e) { /* 无此表（老库）就跳过，不让整次反查挂掉 */ }
   });
+
+  const total = chains.reduce((a, x) => a + x.rows, 0);
+  const cus = order && order.customer_id
+    ? (db.prepare('SELECT name FROM customers WHERE id = ?').get(order.customer_id) || {}).name || null
+    : null;
+
   return {
     order_no: order ? order.order_no : no,
+    input: no,
     found: !!order,
-    order: order || null,
-    chains: rows,
-    total: rows.reduce((a, x) => a + x.rows, 0)
+    order: order ? { ...order, customer_name: cus } : null,
+    chains,
+    total,
+    /** 下游有单、订单主表没有 → 数据不一致，不能说成「查无此单」 */
+    orphan: !order && total > 0,
+    similar: order ? [] : findSimilar(no)
   };
 }
 

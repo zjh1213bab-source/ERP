@@ -3515,10 +3515,39 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | POST | /api/orders | order.create | 下单：`order_no` **必填**；重复返回 409（**不分大小写**） |
-| GET | /api/orders/order-no/trace?no= | 登录 | 反查这个号挂着哪些单（采购/排产/领料/计件…） |
+| GET | /api/orders/order-no/trace?no= | 登录 | 反查这个号挂着哪些单（采购/排产/领料/计件…），返回结构见下 |
 | GET | /api/orders/order-no/:id/preview?no= | 登录 | 改号预览：`{old_no, new_no, changed, conflict, impacts[], total_rows}` |
 | GET | /api/orders/order-no/:id/logs | 登录 | 改号历史（旧号/新号/原因/连带行数/操作人） |
 | POST | /api/orders/order-no/:id | order.rename | 改号：`{order_no, reason}`；**reason ≥ 6 字** |
+
+### 反查返回结构
+
+```json
+{
+  "order_no": "SCHDEMO001",
+  "input": "SCHDEMO001",
+  "found": true,
+  "order": { "id": 323, "order_no": "SCHDEMO001", "status": "assigned",
+             "customer_name": "示范客户·美国 ABC", "style_name": "女式羊毛混纺大衣", "order_date": "2026-10-25" },
+  "chains": [
+    { "table": "cut_orders", "label": "裁床单", "rows": 1, "samples": ["CY202610270033"] },
+    { "table": "schedule_tasks", "label": "排产任务", "rows": 14, "samples": [] }
+  ],
+  "total": 21,
+  "orphan": false,
+  "similar": []
+}
+```
+
+| 字段 | 含义 |
+|---|---|
+| `found` | 订单主表里有没有这个号 |
+| `chains[].samples` | 该环节最多 3 个可读单号；**空数组 = 该环节本身不发单号**（如排产任务、计件明细） |
+| `total` | 挂着的记录总数（= `chains` 各项之和） |
+| `orphan` | **`found=false` 但 `total>0`**：下游有单、订单主表没单 —— 数据不一致，不能当成「查无此单」 |
+| `similar` | 仅 `found=false` 时返回，按编辑距离（≤2 且小于号长一半）最多 5 个相近号，带 `diff` 距离 |
+
+`similar` 只作提示：前端点一下只替换输入框内容，**不自动改任何数据**。猜错号比查不到更危险。
 
 ### 下单校验（`services/orderNo.js`）
 

@@ -20,6 +20,7 @@
         <option value="stock">现货</option>
       </select>
       <button class="btn btn-ghost" @click="load">查询</button>
+      <button class="btn btn-ghost" title="按订单号查它挂着哪些单：采购、排产、领料、计件、售后" @click="openTrace">号反查</button>
       <button v-if="canExport" class="btn btn-ghost" @click="exportCsv">导出 Excel</button>
       <button class="btn btn-ghost" @click="batchPrint">批量打印工单</button>
     </div>
@@ -754,6 +755,9 @@
     </div>
 
     <!-- 反审退回 -->
+    <!-- ================= 订单号反查 ================= -->
+    <OrderNoTrace v-model="traceOpen" :initial-no="traceSeed" @open-order="onTraceOpenOrder" />
+
     <!-- ================= 改订单号 ================= -->
     <div v-if="renForm.open" class="modal-mask" @click.self="renForm.open = false">
       <div class="modal">
@@ -915,6 +919,7 @@ import CreditBlockModal from '../components/CreditBlockModal.vue';
 import { auth } from '../store/auth';
 import { can } from '../store/permissions';
 import TechPackDetail from '../components/TechPackDetail.vue';
+import OrderNoTrace from '../components/OrderNoTrace.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -1395,6 +1400,25 @@ async function loadP2(id) {
   if (cs) costForm.value = { material_cost: cs.material_cost, accessory_cost: cs.accessory_cost, labor_cost: cs.labor_cost, overhead_cost: cs.overhead_cost, other_cost: cs.other_cost, profit_rate: cs.profit_rate };
 }
 const aggOf = (id) => reportAgg.value[id] || { ok: 0, defect: 0, hours: 0 };
+/* ---------------- 订单号反查 ---------------- */
+const traceOpen = ref(false);
+/**
+ * 打开反查时预填的号：**只带搜索框里已经敲的内容**。
+ *
+ * 不兜底「列表第一张单的号」—— 用户没敲东西却被预填一个别人的号，
+ * 看上去像「系统在查这张单」，查出来的结果会被当成自己的。
+ * 空着就让 placeholder 给个格式示例，由用户自己决定查哪个号。
+ */
+const traceSeed = ref('');
+function openTrace() {
+  traceSeed.value = String(q.value || '').trim();
+  traceOpen.value = true;
+}
+function onTraceOpenOrder(id) {
+  traceOpen.value = false;
+  openDetail(id);
+}
+
 async function openDetail(id) {
   try { detail.value = await api.order(id); itemsEditing.value = false; tpAdding.value = false; await loadP2(id); }
   catch (e) { alert(e.message); }

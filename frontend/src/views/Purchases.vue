@@ -17,6 +17,7 @@
         <option value="received">已收货</option>
       </select>
       <button class="btn btn-ghost" @click="load">查询</button>
+      <button class="btn btn-ghost" title="填关联订单前先确认这个号对不对" @click="openTrace()">查订单号</button>
     </div>
 
     <div class="table-wrap">
@@ -60,8 +61,12 @@
             </div>
             <div class="fitem">
               <label>关联订单号</label>
-              <input class="input" v-model="form.order_no" placeholder="选填：这张订单的料（备货采购可不填）" />
-              <div class="p-hint">填了必须与已有订单号一致；订单改号时这里的号会自动跟着变</div>
+              <div style="display:flex;gap:6px">
+                <input class="input" style="flex:1" v-model="form.order_no" placeholder="选填：这张订单的料（备货采购可不填）" />
+                <button type="button" class="btn btn-ghost btn-sm" style="white-space:nowrap"
+                  :disabled="!String(form.order_no || '').trim()" @click="openTrace(form.order_no)">查这个号</button>
+              </div>
+              <div class="p-hint">填了必须与已有订单号一致；订单改号时这里的号会自动跟着变。不确定就先点「查这个号」，敲错一位会列出相近的号</div>
             </div>
             <div class="fitem"><label>下单日期</label><input class="input" type="date" v-model="form.order_date" /></div>
             <div class="fitem"><label>预计到货</label><input class="input" type="date" v-model="form.expect_date" /></div>
@@ -141,13 +146,18 @@
         <div class="modal-foot"><button class="btn btn-ghost" @click="detail = null">关闭</button></div>
       </div>
     </div>
+
+    <!-- 订单号反查：填关联订单前先确认这个号是谁的单 -->
+    <OrderNoTrace v-model="traceOpen" :initial-no="traceSeed" @open-order="onTraceOpenOrder" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '../api';
 import { can } from '../store/permissions';
+import OrderNoTrace from '../components/OrderNoTrace.vue';
 
 const list = ref([]);
 const materials = ref([]);
@@ -160,6 +170,20 @@ const receiving = ref(false);
 const recv = reactive({});
 const form = ref(blank());
 const canWrite = can('purchase.write');
+
+const router = useRouter();
+
+/* 订单号反查：填号之前先确认这个号是别人的哪张单 —— 敲错一位就挂到别人的单上了 */
+const traceOpen = ref(false);
+const traceSeed = ref('');
+function openTrace(seed) {
+  traceSeed.value = String(seed || form.value.order_no || q.value || '').trim();
+  traceOpen.value = true;
+}
+function onTraceOpenOrder(id) {
+  traceOpen.value = false;
+  router.push({ path: '/orders', query: { order: id } });
+}
 
 const S = { draft: '草稿', ordered: '已下单', received: '已收货', cancelled: '已取消' };
 const T = { draft: 'gray', ordered: 'blue', received: 'green', cancelled: 'red' };
