@@ -1216,3 +1216,30 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > 底层依赖：`departments`（部门与月限额口径）、`admin_expenses`（费用入账）、
 > `budget_commitments`（预算占用）、`assets`（耐用品转资产）。
 > **本模块不写 `stock_items` / `materials` / `material_ledger`。**
+
+## 资产工衣与领归（M-CUSTODY）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| custody_items | item_no(WW+ymmdd+4), item_code, kind(uniform/tool/key/card/ppe/other), name, spec, size, color, **durable**, qty_total, unit, **require_return**, max_per_person, life_months, **asset_id**, location, status(active/hold/scrapped), scrap_mode/scrap_no, demo_tag | 实物档案。`durable=1` 一物一码（`qty_total` 只能 1）；`require_return=0` 不设期限、不进超期清单（工衣） |
+| custody_records | rec_no(LY+ymmdd+4), item_id, item_kind, **durable**, employee_id/name, dept_id/name, qty, status(draft/issued/awaiting/returned/lost/written_off), issued_at/by, handover_by, expected_return_at, returned_at, returned_qty, received_by, **condition**(good/worn/damaged/lost), prev_record_id, clearance_id, attachment, demo_tag | 领用记录。一条 = 一次领用生命周期；部分归还靠 `returned_qty`，不新增状态 |
+| custody_clearances | clearance_no(QT+ymmdd+4), employee_id/name, dept_id/name, leave_date, reason, status(open/closed), must_total/must_done, optional_total/optional_done, created_by, closed_at/by | 离职/调岗清退单。必须归还的转 `awaiting` 并以离职日为期限；工衣只列不改状态 |
+| custody_claims | claim_no(DZ+ymmdd+4), record_id, item_id, employee_id/name, damage_type(damaged/lost), qty, found_at, desc_text, claim_amount, review_status(pending/cleared/partial/liable/closed), liable_pct, **liable_amount**, reviewer_note/by/at, **finance_confirm_no**, finance_confirmed_by/at, status | 损坏责任复核。定责金额必须有财务回执号才算落地；本表不进任何凭证 |
+| custody_actions | target_type(item/record/claim/clearance), target_id, action(create/update/issue/draft/return/lost/claim/review/finance/scrap/hold/restore/transfer_out/transfer_in/close), detail, qty, actor | 流转时间线。只增不改 |
+
+> **为什么「已领出」不存 `qty_out` 列**：领用 +1、归还 −1 的写法只要漏减一次（遗失 / 核销 / 转交），
+> 这个数就永久偏大，可用量从此没人敢信。这里一律从 `custody_records` 聚合，少一次写就没有漂移。
+>
+> **为什么 `uq_custody_open_item` 是部分唯一索引**：只约束 `durable=1 AND returned_at IS NULL
+> AND status IN ('issued','awaiting')`。草稿还没发出去不该占位；遗失/核销表示东西已经没了，
+> 也不该继续挡住同一件实物的下一次领用记录。
+>
+> **为什么 `durable` 和 `require_return` 分开**：工衣一物一码（有尺码、要发对人）但按政策不强制退回；
+> 钥匙、门禁卡、工具必须归还。合一个字段会让全部工衣进逾期清单，行政每天收假警报后就不看清单了。
+>
+> **为什么 `hold` 状态挂在实物上而不是记录上**：坏掉的对讲机归还后，记录已经 `returned`，
+> 但实物本身不能用。状态挂在记录上会导致「可发量」在归还那一刻回到 1，第二天就发给下一个人。
+>
+> 底层依赖：`employees` / `departments`（领用人）、`assets`（一物一码对应资产卡，只读净值与状态）、
+> `custody_claims`（损坏责任，**不写工资/应付/凭证**）。
+> **本模块不写 `stock_items` / `materials` / `material_ledger`，也不写 `payroll_adjustments` / `gl_entries`。**

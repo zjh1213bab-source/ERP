@@ -3194,3 +3194,60 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 > 耐用品**不走耗材申领**：它验收即转资产、永远没有库存，混进申领会「从空仓里扣出负数」。
 > 耐用品的领用登记在「资产台账」（一物一码、记保管人）。
+
+## 资产工衣与领归（`/api/custody`）
+
+> 这一组接口只回答一件事：**东西在谁身上，什么时候该回来**。
+> 固定资产（`assets`）管价值与折旧，办公仓（`office_*`）管入库与申领，
+> 这里管「人身上的实物」—— 工衣、钥匙、门禁卡、工具、劳保。
+>
+> 权限：`custody.read`（全角色）、`custody.issue`（admin/hr/warehouse，发放与回收）、
+> `custody.manage`（admin/hr，档案与处置）、`custody.claim`（admin/hr/finance，定责）、
+> `custody.finance`（admin/finance，**确认定责金额**）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/custody/meta | read | 字典（类别 / 状态 / 归还要求 / 处置方式 / 员工 / 部门）+ 统计 |
+| GET | /api/custody/board | read | 看板：在手上、逾期、不催退回、待复核、待财务确认 + 最近动作 |
+| GET | /api/custody/items?kind=&status=&q= | read | 实物档案（含 `available` 可发量、`holder` 在谁手上、`asset_net` 读自资产台账） |
+| POST | /api/custody/items | manage | 建 / 改实物档案；**一物一码在册数量只能 1** |
+| POST | /api/custody/scrap/:id | manage | 处置：`{scrap_mode, scrap_no, note}`；挂资产卡的实物**拒绝**（去资产台账报废） |
+| POST | /api/custody/restore/:id | manage | 损坏件修好后恢复可用：`{note}`（处理结果必填） |
+| GET | /api/custody/items/:id/timeline | read | 某实物的领用历史 + 动作日志 |
+| GET | /api/custody/records?status=&kind=&employee_id=&item_id=&overdue=1&q= | read | 领用台账（`status=open` 只看在手上；含 `overdue_days`） |
+| GET | /api/custody/records/:id | read | 详情（含复核单、动作时间线、转交来源） |
+| POST | /api/custody/records | issue | 登记领用：`{item_id, employee_id, qty, expected_return_at, handover_by, note, draft}` |
+| POST | /api/custody/records/:id/publish | issue | 草稿发放（**这一刻才占实物**，全部硬校验在这里做） |
+| POST | /api/custody/records/:id/return | issue | 归还：`{condition, qty, claim_amount, note}`；损坏/遗失自动生成复核单 |
+| POST | /api/custody/records/:id/transfer | issue | 转交：`{to_employee_id, note, expected_return_at}` = 原单归还 + 新单发放 |
+| GET | /api/custody/person/:employeeId | read | 某人身上挂着什么（在手的、历史、复核汇总） |
+| GET | /api/custody/overdue | read | 超期清单（只算有期限且要求归还的） |
+| GET | /api/custody/clearances?status= | read | 清退单清单（含明细、必须/可选 完成数） |
+| POST | /api/custody/clearances | manage | 发起离职/调岗清退：`{employee_id, leave_date, reason}`；同一人已有进行中的单则复用 |
+| POST | /api/custody/clearances/:id/close | manage | 结案（必须归还的没回来 → 400；工衣未退不拦） |
+| GET | /api/custody/claims?review_status=&employee_id=&q= | read | 损坏复核清单 |
+| POST | /api/custody/claims | claim | 手工登记损坏/遗失（归还时自动生成的不需要调这个） |
+| POST | /api/custody/review/:id | claim | 复核结论：`{decision(cleared/partial/liable), liable_pct, reviewer_note}` |
+| POST | /api/custody/finance/:id | finance | 财务确认：`{finance_confirm_no, finance_note}`，**回执号必填** |
+
+### 六个口径
+
+1. **「一物一码」与「必须归还」是两个字段**。`durable=1` 表示同一时间只能一个人在手上（唯一索引
+   `uq_custody_open_item` 兜底）；`require_return=0` 表示不设期限、不进超期清单。
+   工衣是「一物一码但不强制退回」—— 两个字段合成一个，所有工衣都会变成逾期。
+2. **没有期限就不是逾期**。超期只认 `expected_return_at < 今天` 且未归还；
+   `require_return=0` 的记录即使传了日期也会被清空。
+3. **已领出量不存冗余列**，一律从领用记录聚合：`SUM(qty − returned_qty) WHERE status IN ('issued','awaiting')`。
+4. **损坏归还的实物冻结**（`status='hold'`，可发量 0、发料 400），修好走 `restore`，修不好走 `scrap`；
+   **遗失归还自动核销**（`scrapped` + `write_off`，参考复核单号）。
+5. **判责与收钱分两层**：`review` 只写责任比例与定责金额；`finance` 必须有回执号才算落地。
+   本模块**没有任何写工资 / 应付 / 凭证的语句**。
+6. **处置不能两边各自报废**：挂了 `asset_id` 的实物在本模块拒绝处置，必须回资产台账报废弃；
+   折旧口径只在 `services/assetDep.js` 一处，行政页只读不重算。
+
+### 状态机
+
+`custody_records.status`：`draft` 草稿（不占实物）→ `issued` 使用中 → `awaiting` 待归还（清退时生成）
+→ `returned` 已归还 / `lost` 遗失 / `written_off` 已核销。
+
+`custody_items.status`：`active` 在册 → `hold` 损坏待处理（不可发）→ `active`（恢复）或 `scrapped` 已处置。
