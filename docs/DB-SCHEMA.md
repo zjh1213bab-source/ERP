@@ -38,6 +38,9 @@
 | attachments | id, target_type(order/techpack), target_id, filename, url, size, mime, uploader |
 | employees | id, code, name, department_id, position, phone, hire_date, status(active/left), remark |
 | leave_requests | id, employee_id, employee_name, type(annual/sick/personal/other), start_date, end_date, days, reason, status(pending/approved/rejected), reviewed_by |
+| payment_requests | req_no, supplier_id, supplier_name, **amount(=明细合计，禁止手填)**, currency, plan_pay_date, method, bank_account_id, status(draft/submitted/approved/paid/cancelled), reason, remark, approval_instance_id, **payment_id**, created_by, submitted_at, decided_at/by, paid_at/by, created_at/updated_at | **付款申请单**。`approved` 之后才允许 `pay`；`paid` 不可取消；驳回退回 `draft`（不是作废），改完能再提交 |
+| payment_request_items | request_id, invoice_id, bill_no, due_date, **open_amount(申请时未付快照)**, amount, created_at | 唯一索引 `(request_id, invoice_id)`。**未完成状态（draft/submitted/approved）会占用该发票的未付额**，`available = 未付 − 占用` |
+| payments.payment_request_id | INTEGER | 付款流水反查来源申请单。有它就说明这笔钱走过审批，可直接追溯「谁申请的、谁批的」 |
 | suppliers.term_days | INTEGER | 账期天数（`payment_terms` 文本解析后的缓存，可手工覆盖）。**到期日 = 开票日 + 本值**；为空表示读不出账期，此时应付到期日留空、不猜 |
 | credit_limits | customer_id, credit_limit, credit_days, old_limit, old_days, reason, operator, created_at | **额度版本历史**。现值仍在 `customers.credit_limit` / `credit_days`，这里留每次调整（谁、何时、为什么、从多少到多少） |
 | credit_holds | customer_id, action(hold/release), reason, exposure_snapshot, operator, created_at | 冻结/解冻流水。`exposure_snapshot` 记冻结那一刻的敞口，事后复盘「冻得对不对」 |

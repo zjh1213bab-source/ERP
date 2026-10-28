@@ -184,6 +184,11 @@ const PERMS = {
   // 但**改额度、冻结、放行只有财务和管理员** —— 授信是钱的事，销售不能自己批给自己
   // 应付：只给财务和老板看（欠谁钱、什么时候付，是敏感的资金信息）
   // 资金计划：期初现金、断点周、缺口 —— 只有财务和老板看
+  // 付款申请：看单的人多一些（出纳要执行），但**批**走审批流的角色校验，
+  // **付**只给能碰钱的手（admin/finance/warehouse 里的出纳岗）
+  'paymentreq.read': ['admin', 'boss', 'finance', 'warehouse'],
+  'paymentreq.write': ['admin', 'finance', 'warehouse'],
+  'paymentreq.pay': ['admin', 'finance', 'warehouse'],
   'cashflow.read': ['admin', 'boss', 'finance'],
   'payable.read': ['admin', 'boss', 'finance'],
   'payable.write': ['admin', 'finance'],
@@ -263,6 +268,11 @@ const GUARDED = [
   { perm: 'cost.review', method: '*', prefix: '/api/costs' },
   { perm: 'gl.write', method: '*', prefix: '/api/gl' },
   { perm: 'bank.write', method: '*', prefix: '/api/bank' },
+  // 执行付款是真正把钱搬出去的动作，必须挂高危路由（前端按钮 + 后端 403 双保险）
+  { perm: 'paymentreq.pay', method: 'POST', prefix: '/api/payment-requests' },
+  { perm: 'paymentreq.write', method: 'POST', prefix: '/api/payment-requests' },
+  { perm: 'paymentreq.write', method: 'PUT', prefix: '/api/payment-requests' },
+  { perm: 'paymentreq.write', method: 'DELETE', prefix: '/api/payment-requests' },
   { perm: 'payable.write', method: 'PUT', prefix: '/api/payable' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },

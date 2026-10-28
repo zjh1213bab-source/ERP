@@ -242,6 +242,15 @@ cd backend && node scripts/shot-payable.js
 # 资金计划取证（13 周现金流 / 展开某周明细 / 保守情景 / 移动端）
 cd backend && node scripts/shot-cashflow.js
 
+# 付款申请全链路演练（提单 → 两级审批 → 自批被拒 → 执行付款 → 核销，跑完自还原）
+cd backend && node scripts/drill-payment-request.js
+
+# 付款申请演示数据（草稿 / 审批中 / 待付款 / 已付款四态，状态真跑流程得出）
+cd backend && node scripts/seed-payment-request-demo.js
+
+# 付款申请页面取证（列表 / 新建挑发票 / 详情审批进度 / 执行付款 / 移动端）
+cd backend && node scripts/shot-payment-requests.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

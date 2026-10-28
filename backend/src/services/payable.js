@@ -104,6 +104,31 @@ function board({ q, only_overdue, asOf } = {}) {
    * 因为老代码是 `sups.map(...)`，遍历的是档案表，档案里没有的就不存在。
    * 于是台账比资金计划少 2000 元，两个模块对不上。
    */
+  // 付款申请单里「未付完」的金额，按供应商汇总
+  const pipelineRows = db
+    .prepare(
+      `SELECT IFNULL(r.supplier_id, -1) AS sid, IFNULL(r.supplier_name,'') AS sname,
+              COUNT(DISTINCT r.id) AS n, COALESCE(SUM(r.amount),0) AS amt
+         FROM payment_requests r
+        WHERE r.status IN ('draft','submitted','approved')
+        GROUP BY IFNULL(r.supplier_id, -1), IFNULL(r.supplier_name,'')`
+    )
+    .all();
+  const pipelineBySup = new Map();
+  pipelineRows.forEach((x) => pipelineBySup.set(Number(x.sid), { n: Number(x.n), amt: Number(x.amt) }));
+
+  /** 某供应商在付款流程中的金额（优先按 id，无 id 按名字兜一层） */
+  const pipelineOf = (s) => {
+    if (s.id) return (pipelineBySup.get(Number(s.id)) || {}).amt || 0;
+    const hit = pipelineRows.find((x) => Number(x.sid) === -1 && String(x.sname) === String(s.name));
+    return hit ? Number(hit.amt) : 0;
+  };
+  const pipelineCountOf = (s) => {
+    if (s.id) return (pipelineBySup.get(Number(s.id)) || {}).n || 0;
+    const hit = pipelineRows.find((x) => Number(x.sid) === -1 && String(x.sname) === String(s.name));
+    return hit ? Number(hit.n) : 0;
+  };
+
   const buildRow = (s, invs, pos) => {
 
     let openAmount = 0;
@@ -183,7 +208,12 @@ function board({ q, only_overdue, asOf } = {}) {
         unbilled_count: pos.length,
         unbilled_est_due: unbilledEstDue,
         unbilled_overdue_est: unbilledOverdueEst,
-        next_due: nextDue
+        next_due: nextDue,
+        // 已经在付款申请流程里的金额（草稿/审批中/待付款）。
+        // 它不是「已付」也没销账，但已经被认领了 —— 财务看台账时最常问的
+        // 就是「这笔我提过申请没有」，不显示就得挨个去查申请单
+        in_pipeline: r2(pipelineOf(s)),
+        pipeline_count: pipelineCountOf(s)
       },
       // 风险：逾期 > 有已收货未开票 > 账期缺失 > 正常
       risk: overdue > 0.005 ? 'overdue'
@@ -254,6 +284,8 @@ function board({ q, only_overdue, asOf } = {}) {
     open_amount: r2(all.reduce((a, r) => a + r.figures.open_amount, 0)),
     unbilled_amount: r2(all.reduce((a, r) => a + r.figures.unbilled_amount, 0)),
     payable_total: r2(all.reduce((a, r) => a + r.figures.payable_total, 0)),
+    // 已在付款流程中的金额：不是「已付」，但已认领，别再重复申请
+    in_pipeline_total: r2(all.reduce((a, r) => a + r.figures.in_pipeline, 0)),
     overdue: r2(all.reduce((a, r) => a + r.figures.overdue, 0)),
     overdue_suppliers: all.filter((r) => r.figures.overdue > 0.005).length,
     due_7: r2(all.reduce((a, r) => a + r.figures.due_7, 0)),

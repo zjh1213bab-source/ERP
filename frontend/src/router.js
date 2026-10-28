@@ -86,6 +86,7 @@ import Statement from './views/Statement.vue';
 import Credit from './views/Credit.vue';
 import Payable from './views/Payable.vue';
 import Cashflow from './views/Cashflow.vue';
+import PaymentRequests from './views/PaymentRequests.vue';
 import PrintBatch from './views/PrintBatch.vue';
 import ScanGo from './views/ScanGo.vue';
 import MobileHome from './views/MobileHome.vue';
@@ -151,6 +152,7 @@ const routes = [
       { path: 'credit', component: Credit, meta: { title: '客户信用与账期' } },
       { path: 'payable', component: Payable, meta: { title: '应付与付款计划' } },
       { path: 'cashflow', component: Cashflow, meta: { title: '资金计划' } },
+      { path: 'payment-requests', component: PaymentRequests, meta: { title: '付款申请' } },
       { path: 'costing', component: Costing, meta: { title: '成本与毛利' } },
       { path: 'commitments', component: Commitments, meta: { title: '接单评审与交期' } },
       { path: 'requirements', component: Requirements, meta: { title: '齐套与缺料' } },

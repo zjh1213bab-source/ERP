@@ -6727,6 +6727,176 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('未登录拿不到资金计划', x3.status === 401, `HTTP ${x3.status}`);
   }
 
+  // ================= 付款申请单 =================
+  {
+    console.log('\n— 付款申请单 —');
+    const { db } = require('../src/db');
+    const S3 = require('../src/services/invoiceStatus');
+    const PR3 = require('../src/services/paymentRequest');
+
+    const loginX = async (u) => {
+      const r = await fetch(BASE + '/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: PASS })
+      });
+      const j = await r.json().catch(() => ({}));
+      return j && j.ok ? j.data.token : null;
+    };
+
+    // 用一张真实存在的未付应付发票（不改它，只申请）
+    const inv = db.prepare(
+      `SELECT * FROM ap_invoices WHERE ${S3.OPEN_SQL} AND amount - COALESCE(paid_amount,0) > 1000 ORDER BY id LIMIT 1`
+    ).get();
+    const acc = db.prepare("SELECT * FROM bank_accounts WHERE status='active' ORDER BY id LIMIT 1").get();
+    ok('库里有可测的未付应付发票与出账账户', !!inv && !!acc, inv ? inv.bill_no : '没有');
+
+    if (inv && acc) {
+      const createdIds = [];
+      const payIds = [];
+      const clean = () => {
+        createdIds.forEach((cid) => {
+          const row = db.prepare('SELECT payment_id FROM payment_requests WHERE id = ?').get(cid);
+          if (row && row.payment_id && !payIds.includes(row.payment_id)) payIds.push(row.payment_id);
+          db.prepare("DELETE FROM approval_tasks WHERE instance_id IN (SELECT id FROM approval_instances WHERE target_type='payment' AND target_id=?)").run(cid);
+          db.prepare("DELETE FROM approval_instances WHERE target_type='payment' AND target_id=?").run(cid);
+          db.prepare('DELETE FROM payment_request_items WHERE request_id = ?').run(cid);
+          db.prepare('DELETE FROM payment_requests WHERE id = ?').run(cid);
+        });
+        payIds.forEach((pid) => {
+          const allocs = db.prepare('SELECT * FROM payment_allocations WHERE payment_id = ?').all(pid);
+          db.prepare('DELETE FROM payment_allocations WHERE payment_id = ?').run(pid);
+          db.prepare('DELETE FROM payments WHERE id = ?').run(pid);
+          allocs.forEach((a) => S3.syncPaidStatus(a.invoice_kind, a.invoice_id));
+        });
+      };
+      clean();
+
+      // ---------- 1. 必须绑发票 ----------
+      let r = await req('/api/payment-requests', {
+        method: 'POST', token, body: { supplier_id: inv.supplier_id, amount: 5000 }
+      });
+      ok('只填金额不挑发票 → 拒（否则钱付了账上还挂着应付）',
+        r.status === 400, `HTTP ${r.status}`);
+
+      // ---------- 2. 金额由明细决定 ----------
+      r = await req('/api/payment-requests', {
+        method: 'POST', token,
+        body: { supplier_id: inv.supplier_id, items: [{ invoice_id: inv.id, amount: 1234.56 }], reason: '冒烟：核对无误' }
+      });
+      const rid = r.json.data && r.json.data.id;
+      if (rid) createdIds.push(rid);
+      ok('建草稿成功且金额=明细合计', r.status === 200 && Number(r.json.data.amount) === 1234.56,
+        `HTTP ${r.status} ${r.json.data && r.json.data.amount}`);
+
+      // ---------- 3. 占用 ----------
+      const open = Number(inv.amount) - (Number(inv.paid_amount) || 0);
+      r = await req('/api/payment-requests', {
+        method: 'POST', token,
+        body: { supplier_id: inv.supplier_id, items: [{ invoice_id: inv.id, amount: open }], reason: '冒烟：超额申请' }
+      });
+      ok('同一张票被草稿占用后不能再申请全额（可申请额 = 未付 − 已占用）',
+        r.status === 400 && /最多可申请/.test(r.json.message || ''),
+        (r.json.message || '').slice(0, 46));
+
+      const cd = await req('/api/payment-requests/candidates?supplier_id=' + (inv.supplier_id || 0), { token });
+      const one = (cd.json.data.rows || []).find((x) => x.id === inv.id);
+      ok('候选清单把「可申请额」算给用户看', one && Math.abs(one.committed - 1234.56) < 0.01,
+        one ? `未付 ${one.open_amount} 占用 ${one.committed} 可申 ${one.available}` : '没找到');
+
+      // ---------- 4. 跨模块口径：台账的「付款流程中」= 申请单未付合计 ----------
+      const pb3 = await req('/api/payable/board', { token });
+      const pipe = (pb3.json.data.rows || []).reduce((a, x) => a + Number(x.figures.in_pipeline || 0), 0);
+      const reqSum = Number(db.prepare(
+        "SELECT COALESCE(SUM(amount),0) s FROM payment_requests WHERE status IN ('draft','submitted','approved')"
+      ).get().s);
+      ok('应付台账的「付款流程中」= 所有未完成申请单的金额合计',
+        Math.abs(pipe - reqSum) < 0.01, `台账 ${pipe} vs 申请单 ${reqSum}`);
+
+      // ---------- 5. 提交与审批 ----------
+      if (rid) {
+        r = await req(`/api/payment-requests/${rid}/submit`, { method: 'POST', token });
+        ok('提交后变「审批中」并生成审批实例',
+          r.status === 200 && r.json.data.status === 'submitted' && !!r.json.data.approval_instance_id,
+          `HTTP ${r.status}`);
+
+        const t1 = r.json.data.approval && r.json.data.approval.tasks[0];
+        ok('审批流带两级（财务 → 总经理）',
+          r.json.data.approval && r.json.data.approval.tasks.length === 2,
+          r.json.data.approval ? r.json.data.approval.tasks.map((x) => x.step_name).join('→') : '无');
+
+        // admin 通常是申请人（冒烟用的就是 admin token），必须被 SoD 拦
+        r = await req(`/api/approvals/tasks/${t1.id}/act`, {
+          method: 'POST', token, body: { approve: true, remark: '我自己批' }
+        });
+        ok('申请人不能自己批自己（403，不是 400）',
+          r.status === 403, `HTTP ${r.status} ${(r.json.message || '').slice(0, 30)}`);
+        ok('被拒后审批任务保持 pending',
+          db.prepare('SELECT status FROM approval_tasks WHERE id = ?').get(t1.id).status === 'pending');
+
+        // ---------- 6. 未批准不许付款 ----------
+        r = await req(`/api/payment-requests/${rid}/pay`, {
+          method: 'POST', token, body: { bank_account_id: acc.id }
+        });
+        ok('审批没过不许付款', r.status === 400 && /待付款/.test(r.json.message || ''),
+          `HTTP ${r.status} ${(r.json.message || '').slice(0, 30)}`);
+      }
+
+      // ---------- 7. 取消要写原因 ----------
+      const cid = (await req('/api/payment-requests', {
+        method: 'POST', token,
+        body: { supplier_id: inv.supplier_id, items: [{ invoice_id: inv.id, amount: 100 }], reason: '冒烟：待取消' }
+      })).json.data;
+      if (cid) {
+        createdIds.push(cid.id);
+        r = await req(`/api/payment-requests/${cid.id}/cancel`, { method: 'POST', token, body: { reason: '不' } });
+        ok('取消必须写原因（太短被拒）', r.status === 400, `HTTP ${r.status}`);
+        r = await req(`/api/payment-requests/${cid.id}/cancel`, {
+          method: 'POST', token, body: { reason: '冒烟：金额填错，撤回重开' }
+        });
+        ok('取消成功且该单不再占用额度',
+          r.status === 200 && r.json.data.status === 'cancelled' &&
+            db.prepare("SELECT COUNT(*) c FROM payment_request_items i JOIN payment_requests rr ON rr.id=i.request_id WHERE i.request_id=? AND rr.status IN ('draft','submitted','approved')").get(cid.id).c === 0,
+          `HTTP ${r.status}`);
+      }
+
+      // ---------- 8. 权限 ----------
+      const tkSales = await loginX('sales01');
+      if (tkSales) {
+        r = await req('/api/payment-requests', { token: tkSales });
+        ok('销售看不到付款申请（欠谁钱、何时付是敏感信息）', r.status === 403, `HTTP ${r.status}`);
+        r = await req('/api/payment-requests/' + rid + '/pay', { method: 'POST', token: tkSales, body: { bank_account_id: acc.id } });
+        ok('销售不能执行付款', r.status === 403, `HTTP ${r.status}`);
+      }
+      const tkHr = await loginX('hr01');
+      if (tkHr) {
+        r = await req('/api/payment-requests', { token: tkHr });
+        ok('人事看不到付款申请', r.status === 403, `HTTP ${r.status}`);
+      }
+      r = await req('/api/payment-requests', {});
+      ok('未登录 401', r.status === 401, `HTTP ${r.status}`);
+
+      // ---------- 9. 统计口径 ----------
+      const meta = await req('/api/payment-requests/meta', { token });
+      ok('meta 返回统计且「已申请未付」= 审批中 + 待付款',
+        meta.status === 200 &&
+          Math.abs(Number(meta.json.data.stats.pipeline_amount) -
+            (Number(meta.json.data.stats.submitted.amount) + Number(meta.json.data.stats.approved.amount))) < 0.01,
+        meta.json.data ? String(meta.json.data.stats.pipeline_amount) : '无');
+
+      const lst = await req('/api/payment-requests', { token });
+      ok('列表摘要与统计接口字段一致（不许一个叫 unpaid_amount 一个叫 pipeline_amount）',
+        lst.status === 200 && lst.json.data.summary.pipeline_amount !== undefined &&
+          lst.json.data.summary.overdue_pending_count !== undefined,
+        lst.json.data ? Object.keys(lst.json.data.summary).join(',') : '无');
+
+      clean();
+      // 只能断言「自己建的那几张没了」，不能断言全表为空 —— 演示数据本来就占着表
+      const left = createdIds.filter((id) => db.prepare('SELECT 1 x FROM payment_requests WHERE id = ?').get(id));
+      ok('付款申请用例自清理（本用例建的单已删净）',
+        left.length === 0, left.join(',') || `建了 ${createdIds.length} 张，已清 ${createdIds.length - left.length} 张`);
+    }
+  }
+
   // ================= 操作日志 / 审计 =================
   {
     console.log('\n[操作日志 / 审计]');

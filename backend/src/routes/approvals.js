@@ -57,7 +57,9 @@ router.post('/tasks/:id/act', authRequired, wrap(async (req, res) => {
     const r = actTask(req.params.id, !!b.approve, b.remark, req.user);
     return ok(res, r);
   } catch (e) {
-    return fail(res, 400, e.message);
+    // 一律 400 会把「不是你的单，不许自己批」这类权限拒绝也报成 400，
+    // 前端和审计都分不清「参数错」和「没权限」
+    return fail(res, e.status || 400, e.message);
   }
 }));
 

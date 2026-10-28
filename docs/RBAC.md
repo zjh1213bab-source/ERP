@@ -575,6 +575,18 @@
 | payable | GET | `/board` | ✅ | ✅ | — | — | — | — | ✅ | — |
 | payable | GET | `/export` | ✅ | ✅ | — | — | — | — | ✅ | — |
 | payable | GET | `/schedule` | ✅ | ✅ | — | — | — | — | ✅ | — |
+| paymentRequests | GET | `/` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
+| paymentRequests | POST | `/` | ✅ | — | — | — | — | ✅ | ✅ | — |
+| paymentRequests | GET | `/:id` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
+| paymentRequests | PUT | `/:id` | ✅ | — | — | — | — | ✅ | ✅ | — |
+| paymentRequests | DELETE | `/:id` | ✅ | — | — | — | — | ✅ | ✅ | — |
+| paymentRequests | POST | `/:id/cancel` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
+| paymentRequests | POST | `/:id/pay` | ✅ | — | — | — | — | ✅ | ✅ | — |
+| paymentRequests | POST | `/:id/submit` | ✅ | — | — | — | — | ✅ | ✅ | — |
+| paymentRequests | GET | `/candidates` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
+| paymentRequests | GET | `/export` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
+| paymentRequests | GET | `/meta` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
+| paymentRequests | GET | `/stats` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
 | payrolls | GET | `/` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | payrolls | PUT | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | payrolls | DELETE | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
@@ -956,6 +968,9 @@
 | `pattern.review` | 技术打版 |
 | `settings.write` | 系统管理员 |
 | `user.manage` | 系统管理员 |
+| `paymentreq.read` | 系统管理员、总经理、财务会计、仓库采购 |
+| `paymentreq.write` | 系统管理员、财务会计、仓库采购 |
+| `paymentreq.pay` | 系统管理员、财务会计、仓库采购 |
 | `cashflow.read` | 系统管理员、总经理、财务会计 |
 | `payable.read` | 系统管理员、总经理、财务会计 |
 | `payable.write` | 系统管理员、财务会计 |

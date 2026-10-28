@@ -63,23 +63,11 @@ const withCurrency = (inv) => ({
   open_amount_orig: openOrig(inv)
 });
 
-/** 按已核销金额重算状态（作废的不动） */
+// 「按核销重算发票状态」搬到 services/invoiceStatus（付款申请执行付款时也要用，
+// 抄一份必然出现「两条路算出的 paid_amount 不一样」）
+const { syncPaidStatus } = require('../services/invoiceStatus');
 function syncStatus(kind, invoiceId) {
-  const { table } = INVOICE[kind];
-  const inv = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(invoiceId);
-  if (!inv || inv.status === 'void') return;
-  // 口径统一走 services/paymentStatus：原来这里只认 status='valid'，
-  // 而登记接口与 bank/crm 用的是 ('valid','confirmed') —— 口径不一致会让核销永远回写不上
-  const paid = r2(db.prepare(
-    `SELECT COALESCE(SUM(a.amount),0) AS s FROM payment_allocations a
-     JOIN payments p ON p.id = a.payment_id AND ${payValidOf('p')}
-     WHERE a.invoice_kind = ? AND a.invoice_id = ?`
-  ).get(kind, invoiceId).s);
-  let status = 'unpaid';
-  if (paid >= r2(inv.amount) - 0.005) status = 'paid';
-  else if (paid > 0) status = 'partial';
-  db.prepare(`UPDATE ${table} SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`)
-    .run(paid, status, now(), invoiceId);
+  return syncPaidStatus(kind, invoiceId);
 }
 
 /** 账龄天数（按到期日算，未设到期日按开票日+30 天） */

@@ -103,7 +103,20 @@
 | DELETE | /api/leaves/:id | admin,sales | 删除 |
 | GET | /api/cashflow/plan?weeks=13&base_date=&scenario=base\|conservative\|optimistic&collect_rate= | cashflow.read | **资金计划**：`summary`（期初现金 / 流入 / 流出 / 期末 / `min_cash` 最低点 / `first_neg_week` 首次转负 / `gap` 缺口 / `ar_at_risk` 大概率收不回的部分）+ `weeks_detail`（逐周，含 `inflow_items`/`outflow_items` 每笔依据）+ `buckets`（按逾期档的回收率）。**支出侧三档完全相同** |
 | GET | /api/cashflow/compare?weeks=13 | cashflow.read | 三档情景并排；`outflow_consistent` 表示三档支出是否一致（必须为 true） |
-| GET | /api/payable/board?q=&only_overdue= | payable.read | **供应商应付台账**：`figures`（`open_amount` 未付发票 / `unbilled_amount` 已收货未开票 / `payable_total` / `overdue` / `due_7` / `due_30` / `unbilled_est_due` 未开票预计到期 / `unbilled_overdue_est`）+ `risk`（overdue/unbilled/noterm/ok） |
+| GET | /api/payment-requests/meta | paymentreq.read | 枚举（状态/供应商/出账账户/付款方式）+ `stats`。**出账账户只列 `status='active'`** |
+| GET | /api/payment-requests/candidates?supplier_id=&q= | paymentreq.read | 可申请的应付发票：`open_amount` 未付 / `committed` 已被其他未完成申请占用 / **`available` = 可申请额** / `committed_by` 占用它的单号 / `fully_committed` |
+| GET | /api/payment-requests?status=&supplier_id=&q=&mine=1 | paymentreq.read | 列表；`summary` 与 `/stats` 同源（`draft/submitted/approved/paid` 各自 count+amount、`pipeline_amount`、`committed_amount`、`overdue_pending_count`） |
+| GET | /api/payment-requests/stats | paymentreq.read | 汇总 |
+| POST | /api/payment-requests | paymentreq.write | `{items:[{invoice_id, amount}], plan_pay_date, method, bank_account_id?, reason}`。**不收 `amount`**：金额 = 明细合计；`amount` 省略时取「可申请额」；超出可用额 / 跨供应商 / 已作废 / 已付清都 400 |
+| GET | /api/payment-requests/:id | paymentreq.read | 详情：明细 + `approval`（含 tasks）+ `payment` + `bank_account` |
+| PUT | /api/payment-requests/:id | paymentreq.write | 改草稿（只允许 `draft`；明细整体替换并重算金额） |
+| DELETE | /api/payment-requests/:id | paymentreq.write | 删草稿（提交过的请走「取消」，否则审批记录会断） |
+| POST | /api/payment-requests/:id/submit | paymentreq.write | 提交：再校验一次占用（防「建草稿后别人先申请了」）→ 生成 `payment` 审批实例 |
+| POST | /api/payment-requests/:id/cancel | paymentreq.read | `{reason}`（≥4 字）；已付款的不能取消；会同时终止审批实例 |
+| POST | /api/payment-requests/:id/pay | **paymentreq.pay** | `{bank_account_id, pay_date, method}`。**必须 `approved`**；账户必填；`amount` 若传必须与批准金额一致（不一致 = 绕过审批）→ 生成 `payments` + 核销 + 回写发票 |
+| GET | /api/payment-requests/export?status=&q= | paymentreq.read | CSV（带 BOM） |
+| POST | /api/approvals/tasks/:id/act | 按角色 | 新增 `payment` 类型。**申请人自己批会 403**；错误码透传 `e.status`（不再一律 400） |
+| GET | /api/payable/board?q=&only_overdue= | payable.read | **供应商应付台账**：`figures`（`open_amount` 未付发票 / `unbilled_amount` 已收货未开票 / `payable_total` / `overdue` / `due_7` / `due_30` / `unbilled_est_due` 未开票预计到期 / `unbilled_overdue_est` / **`in_pipeline` 已在付款申请流程中** / `pipeline_count`）+ `risk`（overdue/unbilled/noterm/ok） |
 | GET | /api/payable/schedule?weeks=8 | payable.read | **付款计划**：按周分组（`buckets`，第一组固定 `overdue`），末尾 `pending` 是「已收货未开票」并带 `est_due`（收货日 + 账期，**仅供计划，不算逾期**） |
 | GET | /api/payable/export?q=&only_overdue= | payable.read | 台账 CSV（带 BOM，前四行写口径） |
 | GET | /api/payable/:supplierId | payable.read | 单供应商：未付发票 + 已收货未开票采购单 + 最近付款 |

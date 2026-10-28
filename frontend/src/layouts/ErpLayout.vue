@@ -170,6 +170,7 @@ const navModel = [
       { label: '客户信用与账期', to: '/credit' },
       { label: '应付与付款计划', to: '/payable' },
       { label: '资金计划（13 周）', to: '/cashflow' },
+      { label: '付款申请', to: '/payment-requests' },
       { label: '成本与毛利', to: '/costing' },
       { label: '价格快照与费用池', to: '/pricing' },
       { label: '财务报表与关账', to: '/finance-books' },

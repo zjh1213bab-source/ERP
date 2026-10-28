@@ -82,6 +82,47 @@ function inferStatus(inv) {
   return 'partial';
 }
 
+/**
+ * 按核销记录重算一张发票的 `paid_amount` 与 `status`（作废的不动）
+ *
+ * 这是**唯一允许写发票已付金额的地方**。两条路（往来账页手工登记、
+ * 付款申请单执行付款）都调它 —— 抄第二份就会出现
+ * 「同样的核销，两条路算出的 paid_amount 不一样」。
+ *
+ * 口径依赖 `paymentStatus.PAY_VALID`：只有 valid/confirmed 且未冲销的付款才算。
+ */
+function syncPaidStatus(kind, invoiceId, dbRef) {
+  const { db, now } = require('../db');
+  const d = dbRef || db;
+  const { payValidOf } = require('./paymentStatus');
+  const table = kind === 'ar' ? 'ar_invoices' : 'ap_invoices';
+  const inv = d.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(invoiceId);
+  if (!inv) return null;
+  // 作废票不动：它可能还有核销记录，改了会把历史搅乱
+  if (String(inv.status || '') === 'void') return { paid: Number(inv.paid_amount) || 0, status: 'void' };
+
+  const paid = r2(
+    d
+      .prepare(
+        `SELECT COALESCE(SUM(a.amount),0) AS s FROM payment_allocations a
+           JOIN payments p ON p.id = a.payment_id AND ${payValidOf('p')}
+          WHERE a.invoice_kind = ? AND a.invoice_id = ?`
+      )
+      .get(kind, invoiceId).s
+  );
+  let status = 'unpaid';
+  if (paid + 0.005 >= r2(inv.amount)) status = 'paid';
+  else if (paid > 0.005) status = 'partial';
+
+  d.prepare(`UPDATE ${table} SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?`).run(
+    paid,
+    status,
+    now(),
+    invoiceId
+  );
+  return { paid, status };
+}
+
 module.exports = {
   KNOWN,
   ALIAS,
@@ -90,5 +131,6 @@ module.exports = {
   isOpen,
   openAmount,
   normalizeStatus,
-  inferStatus
+  inferStatus,
+  syncPaidStatus
 };

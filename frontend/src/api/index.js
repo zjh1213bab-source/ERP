@@ -222,6 +222,18 @@ export const api = {  // 登录
   // 资金计划（13 周现金流）
   cashflowPlan: (params) => req('/api/cashflow/plan' + qs(params)),
   cashflowCompare: (params) => req('/api/cashflow/compare' + qs(params)),
+  // 付款申请单（提交 → 审批 → 出纳执行付款）
+  prMeta: () => req('/api/payment-requests/meta'),
+  prCandidates: (params) => req('/api/payment-requests/candidates' + qs(params)),
+  prList: (params) => req('/api/payment-requests' + qs(params)),
+  prDetail: (id) => req(`/api/payment-requests/${id}`),
+  prCreate: (d) => req('/api/payment-requests', { method: 'POST', body: d }),
+  prUpdate: (id, d) => req(`/api/payment-requests/${id}`, { method: 'PUT', body: d }),
+  prDelete: (id) => req(`/api/payment-requests/${id}`, { method: 'DELETE' }),
+  prSubmit: (id) => req(`/api/payment-requests/${id}/submit`, { method: 'POST' }),
+  prCancel: (id, reason) => req(`/api/payment-requests/${id}/cancel`, { method: 'POST', body: { reason } }),
+  prPay: (id, d) => req(`/api/payment-requests/${id}/pay`, { method: 'POST', body: d }),
+  prExportPath: (params) => '/api/payment-requests/export' + qs(params),
 
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),

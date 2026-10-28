@@ -83,6 +83,7 @@
               <th class="num">逾期</th>
               <th class="num">7 天内</th>
               <th class="num">30 天内</th>
+              <th class="num" style="min-width: 96px" title="已提交付款申请、还没付出去的金额">付款流程中</th>
               <th>最近到期</th>
               <th>状态</th>
               <th style="min-width: 130px">操作</th>
@@ -117,6 +118,13 @@
                 {{ r.figures.due_7 ? money(r.figures.due_7) : '0' }}
               </td>
               <td class="num">{{ r.figures.due_30 ? money(r.figures.due_30) : '0' }}</td>
+              <td class="num" :style="{ color: r.figures.in_pipeline ? '#7c3aed' : '#8a94a6' }">
+                <template v-if="r.figures.in_pipeline">
+                  {{ money(r.figures.in_pipeline) }}
+                  <div class="tiny muted">{{ r.figures.pipeline_count }} 张单</div>
+                </template>
+                <template v-else>—</template>
+              </td>
               <td class="tiny nowrap">
                 {{ r.figures.next_due || '—' }}
                 <div v-if="r.figures.unbilled_est_due" class="tiny muted">待票 {{ r.figures.unbilled_est_due }}</div>
@@ -129,7 +137,7 @@
                 <span v-if="!r.supplier.id" class="tiny muted">去客户档案里补</span>
               </td>
             </tr>
-            <tr v-if="!rows.length"><td colspan="9" class="empty">没有应付</td></tr>
+            <tr v-if="!rows.length"><td colspan="10" class="empty">没有应付</td></tr>
           </tbody>
         </table>
       </div>
@@ -499,8 +507,26 @@ onMounted(async () => {
 .banner { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; font-size: 13px; line-height: 1.7; border: 1px solid transparent; }
 .banner.warn { background: #fff8ec; border-color: #f3ddb5; color: #8a5a12; }
 
+/* 十列比一屏宽 72px。收窄左右内边距（14→9）省 100px，比缩小字体更不影响可读性 */
+.table-wrap table.data thead th,
+.table-wrap table.data tbody td {
+  padding-left: 9px;
+  padding-right: 9px;
+}
+/* 兜底：万一还是放不下，「操作」列固定在右侧 —— 按钮永远可见，不用猜能不能横向滚 */
+.data th:last-child,
+.data td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  /* 不要加阴影：表格刚好放下时，这 8px 阴影会盖住隔壁「状态」标签的右半截 */
+}
+.data tbody tr:hover td:last-child {
+  background: #f7faff;
+}
+
 .data td.num, .data th.num { white-space: nowrap; }
-.data td:first-child { min-width: 190px; }
+.data td:first-child { min-width: 172px; }
 .nowrap { white-space: nowrap; }
 .term-cell { white-space: nowrap; }
 .data .tag { white-space: nowrap; }
