@@ -34,6 +34,7 @@ const { PERMS, ROLE_LABEL, resolvePerms, resolveLimit, hasPerm, withinLimit, per
 const { hashPassword } = require('../auth/password');
 const crypto = require('crypto');
 const mall = require('../services/mall');
+const CP = require('../services/customerProgress');
 
 const router = express.Router();
 const round2 = mall.round2;
@@ -806,4 +807,16 @@ router.post('/auth/change-pwd', customerRequired, wrap(async (req, res) => {
   return ok(res, { ok: true, notice: '密码已更新' });
 }));
 
+
+/* ---------- 订单进度（TS-N22-02：只读已发布的快照，不直连内部表） ---------- */
+router.get('/progress', customerRequired, permRequired('order.view'), wrap(async (req, res) => {
+  // 客户看到的是业务发布过的快照；没发布的订单不会出现在这里
+  return ok(res, { rows: CP.customerOrders(req.customer.cid) });
+}));
+
+router.get('/orders/:id/progress', customerRequired, permRequired('order.view'), wrap(async (req, res) => {
+  return ok(res, CP.customerOrderProgress(req.customer.cid, req.params.id));
+}));
+
 module.exports = router;
+

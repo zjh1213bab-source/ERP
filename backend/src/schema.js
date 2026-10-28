@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 684 个对象
- * （327 张表 + 357 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 690 个对象
+ * （329 张表 + 361 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -689,5 +689,11 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_selfreq_emp ON self_requests(employee_id);",
   "CREATE INDEX IF NOT EXISTS idx_selfreq_status ON self_requests(status);",
   "CREATE TABLE IF NOT EXISTS payroll_adjustments (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  adj_no TEXT UNIQUE,                          -- PA2026100001\n  request_id INTEGER,\n  employee_id INTEGER NOT NULL,\n  employee_name TEXT,\n  period TEXT NOT NULL,                        -- 生效期 YYYY-MM（下一期，不是被申诉那一期）\n  item TEXT NOT NULL DEFAULT 'other',          -- base / overtime / bonus / deduction / piece_wage / other\n  amount REAL NOT NULL DEFAULT 0,              -- 正=补发，负=扣回\n  reason TEXT NOT NULL,\n  status TEXT NOT NULL DEFAULT 'pending',      -- pending 待带入 / applied 已带入工资单 / void 作废\n  source_period TEXT,                          -- 原始出问题的期数（仅追溯用）\n  created_by TEXT,\n  created_at TEXT,\n  updated_at TEXT,\n  applied_at TEXT\n);",
-  "CREATE INDEX IF NOT EXISTS idx_payadj_emp ON payroll_adjustments(employee_id, period);"
+  "CREATE INDEX IF NOT EXISTS idx_payadj_emp ON payroll_adjustments(employee_id, period);",
+  "CREATE TABLE IF NOT EXISTS order_routes (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  route TEXT NOT NULL DEFAULT 'inhouse',       -- inhouse 本厂 / cut_outsource 裁片外发 / full_outsource 整单外发\n  source TEXT NOT NULL DEFAULT 'auto',         -- auto 自动推断 / manual 人工指定\n  note TEXT,\n  updated_by TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_order_route ON order_routes(order_id);",
+  "CREATE TABLE IF NOT EXISTS progress_publications (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  version_no INTEGER NOT NULL,\n  status TEXT NOT NULL DEFAULT 'published',    -- published / withdrawn\n  route TEXT NOT NULL,\n  snapshot TEXT NOT NULL,                      -- 客户可见的完整快照（JSON）\n  stage_count INTEGER DEFAULT 0,\n  done_count INTEGER DEFAULT 0,\n  can_complete INTEGER DEFAULT 0,              -- 快照当时是否允许宣称完工/可发货\n  show_qty INTEGER DEFAULT 0,                  -- 是否对外给了合格数\n  published_by TEXT,\n  published_at TEXT,\n  withdrawn_by TEXT,\n  withdrawn_at TEXT,\n  withdraw_reason TEXT,\n  note TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_pub_ver ON progress_publications(order_id, version_no);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_pub_live ON progress_publications(order_id) WHERE status = 'published';",
+  "CREATE INDEX IF NOT EXISTS idx_pub_order ON progress_publications(order_id);"
 ];

@@ -508,7 +508,7 @@
 | GET | /api/mall-admin/inquiries?status=&q= | 登录 | 询价单列表 |
 | GET | /api/mall-admin/inquiries/:id | 登录 | 询价明细 |
 | POST | /api/mall-admin/inquiries/:id/quote | admin,sales | 逐行报价 `{items:[{id,price_usd}], sales_remark}` → 通知客户 |
-| POST | /api/mall-admin/inquiries/:id/convert | admin,sales | 转销售订单草稿，回填 `order_id` |
+| POST | /api/mall-admin/inquiries/:id/convert | admin,sales | 仅客户已确认的询价可转销售订单草稿；转单后须在草稿补齐颜色尺码，回填 `order_id` |
 | GET/POST/PUT | /api/mall-admin/accounts | 读:登录 / 写:admin,sales | 客户账号：开通（首个为主账号）/ 改密 / 停用 |
 | POST | /api/mall-admin/notify | admin,sales | 给客户发站内通知 `{customer_id,title,body,type}` |
 
@@ -544,7 +544,7 @@
 | PUT | /api/quotations/:id | admin,sales | 修改（仅草稿） |
 | POST | /api/quotations/:id/status | admin,sales | `draft→sent→accepted/rejected` |
 | POST | /api/quotations/:id/reprice | admin,sales | 按当前阶梯价重算（仅草稿） |
-| POST | /api/quotations/:id/convert | admin,sales | 生成草稿销售订单，返回 `{order_id, order_no}`，报价单转 `converted` |
+| POST | /api/quotations/:id/convert | admin,sales | 仅客户已接受的报价可转销售订单草稿；转单后须在草稿补齐颜色尺码，返回 `{order_id, order_no}` |
 | DELETE | /api/quotations/:id | admin,sales | 删除（仅草稿） |
 
 打印页：前端 `/print/quote/:id`（A4，含美金大写、报价说明、签章位）。
@@ -3015,3 +3015,50 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 3. **驳回也要写结论**（≥5 字）——员工拿到「已驳回」三个字等于没回复。
 4. **未绑定不猜人**：`users.employee_id` 为空时所有自助接口都不返回个人数据，
    只在绑定页提示人事去绑。库里有 10 个账号一个都对不上员工档案，按姓名猜必然出错。
+
+## 客户进度发布（`/api/customer-progress` + `/api/mall/*/progress`）
+
+> 内部照常报工，**客户只看业务主动发布过的快照**。三条路线：本厂 / 裁片外发 / 整单外发。
+> 权限：`custprogress.read`（admin/boss/sales/tech/production）、`custprogress.publish`（admin/sales）、
+> `custprogress.route`（admin/sales/production）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/customer-progress/meta | read | 字典（三条路线及各自阶段、统计） |
+| GET | /api/customer-progress/orders?q= | read | 待发布订单（含内部进度、路线、`published`、`live_version`、`stale`） |
+| GET | /api/customer-progress/orders/:id/internal | read | 内部真实进度（阶段 + 外发交出/回货/验收 + `blockers` + 隐藏字段清单） |
+| GET | /api/customer-progress/orders/:id/preview?show_qty= | read | 客户将会看到什么（含 `completion_label`、`hidden`、`rule_note`） |
+| GET | /api/customer-progress/orders/:id/history | read | 版本历史（含撤回人与理由） |
+| POST | /api/customer-progress/orders/:id/publish | publish | 发布：`{show_qty?, note?}`，自动撤回旧版，版本 +1；返回 `warnings` |
+| POST | /api/customer-progress/publications/:id/withdraw | publish | 撤回：`{reason≥4字}` |
+| PUT | /api/customer-progress/orders/:id/route | route | 指定路线：`{route, note}`，记为 `manual` |
+| GET | /api/mall/progress | 客户 | 我的订单进度列表（**只含已发布**） |
+| GET | /api/mall/orders/:id/progress | 客户 | 某单进度快照；未发布返回 `{published:false}`，别家订单 403 |
+
+**阶段模型**
+
+| 路线 | 阶段 | 判定依据 |
+|---|---|---|
+| `inhouse` 本厂 | 备料 → 裁剪 → 车缝 → 后整 → 检验 → 发运 | 内部工序节点全部 `done` |
+| `cut_outsource` 裁片外发 | 备料 → 裁剪 → **外发加工** → 后整 → 检验 → 发运 | `cut_dispatches.out_qty > 0` 自动判定 |
+| `full_outsource` 整单外发 | **外发加工** → 检验 → 发运 | 人工指定 |
+
+工序 → 阶段映射：`备料/排版算料 → 备料`；`裁剪 → 裁剪`；`车缝/锁眼钉扣/印花/绣花/水洗 → 车缝`；
+`整烫/包装/成品入库 → 后整`；`检验 → 检验`；`出库发运 → 发运`。
+
+**三条硬口径**
+
+1. **外发没回齐就不能说完工**：`can_complete` 由服务层算，要求所有阶段 `done`；
+   裁片外发还要求 `returned_qty >= out_qty`。不满足时客户快照里**没有** `completed/completion_label` 字段。
+2. **客户读快照不读表**：发布写入 `progress_publications.snapshot`（JSON），客户接口只读它。
+   快照里只有 `key/label/status/status_label/done_at/seq`（可选 `qty_ok`），
+   **不含**外发厂名、加工单价、返工数、工人姓名、内部备注。
+3. **撤回留版本**：不删行，状态转 `withdrawn` + 写撤回人/时间/理由；同一订单同时只允许一个 `published`
+   （部分唯一索引兜底）。
+
+**发布时会挡的自相矛盾**
+
+- 路线为外发但**没有任何外发记录** → 警告「客户会看到外发未开始，路线是否选错」
+- 外发未开始但后整/检验/发运已有进度 → 警告「客户看到会自相矛盾」
+
+发布本身不阻断（业务可分阶段对外），但 `warnings` 必须回给发布人。

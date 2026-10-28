@@ -241,6 +241,14 @@
 | crm | POST | `/targets` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | GET | `/targets/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | crm | POST | `/targets/:id/approve` | ✅ | — | — | — | — | — | ✅ | — |
+| customerProgress | GET | `/meta` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
+| customerProgress | GET | `/orders` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
+| customerProgress | GET | `/orders/:id/history` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
+| customerProgress | GET | `/orders/:id/internal` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
+| customerProgress | GET | `/orders/:id/preview` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
+| customerProgress | POST | `/orders/:id/publish` | ✅ | — | ✅ | — | — | — | — | — |
+| customerProgress | PUT | `/orders/:id/route` | ✅ | — | ✅ | — | ✅ | — | — | — |
+| customerProgress | POST | `/publications/:id/withdraw` | ✅ | — | ✅ | — | — | — | — | — |
 | customers | POST | `/` | ✅ | — | ✅ | — | — | — | — | — |
 | customers | PUT | `/:id` | ✅ | — | ✅ | — | — | — | — | — |
 | customers | DELETE | `/:id` | ✅ | — | ✅ | — | — | — | — | — |
@@ -1078,6 +1086,9 @@
 | `self.submit` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
 | `self.manage` | 系统管理员、人事行政、财务会计 |
 | `self.bind` | 系统管理员、人事行政 |
+| `custprogress.read` | 系统管理员、总经理、销售跟单、技术打版、生产车间 |
+| `custprogress.publish` | 系统管理员、销售跟单 |
+| `custprogress.route` | 系统管理员、销售跟单、生产车间 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |

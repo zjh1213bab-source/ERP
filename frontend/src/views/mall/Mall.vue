@@ -114,6 +114,15 @@
             <div>
               <strong>{{ o.order_no }}</strong>
               <div class="ml-muted">{{ o.style_name || '-' }} · 交期 {{ o.delivery_date || '待定' }}</div>
+              <!-- 有已发布进度才显示；没发布就不占用一行（不显示「0%」误导客户） -->
+              <div v-if="progressMap[o.id]" class="ml-mini">
+                <span class="ml-mini-bar"><i :style="{ width: (progressMap[o.id].progress_pct || 0) + '%' }"></i></span>
+                <span class="ml-muted">
+                  {{ progressMap[o.id].current_stage ? progressMap[o.id].current_stage.label : '—' }}
+                  · {{ progressMap[o.id].done_count }}/{{ progressMap[o.id].stage_count }} 阶段
+                </span>
+                <span v-if="progressMap[o.id].completed" class="ml-done-tag">已完工</span>
+              </div>
             </div>
             <div class="ml-row-right">
               <span v-if="amountVisible" class="ml-amount">${{ money(o.total_usd) }}</span>
@@ -420,6 +429,29 @@
           <template v-if="orderDetail.amount_visible"> · ${{ money(orderDetail.total_usd) }}（≈¥{{ money(orderDetail.total_amount) }}）</template>
           <template v-else> · 金额不可见（当前账号没有「看对账与账单」权限）</template>
         </div>
+        <!-- 生产进度：只显示业务已发布的快照；未发布时明说，不留空白让客户猜 -->
+        <div class="ml-pg" v-if="orderProgress && orderProgress.published">
+          <div class="ml-pg-head">
+            <b>生产进度</b>
+            <span class="ml-muted">{{ orderProgress.route_label }} · 第 {{ orderProgress.version_no }} 版 · 更新于 {{ $fmt(orderProgress.published_at) }}</span>
+            <span v-if="orderProgress.completed" class="ml-done-tag ml-done-lg">已完工，可安排发货</span>
+          </div>
+          <div class="ml-steps">
+            <div v-for="s in orderProgress.stages" :key="s.key" class="ml-step" :class="s.status">
+              <span class="ml-step-dot"></span>
+              <div>
+                <div class="ml-step-lb">{{ s.label }}</div>
+                <div class="ml-muted">{{ s.status_label }}<template v-if="s.done_at"> · {{ s.done_at }}</template></div>
+              </div>
+            </div>
+          </div>
+          <div class="ml-muted ml-pg-note" v-if="orderProgress.note">{{ orderProgress.note }}</div>
+          <div class="ml-muted ml-pg-note" v-if="orderProgress.plan_finish">预计完成：{{ orderProgress.plan_finish }}</div>
+        </div>
+        <div class="ml-note" v-else-if="orderProgress && orderProgress.published === false">
+          该订单还没有对外发布生产进度，如需了解请联系业务员
+        </div>
+
         <div class="ml-timeline">
           <div v-for="(t, i) in orderDetail.timeline" :key="i" class="ml-tl-item">
             <span class="ml-tl-dot"></span>
@@ -489,6 +521,9 @@ const formMsg = ref('');
 const form = reactive({ contact: '', remark: '' });
 const inqDetail = ref(null);
 const orderDetail = ref(null);
+// 客户看到的进度是业务发布过的快照，不是内部实时数据
+const orderProgress = ref(null);
+const progressMap = ref({});
 
 // 对账 / 成员
 const finance = reactive({ rows: [], summary: {} });
@@ -519,6 +554,13 @@ async function loadTab() {
     else if (tab.value === 'orders') {
       const d = await api.orders();
       orders.value = Array.isArray(d) ? d : (d.rows || []);
+      // 进度只拿「已发布」的那些：没发布过的订单不会出现在这里，列表上就不显示进度条
+      try {
+        const p = await api.progress();
+        const map = {};
+        (p.rows || []).forEach((x) => { map[x.order_id] = x; });
+        progressMap.value = map;
+      } catch (e) { progressMap.value = {}; }
     }
     else if (tab.value === 'confirm') Object.assign(confirmations, await api.confirmations());
     else if (tab.value === 'finance') Object.assign(finance, await api.finance());
@@ -594,7 +636,11 @@ async function openInquiry(row) {
   try { inqDetail.value = await api.inquiry(row.id); } catch (e) { alert(e.message); }
 }
 async function openOrder(row) {
-  try { orderDetail.value = await api.order(row.id); } catch (e) { alert(e.message); }
+  try {
+    orderDetail.value = await api.order(row.id);
+    // 进度单独取：没发布的订单返回 {published:false}，页面上说明「暂未发布」而不是空白
+    try { orderProgress.value = await api.orderProgress(row.id); } catch (e) { orderProgress.value = null; }
+  } catch (e) { alert(e.message); }
 }
 async function confirmInquiry(row) {
   if (!confirm(`确认 ${row.inquiry_no} 的报价 $${money(row.total_usd)}？`)) return;
@@ -908,4 +954,22 @@ onMounted(async () => {
 .ml-ops { white-space: nowrap; }
 .ml-audit-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 0; border-bottom: 1px dashed #eef2f7; color: #33415a; }
 .ml-audit-row:last-child { border-bottom: none; }
+/* ---- 生产进度（客户侧只看已发布快照） ---- */
+.ml-mini { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 11.5px; flex-wrap: wrap; }
+.ml-mini-bar { display: inline-block; width: 66px; height: 5px; border-radius: 3px; background: #e8edf6; overflow: hidden; }
+.ml-mini-bar i { display: block; height: 100%; background: #2563eb; border-radius: 3px; }
+.ml-done-tag { font-size: 10.5px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; padding: 1px 5px; }
+.ml-done-lg { font-size: 12px; padding: 2px 8px; }
+.ml-pg { border: 1px solid #e6ebf3; border-radius: 10px; padding: 11px 13px; margin: 10px 0; background: #fcfeff; }
+.ml-pg-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 9px; font-size: 13px; }
+.ml-pg-head .ml-muted { font-size: 11.5px; }
+.ml-steps { display: flex; gap: 10px; flex-wrap: wrap; }
+/* 阶段条：已完成实心、进行中描边加粗、未开始灰色，一眼能数出做到第几步 */
+.ml-step { display: flex; gap: 6px; align-items: flex-start; min-width: 92px; flex: 1 1 92px; }
+.ml-step-dot { width: 9px; height: 9px; border-radius: 50%; background: #cbd5e1; margin-top: 4px; flex: 0 0 auto; }
+.ml-step-lb { font-size: 12px; color: #16233b; }
+.ml-step.done .ml-step-dot { background: #10b981; }
+.ml-step.doing .ml-step-dot { background: #fff; border: 2px solid #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+.ml-step.pending .ml-step-lb { color: #94a3b8; }
+.ml-pg-note { margin-top: 8px; font-size: 11.5px; line-height: 1.6; }
 </style>

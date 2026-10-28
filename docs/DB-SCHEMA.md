@@ -1127,3 +1127,28 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 >
 > 底层依赖：`employees` / `attendance`（`status` 取值为 `normal / late / leave / absent`）、
 > `payrolls`（只有 `confirmed` / `paid` 对员工可见）、`leave_requests`、`sensitive_access_logs`（本人查看留痕）。
+
+## 客户进度发布（M-CUSTPROGRESS）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| order_routes | order_id(唯一), route(inhouse/cut_outsource/full_outsource), source(auto/manual), note, updated_by | 生产路线。**人工改过就记 `manual`，不再被自动推断覆盖**（旺季整单转外发很常见） |
+| progress_publications | order_id, version_no, status(published/withdrawn), route, snapshot(JSON), stage_count, done_count, can_complete, show_qty, published_by/at, withdrawn_by/at, withdraw_reason | 对外发布版本。**客户只读这里的 snapshot**，不读内部表 |
+
+> **为什么不直接给客户读 `order_nodes` / `cut_dispatches`**：
+> ① 内部数据每天都在变，客户昨天截图、今天对不上，说不清；
+> ② 直连内部表就挡不住顺手把工厂名、加工费、返工数带出去。
+> 快照是**发布那一刻的定版**，客户侧可复现，也天然挡住内部字段。
+>
+> **同一订单同时只能有一个 `published`**：部分唯一索引 `WHERE status='published'` 兜底，
+> 重新发布会先把旧版转 `withdrawn`（不删行，版本历史可查）。
+>
+> **`can_complete` 是算出来的，不是人填的**：所有阶段 `done` 才为 1；
+> 裁片外发额外要求 `returned_qty >= out_qty`（原型：未回厂后整及终检，不得标整单完工）。
+> 为 0 时客户快照里**连 `completed` / `completion_label` 字段都不出现**。
+>
+> **快照字段白名单**：`key / label / status / status_label / done_at / seq`（可选 `qty_ok`）。
+> 出厂前不进快照的东西：外发厂名、加工单价与金额、返工数、工人姓名、内部备注。
+>
+> 工序 → 阶段映射在 `services/customerProgress.js` 的 `NODE_STAGE` 里，改它等于改客户能看到什么。
+> 底层依赖：`order_nodes`（节点完成状态）、`cut_dispatches`（交出/回货/验收）、`orders.delivery_date`（预计完成）。

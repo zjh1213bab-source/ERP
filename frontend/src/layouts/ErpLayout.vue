@@ -110,6 +110,7 @@ const navModel = [
       { label: '营销与素材', to: '/marketing' },
       { label: '客户营销与消息', to: '/notify' },
       { label: '销售与客户', to: '/sales' },
+      { label: '客户进度发布', to: '/customer-progress' },
       { label: '销售订单', to: '/orders' }
     ]
   },

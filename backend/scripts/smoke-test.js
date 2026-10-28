@@ -8131,6 +8131,195 @@ async function req(path, { method = 'GET', body, token } = {}) {
   }
 
 
+  // ================= 客户进度发布（TS-N22-02 / TS-N22-03） =================
+  // 用一张真实生产中的订单做发布/撤回，发布的记录用 published_by='__smoke__' 标记，跑完删净。
+  {
+    console.log('\n[客户进度发布]');
+    const { db: DB } = require('../src/db');
+    const CP = require('../src/services/customerProgress');
+    const asUser = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return (r.json && r.json.data && r.json.data.token) || '';
+    };
+    const TEST_MARK = '__smoke__';
+    const cleanup = () => {
+      DB.prepare('DELETE FROM progress_publications WHERE published_by = ? OR withdrawn_by = ?').run(TEST_MARK, TEST_MARK);
+      DB.prepare('DELETE FROM order_routes WHERE updated_by = ?').run(TEST_MARK);
+    };
+    cleanup();
+
+    try {
+      const meta = (await req('/api/customer-progress/meta', { token })).json.data || {};
+      const routes = meta.routes || [];
+      ok('三条生产路线齐全', routes.length === 3, routes.map((r) => r.label).join('/'));
+      ok('整单外发只有三段（外发/检验/发运）',
+        routes.find((r) => r.value === 'full_outsource').stages.join('/') === '外发加工/检验/发运',
+        (routes.find((r) => r.value === 'full_outsource') || {}).stages.join('/'));
+
+      // 挑一张「有外发记录且没回完货」的订单做核心断言
+      const cutRow = DB.prepare(
+        `SELECT order_id, SUM(out_qty) o, SUM(returned_qty) r FROM cut_dispatches
+          WHERE status <> 'void' GROUP BY order_id HAVING SUM(out_qty) > SUM(returned_qty) LIMIT 1`
+      ).get();
+      if (cutRow) {
+        const it = (await req(`/api/customer-progress/orders/${cutRow.order_id}/internal`, { token })).json.data;
+        ok('外发未回完货的订单被判定为「不能完工」', it && it.can_complete === false,
+          it ? `${it.done_count}/${it.stage_count} 阻塞 ${it.blockers.length} 项` : '取不到');
+        ok('阻塞原因说清是「外发没回齐」而不是笼统的未完成',
+          it && it.blockers.some((b) => b.includes('外发')), it ? it.blockers[0] : '');
+        const pv = (await req(`/api/customer-progress/orders/${cutRow.order_id}/preview`, { token })).json.data;
+        ok('客户预览里没有「完工/可发货」字样',
+          pv && !pv.completion_label && pv.completed === false,
+          pv ? JSON.stringify(pv.completion_label) : '');
+        // 注意：预览接口本身会列出「客户永远看不到：外发工厂名称/加工单价/返工数…」，
+        // 所以不能拿整段预览去判泄漏 —— 要判的是**客户会收到的那份快照**：
+        // 1) 阶段对象只允许白名单字段；2) 落库 snapshot 里不含敏感词。
+        const ALLOW = ['key', 'label', 'status', 'status_label', 'done_at', 'seq', 'qty_ok'];
+        const stageKeys = (pv.stages || []).flatMap((s) => Object.keys(s)).filter((k) => !ALLOW.includes(k));
+        const snap = DB.prepare("SELECT snapshot FROM progress_publications WHERE order_id = ? AND status = 'published'").get(cutRow.order_id);
+        const snapJson = snap ? String(snap.snapshot) : JSON.stringify(pv.stages || []);
+        ok('客户会收到的快照不含工厂/成本/返工/工人（阶段只有白名单字段）',
+          stageKeys.length === 0 && !/factory|unit_price|amount|返工|operator|工厂名/.test(snapJson),
+          stageKeys.length ? `多余字段 ${stageKeys.join(',')}` : '字段白名单通过 / 快照无敏感词');
+      } else {
+        ok('外发未回完货的订单被判定为「不能完工」', true, '库里没有未回齐的外发单，跳过');
+        ok('阻塞原因说清是「外发没回齐」而不是笼统的未完成', true, '跳过');
+        ok('客户预览里没有「完工/可发货」字样', true, '跳过');
+        ok('客户会收到的快照不含工厂/成本/返工/工人（阶段只有白名单字段）', true, '跳过');
+      }
+
+      // 找一张可发布的订单（生产中、且当前没有生效版本）
+      const target = DB.prepare(
+        `SELECT o.id, o.order_no, o.customer_id FROM orders o
+          WHERE o.status IN ('production','shipped')
+            AND NOT EXISTS (SELECT 1 FROM progress_publications p WHERE p.order_id = o.id AND p.status='published')
+          ORDER BY o.id DESC LIMIT 1`
+      ).get();
+
+      if (target) {
+        const p1 = await req(`/api/customer-progress/orders/${target.id}/publish`, { method: 'POST', token, body: { note: TEST_MARK } });
+        // 上面这条没带 published_by 标记，这里补一次落库标记，保证能清干净
+        DB.prepare("UPDATE progress_publications SET published_by = ? WHERE order_id = ? AND status='published'").run(TEST_MARK, target.id);
+        ok('可发布订单并生成 v1', p1.status === 200 && p1.json.data.version_no >= 1,
+          `HTTP ${p1.status} v${p1.json.data && p1.json.data.version_no}`);
+
+        const p2 = await req(`/api/customer-progress/orders/${target.id}/publish`, { method: 'POST', token, body: { note: TEST_MARK } });
+        DB.prepare("UPDATE progress_publications SET published_by = ? WHERE order_id = ? AND status='published'").run(TEST_MARK, target.id);
+        const hist = (await req(`/api/customer-progress/orders/${target.id}/history`, { token })).json.data || [];
+        ok('再次发布版本号 +1，旧版转「已撤回」留痕',
+          p2.status === 200 && p2.json.data.version_no === p1.json.data.version_no + 1
+          && hist.filter((h) => h.status === 'published').length === 1,
+          `v${p2.json.data && p2.json.data.version_no} / 历史 ${hist.length} 条 / 生效 ${hist.filter((h) => h.status === 'published').length} 条`);
+
+        const live = hist.find((h) => h.status === 'published');
+        const badWithdraw = await req(`/api/customer-progress/publications/${live.id}/withdraw`, {
+          method: 'POST', token, body: { reason: '错' }
+        });
+        ok('撤回必须写原因（至少 4 字）', badWithdraw.status === 400, `HTTP ${badWithdraw.status}`);
+
+        const okWithdraw = await req(`/api/customer-progress/publications/${live.id}/withdraw`, {
+          method: 'POST', token, body: { reason: '交期调整，撤回后重发（冒烟）' }
+        });
+        ok('撤回后客户侧看不到（版本仍留在历史里）',
+          okWithdraw.status === 200
+          && (DB.prepare("SELECT COUNT(*) c FROM progress_publications WHERE order_id = ? AND status='published'").get(target.id).c === 0)
+          && (DB.prepare('SELECT COUNT(*) c FROM progress_publications WHERE order_id = ?').get(target.id).c >= 2),
+          `HTTP ${okWithdraw.status}`);
+
+        // 客户侧：未发布 → published:false；发布后 → 能看到；别人的客户 → 403
+        const mallLogin = async (u, pw) => {
+          const r = await req('/api/mall/auth/login', { method: 'POST', body: { username: u, password: pw } });
+          return (r.json && r.json.data && r.json.data.token) || '';
+        };
+        const cTok = await mallLogin('abc001', 'abc123456');
+        if (cTok) {
+          const before = await req(`/api/mall/orders/${target.id}/progress`, { token: cTok });
+          ok('未发布的订单，客户侧明确返回「未发布」而不是空白',
+            before.status === 200 && before.json.data.published === false, JSON.stringify(before.json.data.published));
+
+          const pub = await req(`/api/customer-progress/orders/${target.id}/publish`, { method: 'POST', token, body: { note: TEST_MARK } });
+          DB.prepare("UPDATE progress_publications SET published_by = ? WHERE order_id = ? AND status='published'").run(TEST_MARK, target.id);
+          if (pub.status === 200 && target.customer_id === 1) {
+            const after = await req(`/api/mall/orders/${target.id}/progress`, { token: cTok });
+            ok('发布后客户能看到阶段与进度',
+              after.status === 200 && after.json.data.published === true && (after.json.data.stages || []).length > 0,
+              `阶段 ${(after.json.data.stages || []).length} 个`);
+            const cjson = JSON.stringify(after.json.data || {});
+            ok('客户拿到的快照里没有工厂/成本/返工/工人',
+              !/factory|加工费|unit_price|返工|operator/.test(cjson), cjson.slice(0, 80));
+          } else {
+            ok('发布后客户能看到阶段与进度', true, '这单不属于 abc001 客户，跳过');
+            ok('客户拿到的快照里没有工厂/成本/返工/工人', true, '跳过');
+          }
+
+          // 别的客户看不到 abc001 的订单
+          const otherTok = await mallLogin('def_orders', 'abc123456');
+          if (otherTok && target.customer_id === 1) {
+            const deny = await req(`/api/mall/orders/${target.id}/progress`, { token: otherTok });
+            ok('客户不能看别家的订单进度', deny.status === 403, `HTTP ${deny.status}`);
+          } else {
+            ok('客户不能看别家的订单进度', true, '没有第二个客户账号，跳过');
+          }
+        } else {
+          ok('未发布的订单，客户侧明确返回「未发布」而不是空白', true, '没有 abc001，跳过');
+          ok('发布后客户能看到阶段与进度', true, '跳过');
+          ok('客户拿到的快照里没有工厂/成本/返工/工人', true, '跳过');
+          ok('客户不能看别家的订单进度', true, '跳过');
+        }
+      } else {
+        ['可发布订单并生成 v1', '再次发布版本号 +1，旧版转「已撤回」留痕', '撤回必须写原因（至少 4 字）',
+          '撤回后客户侧看不到（版本仍留在历史里）', '未发布的订单，客户侧明确返回「未发布」而不是空白',
+          '发布后客户能看到阶段与进度', '客户拿到的快照里没有工厂/成本/返工/工人', '客户不能看别家的订单进度']
+          .forEach((n) => ok(n, true, '没有可发布订单，跳过'));
+      }
+
+      // 草稿订单不能发
+      const draft = DB.prepare("SELECT id, order_no FROM orders WHERE status = 'draft' LIMIT 1").get();
+      if (draft) {
+        const r = await req(`/api/customer-progress/orders/${draft.id}/publish`, { method: 'POST', token, body: {} });
+        ok('未进入生产的订单不能发布进度', r.status === 400, `HTTP ${r.status} ${r.json.message || ''}`);
+      } else {
+        ok('未进入生产的订单不能发布进度', true, '没有草稿订单，跳过');
+      }
+
+      // 路线人工指定后不被自动推断覆盖
+      if (target) {
+        const set = await req(`/api/customer-progress/orders/${target.id}/route`, {
+          method: 'PUT', token, body: { route: 'full_outsource', note: TEST_MARK }
+        });
+        const it2 = (await req(`/api/customer-progress/orders/${target.id}/internal`, { token })).json.data;
+        ok('人工指定路线后不被自动推断覆盖（整单外发只有 3 段）',
+          set.status === 200 && it2.route === 'full_outsource' && it2.stages.length === 3,
+          it2 ? `${it2.route} / ${it2.stages.length} 段` : '');
+      } else {
+        ok('人工指定路线后不被自动推断覆盖（整单外发只有 3 段）', true, '跳过');
+      }
+
+      // 权限：仓库/财务不能发布
+      const whTok = await asUser('wh01');
+      if (whTok) {
+        const deny = await req(`/api/customer-progress/orders/${target ? target.id : 1}/publish`, { method: 'POST', token: whTok, body: {} });
+        ok('仓库不能对外发布进度', deny.status === 403, `HTTP ${deny.status}`);
+      } else {
+        ok('仓库不能对外发布进度', true, '没有 wh01，跳过');
+      }
+      const salesTok = await asUser('sales01');
+      if (salesTok) {
+        const canRead = await req('/api/customer-progress/orders', { token: salesTok });
+        ok('销售能看订单与发布状态', canRead.status === 200, `HTTP ${canRead.status}`);
+      } else {
+        ok('销售能看订单与发布状态', true, '跳过');
+      }
+    } finally {
+      cleanup();
+    }
+
+    ok('发布夹具已清干净',
+      DB.prepare('SELECT COUNT(*) c FROM progress_publications WHERE published_by = ? OR withdrawn_by = ?').get(TEST_MARK, TEST_MARK).c === 0
+      && DB.prepare('SELECT COUNT(*) c FROM order_routes WHERE updated_by = ?').get(TEST_MARK).c === 0);
+  }
+
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

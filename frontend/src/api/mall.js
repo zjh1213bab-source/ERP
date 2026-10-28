@@ -68,6 +68,9 @@ export const mallApi = {
 
   orders: () => req('/api/mall/orders'),
   order: (id) => req('/api/mall/orders/' + id),
+  // 订单进度：只返回业务已发布的快照（没发布的订单不会出现）
+  progress: () => req('/api/mall/progress'),
+  orderProgress: (id) => req('/api/mall/orders/' + id + '/progress'),
 
   confirmations: () => req('/api/mall/confirmations'),
   confirmSeal: (id, d) => req(`/api/mall/seals/${id}/confirm`, { method: 'POST', body: d || {} }),

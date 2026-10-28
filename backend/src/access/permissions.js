@@ -232,6 +232,14 @@ const PERMS = {
   // 绑定账号 ↔ 员工：绑错了就是「看到别人的工资」，只给人事与管理员
   'self.bind': ['admin', 'hr'],
 
+  // ===== 客户进度发布（TS-N22-02/03）=====
+  // read：销售/技术/生产/老板都要能看「客户会看到什么」
+  // publish：对外说话的是业务，只给销售与管理员
+  // route：改路线会让客户看到的阶段变多或变少，跟单与生产最清楚
+  'custprogress.read': ['admin', 'boss', 'sales', 'tech', 'production'],
+  'custprogress.publish': ['admin', 'sales'],
+  'custprogress.route': ['admin', 'sales', 'production'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -351,6 +359,9 @@ const GUARDED = [
   { perm: 'self.manage', method: 'POST', prefix: '/api/self/review' },
   { perm: 'self.bind', method: 'POST', prefix: '/api/self/bind' },
   { perm: 'self.bind', method: 'POST', prefix: '/api/self/unbind' },
+  // 发布进度等于对外发声，撤回也要留痕 —— 都挂高危
+  { perm: 'custprogress.publish', method: 'POST', prefix: '/api/customer-progress' },
+  { perm: 'custprogress.route', method: 'PUT', prefix: '/api/customer-progress' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

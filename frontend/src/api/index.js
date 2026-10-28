@@ -325,6 +325,16 @@ export const api = {  // 登录
   selfReview: (id, d) => req(`/api/self/review/${id}`, { method: 'POST', body: d }),
   selfAdjustments: (params) => req('/api/self/adjustments' + qs(params)),
 
+  // 客户进度发布（内部侧）
+  cpMeta: () => req('/api/customer-progress/meta'),
+  cpOrders: (params) => req('/api/customer-progress/orders' + qs(params)),
+  cpInternal: (id) => req(`/api/customer-progress/orders/${id}/internal`),
+  cpPreview: (id, params) => req(`/api/customer-progress/orders/${id}/preview` + qs(params)),
+  cpHistory: (id) => req(`/api/customer-progress/orders/${id}/history`),
+  cpPublish: (id, d) => req(`/api/customer-progress/orders/${id}/publish`, { method: 'POST', body: d }),
+  cpWithdraw: (pubId, d) => req(`/api/customer-progress/publications/${pubId}/withdraw`, { method: 'POST', body: d }),
+  cpSetRoute: (id, d) => req(`/api/customer-progress/orders/${id}/route`, { method: 'PUT', body: d }),
+
   // 字段级脱敏与访问审计
   pvMeta: () => req('/api/privacy/meta'),
   pvRules: () => req('/api/privacy/rules'),
