@@ -534,6 +534,7 @@
 | orderNodes | POST | `/init` | ✅ | — | — | — | ✅ | — | — | — |
 | orders | POST | `/` | ✅ | — | ✅ | — | — | — | — | — |
 | orders | POST | `/:id/image` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| orders | POST | `/batch/transition` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | org | GET | `/dict` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | org | POST | `/employees/:id/transfer` | ✅ | — | — | — | — | — | — | ✅ |
 | org | GET | `/employments` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |

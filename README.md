@@ -209,6 +209,9 @@ cd backend && node scripts/drill-audit-archive.js 300
 # 审计页面取证（列表 / 链校验 / 只看失败 / 移动端，文本为准不靠肉眼）
 cd backend && node scripts/shot-audit.js
 
+# 订单批量流转取证（勾选→预检；**只到预检为止，不会真的改单**）
+cd backend && node scripts/shot-orders-batch.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

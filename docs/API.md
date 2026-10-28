@@ -27,7 +27,8 @@
 | GET | /api/orders/:id | 登录 | 详情（items[].colors[]、crafts、logs） |
 | POST | /api/orders | admin,sales | 新建（items[].colors[].sizes[]） |
 | POST | /api/orders/:id/image | admin,sales,tech | 设置款图 |
-| POST | /api/orders/:id/transition | 按状态 | `{to,note}` 状态流转 |
+| POST | /api/orders/:id/transition | 按状态 | `{to,note,force}` 状态流转；与批量流转**共用同一套门槛**（`services/orderFlow.js`） |
+| POST | /api/orders/batch/transition | 按状态（排除 boss/hr） | `{ids,to,note,force,dry_run,all_or_nothing}` 批量流转。`dry_run=1` 只预检不写库；`all_or_nothing=1` 整批一致；默认逐单尽力。返回 `{batch_no,ok_count,fail_count,ok[],fail[{order_no,status,reason}]}`，**每单结果都在**；一次最多 200 单 |
 | POST | /api/orders/:id/rollback | 按状态 | `{to,reason}` **反审退回**：只退前置环节、原因必填、自动冲销库存 + 重置工序 |
 
 ## 开发单

@@ -5967,6 +5967,98 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 订单批量流转 =================
+  {
+    console.log('\n[订单批量流转]');
+    const { db } = require('../src/db');
+    const TAG = 'SMOKE-BATCH';
+    const clean = () => {
+      const ids = db.prepare('SELECT id FROM orders WHERE remark = ?').all(TAG).map((r) => r.id);
+      ids.forEach((id) => {
+        db.prepare('DELETE FROM order_logs WHERE order_id = ?').run(id);
+        db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+        db.prepare('DELETE FROM orders WHERE id = ?').run(id);
+      });
+      return ids.length;
+    };
+    clean();
+    const t = new Date().toISOString();
+    const ins = db.prepare(
+      `INSERT INTO orders (order_no, type, customer_id, status, rate, total_usd, total_amount, currency, style_name, remark, created_by, created_at, updated_at)
+       VALUES (?, 'stock', NULL, 'draft', 6.5, 100, 650, 'USD', '批量测试款', ?, 1, ?, ?)`
+    );
+    const ids = [1, 2, 3].map((n) => Number(ins.run('SMOKEB' + n, TAG, t, t).lastInsertRowid));
+    const batch = (body, tk) => req('/api/orders/batch/transition', { method: 'POST', token: tk || token, body });
+
+    // ---------- 预检 ----------
+    const commitBefore = db.prepare('SELECT COUNT(*) c FROM commitments').get().c;
+    const dry = await batch({ ids, to: 'tech', dry_run: 1 });
+    ok('批量预检可读，逐单给出结果',
+      dry.status === 200 && dry.json.data.dry_run === true && dry.json.data.fail_count === 3,
+      `HTTP ${dry.status} fail=${dry.json.data && dry.json.data.fail_count}`);
+    ok('预检把真实门槛说清楚（不是笼统的「无权」）',
+      (dry.json.data.fail || []).every((f) => String(f.reason).includes('接单评审')),
+      JSON.stringify((dry.json.data.fail || []).slice(0, 1).map((f) => f.reason)));
+    ok('预检不写库（接单评审记录数不变）',
+      db.prepare('SELECT COUNT(*) c FROM commitments').get().c === commitBefore,
+      `${db.prepare('SELECT COUNT(*) c FROM commitments').get().c} vs ${commitBefore}`);
+
+    // ---------- 正向批量 + 批次号 ----------
+    const run1 = await batch({ ids, to: 'cancelled', note: '冒烟批量取消' });
+    ok('批量取消逐单成功', run1.status === 200 && run1.json.data.ok_count === 3,
+      `HTTP ${run1.status} ok=${run1.json.data && run1.json.data.ok_count}`);
+    const batchNo = (run1.json.data && run1.json.data.batch_no) || '';
+    ok('返回批次号（便于事后按批追溯）', /^BAT\d{8}-\d{6}$/.test(batchNo), batchNo);
+    const lastLog = db.prepare('SELECT note FROM order_logs WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(ids[0]);
+    ok('批次号写进订单日志', !!lastLog && String(lastLog.note).includes(batchNo), lastLog && lastLog.note);
+
+    // ---------- 已终态再操作 ----------
+    const again = await batch({ ids, to: 'cancelled' });
+    ok('已取消的不能重复取消（逐单失败并给原因）',
+      again.json.data.ok_count === 0 && again.json.data.fail_count === 3 &&
+        String(again.json.data.fail[0].reason).includes('已取消'),
+      again.json.data.fail[0] && again.json.data.fail[0].reason);
+
+    // ---------- 整批一致 vs 逐单尽力 ----------
+    const closed = db.prepare("SELECT id FROM orders WHERE status = 'closed' LIMIT 1").get();
+    const fresh = [1, 2].map((n) => Number(ins.run('SMOKEF' + n, TAG, t, t).lastInsertRowid));
+    const ao = await batch({ ids: [closed.id, ...fresh], to: 'cancelled', all_or_nothing: 1 });
+    ok('整批模式：有一单不合格 → 整批不动', ao.json.data.aborted === true && ao.json.data.ok_count === 0,
+      `aborted=${ao.json.data && ao.json.data.aborted} ok=${ao.json.data && ao.json.data.ok_count}`);
+    ok('整批未执行时其余单状态没变',
+      db.prepare(`SELECT status FROM orders WHERE id IN (${fresh.join(',')})`).all().every((r) => r.status === 'draft'),
+      db.prepare(`SELECT status FROM orders WHERE id IN (${fresh.join(',')})`).all().map((r) => r.status).join(','));
+    const partial = await batch({ ids: [closed.id, ...fresh], to: 'cancelled' });
+    ok('逐单模式：能过的照过、过不去的列出来',
+      partial.json.data.ok_count === 2 && partial.json.data.fail_count === 1,
+      `ok=${partial.json.data.ok_count} fail=${partial.json.data.fail_count}`);
+
+    // ---------- 参数校验 ----------
+    ok('空选择被拒', (await batch({ ids: [], to: 'cancelled' })).status === 400);
+    ok('非法目标状态被拒', (await batch({ ids, to: 'zombie' })).status === 400);
+    ok('一次超过 200 单被拒（分批来）',
+      (await batch({ ids: Array.from({ length: 201 }, (_, i) => i + 1), to: 'cancelled', dry_run: 1 })).status === 400);
+
+    // ---------- 单张与批量共用同一套门槛 ----------
+    const one = Number(ins.run('SMOKEB9', TAG, t, t).lastInsertRowid);
+    const single = await req(`/api/orders/${one}/transition`, { method: 'POST', token, body: { to: 'tech' } });
+    ok('单张流转仍走同一套门槛（抽取没放宽判定）',
+      single.status === 400 && String(single.json.message).includes('接单评审'),
+      `HTTP ${single.status} ${single.json.message || ''}`);
+
+    // ---------- 角色 ----------
+    const hrLogin2 = await req('/api/auth/login', { method: 'POST', body: { username: 'hr01', password: PASS } });
+    if (hrLogin2.status === 200) {
+      const hrDeny = await batch({ ids, to: 'cancelled' }, hrLogin2.json.data.token);
+      ok('人事不能批量改订单状态', hrDeny.status === 403, `HTTP ${hrDeny.status}`);
+    } else {
+      ok('人事不能批量改订单状态', true, '没有 hr01，跳过');
+    }
+
+    clean();
+    ok('批量用例自清理', db.prepare('SELECT COUNT(*) c FROM orders WHERE remark = ?').get(TAG).c === 0);
+  }
+
   // ================= 操作日志 / 审计 =================
   {
     console.log('\n[操作日志 / 审计]');

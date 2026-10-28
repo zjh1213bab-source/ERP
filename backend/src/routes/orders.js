@@ -6,34 +6,17 @@
 const express = require('express');
 const { localTime } = require('../utils/time');
 const { db, now, getSettings } = require('../db');
-const { ensureNodes } = require('../services/production');
 const { applyStock, addLedger } = require('../services/stockOps');
 const { notifyOrderStatus } = require('../services/mall');
-const { sealGate } = require('./confirm');
-const { STAGE_LABELS } = require('./patternFlows');
-const { openARForOrder } = require('./finance');
-const { ensureCostObject, collectAuto, syncSold } = require('./costObjects');
-const { ensureCommitment } = require('./commitments');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-const STATUS_LABELS = {
-  draft: '草稿', tech: '技术确认', finance: '财务审核', assigned: '已分单',
-  production: '生产中', instock: '已入库', shipped: '已发货', closed: '已结案', cancelled: '已取消'
-};
-const FLOW = {
-  draft: ['tech'], tech: ['finance'], finance: ['assigned'], assigned: ['production'],
-  production: ['instock'], instock: ['shipped'], shipped: ['closed']
-};
-/** 正向链路：反审只能往前面的状态退，不能跨过 draft，也不能退已发货/已结案 */
-const CHAIN = ['draft', 'tech', 'finance', 'assigned', 'production', 'instock', 'shipped', 'closed'];
-const TRANSITION_ROLES = {
-  tech: ['admin', 'sales', 'tech'], finance: ['admin', 'sales', 'tech'], assigned: ['admin', 'finance'],
-  production: ['admin', 'sales', 'production'], instock: ['admin', 'production', 'warehouse'],
-  shipped: ['admin', 'warehouse'], closed: ['admin', 'sales'], cancelled: ['admin', 'sales']
-};
+// 状态机常量与流转实现已抽到 services/orderFlow.js —— 单张流转与批量流转必须共用同一套门槛，
+// 所以这里只做转发，不再自己判断（抄一份判断，迟早出现「批量能绕过评审」的洞）
+const orderFlow = require('../services/orderFlow');
+const { STATUS_LABELS, FLOW, CHAIN, TRANSITION_ROLES } = orderFlow;
 
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
@@ -261,94 +244,47 @@ router.post('/:id/image', authRequired, requireRole(['admin', 'sales', 'tech']),
   return ok(res, { id: Number(req.params.id), image_url: image_url || null });
 }));
 
-// ---------- 状态流转 ----------
+// ---------- 批量流转 ----------
+/**
+ * POST /api/orders/batch/transition
+ * { ids: number[], to, note?, force?, dry_run?, all_or_nothing? }
+ *
+ * 三种返回形态：
+ *   dry_run=1        → 只预检，告诉你「几单能过、几单会被拦、分别为什么」（前端点开弹窗就先跑这个）
+ *   all_or_nothing=1 → 整批一致：有一单不过就整批不动，且把所有失败原因都列出来
+ *   默认             → 逐单尽力：能过的过，过不去的逐条列原因
+ *
+ * 为什么不默认整批回滚：批量场景里各单情况本来就不同（有的缺评审、有的已终态），
+ * 一刀切回滚会让「199 单能过、1 单不能」变成「200 单全不动」—— 那就没法用了。
+ * 但无论哪种模式，**每一单的结果都要返回并在页面上逐条展示**，不许一句「部分成功」带过。
+ *
+ * 批次号 BATyyyymmdd-hhmmss 会写进每单 order_logs.note 的开头，
+ * 事后按批次号能一把捞出「这一批动了哪些单」（审计追溯用）。
+ */
+router.post(
+  '/batch/transition',
+  authRequired,
+  requireRole(['admin', 'sales', 'tech', 'finance', 'production', 'warehouse']),
+  wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = orderFlow.batchTransition({
+      ids: b.ids,
+      to: b.to,
+      note: b.note,
+      force: b.force === true || b.force === 1,
+      dryRun: b.dry_run === true || b.dry_run === 1,
+      allOrNothing: b.all_or_nothing === true || b.all_or_nothing === 1,
+      user: req.user
+    });
+    return ok(res, r);
+  })
+);
+
+// ---------- 状态流转（单张） ----------
 router.post('/:id/transition', authRequired, wrap(async (req, res) => {
-  const id = req.params.id;
-  const { to, note } = req.body || {};
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-  if (!order) return fail(res, 404, '订单不存在');
-
-  const cur = order.status;
-  const allowedRoles = TRANSITION_ROLES[to];
-  if (!allowedRoles) return fail(res, 400, '非法的目标状态');
-
-  const isCancel = to === 'cancelled';
-  const normalOk = (FLOW[cur] || []).includes(to);
-  const cancelOk = isCancel && cur !== 'closed' && cur !== 'cancelled';
-  if (!normalOk && !cancelOk) {
-    return fail(res, 400, `订单当前为「${STATUS_LABELS[cur] || cur}」，不能流转到「${STATUS_LABELS[to] || to}」`);
-  }
-  if (!(req.user.role === 'admin' || allowedRoles.includes(req.user.role))) {
-    return fail(res, 403, '你的角色无权执行该状态变更');
-  }
-
-  // P2 硬门槛
-  if (to === 'tech') {
-    // 接单评审：前端裁床 / 后端缝制 / 物料三项分别确认，未通过不得进入技术确认
-    const commit = ensureCommitment(id, null, req.user.username);
-    if (!commit || commit.review_status !== 'approved') {
-      const why = !commit ? '还没有接单评审记录'
-        : commit.review_status === 'rejected'
-          ? `评审未通过（${commit.review_note || '有环节不能承接'}）`
-          : '评审还没做';
-      return fail(res, 400, `接单评审${commit && commit.review_status === 'rejected' ? '未通过' : '未完成'}：${why}。` +
-        '请到「生产 → 接单评审与交期」确认前端裁床、后端缝制、物料齐套三项并给出承诺交期后再做技术确认');
-    }
-
-    const tp = db.prepare("SELECT id FROM tech_packs WHERE order_id = ? AND status = 'confirmed' ORDER BY id DESC LIMIT 1").get(id);
-    if (!tp) return fail(res, 400, '开发单尚未确认，无法通过「技术确认」；请先补全并确认开发单');
-    // 定制单必须走完打版流程（面辅料确认 → 制版 → 工艺明细 → 车板 → 业务确认 → 工价核价）
-    if (order.type === 'custom') {
-      const flow = db.prepare('SELECT * FROM pattern_flows WHERE tech_pack_id = ?').get(tp.id);
-      if (!flow) {
-        return fail(res, 400, '定制订单必须走打版流程：该开发单还没有打版流程记录，请到「打版流程」发起');
-      }
-      if (flow.status !== 'done') {
-        const left = db.prepare("SELECT stage FROM pattern_stages WHERE flow_id = ? AND status != 'done'").all(flow.id);
-        const names = left.map((r) => STAGE_LABELS[r.stage] || r.stage).join('、');
-        return fail(res, 400, `定制订单的打版流程尚未完成，剩余：${names || '收尾确认'}；请到「打版流程」完成后再做技术确认`);
-      }
-    }
-    // 走过样衣封样的订单：最新版本必须「客户已确认 + 总部技术已批准」双确认
-    const gate = sealGate(id);
-    if (!gate.ok) return fail(res, 400, gate.message);
-  }
-  if (to === 'assigned') {
-    const cs = db.prepare("SELECT 1 AS x FROM cost_sheets WHERE order_id = ? AND status = 'approved' LIMIT 1").get(id);
-    if (!cs) return fail(res, 400, '财务尚未审核通过，无法「分单」；请先录入成本并完成财务审核');
-  }
-
-  // 结案前必须有财务口径：未收清的应收不允许直接结案（特殊情况传 force=true 并写备注）
-  if (to === 'closed' && !(req.body && req.body.force)) {
-    const ar = db.prepare("SELECT * FROM ar_invoices WHERE order_id = ? AND status != 'void'").get(id);
-    if (ar) {
-      const open = Math.round(((Number(ar.amount) || 0) - (Number(ar.paid_amount) || 0)) * 100) / 100;
-      if (open > 0.005) {
-        return fail(res, 400, `该订单还有未收金额 ${open} 元（${ar.bill_no}），收清后再结案；确需先结案请传 force=true 并说明原因`);
-      }
-    }
-  }
-
-  const t = now();
-  db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(to, t, id);
-  // 进入生产：自动初始化 13 道工序
-  if (to === 'production') ensureNodes(id);
-  // 发货：自动开应收（幂等，重复发货不会重复开票）
-  if (to === 'shipped') {
-    try { openARForOrder(id, req.user.username); } catch (e) { /* 开票失败不影响发货 */ }
-    // 成本对象：归集物料 + 工缴 + 制造费用，并按发货数量结转已售成本
-    try {
-      const obj = ensureCostObject(id);
-      if (obj) { collectAuto(obj); syncSold(obj.id, req.user.username); }
-    } catch (e) { /* 成本归集失败不影响发货 */ }
-  }
-  db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
-    .run(id, cur, to, req.user.username, note || null, t);
-
-  // 数据流转：订单状态变化 → 客户商城站内消息（客户有商城账号才推）
-  try { notifyOrderStatus(id, to, note); } catch (e) { /* 消息失败不影响主流程 */ }
-
-  return ok(res, getOrderFull(id));
+  const { to, note, force } = req.body || {};
+  const r = orderFlow.transition({ orderId: req.params.id, to, note, force, user: req.user });
+  return ok(res, getOrderFull(r.id));
 }));
 
 // ---------- 反审退回（生产出问题 → 退回业务/技术/财务） ----------

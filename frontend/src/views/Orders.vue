@@ -27,10 +27,18 @@
     <div class="table-wrap">
       <table class="data">
         <thead>
-          <tr><th>订单号</th><th>类型</th><th>客户</th><th>金额(USD)</th><th>金额(CNY)</th><th>状态</th><th>交期</th><th>操作</th></tr>
+          <tr>
+            <th style="width: 34px">
+              <input type="checkbox" :checked="allChecked" :title="allChecked ? '取消全选' : '全选本页'" @change="toggleAll" />
+            </th>
+            <th>订单号</th><th>类型</th><th>客户</th><th>金额(USD)</th><th>金额(CNY)</th><th>状态</th><th>交期</th><th>操作</th>
+          </tr>
         </thead>
         <tbody>
-          <tr v-for="o in list" :key="o.id">
+          <tr v-for="o in list" :key="o.id" :class="{ 'row-sel': selected.includes(o.id) }">
+            <td>
+              <input type="checkbox" :checked="selected.includes(o.id)" @change="toggleOne(o.id)" />
+            </td>
             <td><strong>{{ o.order_no }}</strong></td>
             <td><span class="tag" :class="o.type === 'stock' ? 'blue' : 'purple'">{{ o.type === 'stock' ? '现货' : '定制' }}</span></td>
             <td>{{ o.customer_name || '-' }}</td>
@@ -40,9 +48,126 @@
             <td>{{ o.delivery_date || '-' }}</td>
             <td><button class="link-btn" @click="openDetail(o.id)">查看 / 流转</button></td>
           </tr>
-          <tr v-if="!list.length"><td colspan="8" class="empty-cell">暂无订单，点右上角「新建订单」</td></tr>
+          <tr v-if="!list.length"><td colspan="9" class="empty-cell">暂无订单，点右上角「新建订单」</td></tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- ============ 批量操作条（勾选后出现） ============ -->
+    <div v-if="selected.length" class="batch-bar">
+      <b>已选 {{ selected.length }} 单</b>
+      <span class="tiny muted">一次最多 200 单；逐单校验，能过的过、过不去的会列出来</span>
+      <span class="spacer"></span>
+      <select v-model="batchTo" class="select" style="min-width: 150px">
+        <option value="">目标状态…</option>
+        <option v-for="(lb, k) in labels" :key="k" :value="k">{{ lb }}</option>
+      </select>
+      <button class="btn btn-primary" :disabled="!batchTo" @click="openBatch">批量流转</button>
+      <button class="btn btn-ghost" @click="selected = []">清空选择</button>
+    </div>
+
+    <!-- ============ 批量流转弹窗：先预检，再执行 ============ -->
+    <div v-if="batchOpen" class="modal-mask" @click.self="closeBatch">
+      <div class="modal wide">
+        <div class="modal-head">
+          <h3>批量流转 → {{ batchToLabel }}</h3>
+          <button class="x" @click="closeBatch">×</button>
+        </div>
+        <div class="modal-body">
+          <!-- 第一步：预检 -->
+          <template v-if="!batchResult">
+            <div class="banner info">
+              <b>先预检，再执行</b>
+              <span>
+                预检<b>只读不写</b>：逐单告诉你哪几单能过、哪几单会被拦、拦在哪个门槛上。
+                批量不是「一键全改」，是 N 次独立操作 —— 每单的门槛照样要过。
+              </span>
+            </div>
+
+            <div class="bfield">
+              <label>
+                <span>备注（会写进每单的流转记录，留痕用）</span>
+                <input v-model="batchNote" class="input" placeholder="例如：客户确认后统一推进" />
+              </label>
+              <label class="bchk">
+                <input type="checkbox" v-model="batchAllOrNothing" />
+                整批一致（任一单不合格则整批不动，适合强一致场景）
+              </label>
+              <p class="tiny muted" v-if="batchTo === 'closed'">
+                结案要求应收已收清；未收清的会被拦下并显示欠款金额。
+              </p>
+            </div>
+
+            <div v-if="!batchPreview" class="form-foot">
+              <button class="btn btn-primary" :disabled="batchBusy" @click="doPrecheck">
+                {{ batchBusy ? '预检中…' : '开始预检' }}
+              </button>
+            </div>
+
+            <div v-else>
+              <div class="pre-sum">
+                <span class="tag green">可流转 {{ batchPreview.ok_count }} 单</span>
+                <span v-if="batchPreview.fail_count" class="tag red">被拦 {{ batchPreview.fail_count }} 单</span>
+                <span class="tiny muted">共 {{ batchPreview.requested }} 单</span>
+              </div>
+
+              <div v-if="batchPreview.fail.length" class="table-wrap" style="max-height: 300px; overflow-y: auto; margin-top: 10px">
+                <table class="data sm">
+                  <thead><tr><th>订单号</th><th>当前状态</th><th>被拦原因</th></tr></thead>
+                  <tbody>
+                    <tr v-for="f in batchPreview.fail" :key="f.id">
+                      <td class="mono tiny">{{ f.order_no || ('#' + f.id) }}</td>
+                      <td class="tiny">{{ labels[f.status] || f.status || '—' }}</td>
+                      <td class="tiny">{{ f.reason }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="form-foot">
+                <button class="btn btn-ghost" :disabled="batchBusy" @click="batchPreview = null">重新预检</button>
+                <button class="btn btn-primary" :disabled="batchBusy || !batchPreview.ok_count" @click="doExecute">
+                  确认执行 {{ batchPreview.ok_count }} 单
+                </button>
+                <span v-if="batchPreview.fail_count" class="tiny muted">被拦的 {{ batchPreview.fail_count }} 单不会被动</span>
+              </div>
+            </div>
+          </template>
+
+          <!-- 第二步：结果（逐单，不许一句「部分成功」带过） -->
+          <template v-else>
+            <div class="banner" :class="batchResult.fail_count ? 'warn' : 'ok'">
+              <b>{{ batchResult.batch_no ? '批次 ' + batchResult.batch_no : '整批未执行' }}</b>
+              <span>
+                成功 {{ batchResult.ok_count }} 单 / 失败 {{ batchResult.fail_count }} 单
+                <template v-if="batchResult.batch_no">· 批次号已写进每单的流转记录，可按批追溯</template>
+              </span>
+            </div>
+
+            <div v-if="batchResult.ok.length" class="pre-sum">
+              <span class="tag green">已流转</span>
+              <span class="tiny">{{ batchResult.ok.map((x) => x.order_no).join('、') }}</span>
+            </div>
+
+            <div v-if="batchResult.fail.length" class="table-wrap" style="max-height: 280px; overflow-y: auto; margin-top: 10px">
+              <table class="data sm">
+                <thead><tr><th>订单号</th><th>当前状态</th><th>失败原因</th></tr></thead>
+                <tbody>
+                  <tr v-for="f in batchResult.fail" :key="f.id">
+                    <td class="mono tiny">{{ f.order_no || ('#' + f.id) }}</td>
+                    <td class="tiny">{{ labels[f.status] || f.status || '—' }}</td>
+                    <td class="tiny">{{ f.reason }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="form-foot">
+              <button class="btn btn-primary" @click="closeBatch">关闭并刷新列表</button>
+            </div>
+          </template>
+        </div>
+      </div>
     </div>
 
     <!-- ================= 新建订单 ================= -->
@@ -642,6 +767,15 @@ const route = useRoute();
 const router = useRouter();
 
 const list = ref([]);
+// ---------- 批量流转 ----------
+const selected = ref([]);          // 勾选的订单 id
+const batchOpen = ref(false);
+const batchTo = ref('');           // 目标状态
+const batchNote = ref('');
+const batchAllOrNothing = ref(false);
+const batchPreview = ref(null);    // 预检结果（dry run）
+const batchResult = ref(null);     // 执行结果
+const batchBusy = ref(false);
 const q = ref('');
 const status = ref('');
 const type = ref('');
@@ -706,6 +840,74 @@ const shot = ref(null);
 const CAT_LABELS = { defect: '不良', incoming: '到货', packing: '装箱', sample: '样品', other: '其他' };
 function catLabel(c) { return CAT_LABELS[c] || '其他'; }
 const attUploading = ref(false);
+
+const allChecked = computed(() => list.value.length > 0 && selected.value.length === list.value.length);
+const batchToLabel = computed(() => labels.value[batchTo.value] || batchTo.value || '未选');
+
+function toggleAll() {
+  selected.value = allChecked.value ? [] : list.value.map((o) => o.id);
+}
+function toggleOne(id) {
+  const i = selected.value.indexOf(id);
+  if (i >= 0) selected.value.splice(i, 1);
+  else selected.value.push(id);
+}
+
+function openBatch() {
+  if (!batchTo.value) return alert('先选目标状态');
+  if (!selected.value.length) return;
+  batchOpen.value = true;
+  batchPreview.value = null;
+  batchResult.value = null;
+  batchNote.value = '';
+}
+
+function closeBatch() {
+  batchOpen.value = false;
+  batchPreview.value = null;
+  batchResult.value = null;
+  selected.value = [];
+  load();
+}
+
+async function doPrecheck() {
+  batchBusy.value = true;
+  try {
+    batchPreview.value = await api.orderBatchTransition({
+      ids: selected.value,
+      to: batchTo.value,
+      dry_run: 1
+    });
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    batchBusy.value = false;
+  }
+}
+
+async function doExecute() {
+  const pv = batchPreview.value;
+  if (!pv) return;
+  const tip = batchAllOrNothing.value
+    ? `整批模式：这 ${pv.requested} 单必须全部满足条件才执行，任一失败整批不动。继续？`
+    : `将把 ${pv.ok_count} 单流转到「${batchToLabel.value}」。\n被拦的 ${pv.fail_count} 单不会被动。继续？`;
+  if (!confirm(tip)) return;
+  batchBusy.value = true;
+  try {
+    batchResult.value = await api.orderBatchTransition({
+      ids: selected.value,
+      to: batchTo.value,
+      note: batchNote.value,
+      all_or_nothing: batchAllOrNothing.value ? 1 : 0
+    });
+    batchPreview.value = null;
+    await load();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    batchBusy.value = false;
+  }
+}
 
 const canCreate = computed(() => can('order.create'));
 const canExport = computed(() => can('order.export'));
@@ -1309,4 +1511,22 @@ onMounted(async () => {
 .shot-meta b { color: #fff; font-size: 14.5px; line-height: 1.6; }
 .shot-meta .tiny { color: #8b9ab2; font-size: 11.5px; }
 .shot-ops { display: flex; gap: 8px; margin-top: 6px; }
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid #d6e4ff;
+  border-radius: 12px;
+  background: #eef4ff;
+}
+.batch-bar .spacer { flex: 1; }
+.row-sel td { background: #f6f9ff; }
+.pre-sum { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bfield { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.bfield label > span { display: block; font-size: 12.5px; color: #6b7688; margin-bottom: 5px; }
+.bchk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #4b5568; }
+.modal.wide .data.sm td { vertical-align: top; }
 </style>

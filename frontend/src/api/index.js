@@ -69,6 +69,8 @@ export const api = {  // 登录
   createOrder: (d) => req('/api/orders', { method: 'POST', body: d }),
   transitionOrder: (id, to, note) =>
     req(`/api/orders/${id}/transition`, { method: 'POST', body: { to, note } }),
+  // 批量流转：dry_run=1 只预检（不写库）；all_or_nothing=1 整批一致；默认逐单尽力
+  orderBatchTransition: (d) => req('/api/orders/batch/transition', { method: 'POST', body: d }),
   rollbackOrder: (id, to, reason) =>
     req(`/api/orders/${id}/rollback`, { method: 'POST', body: { to, reason } }),
 
