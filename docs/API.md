@@ -2831,3 +2831,48 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 3. **分母为 0 给 null 不给 0**：0 是「效率极差」，null 是「没数据」。
 4. **覆盖率为 0 也照实显示**：`order_nodes.plan_date` 为空时显示「0/101 可比」，
    不把「没有计划」当成「计划偏差 0 天」。
+
+## 流程变更发布与审计（`/api/flow-changes`）
+
+> 审批流是**制度**不是代码：改制度要留痕、可回滚，且不能让正在走的单子跟着变形。
+> 权限 `flowchange.read`（admin / boss 只读）、`flowchange.write`（仅 admin）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/flow-changes/meta | read | 字典（角色 / 关键角色 / 状态 / 迁移模式） |
+| GET | /api/flow-changes/flows | read | 流程清单（当前生效版本 / 版本数 / 在途单数 / 待处理变更） |
+| GET | /api/flow-changes/flows/versions?flow_key= | read | 版本历史（`flow_key` 带 `::`，走 query 不走路径） |
+| GET | /api/flow-changes/changes | read | 变更单列表（可按 `flow_key` / `status` 过滤） |
+| GET | /api/flow-changes/changes/:id | read | 详情：试运行证据 + 影响分析 + 审计流水 |
+| POST | /api/flow-changes/changes | write | 创建变更（草稿）：`{flow_key, title, reason, steps[], impact_nodes?}`，标题 ≥4 字、原因 ≥6 字 |
+| POST | /api/flow-changes/changes/:id/trial | write | 试运行：拿近 N 天历史单对比审批路径（默认 90 天） |
+| POST | /api/flow-changes/changes/:id/publish | write | 发布：`{effective_from, migration_mode, migration_note?, critical_role_note?}` |
+| POST | /api/flow-changes/changes/:id/rollback | write | 回滚：`{reason}` ≥6 字，只能回滚最近一次发布 |
+| POST | /api/flow-changes/changes/:id/reject | write | 作废未发布的草稿：`{reason}` |
+| GET | /api/flow-changes/audits?flow_key= | read | 审计流水（创建/试运行/发布/回滚/迁移/作废） |
+
+**四道发布校验（缺一道就 400）**
+
+1. 必须做过试运行（`trial_summary` 不为空）——**没有测试证据的流程改动不许上线**
+2. 生效日不能早于今天（**不能倒签改历史**），也不能超过 90 天
+3. 试运行发现删了关键角色（finance / admin）→ 必须写 ≥8 字理由
+4. `migration_mode='migrate'` 时必须写 ≥6 字迁移原因，且必须有可安全迁移的在途单
+
+**试运行输出**
+
+| 字段 | 含义 |
+|---|---|
+| `sample` / `same_count` / `changed_count` | 样本单数 / 路径不变 / 路径变化 |
+| `changed_samples[]` | 逐单前后路径对比（`old_path` → `new_path`，`delta` 级数差） |
+| `removed_critical_roles` | 新流程删掉的关键角色（发布时必须解释） |
+| `amount_range_changed` / `amount_range` | 金额区间是否变了（区间是「哪条流程被选中」的条件） |
+| `verdict` | 结论（样本不足会明说「仅供参考」） |
+
+**在途单口径**
+
+- 发单时写 `approval_instances.flow_version_id` 与 `steps_snapshot`，**改版不影响已发起的单**
+- 发布默认 `keep_old`（在途单不动）；`migrate` 只迁「一步都没开始」的实例
+- 已有人批过/认领的**不迁** —— 迁移会把它打回起点，那是破坏不是升级
+
+**关键角色**：`finance`（财务）、`admin`（总经理）。删掉它们不是不能做，但会被记下来 ——
+这就是原型「关键财审、技术版本、分厂、质量和资金门槛不允许因加急被绕过」的落地。

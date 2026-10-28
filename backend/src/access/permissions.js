@@ -209,6 +209,10 @@ const PERMS = {
   // 给生产（自己看）、技术（看制版时长）、销售（看准交）、财务（成本会计看效率）、老板。
   // 仓库与人事不看：他们不背交付与质量指标。
   'prodreport.read': ['admin', 'boss', 'production', 'finance', 'tech', 'sales'],
+
+  // 流程变更：改审批流等于改制度，只给管理员；老板只读（能看谁在什么时候改了哪条流程）
+  'flowchange.read': ['admin', 'boss'],
+  'flowchange.write': ['admin'],
   'paymentreq.read': ['admin', 'boss', 'finance', 'warehouse'],
   'paymentreq.write': ['admin', 'finance', 'warehouse'],
   'paymentreq.pay': ['admin', 'finance', 'warehouse'],

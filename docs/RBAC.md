@@ -358,6 +358,17 @@
 | firstArticles | POST | `/workstations` | ✅ | — | ✅ | ✅ | ✅ | — | — | — |
 | firstArticles | DELETE | `/workstations/:id` | ✅ | — | ✅ | ✅ | ✅ | — | — | — |
 | firstArticles | POST | `/workstations/generate` | ✅ | — | ✅ | ✅ | ✅ | — | — | — |
+| flowChanges | GET | `/audits` | ✅ | ✅ | — | — | — | — | — | — |
+| flowChanges | GET | `/changes` | ✅ | ✅ | — | — | — | — | — | — |
+| flowChanges | POST | `/changes` | ✅ | — | — | — | — | — | — | — |
+| flowChanges | GET | `/changes/:id` | ✅ | ✅ | — | — | — | — | — | — |
+| flowChanges | POST | `/changes/:id/publish` | ✅ | — | — | — | — | — | — | — |
+| flowChanges | POST | `/changes/:id/reject` | ✅ | — | — | — | — | — | — | — |
+| flowChanges | POST | `/changes/:id/rollback` | ✅ | — | — | — | — | — | — | — |
+| flowChanges | POST | `/changes/:id/trial` | ✅ | — | — | — | — | — | — | — |
+| flowChanges | GET | `/flows` | ✅ | ✅ | — | — | — | — | — | — |
+| flowChanges | GET | `/flows/versions` | ✅ | ✅ | — | — | — | — | — | — |
+| flowChanges | GET | `/meta` | ✅ | ✅ | — | — | — | — | — | — |
 | glBooks | GET | `/accounts` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | glBooks | GET | `/overview` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | glBooks | GET | `/periods` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
@@ -1021,6 +1032,8 @@
 | `exception.review` | 系统管理员、总经理 |
 | `exception.rule` | 系统管理员 |
 | `prodreport.read` | 系统管理员、总经理、生产车间、财务会计、技术打版、销售跟单 |
+| `flowchange.read` | 系统管理员、总经理 |
+| `flowchange.write` | 系统管理员 |
 | `paymentreq.read` | 系统管理员、总经理、财务会计、仓库采购 |
 | `paymentreq.write` | 系统管理员、财务会计、仓库采购 |
 | `paymentreq.pay` | 系统管理员、财务会计、仓库采购 |

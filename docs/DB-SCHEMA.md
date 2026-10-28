@@ -1037,3 +1037,24 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > 底层事实的来源：`orders` / `order_logs` / `tech_packs` / `material_requirements` / `purchase_orders` /
 > `first_articles` / `production_reports` / `qc_inspections` / `equipment_downtimes` /
 > `ar_invoices` / `ap_invoices` / `approval_tasks`。**本模块不写这些表**。
+
+## 流程变更发布与审计（M-FLOWCHANGE）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| flow_versions | target_type, flow_key(`target_type::name`), version_no, name, min_amount, max_amount, steps(JSON), sla_hours, escalate_role, status(draft/trial/published/superseded/rolled_back), effective_from, trial_summary(JSON), trial_at, published_by/at, source_change_no | **版本不可变**。唯一索引 `(flow_key, version_no)`；部分唯一索引 `WHERE status='published'` 保证同一流程只有一个生效版本（并发发布在这里兜底） |
+| flow_changes | change_no, flow_key, target_type, title, reason, impact_nodes, from_version_id, to_version_id, status(draft/trialed/published/rolled_back/rejected), trial_summary, inflight_count, inflight_migrated, migration_mode(keep_old/migrate), migration_note, critical_role_note, effective_from | 变更单。**`trial_summary` 为空不许发布** —— 没有测试证据的流程改动不许上线 |
+| flow_audits | change_no, flow_key, version_id, action(init/create/trial/publish/rollback/migrate/reject), actor, detail(JSON), created_at | 审计流水，只追加不改 |
+| approval_instances.**flow_version_id** | INTEGER | 发单时记录用的流程版本 —— 页面上能证明「这张单锁定的是 v2」 |
+| approval_instances.**steps_snapshot** | TEXT(JSON) | 发单时的步骤快照，改版不影响已发起的单 |
+
+> **`approval_flows` 降级为「当前生效版本的投影」**：审批逻辑（`services/approvals.js` → `matchFlow`）读它，
+> 版本发布后把生效版本的 steps 写回去。真相在 `flow_versions`，`approval_flows` 只是给人看的当前状态。
+> 不动它就得改所有调用方。
+>
+> **迁移在途单只迁「一步都没开始」的**：`approval_tasks` 里已有非 pending 记录说明有人批过/认领过，
+> 迁移会把它打回起点 —— 那是破坏不是升级。所以 `migrate` 模式只处理 `acted=0` 的实例，
+> 其余继续走旧版并在影响分析里单列。
+>
+> **生效日不能倒签**：`effective_from < localDate()` 直接 400。倒签等于偷偷改历史，
+> 上个月的审批记录会突然「不符合当时生效的流程」。

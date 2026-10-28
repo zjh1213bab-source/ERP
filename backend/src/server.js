@@ -61,6 +61,7 @@ const paymentRequestRoutes = require('./routes/paymentRequests'); // 付款申�
 const collectionRoutes = require('./routes/collections');     // 应收催收任务
 const exceptionRoutes = require('./routes/exceptions');      // 异常协同与日清（扫描各模块异常 → 今日必办）
 const prodReportRoutes = require('./routes/prodReport');     // 生产交付效率与质量报表（八项指标 + 覆盖率）
+const flowChangeRoutes = require('./routes/flowChanges');    // 流程变更发布与审计（版本化 + 试运行 + 回滚）
 // 【暂停】坏账准备计提：后端已实现（services/badDebt.js + routes/badDebt.js），
 // 财务模块暂缓上线，接口先不挂载（返回 404），代码与表结构、已生成的凭证全部保留。
 // 恢复：解开下面一行 + 解开 services/gl.js 里 bad_debt 关账检查项。
@@ -222,6 +223,7 @@ app.use('/api/payment-requests', paymentRequestRoutes); // 付款申请单（审
 app.use('/api/collections', collectionRoutes); // 应收催收任务（逾期 → 派单 → 跟进 → 承诺 → 回款自动结案）
 app.use('/api/exceptions', exceptionRoutes); // 异常协同与日清（六类归口 → 今日必办 → 认领/关闭/复核）
 app.use('/api/prod-report', prodReportRoutes); // 生产交付效率与质量报表（准交/效率/质量/在制龄/计划偏差）
+app.use('/api/flow-changes', flowChangeRoutes); // 流程变更发布与审计（草稿→试运行→发布→回滚）
 // 【暂停】app.use('/api/bad-debt', badDebtRoutes); // 坏账准备计提（按账龄差额补提/冲回，生成 6702/1231 凭证）
 app.use('/api/payrolls', payrollRoutes); // 薪酬核算
 app.use('/api/assets', assetRoutes); // 固定资产

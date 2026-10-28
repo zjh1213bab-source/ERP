@@ -429,6 +429,8 @@ onMounted(load);
 </script>
 
 <style scoped>
+/* .panel-head 不是全局样式：每页要自己定义，否则 tabs 与右侧控件会各占一行 */
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 /* 六张 KPI 卡：内容宽度只有 1080 左右，卡片给到 165 上下就会把说明文字挤成三行，
    所以统一给最小高度 + 收紧说明字号，避免高度不齐 */
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }

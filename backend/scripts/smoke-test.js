@@ -7479,6 +7479,131 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 流程变更发布与审计（TS-N15-05） =================
+  // 自建一条 __smoke__ 流程跑完整链路，跑完删净，不碰真实审批流。
+  {
+    console.log('\n[流程变更发布与审计]');
+    const { db: sdb } = require('../src/db');
+    const TT = '__smoke__';
+    const FNAME = '冒烟测试流程';
+    const KEY = `${TT}::${FNAME}`;
+    const t0 = new Date().toISOString();
+
+    const cleanFlow = () => {
+      const chg = sdb.prepare('SELECT id FROM flow_changes WHERE flow_key = ?').all(KEY);
+      chg.forEach((c) => sdb.prepare('DELETE FROM flow_changes WHERE id = ?').run(c.id));
+      sdb.prepare('DELETE FROM flow_versions WHERE flow_key = ?').run(KEY);
+      sdb.prepare('DELETE FROM flow_audits WHERE flow_key = ?').run(KEY);
+      sdb.prepare('DELETE FROM approval_flows WHERE target_type = ? AND name = ?').run(TT, FNAME);
+    };
+    cleanFlow();
+
+    // 起点：一条已发布的 v1
+    sdb.prepare(
+      `INSERT INTO approval_flows (name, target_type, min_amount, max_amount, steps, active, created_at, sla_hours, escalate_role)
+       VALUES (?,?,0,999999999,?,1,?,24,'admin')`
+    ).run(FNAME, TT, JSON.stringify([{ role: 'finance', name: '财务审核' }, { role: 'admin', name: '总经理审批' }]), t0);
+    sdb.prepare(
+      `INSERT INTO flow_versions (target_type, flow_key, version_no, name, min_amount, max_amount, steps, sla_hours,
+         escalate_role, status, effective_from, published_by, published_at, created_by, created_at, updated_at)
+       VALUES (?,?,1,?,0,999999999,?,24,'admin','published',?,?,?,?,?,?)`
+    ).run(TT, KEY, FNAME, JSON.stringify([{ role: 'finance', name: '财务审核' }, { role: 'admin', name: '总经理审批' }]),
+      t0.slice(0, 10), '冒烟', t0, '冒烟', t0, t0);
+
+    const fl = await req('/api/flow-changes/flows', { token });
+    ok('流程清单可读且带当前版本', fl.status === 200 && (fl.json.data || []).some((f) => f.flow_key === KEY && f.current),
+      `HTTP ${fl.status}`);
+
+    // 校验：标题、原因太短
+    const badTitle = await req('/api/flow-changes/changes', { method: 'POST', token, body: { flow_key: KEY, title: '改', reason: '原因是够长的六个字' } });
+    ok('变更标题太短被拦', badTitle.status === 400 && /标题/.test(badTitle.json.message || ''), `HTTP ${badTitle.status}`);
+    const badReason = await req('/api/flow-changes/changes', { method: 'POST', token, body: { flow_key: KEY, title: '加一级复核', reason: '短' } });
+    ok('变更原因太短被拦', badReason.status === 400 && /原因/.test(badReason.json.message || ''), `HTTP ${badReason.status}`);
+
+    const created = await req('/api/flow-changes/changes', {
+      method: 'POST', token,
+      body: { flow_key: KEY, title: '加一级冒烟复核', reason: '冒烟测试：验证发布链路是否完整', steps: [{ role: 'finance', name: '财务审核' }, { role: 'finance', name: '复核' }, { role: 'admin', name: '总经理审批' }] }
+    });
+    ok('创建变更成功且是草稿', created.status === 200 && created.json.data.status === 'draft', `HTTP ${created.status}`);
+    const cid = created.json.data.id;
+
+    // 没试运行不许发布
+    const noTrial = await req(`/api/flow-changes/changes/${cid}/publish`, { method: 'POST', token, body: { effective_from: new Date().toISOString().slice(0, 10) } });
+    ok('没试运行不许发布', noTrial.status === 400 && /试运行/.test(noTrial.json.message || ''), `HTTP ${noTrial.status}`);
+
+    const tr = await req(`/api/flow-changes/changes/${cid}/trial`, { method: 'POST', token, body: { days: 90 } });
+    ok('试运行出证据', tr.status === 200 && tr.json.data.trial_summary && typeof tr.json.data.trial_summary.sample === 'number',
+      `HTTP ${tr.status}`);
+    ok('试运行给出结论', (tr.json.data.trial_summary.verdict || '').length > 6, tr.json.data.trial_summary.verdict);
+
+    // 生效日倒签
+    const backdated = await req(`/api/flow-changes/changes/${cid}/publish`, { method: 'POST', token, body: { effective_from: '2020-01-01' } });
+    ok('生效日倒签被拦', backdated.status === 400 && /倒签|早于今天/.test(backdated.json.message || ''), `HTTP ${backdated.status}`);
+
+    // 发布前记录在途任务数（keep_old 不该动它）
+    const beforeTasks = sdb.prepare("SELECT COUNT(*) c FROM approval_tasks WHERE status='pending'").get().c;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const pub = await req(`/api/flow-changes/changes/${cid}/publish`, {
+      method: 'POST', token, body: { effective_from: todayStr, migration_mode: 'keep_old' }
+    });
+    ok('发布成功', pub.status === 200 && pub.json.data.status === 'published', `HTTP ${pub.status}`);
+    const af = sdb.prepare('SELECT steps FROM approval_flows WHERE target_type=? AND name=?').get(TT, FNAME);
+    ok('发布同步到 approval_flows', af && JSON.parse(af.steps).length === 3, af ? String(JSON.parse(af.steps).length) + ' 步' : '无');
+    const afterTasks = sdb.prepare("SELECT COUNT(*) c FROM approval_tasks WHERE status='pending'").get().c;
+    ok('在途单保持原版本（任务数不变）', beforeTasks === afterTasks, `${beforeTasks} → ${afterTasks}`);
+
+    const vers = await req('/api/flow-changes/flows/versions?flow_key=' + encodeURIComponent(KEY), { token });
+    const vlist = vers.json.data || [];
+    ok('版本历史有 v1 与 v2 且只一个生效', vlist.length === 2 && vlist.filter((v) => v.status === 'published').length === 1,
+      vlist.map((v) => `v${v.version_no}:${v.status}`).join(','));
+
+    // 回滚
+    const rb = await req(`/api/flow-changes/changes/${cid}/rollback`, { method: 'POST', token, body: { reason: '冒烟测试：回滚到上一版' } });
+    ok('回滚成功', rb.status === 200 && rb.json.data.status === 'rolled_back', `HTTP ${rb.status}`);
+    const af2 = sdb.prepare('SELECT steps FROM approval_flows WHERE target_type=? AND name=?').get(TT, FNAME);
+    ok('回滚恢复 approval_flows', af2 && JSON.parse(af2.steps).length === 2, af2 ? String(JSON.parse(af2.steps).length) + ' 步' : '无');
+
+    // 删关键角色要写理由
+    const risky = await req('/api/flow-changes/changes', {
+      method: 'POST', token,
+      body: { flow_key: KEY, title: '删掉总经理审批', reason: '冒烟测试：验证关键角色是否受保护', steps: [{ role: 'sales', name: '销售确认' }] }
+    });
+    const rid = risky.json.data.id;
+    const rt = await req(`/api/flow-changes/changes/${rid}/trial`, { method: 'POST', token, body: { days: 90 } });
+    ok('试运行列出被删的关键角色', (rt.json.data.trial_summary.removed_critical_roles || []).length > 0,
+      JSON.stringify(rt.json.data.trial_summary.removed_critical_roles || []));
+    const rp = await req(`/api/flow-changes/changes/${rid}/publish`, { method: 'POST', token, body: { effective_from: todayStr } });
+    ok('删关键角色不写理由不许发布', rp.status === 400 && /关键角色/.test(rp.json.message || ''), `HTTP ${rp.status}`);
+    await req(`/api/flow-changes/changes/${rid}/reject`, { method: 'POST', token, body: { reason: '冒烟测试结束' } });
+
+    // 审计
+    const au = await req('/api/flow-changes/audits?flow_key=' + encodeURIComponent(KEY), { token });
+    const acts = (au.json.data || []).map((a) => a.action);
+    ok('审计记录创建/试运行/发布/回滚',
+      ['create', 'trial', 'publish', 'rollback'].every((x) => acts.includes(x)), acts.join(','));
+
+    // 在途单记录了版本
+    const instCol = sdb.prepare('PRAGMA table_info(approval_instances)').all().map((c) => c.name);
+    ok('审批实例有版本字段（能证明按哪版审的）', instCol.includes('flow_version_id') && instCol.includes('steps_snapshot'));
+
+    cleanFlow();
+    ok('冒烟流程已清干净',
+      !sdb.prepare('SELECT 1 FROM flow_versions WHERE flow_key = ?').get(KEY)
+      && !sdb.prepare('SELECT 1 FROM approval_flows WHERE target_type = ?').get(TT));
+
+    // 权限：老板只读不能写
+    const bossLogin = await req('/api/auth/login', { method: 'POST', body: { username: 'boss', password: PASS } });
+    const bossTok = (bossLogin.json && bossLogin.json.data && bossLogin.json.data.token) || '';
+    if (bossTok) {
+      const bossRead = await req('/api/flow-changes/flows', { token: bossTok });
+      ok('老板可看流程（只读）', bossRead.status === 200, `HTTP ${bossRead.status}`);
+      const bossWrite = await req('/api/flow-changes/changes', { method: 'POST', token: bossTok, body: { flow_key: KEY, title: '老板想改流程', reason: '老板也要能改流程吗' } });
+      ok('老板不能改流程', bossWrite.status === 403, `HTTP ${bossWrite.status}`);
+    } else {
+      ok('老板可看 / 不能改流程', true, '没有 boss 账号，跳过');
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

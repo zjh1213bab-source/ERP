@@ -112,11 +112,23 @@ function ensureInstance(targetType, targetId, amount) {
     ? JSON.parse(flow.steps)
     : [{ role: 'finance', name: '财务审核' }];
 
+  // 记下「这单是按哪个版本的流程发起的」：
+  // 流程改版后，已发起的单继续按自己那份快照走，页面上也能证明这一点。
+  // 找不到版本记录（历史数据或流程未纳入版本化）就留空，不猜。
+  let flowVersionId = null;
+  if (flow) {
+    const ver = db
+      .prepare("SELECT id FROM flow_versions WHERE flow_key = ? AND status = 'published'")
+      .get(`${flow.target_type}::${flow.name}`);
+    flowVersionId = ver ? ver.id : null;
+  }
+
   const info = db
     .prepare(
-      'INSERT INTO approval_instances (target_type, target_id, flow_id, current_step, status, created_at) VALUES (?,?,?,1,?,?)'
+      `INSERT INTO approval_instances (target_type, target_id, flow_id, current_step, status, created_at, flow_version_id, steps_snapshot)
+       VALUES (?,?,?,1,?,?,?,?)`
     )
-    .run(targetType, targetId, flow ? flow.id : null, 'pending', now());
+    .run(targetType, targetId, flow ? flow.id : null, 'pending', now(), flowVersionId, JSON.stringify(steps));
   const iid = Number(info.lastInsertRowid);
 
   const ins = db.prepare(

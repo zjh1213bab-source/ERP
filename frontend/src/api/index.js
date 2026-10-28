@@ -275,6 +275,19 @@ export const api = {  // 登录
   prMaterial: (params) => req('/api/prod-report/material' + qs(params)),
   prLead: (params) => req('/api/prod-report/lead-time' + qs(params)),
   prExportPath: (params) => '/api/prod-report/export' + qs(params),
+
+  // 流程变更发布与审计
+  fcMeta: () => req('/api/flow-changes/meta'),
+  fcFlows: () => req('/api/flow-changes/flows'),
+  fcVersions: (flowKey) => req('/api/flow-changes/flows/versions?flow_key=' + encodeURIComponent(flowKey)),
+  fcChanges: (params) => req('/api/flow-changes/changes' + qs(params)),
+  fcDetail: (id) => req(`/api/flow-changes/changes/${id}`),
+  fcCreate: (d) => req('/api/flow-changes/changes', { method: 'POST', body: d }),
+  fcTrial: (id, d) => req(`/api/flow-changes/changes/${id}/trial`, { method: 'POST', body: d }),
+  fcPublish: (id, d) => req(`/api/flow-changes/changes/${id}/publish`, { method: 'POST', body: d }),
+  fcRollback: (id, d) => req(`/api/flow-changes/changes/${id}/rollback`, { method: 'POST', body: d }),
+  fcReject: (id, d) => req(`/api/flow-changes/changes/${id}/reject`, { method: 'POST', body: d }),
+  fcAudits: (params) => req('/api/flow-changes/audits' + qs(params)),
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),
   resolveScan: (code) => req('/api/labels/resolve?code=' + encodeURIComponent(code)),
