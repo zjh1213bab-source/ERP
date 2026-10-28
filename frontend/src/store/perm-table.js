@@ -93,6 +93,8 @@ export const PERM_TABLE = {
   'pattern.review': ["tech"],
   'settings.write': ["admin"],
   'user.manage': ["admin"],
+  'payable.read': ["admin","boss","finance"],
+  'payable.write': ["admin","finance"],
   'credit.read': ["admin","boss","finance","sales"],
   'credit.write': ["admin","finance"],
   'audit.read': ["admin","boss"],

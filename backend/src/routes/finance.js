@@ -16,6 +16,10 @@ const { db, now, getSettings } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { payValidOf, PAY_VALID } = require('../services/paymentStatus');
+// 发票「是否还欠着」的唯一口径（按金额，不按状态名单）——
+// 白名单会把 open/pending 这类别名静默漏掉，漏掉的都是真钱
+const S = require('../services/invoiceStatus');
+const T = require('../services/paymentTerms');
 
 const router = express.Router();
 const WRITE = ['admin', 'finance'];
@@ -28,12 +32,10 @@ const INVOICE = {
 };
 
 /** 按前缀 + 当天流水生成单号 */
+// 单号生成统一到 utils/docNo（与 services/apInvoice 共用一份实现）
+const { nextNo: nextDocNo } = require('../utils/docNo');
 function nextNo(prefix, table) {
-  const d = new Date();
-  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-  const row = db.prepare(`SELECT bill_no FROM ${table} WHERE bill_no LIKE ? ORDER BY id DESC LIMIT 1`).get(`${prefix}${ymd}%`);
-  const seq = row ? Number(String(row.bill_no).slice(-4)) + 1 : 1;
-  return genNo(prefix, seq);
+  return nextDocNo(prefix, table);
 }
 function nextPayNo(direction) {
   const d = new Date();
@@ -139,26 +141,8 @@ function openARForOrder(orderId, userId) {
   return db.prepare('SELECT * FROM ar_invoices WHERE id = ?').get(Number(info.lastInsertRowid));
 }
 
-/** 采购收货时开应付 */
-function openAPForPurchase(purchaseId, userId) {
-  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(purchaseId);
-  if (!po) return null;
-  const exist = db.prepare("SELECT * FROM ap_invoices WHERE purchase_id = ? AND status != 'void'").get(purchaseId);
-  if (exist) return exist;
-  const amount = r2(po.total_amount);
-  if (amount <= 0) return null;
-  const t = now();
-  const info = db.prepare(
-    `INSERT INTO ap_invoices (bill_no, purchase_id, supplier_id, supplier_name, currency, amount_orig, rate, amount, paid_amount, due_date, status, source, remark, created_by, created_at, updated_at)
-     VALUES (?,?,?,?, 'CNY', ?,1,?,0, ?,?,?,?,?,?,?)`
-  ).run(
-    nextNo(INVOICE.ap.prefix, INVOICE.ap.table),
-    purchaseId, null, po.supplier || null,
-    amount, amount, po.expect_date || null, 'unpaid', 'purchase',
-    `采购单 ${po.po_no} 自动开票`, userId || 'system', t, t
-  );
-  return db.prepare('SELECT * FROM ap_invoices WHERE id = ?').get(Number(info.lastInsertRowid));
-}
+// 采购收货开应付的实现搬到 services/apInvoice.js（路由之间不该互相 require）
+const { openAPForPurchase } = require('../services/apInvoice');
 
 /* ---------------- 总览 ---------------- */
 
@@ -168,10 +152,10 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
   monthStart.setDate(1);
   const ms = monthStart.toISOString().slice(0, 10);
 
-  const arTotal = sum("SELECT COALESCE(SUM(amount - paid_amount),0) AS s FROM ar_invoices WHERE status IN ('unpaid','partial')");
-  const apTotal = sum("SELECT COALESCE(SUM(amount - paid_amount),0) AS s FROM ap_invoices WHERE status IN ('unpaid','partial')");
+  const arTotal = sum(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL}`);
+  const apTotal = sum(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ap_invoices WHERE ${S.OPEN_SQL}`);
   const overdueAr = sum(
-    "SELECT COALESCE(SUM(amount - paid_amount),0) AS s FROM ar_invoices WHERE status IN ('unpaid','partial') AND due_date IS NOT NULL AND due_date < ?",
+    `SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL} AND due_date IS NOT NULL AND due_date < ?`,
     today()
   );
   const paidIn = sum(`SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='in' AND ${PAY_VALID} AND pay_date >= ?`, ms);
@@ -179,7 +163,7 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
 
   // 美金口径：外贸客户欠的是美金，本币数字受汇率波动影响，业务更需要看原币
   const usdOpen = sum(
-    "SELECT COALESCE(SUM((amount - paid_amount) / CASE WHEN rate > 0 THEN rate ELSE 1 END),0) AS s FROM ar_invoices WHERE status IN ('unpaid','partial') AND currency = 'USD'"
+    `SELECT COALESCE(SUM((amount - COALESCE(paid_amount,0)) / CASE WHEN rate > 0 THEN rate ELSE 1 END),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL} AND currency = 'USD'`
   );
   const usdTotal = sum("SELECT COALESCE(SUM(amount_orig),0) AS s FROM ar_invoices WHERE status != 'void' AND currency = 'USD'");
   const usdPaid = sum(
@@ -196,8 +180,8 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
     ar_open_usd: usdOpen,
     ar_total_usd: usdTotal,
     ar_paid_usd: usdPaid,
-    ar_count: db.prepare("SELECT COUNT(*) AS c FROM ar_invoices WHERE status IN ('unpaid','partial')").get().c,
-    ap_count: db.prepare("SELECT COUNT(*) AS c FROM ap_invoices WHERE status IN ('unpaid','partial')").get().c
+    ar_count: db.prepare(`SELECT COUNT(*) AS c FROM ar_invoices WHERE ${S.OPEN_SQL}`).get().c,
+    ap_count: db.prepare(`SELECT COUNT(*) AS c FROM ap_invoices WHERE ${S.OPEN_SQL}`).get().c
   });
 }));
 
@@ -206,7 +190,7 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
 router.get('/aging', authRequired, wrap(async (req, res) => {
   const kind = req.query.kind === 'ap' ? 'ap' : 'ar';
   const { table } = INVOICE[kind];
-  const rows = db.prepare(`SELECT * FROM ${table} WHERE status IN ('unpaid','partial') ORDER BY due_date`).all();
+  const rows = db.prepare(`SELECT * FROM ${table} WHERE ${S.OPEN_SQL} ORDER BY due_date`).all();
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
   rows.forEach((inv) => {
     const open = openAmount(inv);
@@ -432,7 +416,7 @@ router.get('/open-invoices', authRequired, wrap(async (req, res) => {
   const kind = req.query.kind === 'ap' ? 'ap' : 'ar';
   const { table } = INVOICE[kind];
   const partnerId = req.query.partner_id;
-  const where = ["status IN ('unpaid','partial')"];
+  const where = [S.OPEN_SQL];
   const args = [];
   if (partnerId) {
     where.push(`${kind === 'ar' ? 'customer_id' : 'supplier_id'} = ?`);

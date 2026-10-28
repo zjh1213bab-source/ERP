@@ -15,6 +15,9 @@ const { db, now } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { qualificationGate } = require('./supplierEvals');
+// 收货收完 → 自动开应付。以前这个函数写在 finance.js 里导出却**从没被调用**，
+// 导致 27 张已收货采购单（31 万）在财务账上完全不存在
+const { openAPForPurchase } = require('../services/apInvoice');
 
 const router = express.Router();
 const WRITE = ['admin', 'warehouse'];
@@ -120,6 +123,7 @@ router.post('/:id/receive', authRequired, requireRole(WRITE), wrap(async (req, r
   const ymd = t.slice(0, 10).replace(/-/g, '');
   let grnId = null;
   let grnNo = null;
+  let apBillNo = null;   // 收完自动开出的应付票号（回给前端提示）
   db.exec('BEGIN');
   try {
     // 收料单头
@@ -171,6 +175,13 @@ router.post('/:id/receive', authRequired, requireRole(WRITE), wrap(async (req, r
     const items = db.prepare('SELECT qty, received_qty FROM purchase_items WHERE po_id = ?').all(po.id);
     const allDone = items.length > 0 && items.every((x) => Number(x.received_qty) + 0.005 >= Number(x.qty));
     db.prepare('UPDATE purchase_orders SET status=?, updated_at=? WHERE id=?').run(allDone ? 'received' : 'ordered', t, po.id);
+
+    // 全部收完才开应付：分次收货按总量开票会开早了，按本次量开票又会多出零头票。
+    // 在事务内开 —— 开票失败整单回滚，不许出现「货收了、账上没有」
+    if (allDone) {
+      const inv = openAPForPurchase(po.id, req.user.username);
+      if (inv) apBillNo = inv.bill_no;
+    }
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
@@ -182,7 +193,10 @@ router.post('/:id/receive', authRequired, requireRole(WRITE), wrap(async (req, r
     ...po2,
     grn_id: grnId,
     grn_no: grnNo,
-    notice: `已生成收料单 ${grnNo}，全部进入「待检」；来料检查合格后才会进可用库存`
+    ap_bill_no: apBillNo,
+    notice:
+      `已生成收料单 ${grnNo}，全部进入「待检」；来料检查合格后才会进可用库存` +
+      (apBillNo ? `。本单已收完，自动开出应付发票 ${apBillNo}` : '')
   });
 }));
 

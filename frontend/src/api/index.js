@@ -213,6 +213,12 @@ export const api = {  // 登录
   creditOverride: (d) => req('/api/credit/overrides', { method: 'POST', body: d }),
   creditOverrides: (params) => req('/api/credit/overrides' + qs(params)),
   creditExportPath: (params) => '/api/credit/export' + qs(params),
+  // 应付台账与付款计划
+  payableBoard: (params) => req('/api/payable/board' + qs(params)),
+  payableSchedule: (params) => req('/api/payable/schedule' + qs(params)),
+  payableDetail: (id) => req(`/api/payable/${id}`),
+  payableSetTerm: (id, d) => req(`/api/payable/${id}`, { method: 'PUT', body: d }),
+  payableExportPath: (params) => '/api/payable/export' + qs(params),
 
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),

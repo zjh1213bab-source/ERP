@@ -38,6 +38,7 @@
 | attachments | id, target_type(order/techpack), target_id, filename, url, size, mime, uploader |
 | employees | id, code, name, department_id, position, phone, hire_date, status(active/left), remark |
 | leave_requests | id, employee_id, employee_name, type(annual/sick/personal/other), start_date, end_date, days, reason, status(pending/approved/rejected), reviewed_by |
+| suppliers.term_days | INTEGER | 账期天数（`payment_terms` 文本解析后的缓存，可手工覆盖）。**到期日 = 开票日 + 本值**；为空表示读不出账期，此时应付到期日留空、不猜 |
 | credit_limits | customer_id, credit_limit, credit_days, old_limit, old_days, reason, operator, created_at | **额度版本历史**。现值仍在 `customers.credit_limit` / `credit_days`，这里留每次调整（谁、何时、为什么、从多少到多少） |
 | credit_holds | customer_id, action(hold/release), reason, exposure_snapshot, operator, created_at | 冻结/解冻流水。`exposure_snapshot` 记冻结那一刻的敞口，事后复盘「冻得对不对」 |
 | credit_overrides | order_id, customer_id, limit_snapshot, exposure_snapshot, order_amount, block_reasons(JSON), reason, operator, created_at, **used_at, used_by** | **发货放行单**。`used_at` 非空即已用；一张只能用一次（靠 `used_at IS NULL` 判断，不建唯一索引也能守） |

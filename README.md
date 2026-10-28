@@ -230,6 +230,15 @@ cd backend && node scripts/seed-credit-demo.js --reset
 # 信用页面取证（台账 / 明细 / 调额 / 冻结 / 发货被拦 / 移动端）
 cd backend && node scripts/shot-credit.js
 
+# 应收应付发票状态体检（野状态值 / 状态与金额不符 / 超付；--fix 归一）
+cd backend && node scripts/check-invoice-status.js
+
+# 应付地基：账期解析 + 补 supplier_id；--redue 会按「开票日+账期」重算到期日（改账龄，先看再跑）
+cd backend && node scripts/apply-payable-ddl.js
+
+# 应付页面取证（台账 / 明细 / 改账期 / 付款计划 / 移动端）
+cd backend && node scripts/shot-payable.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

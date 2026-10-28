@@ -568,6 +568,11 @@
 | org | POST | `/scopes/:id/approve` | ✅ | — | — | — | — | — | ✅ | — |
 | org | POST | `/scopes/:id/reject` | ✅ | — | — | — | — | — | ✅ | — |
 | org | POST | `/scopes/sweep` | ✅ | — | — | — | — | — | ✅ | — |
+| payable | GET | `/:supplierId` | ✅ | ✅ | — | — | — | — | ✅ | — |
+| payable | PUT | `/:supplierId` | ✅ | — | — | — | — | — | ✅ | — |
+| payable | GET | `/board` | ✅ | ✅ | — | — | — | — | ✅ | — |
+| payable | GET | `/export` | ✅ | ✅ | — | — | — | — | ✅ | — |
+| payable | GET | `/schedule` | ✅ | ✅ | — | — | — | — | ✅ | — |
 | payrolls | GET | `/` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | payrolls | PUT | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | payrolls | DELETE | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
@@ -949,6 +954,8 @@
 | `pattern.review` | 技术打版 |
 | `settings.write` | 系统管理员 |
 | `user.manage` | 系统管理员 |
+| `payable.read` | 系统管理员、总经理、财务会计 |
+| `payable.write` | 系统管理员、财务会计 |
 | `credit.read` | 系统管理员、总经理、财务会计、销售跟单 |
 | `credit.write` | 系统管理员、财务会计 |
 | `audit.read` | 系统管理员、总经理 |

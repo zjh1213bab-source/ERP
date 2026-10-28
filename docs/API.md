@@ -101,6 +101,11 @@
 | GET/POST | /api/leaves | 读:登录 / 写:admin,sales | 请假列表/新增 |
 | POST | /api/leaves/:id/review | admin,sales | 审批 `{approve}` |
 | DELETE | /api/leaves/:id | admin,sales | 删除 |
+| GET | /api/payable/board?q=&only_overdue= | payable.read | **供应商应付台账**：`figures`（`open_amount` 未付发票 / `unbilled_amount` 已收货未开票 / `payable_total` / `overdue` / `due_7` / `due_30` / `unbilled_est_due` 未开票预计到期 / `unbilled_overdue_est`）+ `risk`（overdue/unbilled/noterm/ok） |
+| GET | /api/payable/schedule?weeks=8 | payable.read | **付款计划**：按周分组（`buckets`，第一组固定 `overdue`），末尾 `pending` 是「已收货未开票」并带 `est_due`（收货日 + 账期，**仅供计划，不算逾期**） |
+| GET | /api/payable/export?q=&only_overdue= | payable.read | 台账 CSV（带 BOM，前四行写口径） |
+| GET | /api/payable/:supplierId | payable.read | 单供应商：未付发票 + 已收货未开票采购单 + 最近付款 |
+| PUT | /api/payable/:supplierId | payable.write | `{payment_terms, term_days}` 维护账期；只改文本会自动解析天数，读不出就留空 |
 | GET | /api/credit/board?q=&risk=&only_managed= | credit.read | **信用台账**：每户 `figures`（`billed_open` 已开票未收 / `unbilled` 未开票订单 / `shipped_unbilled` 其中货已发未开票 / `exposure` 敞口 / `available` 可用 / `overdue` 逾期 / `max_overdue_days`）+ `risk`（hold/over/overdue/near/unmanaged/ok） |
 | GET | /api/credit/config | credit.read | 判定参数：`grace_days` 逾期宽限、`warn_ratio` 预警线、`default_days` 默认账期 |
 | PUT | /api/credit/config | credit.write | 改参数 |

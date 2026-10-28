@@ -6446,6 +6446,196 @@ async function req(path, { method = 'GET', body, token } = {}) {
       db.prepare('SELECT COUNT(*) c FROM customers WHERE code = ?').get(TAG).c === 0, `删了 ${removed} 张单`);
   }
 
+  // ================= 应付台账与付款计划 =================
+  {
+    console.log('\n— 应付台账与付款计划 —');
+    const { db } = require('../src/db');
+    const T = require('../src/services/paymentTerms');
+    const S2 = require('../src/services/invoiceStatus');
+
+    // ---------- 账期解析（纯函数，先测） ----------
+    const cases = [
+      ['月结30天', 30], ['月结 45 天', 45], ['月结', 30], ['现结', 0],
+      ['预付30%', 0], ['30天', 30], ['货到15天', 15]
+    ];
+    const bad = cases.filter(([txt, want]) => {
+      const p = T.parseTerms(txt);
+      return !p || p.days !== want;
+    });
+    ok('账期文本能解析成天数（月结/现结/货到N天）', bad.length === 0,
+      bad.map(([t2, w]) => `${t2}→${(T.parseTerms(t2) || {}).days}（应 ${w}）`).join('；'));
+    ok('读不出来的账期返回 null（不瞎猜成 30 天）',
+      T.parseTerms('按季度结') === null && T.parseTerms('') === null && T.parseTerms(null) === null);
+
+    // ---------- 台账 ----------
+    const bd = await req('/api/payable/board', { token });
+    const bs = (bd.json.data || {}).summary || {};
+    ok('应付台账可读且有汇总', bd.status === 200 && bs.suppliers > 0, `HTTP ${bd.status} 供应商 ${bs.suppliers}`);
+    ok('应付合计 = 已开票未付 + 已收货未开票',
+      Math.abs(Number(bs.payable_total) - (Number(bs.open_amount) + Number(bs.unbilled_amount))) < 0.01,
+      `${bs.payable_total} vs ${bs.open_amount} + ${bs.unbilled_amount}`);
+    ok('台账只列有欠款的供应商（不把 0 元的一大堆塞进来）',
+      (bd.json.data.rows || []).every((r) => Number(r.figures.payable_total) > 0),
+      `行数 ${(bd.json.data.rows || []).length}`);
+    const risks = (bd.json.data.rows || []).map((r) => r.risk);
+    ok('风险分类只出现约定的四种',
+      risks.every((r) => ['overdue', 'unbilled', 'noterm', 'ok'].includes(r)), JSON.stringify([...new Set(risks)]));
+    ok('逾期排在台账最前面（有逾期必须一眼看到）',
+      risks.length === 0 || risks[0] === 'overdue' || !risks.includes('overdue'), JSON.stringify(risks.slice(0, 5)));
+
+    // ---------- 付款计划 ----------
+    const sc = await req('/api/payable/schedule?weeks=4', { token });
+    const buckets = (sc.json.data || {}).buckets || [];
+    ok('付款计划按周分组', sc.status === 200 && buckets.length >= 5, `桶数 ${buckets.length}`);
+    ok('第一组固定是「已逾期」（混进「本周」会让人以为还有时间）',
+      buckets[0] && buckets[0].key === 'overdue', buckets[0] && buckets[0].label);
+    ok('周分组首尾相接（不重不漏）', (() => {
+      for (let i = 2; i < buckets.length; i++) {
+        const prev = buckets[i - 1];
+        const cur = buckets[i];
+        if (!prev.to || !cur.from) continue;
+        const gap = T.addDays(prev.to, 1);
+        if (gap !== cur.from) return false;
+      }
+      return true;
+    })(), JSON.stringify(buckets.map((b) => [b.from, b.to]).slice(1, 4)));
+    ok('计划里带「待开票（预计）」组（不做资金计划会漏这笔钱）',
+      Array.isArray(sc.json.data.pending) && sc.json.data.summary.pending_unbilled !== undefined,
+      `待开票 ${sc.json.data.summary.pending_unbilled}`);
+
+    // ---------- 明细 ----------
+    const firstSup = (bd.json.data.rows || [])[0];
+    if (firstSup) {
+      const dt = await req('/api/payable/' + firstSup.supplier.id, { token });
+      ok('单供应商明细含发票/未开票采购单/付款记录',
+        dt.status === 200 && Array.isArray(dt.json.data.invoices) && Array.isArray(dt.json.data.unbilled),
+        `HTTP ${dt.status}`);
+      ok('明细里的应付合计与台账一致',
+        Math.abs(Number(dt.json.data.figures.payable_total) - Number(firstSup.figures.payable_total)) < 0.01,
+        `${dt.json.data.figures.payable_total} vs ${firstSup.figures.payable_total}`);
+    }
+    const nf = await req('/api/payable/999999', { token });
+    ok('不存在的供应商返回 404', nf.status === 404, `HTTP ${nf.status}`);
+
+    // ---------- 改账期 ----------
+    const TAG = 'SMOKEAP';
+    const t0 = new Date().toISOString();
+
+    // 上次跑到一半崩了会留下同名单据（po_no 唯一）→ 开头先清干净，保证可重复跑
+    const stalePo = db.prepare("SELECT id FROM purchase_orders WHERE po_no LIKE 'SMOKEAP%'").all().map((r) => r.id);
+    stalePo.forEach((id) => {
+      db.prepare('DELETE FROM ap_invoices WHERE purchase_id = ?').run(id);
+      db.prepare('DELETE FROM goods_receipt_items WHERE grn_id IN (SELECT id FROM goods_receipts WHERE po_id = ?)').run(id);
+      db.prepare('DELETE FROM goods_receipts WHERE po_id = ?').run(id);
+      db.prepare('DELETE FROM purchase_items WHERE po_id = ?').run(id);
+      db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(id);
+    });
+    db.prepare('DELETE FROM suppliers WHERE code = ?').run(TAG);
+    const supId = db.prepare(
+      `INSERT INTO suppliers (code, name, category, payment_terms, status, created_at, updated_at)
+       VALUES (?, '冒烟·应付测试供应商', 'material', '月结30天', 'active', ?, ?)`
+    ).run(TAG, t0, t0).lastInsertRowid;
+
+    const setT = await req('/api/payable/' + supId, {
+      method: 'PUT', token, body: { payment_terms: '月结45天', term_days: null }
+    });
+    ok('改账期会自动解析出天数（改文本不填天数也能生效）',
+      setT.status === 200 && Number(setT.json.data.term_days) === 45, JSON.stringify(setT.json.data));
+
+    const setD = await req('/api/payable/' + supId, {
+      method: 'PUT', token, body: { payment_terms: '按季度结', term_days: 90 }
+    });
+    ok('读不出的文本可以手工填天数（填了以天数为准）',
+      setD.status === 200 && Number(setD.json.data.term_days) === 90, JSON.stringify(setD.json.data));
+
+    const setBad = await req('/api/payable/' + supId, {
+      method: 'PUT', token, body: { payment_terms: '月结30天', term_days: 999 }
+    });
+    ok('账期天数超出范围被拒', setBad.status === 400, `HTTP ${setBad.status}`);
+
+    // ---------- 收货 → 自动开应付（曾经是死代码，27 张单 31 万没进账） ----------
+    const poId = db.prepare(
+      `INSERT INTO purchase_orders (po_no, supplier, supplier_id, status, order_date, expect_date, total_amount, created_by, created_at, updated_at)
+       VALUES ('SMOKEAP-PO1', '冒烟·应付测试供应商', ?, 'ordered', ?, ?, 6600, 'smoke', ?, ?)`
+    ).run(supId, t0.slice(0, 10), t0.slice(0, 10), t0, t0).lastInsertRowid;
+    const poItemId = db.prepare(
+      `INSERT INTO purchase_items (po_id, name, spec, unit, qty, price, amount, received_qty)
+       VALUES (?, '冒烟面料', '150D', '米', 100, 66, 6600, 0)`
+    ).run(poId).lastInsertRowid;
+
+    const apBefore = db.prepare('SELECT COUNT(*) c FROM ap_invoices').get().c;
+    const rc = await req(`/api/purchases/${poId}/receive`, {
+      method: 'POST', token, body: { items: [{ id: poItemId, qty: 100 }] }
+    });
+    ok('采购收货成功且回传应付票号',
+      rc.status === 200 && !!rc.json.data.ap_bill_no, `HTTP ${rc.status} ${JSON.stringify(rc.json.data && rc.json.data.ap_bill_no)}`);
+    const apNew = db.prepare('SELECT * FROM ap_invoices WHERE purchase_id = ?').get(poId);
+    ok('收货后真的生成了应付（这条以前从来没发生过）',
+      !!apNew && db.prepare('SELECT COUNT(*) c FROM ap_invoices').get().c === apBefore + 1,
+      apNew ? apNew.bill_no : '没生成');
+    ok('生成的应付带上了 supplier_id（不然永远没法按供应商汇总）',
+      apNew && Number(apNew.supplier_id) === Number(supId), apNew && String(apNew.supplier_id));
+    ok('到期日按「开票日 + 账期」算（不是拿预计到货日）',
+      apNew && apNew.due_date === T.addDays(t0.slice(0, 10), 90),
+      apNew ? `${apNew.due_date}（应 ${T.addDays(t0.slice(0, 10), 90)}）` : '无');
+    ok('生成的应付进了台账的「已开票未付」',
+      (() => {
+        const row = db.prepare(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) s FROM ap_invoices WHERE supplier_id = ? AND ${S2.OPEN_SQL}`).get(supId);
+        return Math.abs(Number(row.s) - 6600) < 0.01;
+      })());
+    // 再收一次（已收完的单不允许重复收）
+    const rc2 = await req(`/api/purchases/${poId}/receive`, {
+      method: 'POST', token, body: { items: [{ id: poItemId, qty: 100 }] }
+    });
+    ok('收完的单不会重复开票（幂等）',
+      db.prepare('SELECT COUNT(*) c FROM ap_invoices WHERE purchase_id = ?').get(poId).c === 1,
+      `票数 ${db.prepare('SELECT COUNT(*) c FROM ap_invoices WHERE purchase_id = ?').get(poId).c} / 二次收货 HTTP ${rc2.status}`);
+
+    // ---------- 全局口径一致（这条是给以后的自己看的） ----------
+    const drift = ['ar_invoices', 'ap_invoices']
+      .map((table) => {
+        const a = Number(db.prepare(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) s FROM ${table} WHERE ${S2.OPEN_SQL}`).get().s);
+        const b = Number(db.prepare(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) s FROM ${table} WHERE status IN ('unpaid','partial')`).get().s);
+        return { table, diff: Math.round((a - b) * 100) / 100 };
+      })
+      .filter((x) => Math.abs(x.diff) > 0.01);
+    ok('应收应付的两种口径一致（有野状态值就会在这里炸）', drift.length === 0,
+      JSON.stringify(drift));
+    ok('全库没有未登记的发票状态值',
+      ['ar_invoices', 'ap_invoices'].every((table) => {
+        const rows = db.prepare(`SELECT DISTINCT status FROM ${table}`).all();
+        return rows.every((r) => S2.normalizeStatus(r.status) !== null);
+      }),
+      JSON.stringify(db.prepare('SELECT DISTINCT status FROM ap_invoices').all().map((r) => r.status)));
+
+    // ---------- 权限 ----------
+    const salesTk = await req('/api/auth/login', { method: 'POST', body: { username: 'sales01', password: PASS } });
+    if (salesTk.status === 200) {
+      const s1 = await req('/api/payable/board', { token: salesTk.json.data.token });
+      ok('销售看不到应付（欠谁钱、什么时候付是敏感信息）', s1.status === 403, `HTTP ${s1.status}`);
+      const s2 = await req('/api/payable/' + supId, {
+        method: 'PUT', token: salesTk.json.data.token, body: { payment_terms: '现结', term_days: 0 }
+      });
+      ok('销售不能改账期', s2.status === 403, `HTTP ${s2.status}`);
+    }
+    const hrTk = await req('/api/auth/login', { method: 'POST', body: { username: 'hr01', password: PASS } });
+    if (hrTk.status === 200) {
+      const h1 = await req('/api/payable/board', { token: hrTk.json.data.token });
+      ok('人事看不到应付', h1.status === 403, `HTTP ${h1.status}`);
+    }
+    const noTk = await req('/api/payable/board', {});
+    ok('未登录拿不到应付台账', noTk.status === 401, `HTTP ${noTk.status}`);
+
+    // ---------- 清理 ----------
+    db.prepare('DELETE FROM ap_invoices WHERE purchase_id = ?').run(poId);
+    db.prepare('DELETE FROM goods_receipt_items WHERE grn_id IN (SELECT id FROM goods_receipts WHERE po_id = ?)').run(poId);
+    db.prepare('DELETE FROM goods_receipts WHERE po_id = ?').run(poId);
+    db.prepare('DELETE FROM purchase_items WHERE po_id = ?').run(poId);
+    db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(poId);
+    db.prepare('DELETE FROM suppliers WHERE id = ?').run(supId);
+    ok('应付用例自清理', db.prepare('SELECT COUNT(*) c FROM suppliers WHERE code = ?').get(TAG).c === 0);
+  }
+
   // ================= 操作日志 / 审计 =================
   {
     console.log('\n[操作日志 / 审计]');

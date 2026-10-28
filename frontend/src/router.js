@@ -84,6 +84,7 @@ import Print from './views/Print.vue';
 import Payslip from './views/Payslip.vue';
 import Statement from './views/Statement.vue';
 import Credit from './views/Credit.vue';
+import Payable from './views/Payable.vue';
 import PrintBatch from './views/PrintBatch.vue';
 import ScanGo from './views/ScanGo.vue';
 import MobileHome from './views/MobileHome.vue';
@@ -147,6 +148,7 @@ const routes = [
       { path: 'sample-archive', component: SampleArchive, meta: { title: '样衣管理' } },
       { path: 'finance', component: Finance, meta: { title: '往来账' } },
       { path: 'credit', component: Credit, meta: { title: '客户信用与账期' } },
+      { path: 'payable', component: Payable, meta: { title: '应付与付款计划' } },
       { path: 'costing', component: Costing, meta: { title: '成本与毛利' } },
       { path: 'commitments', component: Commitments, meta: { title: '接单评审与交期' } },
       { path: 'requirements', component: Requirements, meta: { title: '齐套与缺料' } },
