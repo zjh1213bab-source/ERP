@@ -397,7 +397,7 @@
               <thead><tr><th>时间</th><th>原料</th><th>类型</th><th class="num">数量</th><th>备注</th><th>操作人</th></tr></thead>
               <tbody>
                 <tr v-for="l in detail.data.ledgers" :key="l.id">
-                  <td class="tiny mono">{{ l.created_at }}</td>
+                  <td class="tiny mono">{{ $fmt(l.created_at) }}</td>
                   <td class="tiny">{{ l.material_name }}</td>
                   <td class="tiny">{{ l.type_label || l.type }}</td>
                   <td class="num" :class="l.qty > 0 ? 'ok-line' : 'red'">{{ l.qty > 0 ? '+' : '' }}{{ num(l.qty) }}</td>
@@ -581,7 +581,7 @@
             <thead><tr><th>时间</th><th>类型</th><th class="num">数量</th><th>单据</th><th>备注</th><th>操作人</th></tr></thead>
             <tbody>
               <tr v-for="l in ledger.rows" :key="l.id">
-                <td class="tiny mono">{{ l.created_at }}</td>
+                <td class="tiny mono">{{ $fmt(l.created_at) }}</td>
                 <td class="tiny">{{ l.type_label }}</td>
                 <td class="num" :class="l.qty > 0 ? 'ok-line' : 'red'">{{ l.qty > 0 ? '+' : '' }}{{ num(l.qty) }}</td>
                 <td class="tiny mono">{{ l.ref_no || '—' }}</td>

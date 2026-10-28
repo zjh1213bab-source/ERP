@@ -24,7 +24,7 @@
         <tbody>
           <tr>
             <th>报价单号</th><td>{{ quote.quote_no }}</td>
-            <th>日期</th><td>{{ (quote.created_at || '').slice(0, 10) }}</td>
+            <th>日期</th><td>{{ $fmtDate(quote.created_at) }}</td>
           </tr>
           <tr>
             <th>客户</th><td>{{ quote.customer_name || '-' }}</td>

@@ -8,7 +8,7 @@
         </p>
       </div>
       <div class="head-ops">
-        <span v-if="calcAt" class="muted" style="font-size: 12px; margin-right: 8px">上次计算 {{ (calcAt || '').slice(0, 16).replace('T', ' ') }}</span>
+        <span v-if="calcAt" class="muted" style="font-size: 12px; margin-right: 8px">上次计算 {{ $fmt(calcAt) }}</span>
         <button class="btn btn-ghost" :disabled="busy" @click="recalc">重新计算</button>
       </div>
     </div>

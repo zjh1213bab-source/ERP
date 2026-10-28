@@ -187,6 +187,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api } from '../api';
 import { auth } from '../store/auth';
+import { fmtTime } from '../utils/time';
 import { can } from '../store/permissions';
 
 const tab = ref('in');
@@ -205,7 +206,8 @@ const base = (import.meta.env.VITE_API_BASE || '') + '';
 const actionLabel = (a) => ({ new: '新增', update: '覆盖', error: '有问题' }[a] || a);
 const actionTag = (a) => ({ new: 'green', update: 'orange', error: 'red' }[a] || 'gray');
 const rowClass = (a) => (a === 'error' ? 'row-bad' : (a === 'update' ? 'row-warn' : ''));
-const fmt = (s) => (s ? String(s).replace('T', ' ').slice(0, 16) : '—');
+// 统一走 utils/time：带时区(Z)的转本地，不带时区的原样
+const fmt = (s) => (s ? fmtTime(s) : '—');
 
 function pickType(t) {
   form.type = t.type;

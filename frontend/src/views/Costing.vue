@@ -206,7 +206,7 @@
                 <div class="cx-snap-body">
                   <div class="cx-snap-head">
                     <b>第 {{ s.seq }} 次结转</b>
-                    <span class="muted">{{ (s.created_at || '').slice(0, 16).replace('T', ' ') }}</span>
+                    <span class="muted">{{ $fmt(s.created_at) }}</span>
                   </div>
                   <div class="cx-snap-line">
                     {{ s.qty }}/{{ s.total_qty }} 件 · 单件 ¥{{ money(s.unit_cost) }} ·

@@ -21,7 +21,7 @@
       <div class="stat stat-health" :class="healthClass">
         <span>数据健康分</span>
         <strong>{{ summary.health === null || summary.health === undefined ? '—' : summary.health }}</strong>
-        <small>{{ summary.last_run ? '上次 ' + (summary.last_run.created_at || '').slice(5, 16) : '还没勾稽过' }}</small>
+        <small>{{ summary.last_run ? '上次 ' + $fmt(summary.last_run.created_at).slice(5) : '还没勾稽过' }}</small>
       </div>
       <div class="stat"><span>严重不平</span><strong class="amt-red">{{ summary.counters.error || 0 }}</strong><small>必须处理</small></div>
       <div class="stat"><span>需要关注</span><strong class="amt-orange">{{ summary.counters.warn || 0 }}</strong><small>规则告警</small></div>
@@ -92,7 +92,7 @@
           </div>
           <div class="ov-fix" v-if="summary.last_run">
             <div class="ov-fix-title">
-              较上次（{{ (summary.last_run.created_at || '').slice(5, 16) }}）
+              较上次（{{ $fmt(summary.last_run.created_at).slice(5) }}）
               <span v-if="!summary.last_run.new_cnt && !summary.last_run.fixed_cnt && !summary.last_run.recur_cnt" class="muted">
                 · 问题集合无变化
               </span>
@@ -311,7 +311,7 @@
             <tbody>
               <tr v-for="r in runs" :key="r.id">
                 <td class="mono">{{ r.run_no }}</td>
-                <td class="tiny">{{ (r.created_at || '').slice(0, 16) }}</td>
+                <td class="tiny">{{ $fmt(r.created_at) }}</td>
                 <td class="num">{{ r.rule_count }}</td>
                 <td class="num"><b>{{ r.issue_count }}</b></td>
                 <td class="num amt-red">{{ r.error_cnt }}</td>
@@ -344,7 +344,7 @@
             </thead>
             <tbody>
               <tr v-for="f in fixes" :key="f.id">
-                <td class="tiny">{{ (f.created_at || '').slice(5, 16) }}</td>
+                <td class="tiny">{{ $fmt(f.created_at).slice(5) }}</td>
                 <td class="tiny">{{ f.rule_name || f.fix_key }}</td>
                 <td class="mono wrap">{{ f.entity_no || f.target }}</td>
                 <td class="wrap">{{ f.message }}</td>

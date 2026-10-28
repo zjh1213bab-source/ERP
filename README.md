@@ -186,6 +186,9 @@ cd backend && node scripts/seed-photos-demo.js
 
 # 验货报告演示数据（给有照片的订单开验货单→填值→判定→出报告）
 cd backend && node scripts/seed-inspection-demo.js
+
+# 前端时间显示口径：模板统一用 $fmt / $fmtSec / $fmtDate（实现在 utils/time.js）
+# 后端导出用 utils/time.js 的 localTime；库里继续存 UTC ISO，只在显示/导出时转本地
 ```
 
 - 默认管理员：`admin` / `admin123456`

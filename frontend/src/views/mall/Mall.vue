@@ -96,7 +96,7 @@
           <div v-for="q2 in inquiries" :key="q2.id" class="ml-row" @click="openInquiry(q2)">
             <div>
               <strong>{{ q2.inquiry_no }}</strong>
-              <div class="ml-muted">{{ q2.total_qty }} 件 · {{ (q2.created_at || '').slice(0, 10) }}</div>
+              <div class="ml-muted">{{ q2.total_qty }} 件 · {{ $fmtDate(q2.created_at) }}</div>
             </div>
             <div class="ml-row-right">
               <span class="ml-amount">${{ money(q2.total_usd) }}</span>
@@ -137,7 +137,7 @@
             <div v-for="x in confirmations.seals" :key="'s' + x.id" class="ml-card-row">
               <div class="ml-card-main">
                 <div><strong>{{ x.sample_name || x.style_no || '样衣' }}</strong> · {{ x.version }}</div>
-                <div class="ml-muted">订单 {{ x.order_no }} · 发出 {{ (x.sent_at || '').slice(0, 10) }}</div>
+                <div class="ml-muted">订单 {{ x.order_no }} · 发出 {{ $fmtDate(x.sent_at) }}</div>
                 <div class="ml-muted">内容校验值 {{ x.content_hash }}</div>
                 <div v-if="x.attachments.length" class="ml-muted">
                   附件：<span v-for="(a, i) in x.attachments" :key="i">{{ a.name }}{{ i < x.attachments.length - 1 ? '、' : '' }}</span>
@@ -197,7 +197,7 @@
               {{ m.title }}
             </div>
             <div class="ml-msg-body">{{ m.body }}</div>
-            <div class="ml-muted">{{ (m.created_at || '').replace('T', ' ').slice(0, 16) }}</div>
+            <div class="ml-muted">{{ $fmt(m.created_at) }}</div>
           </div>
         </div>
       </section>
@@ -274,7 +274,7 @@
               <td>{{ m.role_label }}</td>
               <td class="ml-perms">{{ (m.perm_labels || []).join('、') }}</td>
               <td><span class="ml-status" :class="m.status === 'active' ? 'o-closed' : 'o-cancelled'">{{ m.status === 'active' ? '启用' : '已停用' }}</span></td>
-              <td>{{ m.last_login_at ? m.last_login_at.replace('T', ' ').slice(0, 16) : '-' }}</td>
+              <td>{{ m.last_login_at ? $fmt(m.last_login_at) : '-' }}</td>
               <td class="ml-ops">
                 <template v-if="m.role !== 'owner'">
                   <button class="ml-link" @click="editPerms(m)">改权限</button>
@@ -294,7 +294,7 @@
             <span class="ml-pill">{{ a.action_label }}</span>
             <b>{{ a.username || '-' }}</b>
             <span class="ml-muted">{{ a.scope_label }} · {{ a.operator }}</span>
-            <span class="ml-muted">{{ (a.created_at || '').replace('T', ' ').slice(0, 16) }}</span>
+            <span class="ml-muted">{{ $fmt(a.created_at) }}</span>
           </div>
         </div>
       </section>
@@ -386,7 +386,7 @@
         <h3>{{ inqDetail.inquiry_no }}
           <span class="ml-status" :class="'s-' + inqDetail.status">{{ inqDetail.status_label }}</span>
         </h3>
-        <div class="ml-muted">{{ (inqDetail.created_at || '').replace('T', ' ').slice(0, 16) }} ·
+        <div class="ml-muted">{{ $fmt(inqDetail.created_at) }} ·
           {{ inqDetail.total_qty }} 件 · ${{ money(inqDetail.total_usd) }}</div>
         <table class="ml-table">
           <thead><tr><th>商品</th><th class="num">数量</th><th class="num">单价</th><th class="num">小计</th></tr></thead>
@@ -424,7 +424,7 @@
           <div v-for="(t, i) in orderDetail.timeline" :key="i" class="ml-tl-item">
             <span class="ml-tl-dot"></span>
             <span class="ml-tl-label">{{ t.label }}</span>
-            <span class="ml-muted">{{ (t.created_at || '').replace('T', ' ').slice(0, 16) }}</span>
+            <span class="ml-muted">{{ $fmt(t.created_at) }}</span>
           </div>
         </div>
         <table class="ml-table">

@@ -34,7 +34,7 @@
       <div class="stat"><span>资产总额</span><strong>{{ fmt(ov.asset_total) }}</strong><small>{{ ov.balanced ? '资产负债表平衡' : '表不平，请查凭证' }}</small></div>
       <div class="stat"><span>银行存款</span><strong>{{ fmt(ov.cash) }}</strong><small>期末余额</small></div>
       <div class="stat"><span>凭证 / 期间状态</span><strong>{{ ov.voucher_count }}<small style="display:inline;font-size:12px"> 张</small></strong>
-        <small>{{ status === 'closed' ? '已关账（' + (ov.closed_at || '').slice(0, 10) + '）' : '未关账' }}</small>
+        <small>{{ status === 'closed' ? '已关账（' + $fmtDate(ov.closed_at) + '）' : '未关账' }}</small>
       </div>
     </div>
 
@@ -298,7 +298,7 @@
           </span>
           <p class="tiny muted" style="margin: 4px 0 0">
             {{ status === 'closed'
-              ? `关账人 ${checksData.closed_by || '—'} · ${(checksData.closed_at || '').slice(0, 16)}`
+              ? `关账人 ${checksData.closed_by || '—'} · ${$fmt(checksData.closed_at)}`
               : '关账前必须过完下面 8 项；标注「提示」的不拦关账，但要人看过。' }}
           </p>
         </div>

@@ -85,7 +85,7 @@
             <td class="mono">{{ r.po_no }}</td>
             <td class="num">{{ fmt(r.return_qty) }}</td>
             <td class="wrap tiny">{{ r.reason }}</td>
-            <td class="tiny wrap">{{ r.physical_receipt_note || '—' }}<div v-if="r.physical_by" class="tiny">{{ r.physical_by }} {{ (r.physical_at||'').replace('T',' ').slice(0,16) }}</div></td>
+            <td class="tiny wrap">{{ r.physical_receipt_note || '—' }}<div v-if="r.physical_by" class="tiny">{{ r.physical_by }} {{ $fmt(r.physical_at) }}</div></td>
             <td class="tiny wrap">
               <template v-if="r.credit_note_no">{{ r.credit_note_no }} · ¥{{ fmt(r.credit_amount) }}</template>
               <span v-else>—</span>

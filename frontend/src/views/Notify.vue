@@ -648,7 +648,7 @@
           <h4 class="sec">回执时间线<small>打开不等于已读，未知也不算已读</small></h4>
           <div class="timeline">
             <div v-for="l in boxDetail.logs || []" :key="l.id" class="tl-row">
-              <span class="tl-time mono">{{ l.created_at }}</span>
+              <span class="tl-time mono">{{ $fmt(l.created_at) }}</span>
               <span class="tag" :class="logTag(l.event)">{{ logLabel(l.event) }}</span>
               <span class="tl-detail">{{ l.detail || '—' }}</span>
               <span class="tiny muted">{{ l.operator }}</span>

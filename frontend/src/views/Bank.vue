@@ -326,7 +326,7 @@
               <td class="num tiny" :class="i.dup_count ? 'amt-orange' : 'muted'">{{ i.dup_count }}</td>
               <td class="num">{{ money(i.in_total) }}</td>
               <td class="num">{{ money(i.out_total) }}</td>
-              <td class="tiny mono">{{ i.created_at }}</td>
+              <td class="tiny mono">{{ $fmt(i.created_at) }}</td>
             </tr>
             <tr v-if="!imports.length"><td colspan="9" class="empty">还没有导入记录</td></tr>
           </tbody>

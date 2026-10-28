@@ -99,7 +99,7 @@
               <td class="num">{{ r.total_qty }}</td>
               <td class="num">${{ money(r.total_usd) }}</td>
               <td><span class="tag" :class="statusTag(r.status)">{{ r.status_label }}</span></td>
-              <td>{{ (r.created_at || '').replace('T', ' ').slice(0, 16) }}</td>
+              <td>{{ $fmt(r.created_at) }}</td>
               <td>{{ r.order_id ? '#' + r.order_id : '-' }}</td>
               <td style="white-space: nowrap">
                 <button class="link-btn" @click="openInquiry(r)">明细</button>
@@ -148,7 +148,7 @@
                 <span v-else class="muted">随主账号</span>
               </td>
               <td><span class="tag" :class="a.status === 'active' ? 'green' : 'gray'">{{ a.status === 'active' ? '启用' : '停用' }}</span></td>
-              <td>{{ a.last_login_at ? a.last_login_at.replace('T', ' ').slice(0, 16) : '未登录' }}</td>
+              <td>{{ a.last_login_at ? $fmt(a.last_login_at) : '未登录' }}</td>
               <td v-if="canWrite" style="white-space: nowrap">
                 <button v-if="a.role === 'owner'" class="link-btn" @click="openApprove(a)">批准上限</button>
                 <button class="link-btn" @click="resetPwd(a)">重置密码</button>
@@ -471,7 +471,7 @@
               <thead><tr><th>时间</th><th>动作</th><th>客户</th><th>账号</th><th>来源</th><th>操作人</th><th>变更</th></tr></thead>
               <tbody>
                 <tr v-for="a in auditRows" :key="a.id">
-                  <td class="muted">{{ (a.created_at || '').replace('T', ' ').slice(0, 16) }}</td>
+                  <td class="muted">{{ $fmt(a.created_at) }}</td>
                   <td><span class="tag" :class="a.action === 'disable' || a.action === 'revoke' ? 'red' : a.action === 'create' || a.action === 'accept_invite' ? 'green' : 'gray'">{{ a.action_label }}</span></td>
                   <td>{{ a.customer_name || '-' }}</td>
                   <td>{{ a.username || '-' }}</td>

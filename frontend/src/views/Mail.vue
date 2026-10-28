@@ -440,6 +440,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
+import { fmtTime } from '../utils/time';
 
 const folders = [
   { key: 'inbox', label: '收件箱', icon: '📥' },
@@ -528,7 +529,7 @@ const shortTime = (s) => {
     ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
     : `${d.getMonth() + 1}/${d.getDate()}`;
 };
-const timeText = (s) => (s ? String(s).slice(0, 16).replace('T', ' ') : '-');
+const timeText = (s) => (s ? fmtTime(s) : '-');
 const fmtSize = (n) => {
   const v = Number(n) || 0;
   if (!v) return '';

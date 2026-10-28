@@ -215,7 +215,7 @@
         <div v-if="run.decisions && run.decisions.length" class="hint-bar" style="margin-top: 10px">
           <b>决策留痕（{{ run.decisions.length }} 条）</b>
           <div v-for="d in run.decisions.slice(0, 8)" :key="d.id" class="tiny" style="margin-top: 3px">
-            · {{ String(d.created_at).slice(5, 16).replace('T', ' ') }} {{ actionLabel(d.action) }}
+            · {{ $fmt(d.created_at).slice(5) }} {{ actionLabel(d.action) }}
             {{ num(d.qty_before) }} → {{ num(d.qty_after) }}；{{ d.note || '（无备注）' }}（{{ d.operator }}）
           </div>
         </div>

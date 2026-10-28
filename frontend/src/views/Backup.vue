@@ -246,6 +246,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api, uploadBinary, downloadFile } from '../api';
+import { fmtTimeSec } from '../utils/time';
 
 const tab = ref('list');
 const list = ref([]);
@@ -259,9 +260,9 @@ const prep = reactive({ show: false, data: {} });
 
 const badChecks = computed(() => checks.value.filter((c) => c.pass === false).length);
 
+// 后端存 UTC ISO，直接截 19 位会差 8 小时 —— 统一走 utils/time
 function fmt(s) {
-  if (!s) return '—';
-  return String(s).replace('T', ' ').slice(0, 19);
+  return fmtTimeSec(s);
 }
 function hoursText(h) {
   if (h === null || h === undefined) return '—';

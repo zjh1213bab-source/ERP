@@ -264,7 +264,7 @@
             <th style="padding-left: 12px">理由</th><th style="width: 104px">状态</th><th style="width: 84px">操作</th></tr></thead>
           <tbody>
             <tr v-for="a in alerts" :key="a.id" :class="a.type === 'over_budget' ? 'row-bad' : 'row-warn'">
-              <td class="tiny mono">{{ a.created_at }}</td>
+              <td class="tiny mono">{{ $fmt(a.created_at) }}</td>
               <td class="tiny">{{ a.type_label }}</td>
               <td class="tiny">{{ a.department_name || '—' }}</td>
               <td class="tiny">{{ a.account_name || '—' }}</td>

@@ -285,7 +285,7 @@
           </thead>
           <tbody>
             <tr v-for="e in shipments" :key="e.id">
-              <td class="nowrap">{{ (e.event_time || e.created_at || '').slice(0, 16).replace('T', ' ') }}</td>
+              <td class="nowrap">{{ $fmt(e.event_time || e.created_at) }}</td>
               <td class="nowrap">{{ e.order_no }}</td>
               <td class="nowrap">{{ e.carrier || '-' }}<div class="muted" style="font-size: 12px">{{ e.tracking_no || '' }}</div></td>
               <td style="max-width: 200px; white-space: normal">{{ e.status_text }}</td>

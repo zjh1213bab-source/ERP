@@ -162,7 +162,7 @@
             <th style="width: 90px">状态</th><th style="width: 84px">提问人</th></tr></thead>
           <tbody>
             <tr v-for="h in pHitsView" :key="h.id">
-              <td class="tiny mono">{{ h.created_at }}</td>
+              <td class="tiny mono">{{ $fmt(h.created_at) }}</td>
               <td class="tiny wrap">{{ h.question }}</td>
               <td class="tiny">{{ h.title }}<div class="muted mono">{{ h.doc_no }}</div></td>
               <td class="tiny">V{{ h.version }}<span v-if="h.outdated" class="tiny red"> → V{{ h.current_version }}</span></td>
@@ -230,7 +230,7 @@
           </thead>
           <tbody>
             <tr v-for="c in calls" :key="c.id">
-              <td class="tiny mono">{{ c.created_at }}</td>
+              <td class="tiny mono">{{ $fmt(c.created_at) }}</td>
               <td class="tiny">{{ c.scene_label }}</td>
               <td class="tiny">{{ c.actor || '—' }}</td>
               <td class="tiny mono">{{ c.provider_code || '—' }}</td>
@@ -572,7 +572,7 @@
           <tbody>
             <tr v-for="r in evalRuns" :key="r.id">
               <td class="tiny mono">{{ r.run_no }}</td>
-              <td class="tiny mono">{{ r.created_at }}</td>
+              <td class="tiny mono">{{ $fmt(r.created_at) }}</td>
               <td class="tiny">{{ r.source_label }}</td>
               <td class="num tiny">{{ r.passed }}</td>
               <td class="num tiny">{{ r.failed }}</td>
@@ -765,7 +765,7 @@
                 <tr v-for="v in pDoc.versions" :key="v.id" :class="v.version === pDoc.current_version ? 'row-cur' : ''">
                   <td class="tiny"><b>V{{ v.version }}</b><span v-if="v.version === pDoc.current_version" class="pill p-green" style="margin-left: 6px">现行</span></td>
                   <td><span class="pill" :class="v.status === 'effective' ? 'p-green' : v.status === 'retired' ? 'p-red' : 'p-gray'">{{ v.status === 'effective' ? '生效' : v.status === 'retired' ? '废止' : '草稿' }}</span></td>
-                  <td class="tiny mono">{{ v.created_at }}</td>
+                  <td class="tiny mono">{{ $fmt(v.created_at) }}</td>
                   <td class="tiny wrap">{{ v.change_note || '—' }}</td>
                 </tr>
                 <tr v-if="!pDoc.versions.length"><td colspan="4" class="empty">还没有版本（草稿）</td></tr>

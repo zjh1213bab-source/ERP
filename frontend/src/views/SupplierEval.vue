@@ -142,7 +142,7 @@
             <td class="tiny">{{ catLabel(q.category) }}</td>
             <td class="wrap">{{ q.reason || '-' }}</td>
             <td class="num"><span :class="q.open_rects ? 'warn' : ''">{{ q.open_rects || 0 }}</span></td>
-            <td class="tiny">{{ q.decided_by || '-' }}<br />{{ (q.decided_at || '').replace('T', ' ').slice(0, 16) }}</td>
+            <td class="tiny">{{ q.decided_by || '-' }}<br />{{ $fmt(q.decided_at) }}</td>
           </tr>
           <tr v-if="!quals.length"><td colspan="6" class="empty-cell">还没有落过供货资格：先在「评价与排名」里做一次评价并点「落资格」</td></tr>
         </tbody>

@@ -56,7 +56,7 @@
               <td>{{ a.version || '-' }}</td>
               <td class="nw">{{ a.pattern_size || '-' }}</td>
               <td class="nowrap-ellipsis" :title="a.customer">{{ a.customer || '-' }}</td>
-              <td>{{ (a.locked_at || a.created_at || '').slice(0, 10) }}</td>
+              <td>{{ $fmtDate(a.locked_at || a.created_at) }}</td>
               <td class="nw">
                 <span class="tag" :class="statusTag(a.status)">{{ statusLabel(a.status) }}</span>
                 <span v-if="a.pending_changes" class="tag orange" style="margin-left: 4px">待审</span>
@@ -97,14 +97,14 @@
                 <div v-if="c.review_note" class="sub-line">审核意见：{{ c.review_note }}</div>
               </td>
               <td>{{ c.applicant || '-' }}</td>
-              <td>{{ (c.created_at || '').slice(0, 10) }}</td>
+              <td>{{ $fmtDate(c.created_at) }}</td>
               <td class="nw"><span class="tag" :class="changeTag(c.status)">{{ changeLabel(c.status) }}</span></td>
               <td class="nw">
                 <template v-if="c.status === 'pending' && canReview">
                   <button class="link-btn" @click="review(c, true)">通过</button>
                   <button class="link-btn danger" @click="review(c, false)">驳回</button>
                 </template>
-                <span v-else-if="c.status !== 'pending'" class="sub-line">{{ c.reviewer }} · {{ (c.reviewed_at || '').slice(0, 10) }}</span>
+                <span v-else-if="c.status !== 'pending'" class="sub-line">{{ c.reviewer }} · {{ $fmtDate(c.reviewed_at) }}</span>
                 <span v-else class="sub-line">等待审核</span>
               </td>
             </tr>
@@ -188,7 +188,7 @@
           <div v-for="c in detail.changes || []" :key="c.id" class="chg-row">
             <span class="tag" :class="changeTag(c.status)">{{ changeLabel(c.status) }}</span>
             {{ c.reason }}
-            <span class="sub-line">{{ c.applicant }} · {{ (c.created_at || '').slice(0, 16).replace('T', ' ') }}</span>
+            <span class="sub-line">{{ c.applicant }} · {{ $fmt(c.created_at) }}</span>
           </div>
           <div v-if="!(detail.changes || []).length" class="sub-line">暂无变更记录</div>
         </div>

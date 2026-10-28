@@ -299,7 +299,7 @@
           <h4 style="margin-top: 12px">迁移记录<small>数量守恒，占用随批次走</small></h4>
           <div class="tl">
             <div v-for="m in batchDetail.moves" :key="m.id" class="tl-row">
-              <span class="tiny muted mono">{{ m.created_at }}</span>
+              <span class="tiny muted mono">{{ $fmt(m.created_at) }}</span>
               <span class="tag gray">{{ m.from_stage ? (stageLabel(m.from_stage) + ' → ') : '' }}{{ stageLabel(m.to_stage) }}</span>
               <span class="tiny">{{ m.qty }}</span>
               <span class="tiny muted">{{ m.note }}</span>

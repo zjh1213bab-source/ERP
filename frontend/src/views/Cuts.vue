@@ -225,7 +225,7 @@
           <button class="btn btn-ghost" @click="cur = null">关闭</button>
           <button v-if="cur.status === 'cut_done'" class="btn btn-primary" :disabled="busy" @click="handover">P6 交接给缝制</button>
           <button v-if="cur.status === 'cutting'" class="btn btn-primary" :disabled="busy" @click="finish">完成裁剪</button>
-          <span v-if="cur.status === 'handed'" class="tag green">已交接 {{ (cur.handover_at || '').slice(0, 10) }}</span>
+          <span v-if="cur.status === 'handed'" class="tag green">已交接 {{ $fmtDate(cur.handover_at) }}</span>
         </div>
       </div>
     </div>

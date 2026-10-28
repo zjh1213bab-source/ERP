@@ -367,7 +367,7 @@
           </thead>
           <tbody>
             <tr v-for="a in afterSales" :key="a.id">
-              <td class="nowrap"><strong>{{ a.no }}</strong><div class="muted" style="font-size: 12px">{{ (a.created_at || '').slice(0, 10) }}</div></td>
+              <td class="nowrap"><strong>{{ a.no }}</strong><div class="muted" style="font-size: 12px">{{ $fmtDate(a.created_at) }}</div></td>
               <td class="nowrap">{{ a.channel_order_no || '-' }}<div class="muted" style="font-size: 12px">{{ a.retail_no }}</div></td>
               <td class="nowrap">{{ a.type_label }}</td>
               <td>{{ a.reason || '-' }}</td>

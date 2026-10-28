@@ -72,7 +72,7 @@
           <tbody>
             <tr v-for="l in leads" :key="l.id" :class="{ 'row-bad': l.is_response_late }">
               <td class="nowrap"><a class="lnk" @click="openLead(l.id)">{{ l.lead_no }}</a>
-                <div class="tiny muted">{{ (l.created_at || '').slice(0, 10) }}</div></td>
+                <div class="tiny muted">{{ $fmtDate(l.created_at) }}</div></td>
               <td><b>{{ l.customer_name_raw }}</b>
                 <div class="tiny muted">{{ [l.contact, l.country].filter(Boolean).join(' · ') || '—' }}<span v-if="l.dup_cnt"> · 有 {{ l.dup_cnt }} 条疑似重复</span></div></td>
               <td class="tiny nowrap">{{ l.source_label }}</td>
@@ -408,7 +408,7 @@
             <div v-for="d in lead.dups" :key="d.id" class="dup-row">
               <span class="mono tiny">{{ d.lead_no }}</span>
               <span class="tiny">{{ d.owner_name || '公海' }}</span>
-              <span class="tiny muted">{{ d.created_at }}</span>
+              <span class="tiny muted">{{ $fmt(d.created_at) }}</span>
               <div class="spacer"></div>
               <button v-if="canWrite && lead.stage !== 'lost'" class="link-btn" @click="mergeInto(d)">合并到这条</button>
             </div>
@@ -438,7 +438,7 @@
           <h4 style="margin-top: 16px">流转记录</h4>
           <div class="tl">
             <div v-for="g in lead.logs" :key="g.id" class="tl-row">
-              <span class="tiny muted mono">{{ g.created_at }}</span>
+              <span class="tiny muted mono">{{ $fmt(g.created_at) }}</span>
               <span class="tag gray">{{ logAction(g.action) }}</span>
               <span class="tiny">{{ g.note }}</span>
               <span v-if="g.evidence" class="tiny muted">（{{ g.evidence }}）</span>

@@ -38,6 +38,19 @@ export function fmtTime(s, dateOnly = false) {
   return `${ymd} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** 带秒（日志/备份这类要看秒的地方） */
+export function fmtTimeSec(s) {
+  if (!s) return '—';
+  const raw = String(s).trim();
+  if (!hasZone(raw)) {
+    const flat = raw.replace('T', ' ');
+    return flat.length > 19 ? flat.slice(0, 19) : flat;
+  }
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw.replace('T', ' ').slice(0, 19);
+  return fmtTime(raw) + ':' + String(d.getSeconds()).padStart(2, '0');
+}
+
 /** 只要日期 */
 export function fmtDate(s) {
   return fmtTime(s, true);

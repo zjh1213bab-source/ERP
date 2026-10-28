@@ -235,15 +235,15 @@
                 </span>
                 <b>{{ a.qty }}</b>
                 <span class="sub-cell">{{ a.reason || '-' }}</span>
-                <span class="muted">{{ a.operator }} · {{ (a.created_at || '').slice(0, 16).replace('T', ' ') }}</span>
+                <span class="muted">{{ a.operator }} · {{ $fmt(a.created_at) }}</span>
               </li>
             </ul>
           </div>
         </div>
         <div class="modal-foot">
           <span class="muted" style="margin-right: auto; font-size: 12px">
-            <template v-if="cur.inspect_by">检验 {{ cur.inspect_by }} · {{ (cur.inspect_at || '').slice(0, 16).replace('T', ' ') }}</template>
-            <template v-else>点收 {{ (cur.receive_at || '').slice(0, 16).replace('T', ' ') }}</template>
+            <template v-if="cur.inspect_by">检验 {{ cur.inspect_by }} · {{ $fmt(cur.inspect_at) }}</template>
+            <template v-else>点收 {{ $fmt(cur.receive_at) }}</template>
           </span>
           <button class="btn btn-ghost" @click="cur = null">关闭</button>
           <button v-if="cur.can_cancel" class="btn btn-danger" :disabled="busy" @click="cancelGrn">作废</button>

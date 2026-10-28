@@ -5403,6 +5403,45 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 时间显示口径 =================
+  {
+    console.log('\n[时间显示口径]');
+
+    const T = require('../src/utils/time');
+    ok('UTC 时间转本地（+8 小时）',
+      T.localTime('2026-10-27T16:44:54.772Z') === '2026-10-28 00:44',
+      T.localTime('2026-10-27T16:44:54.772Z'));
+    ok('带秒版本保留秒',
+      T.localTimeSec('2026-10-27T16:44:54.772Z') === '2026-10-28 00:44:54',
+      T.localTimeSec('2026-10-27T16:44:54.772Z'));
+    ok('本地日期字符串不被二次转换',
+      T.localTime('2026-10-28') === '2026-10-28' && T.localDate('2026-10-28') === '2026-10-28',
+      T.localTime('2026-10-28'));
+    ok('本地时间戳原样返回',
+      T.localTime('2026-10-28 08:25:05') === '2026-10-28 08:25',
+      T.localTime('2026-10-28 08:25:05'));
+    ok('空值与非法值不抛异常',
+      T.localTime(null) === '' && T.localTime('') === '' && typeof T.localTime('abc') === 'string',
+      `null→"${T.localTime(null)}" / abc→"${T.localTime('abc')}"`);
+
+    // 导出 CSV 里的时间必须是本地格式，不能是 ISO（带 T 和 Z）
+    const csvRes = await fetch(BASE + '/api/orders/export', { headers: { Authorization: 'Bearer ' + token } });
+    const csvText = csvRes.status === 200 ? await csvRes.text() : '';
+    const csvLines = csvText.split(/\r?\n/).filter(Boolean);
+    ok('订单导出可访问（CSV）', csvRes.status === 200 && csvLines.length >= 1,
+      `HTTP ${csvRes.status}，${csvLines.length} 行`);
+
+    // 创建时间列在最后一位：不能出现 ISO 的 T/Z
+    const hasIso = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(csvText);
+    ok('导出里没有 ISO 时间（不带 T/Z）', !hasIso,
+      hasIso ? '找到了 2026-..T.. 形式的时间' : '已转为本地格式');
+
+    const lastCellTime = csvLines.slice(1).map((l) => l.split(',')[l.split(',').length - 2]).filter((x) => /^\d{4}-\d{2}-\d{2}/.test(x || ''));
+    ok('创建时间是本地「YYYY-MM-DD HH:mm」格式',
+      lastCellTime.length === 0 || lastCellTime.every((x) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(x)),
+      lastCellTime[0] || '（无订单数据）');
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

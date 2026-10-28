@@ -69,7 +69,7 @@
           </thead>
           <tbody>
             <tr v-for="r in recruitments" :key="r.id">
-              <td class="nowrap"><strong>{{ r.req_no }}</strong><div class="muted" style="font-size: 12px">{{ (r.opened_at || '').slice(0, 10) }} 起 · {{ r.opened_days }} 天</div></td>
+              <td class="nowrap"><strong>{{ r.req_no }}</strong><div class="muted" style="font-size: 12px">{{ $fmtDate(r.opened_at) }} 起 · {{ r.opened_days }} 天</div></td>
               <td class="nowrap">{{ r.position }}<div class="muted" style="font-size: 12px">{{ r.department_name || '-' }}</div></td>
               <td class="nowrap">{{ r.headcount }} / {{ r.hired }}</td>
               <td class="num"><span :style="r.gap > 0 ? '' : 'color:#1e874b;font-weight:700'">{{ r.gap }}</span></td>

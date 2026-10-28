@@ -193,7 +193,7 @@
           </thead>
           <tbody>
             <tr v-for="u in usages" :key="u.id" :class="{ 'row-risk': u.recheck_required || u.borrow_overdue }">
-              <td class="mono">{{ u.usage_no }}<div class="tiny muted">{{ (u.created_at || '').slice(0, 10) }}</div></td>
+              <td class="mono">{{ u.usage_no }}<div class="tiny muted">{{ $fmtDate(u.created_at) }}</div></td>
               <td><span class="tag" :class="u.kind === 'borrow' ? 'orange' : 'gray'">{{ u.kind_label }}</span></td>
               <td>{{ u.seal_company }}<div class="tiny muted">{{ u.seal_name }}</div></td>
               <td class="tiny wrap">
@@ -263,7 +263,7 @@
           <thead><tr><th style="width: 150px">时间</th><th style="width: 100px">档案</th><th>名称</th><th style="width: 90px">级别</th><th style="width: 80px">动作</th><th style="width: 130px">操作人</th><th>原因</th></tr></thead>
           <tbody>
             <tr v-for="l in accessLogs" :key="l.id">
-              <td class="tiny mono">{{ (l.created_at || '').replace('T', ' ').slice(0, 16) }}</td>
+              <td class="tiny mono">{{ $fmt(l.created_at) }}</td>
               <td class="tiny">{{ { certificate: '证照', contract: '合同', seal_usage: '用印' }[l.doc_type] || l.doc_type }}</td>
               <td>{{ l.doc_name }}</td>
               <td><span class="tag" :class="l.access_level === 'public' ? 'gray' : 'orange'">{{ l.access_level === 'public' ? '公开' : '受控' }}</span></td>
@@ -298,7 +298,7 @@
             <span>期限 <b>{{ cur.start_date }} ~ {{ cur.end_date }}</b></span>
             <span>续约提醒 <b>到期前 {{ cur.renewal_notice_days }} 天</b></span>
           </div>
-          <p v-if="cur.status === 'terminated'" class="hint-bar amt-red">已终止：{{ cur.terminated_reason }}（{{ cur.terminated_by }} · {{ (cur.terminated_at || '').slice(0, 16) }}）</p>
+          <p v-if="cur.status === 'terminated'" class="hint-bar amt-red">已终止：{{ cur.terminated_reason }}（{{ cur.terminated_by }} · {{ $fmt(cur.terminated_at) }}）</p>
           <p v-if="cur.renewal_basis" class="hint-bar">续签依据：{{ cur.renewal_basis }}</p>
 
           <div class="row-between">
@@ -315,7 +315,7 @@
                   <td class="mono tiny">{{ v.doc_hash || '未记录' }}</td>
                   <td class="tiny wrap">{{ v.change_note || '-' }}</td>
                   <td class="tiny">{{ v.changed_by || '-' }}</td>
-                  <td class="tiny">{{ (v.changed_at || '').replace('T', ' ').slice(0, 16) }}</td>
+                  <td class="tiny">{{ $fmt(v.changed_at) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -335,7 +335,7 @@
                   <td class="mono tiny">{{ m.due_date }}</td>
                   <td class="num">{{ m.amount ? money(m.amount) : '-' }}</td>
                   <td><span class="tag" :class="msTag(m.effective_status)">{{ m.status_label }}</span></td>
-                  <td class="tiny">{{ m.done_at ? (m.done_at || '').slice(0, 10) + ' ' + (m.done_by || '') : '-' }}</td>
+                  <td class="tiny">{{ m.done_at ? $fmtDate(m.done_at) + ' ' + (m.done_by || '') : '-' }}</td>
                   <td class="ops">
                     <button v-if="canWrite && ['pending', 'overdue'].includes(m.effective_status)" class="link-btn" @click="doneMs(m, cur)">完成</button>
                     <button v-if="canWrite && m.effective_status !== 'done' && m.type !== 'deposit_return' && m.effective_status !== 'waived'" class="link-btn" @click="waiveMs(m, cur)">豁免</button>

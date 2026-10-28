@@ -361,7 +361,7 @@
           <span class="muted" style="margin-right: auto; font-size: 12px">
             <template v-if="cur.fa && cur.fa.inspector">制作/测量 {{ cur.fa.inspector }} · </template>
             <template v-if="cur.fa && cur.fa.released_by">放行 {{ cur.fa.released_by }} · </template>
-            <template v-if="cur.fa && cur.fa.released_at">{{ (cur.fa.released_at || '').slice(0, 16).replace('T', ' ') }}</template>
+            <template v-if="cur.fa && cur.fa.released_at">{{ $fmt(cur.fa.released_at) }}</template>
           </span>
           <button class="btn btn-ghost" @click="close">关闭</button>
           <template v-if="!cur.fa">

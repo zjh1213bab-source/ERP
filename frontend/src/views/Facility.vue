@@ -206,7 +206,7 @@
           <thead><tr><th>时间</th><th>员工</th><th>类型</th><th>金额</th><th>个人变动</th><th>补贴变动</th><th>来源</th><th>回执号</th><th>备注</th></tr></thead>
           <tbody>
             <tr v-for="t in txs" :key="t.id">
-              <td class="nowrap">{{ (t.created_at || '').slice(0, 16).replace('T', ' ') }}</td>
+              <td class="nowrap">{{ $fmt(t.created_at) }}</td>
               <td class="nowrap">{{ t.employee_name }}</td>
               <td class="nowrap">{{ t.type_label }}</td>
               <td class="num">{{ money(t.amount) }}</td>
@@ -413,7 +413,7 @@
           <thead><tr><th>巡检单</th><th>区域 / 设施</th><th>检查项</th><th>结果</th><th>巡检人</th><th>已转报修</th></tr></thead>
           <tbody>
             <tr v-for="r in checks" :key="r.id">
-              <td class="nowrap"><strong>{{ r.check_no }}</strong><div class="muted" style="font-size: 12px">{{ (r.checked_at || '').slice(0, 10) }}</div></td>
+              <td class="nowrap"><strong>{{ r.check_no }}</strong><div class="muted" style="font-size: 12px">{{ $fmtDate(r.checked_at) }}</div></td>
               <td class="nowrap">{{ r.area_label }}<div class="muted" style="font-size: 12px">{{ r.facility || '-' }}</div></td>
               <td style="max-width: 300px; white-space: normal">
                 <span v-for="(it, i) in r.items" :key="i" class="tag" :class="it.result === 'ng' ? 'red' : 'green'" style="margin: 0 4px 4px 0">
@@ -435,7 +435,7 @@
           <thead><tr><th>报修单</th><th>区域 / 设施</th><th>问题</th><th>紧急度</th><th>停用影响</th><th>状态</th><th v-if="canWrite">操作</th></tr></thead>
           <tbody>
             <tr v-for="r in repairList" :key="r.id">
-              <td class="nowrap"><strong>{{ r.repair_no }}</strong><div class="muted" style="font-size: 12px">{{ (r.reported_at || '').slice(0, 10) }}</div></td>
+              <td class="nowrap"><strong>{{ r.repair_no }}</strong><div class="muted" style="font-size: 12px">{{ $fmtDate(r.reported_at) }}</div></td>
               <td class="nowrap">{{ r.area_label }}<div class="muted" style="font-size: 12px">{{ r.facility }}</div></td>
               <td style="max-width: 240px; white-space: normal">{{ r.description || '-' }}</td>
               <td class="nowrap"><span class="tag" :class="r.severity === 'critical' ? 'red' : r.severity === 'major' ? 'orange' : 'gray'">{{ r.severity_label }}</span></td>

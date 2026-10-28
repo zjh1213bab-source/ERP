@@ -89,7 +89,7 @@
             <td>{{ r.eq_name }}<div class="tiny mono">{{ r.eq_no }}</div></td>
             <td>{{ r.work_center }}</td>
             <td><span class="tag" :class="r.type === 'breakdown' ? 'red' : 'blue'">{{ r.type_label }}</span></td>
-            <td class="tiny">{{ (r.start_at || '').slice(0, 16) }}<br />→ {{ r.end_at ? r.end_at.slice(0, 16) : '未恢复' }}</td>
+            <td class="tiny">{{ $fmt(r.start_at) }}<br />→ {{ r.end_at ? $fmt(r.end_at) : '未恢复' }}</td>
             <td class="num">{{ fmt(r.occupied_hours) }}</td>
             <td class="num">{{ fmt(r.capacity_loss) }}<div class="tiny">件</div></td>
             <td class="wrap tiny">

@@ -4,6 +4,7 @@
  * 美金计价，汇率取后台设置（默认6.5），自动折人民币
  */
 const express = require('express');
+const { localTime } = require('../utils/time');
 const { db, now, getSettings } = require('../db');
 const { ensureNodes } = require('../services/production');
 const { applyStock, addLedger } = require('../services/stockOps');
@@ -127,7 +128,7 @@ router.get('/export', authRequired, wrap(async (req, res) => {
       o.order_no, o.type === 'stock' ? '现货' : '定制', o.customer_name || '', o.style_name || '',
       o.cus_order_no || '', o.manager || '', o.order_date || '', o.delivery_date || '',
       o.delivery_method || '', o.trade_terms || '', STATUS_LABELS[o.status] || o.status,
-      o.total_usd, o.total_amount, o.created_at
+      o.total_usd, o.total_amount, localTime(o.created_at)
     ].map(csvCell).join(','));
   });
   const csv = '\ufeff' + lines.join('\r\n');

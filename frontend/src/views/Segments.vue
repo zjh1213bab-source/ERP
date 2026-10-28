@@ -211,8 +211,8 @@
               <td class="num tiny" :class="{ red: r.issue_count }">{{ r.issue_count }}</td>
               <td><span class="tag" :class="r.status === 'confirmed' ? 'green' : 'orange'">{{ r.status === 'confirmed' ? '已确认·冻结' : '草稿' }}</span></td>
               <td class="tiny muted">
-                {{ String(r.created_at).slice(0, 16).replace('T', ' ') }} {{ r.created_by }}
-                <div v-if="r.confirmed_at">{{ String(r.confirmed_at).slice(0, 16).replace('T', ' ') }} {{ r.confirmed_by }}</div>
+                {{ $fmt(r.created_at) }} {{ r.created_by }}
+                <div v-if="r.confirmed_at">{{ $fmt(r.confirmed_at) }} {{ r.confirmed_by }}</div>
               </td>
               <td class="ops">
                 <button v-if="r.status === 'draft' && canWrite" class="btn btn-primary btn-sm" @click="doConfirm(r)">确认</button>

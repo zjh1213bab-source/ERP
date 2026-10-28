@@ -616,7 +616,7 @@
             <thead><tr><th>时间</th><th>仓库</th><th>类型</th><th class="num">数量</th><th>操作人</th><th>备注</th></tr></thead>
             <tbody>
               <tr v-for="(l, i) in trace.ledger" :key="i">
-                <td>{{ (l.created_at || '').replace('T', ' ').slice(0, 16) }}</td>
+                <td>{{ $fmt(l.created_at) }}</td>
                 <td>{{ l.warehouse === 'cn' ? '生产仓' : '美仓' }}</td>
                 <td>{{ l.type }}</td><td class="num">{{ l.qty }}</td>
                 <td>{{ l.operator || '-' }}</td><td>{{ l.remark || '-' }}</td>

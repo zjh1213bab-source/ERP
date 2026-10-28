@@ -185,7 +185,7 @@
         <div v-if="changes.length" class="hint-bar" style="margin-top: 12px">
           <b>人工调整留痕（{{ changes.length }} 条）</b>
           <div v-for="c in changes.slice(0, 6)" :key="c.id" class="tiny" style="margin-top: 4px">
-            · {{ c.created_at.slice(5, 16) }} {{ c.order_no }} {{ c.process_name }}：{{ c.field }} {{ c.old_value || '空' }} → {{ c.new_value || '空' }}；原因：{{ c.reason }}（{{ c.operator }}）
+            · {{ $fmt(c.created_at).slice(5) }} {{ c.order_no }} {{ c.process_name }}：{{ c.field }} {{ c.old_value || '空' }} → {{ c.new_value || '空' }}；原因：{{ c.reason }}（{{ c.operator }}）
           </div>
         </div>
       </template>
@@ -221,7 +221,7 @@
               <td class="num tiny" :class="{ red: r.late_count }">{{ r.late_count }}</td>
               <td class="num tiny">{{ num(r.util_rate) }}%</td>
               <td><span class="tag" :class="tagOfStatus(r.status)">{{ statusLabel(r.status) }}</span></td>
-              <td class="tiny muted">{{ String(r.created_at).slice(0, 16).replace('T', ' ') }}</td>
+              <td class="tiny muted">{{ $fmt(r.created_at) }}</td>
               <td class="ops">
                 <button v-if="canPublish && r.status === 'draft'" class="btn btn-primary btn-sm" @click="doPublish(r)">发布</button>
                 <button v-if="canPublish && !r.is_current && r.status !== 'archived'" class="btn btn-ghost btn-sm" @click="doArchive(r)">归档</button>

@@ -90,7 +90,7 @@
             <thead><tr><th style="width: 150px">时间</th><th style="width: 90px">级别</th><th style="width: 120px">发给</th><th>内容</th></tr></thead>
             <tbody>
               <tr v-for="r in board.reminders" :key="r.id">
-                <td class="mono tiny">{{ (r.sent_at || '').slice(0, 16) }}</td>
+                <td class="mono tiny">{{ $fmt(r.sent_at) }}</td>
                 <td><span class="tag" :class="r.level === 'overdue' ? 'red' : r.level === 'escalate' ? 'orange' : 'gray'">
                   {{ r.level === 'overdue' ? '超时' : r.level === 'escalate' ? '升级' : '临近' }}
                 </span></td>
@@ -256,7 +256,7 @@
                   <td><span class="tag" :class="v.status === 'effective' ? 'green' : v.status === 'retired' ? 'gray' : 'orange'">{{ v.status_label }}</span></td>
                   <td class="tiny wrap">{{ v.change_note || '-' }}</td>
                   <td class="tiny">{{ v.created_by || '-' }}</td>
-                  <td class="tiny">{{ (v.created_at || '').slice(0, 16) }}</td>
+                  <td class="tiny">{{ $fmt(v.created_at) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -272,7 +272,7 @@
                   <td>{{ a.employee_name }}</td>
                   <td class="tiny">{{ a.position || '-' }}</td>
                   <td><span class="tag" :class="a.acked_at ? 'green' : 'orange'">{{ a.acked_at ? '已签收' : '待补签' }}</span></td>
-                  <td class="tiny">{{ a.acked_at ? a.acked_at.slice(0, 16) : '-' }}</td>
+                  <td class="tiny">{{ a.acked_at ? $fmt(a.acked_at) : '-' }}</td>
                   <td><button v-if="!a.acked_at && a.version === cur.current_version" class="link-btn" @click="ack(a)">登记签收</button></td>
                 </tr>
                 <tr v-if="!cur.acks.length"><td colspan="6" class="empty-cell">还没有签收记录（制度未发布或岗位无人）</td></tr>

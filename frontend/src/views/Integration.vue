@@ -148,7 +148,7 @@
           <tbody>
             <tr v-for="r in events" :key="r.id">
               <td class="nowrap"><strong style="font-family: monospace; font-size: 12px">{{ r.event_id }}</strong>
-                <div class="muted" style="font-size: 12px">{{ (r.created_at || '').slice(0, 16).replace('T', ' ') }}</div>
+                <div class="muted" style="font-size: 12px">{{ $fmt(r.created_at) }}</div>
               </td>
               <td class="nowrap">{{ r.direction === 'in' ? '接收' : '发出' }}
                 <div class="muted" style="font-size: 12px">{{ r.endpoint_name || r.endpoint_code || '-' }}</div>
@@ -156,7 +156,7 @@
               <td class="nowrap">{{ r.topic_label }}</td>
               <td class="nowrap"><span class="tag" :class="evTag(r.status)">{{ r.status_label }}</span></td>
               <td class="num">{{ r.attempts }}/{{ r.max_attempts }}</td>
-              <td class="nowrap muted">{{ r.next_retry_at ? r.next_retry_at.slice(0, 16).replace('T', ' ') : '-' }}</td>
+              <td class="nowrap muted">{{ r.next_retry_at ? $fmt(r.next_retry_at) : '-' }}</td>
               <td style="max-width: 320px; white-space: normal">
                 <span v-if="r.result_ref" class="tag green">{{ r.result_ref }}</span>
                 <span v-if="r.last_error" class="muted" style="font-size: 12px">{{ r.last_error }}</span>
@@ -182,7 +182,7 @@
           <thead><tr><th>时间</th><th>订单</th><th>承运 / 单号</th><th>状态</th><th>地点</th><th>来源</th><th>校正</th><th v-if="canWrite">操作</th></tr></thead>
           <tbody>
             <tr v-for="r in shipments" :key="r.id">
-              <td class="nowrap">{{ (r.event_time || r.created_at || '').slice(0, 16).replace('T', ' ') }}</td>
+              <td class="nowrap">{{ $fmt(r.event_time || r.created_at) }}</td>
               <td class="nowrap">{{ r.order_no }}</td>
               <td class="nowrap">{{ r.carrier || '-' }}<div class="muted" style="font-size: 12px">{{ r.tracking_no || '' }}</div></td>
               <td style="max-width: 220px; white-space: normal">
@@ -253,7 +253,7 @@
           <thead><tr><th>时间</th><th>接入点</th><th>请求</th><th>状态码</th><th>IP</th><th>耗时</th><th>说明</th></tr></thead>
           <tbody>
             <tr v-for="r in calls" :key="r.id">
-              <td class="nowrap">{{ (r.created_at || '').slice(0, 19).replace('T', ' ') }}</td>
+              <td class="nowrap">{{ $fmtSec(r.created_at) }}</td>
               <td class="nowrap">{{ r.endpoint_code || '-' }}</td>
               <td class="nowrap muted">{{ r.method }} {{ r.path }}</td>
               <td class="nowrap">

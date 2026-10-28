@@ -182,7 +182,7 @@
                 <td class="tiny">{{ s.color || '—' }}</td>
                 <td class="tiny">{{ s.size || '—' }}</td>
                 <td class="num"><b>{{ s.qty }}</b></td>
-                <td class="tiny muted">{{ (s.updated_at || '').slice(0, 16) }}</td>
+                <td class="tiny muted">{{ $fmt(s.updated_at) }}</td>
               </tr>
             </tbody>
           </table>
@@ -251,7 +251,7 @@
                 <td class="num muted">{{ o.before_qty }}</td>
                 <td class="num"><b>{{ o.after_qty }}</b></td>
                 <td class="wrap tiny">{{ o.remark || '—' }}</td>
-                <td class="tiny muted">{{ (o.created_at || '').slice(5, 16) }}</td>
+                <td class="tiny muted">{{ $fmt(o.created_at).slice(5) }}</td>
                 <td class="tiny">{{ o.operator || '—' }}</td>
               </tr>
             </tbody>
@@ -639,7 +639,7 @@
                 <td class="mono">{{ p.location_code }}</td>
                 <td class="tiny">{{ p.zone_label }}</td>
                 <td class="num">{{ p.qty }}</td>
-                <td class="tiny muted">{{ (p.put_at || '').slice(5, 16) }}</td>
+                <td class="tiny muted">{{ $fmt(p.put_at).slice(5) }}</td>
               </tr>
             </tbody>
           </table>

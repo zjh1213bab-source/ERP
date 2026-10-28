@@ -408,7 +408,7 @@
                   <div class="st-body">
                     <b>{{ s.seq }}. {{ s.name }}</b>
                     <div class="tiny muted">{{ s.owner || '未指定' }}<template v-if="s.due_date"> · 期限 {{ s.due_date }}</template>
-                      <template v-if="s.status === 'done'"> · 完成 {{ (s.done_at || '').slice(0, 10) }}</template>
+                      <template v-if="s.status === 'done'"> · 完成 {{ $fmtDate(s.done_at) }}</template>
                     </div>
                   </div>
                   <button v-if="canWrite && s.status !== 'done'" class="link-btn" @click="finishStep(s)">完成</button>
@@ -422,7 +422,7 @@
               <h4 style="margin-top: 16px">流转记录</h4>
               <div class="log-list">
                 <div v-for="l in curTask.logs" :key="l.id" class="log">
-                  <span class="tiny muted">{{ l.created_at }}</span>
+                  <span class="tiny muted">{{ $fmt(l.created_at) }}</span>
                   <span>{{ l.from_status ? (labelOf(l.from_status) + ' → ') : '' }}<b>{{ labelOf(l.to_status) }}</b></span>
                   <span class="tiny muted">{{ l.operator }}{{ l.note ? ' · ' + l.note : '' }}</span>
                 </div>
@@ -555,7 +555,7 @@
             <div><span>版权来源</span><b>{{ curAsset.license_label }}</b></div>
             <div><span>有效期</span><b>{{ (curAsset.license_from || '—') + ' ~ ' + (curAsset.license_to || '长期') }}</b></div>
             <div><span>对齐技术资料</span><b>{{ curAsset.tech_version || '—' }}</b></div>
-            <div><span>审核</span><b>{{ curAsset.reviewed_by || '—' }} {{ (curAsset.reviewed_at || '').slice(0, 16) }}</b></div>
+            <div><span>审核</span><b>{{ curAsset.reviewed_by || '—' }} {{ $fmt(curAsset.reviewed_at) }}</b></div>
           </div>
           <p v-if="curAsset.review_note" class="tiny muted">审核意见：{{ curAsset.review_note }}</p>
           <h4>被这些任务引用</h4>

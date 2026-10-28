@@ -53,7 +53,7 @@
             <div class="pline">版号：{{ f.version }} · {{ f.product_name }}</div>
             <div class="pline">打板尺码：{{ f.stage_map[s.key] && f.stage_map[s.key].pattern_size || f.order_no || '-' }}</div>
             <div class="pline">客户：{{ f.customer_name || '-' }}</div>
-            <div class="pline">创建：{{ (f.started_at || '').slice(0, 10) }}</div>
+            <div class="pline">创建：{{ $fmtDate(f.started_at) }}</div>
             <div class="pline muted" v-if="f.stage_map[s.key] && f.stage_map[s.key].remark">备注：{{ f.stage_map[s.key].remark }}</div>
             <div class="pmeta">
               <span>作业 {{ f.stage_map[s.key] && f.stage_map[s.key].work_hours || 0 }}h</span>
@@ -78,7 +78,7 @@
             </div>
             <div class="pline">订单：{{ f.order_no || '-' }}</div>
             <div class="pline">客户：{{ f.customer_name || '-' }}</div>
-            <div class="pline muted">完成：{{ (f.finished_at || '').slice(0, 10) }}</div>
+            <div class="pline muted">完成：{{ $fmtDate(f.finished_at) }}</div>
             <div class="pacts">
               <button class="link-btn" @click.stop="openStage(f, 'audit')">查看打版记录</button>
               <button class="link-btn" @click.stop="goSample(f)">样衣档案 →</button>
