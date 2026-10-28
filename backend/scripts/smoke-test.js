@@ -6203,6 +6203,249 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('对账单需要登录', noAuthSt.status === 401, `HTTP ${noAuthSt.status}`);
   }
 
+  // ================= 客户信用与账期 =================
+  {
+    console.log('\n— 客户信用与账期 —');
+    const { db } = require('../src/db');
+    const TAG = 'SMOKECREDIT';
+    const STYLE = 'SMOKECREDIT-ST';
+    const loginAs = async (u) => {
+      const r = await fetch(BASE + '/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: PASS })
+      });
+      const j = await r.json().catch(() => ({}));
+      return j && j.ok ? j.data.token : null;
+    };
+
+    const clean = () => {
+      db.prepare("DELETE FROM credit_overrides WHERE reason LIKE 'SMOKE%'").run();
+      const ids = db.prepare('SELECT id FROM orders WHERE order_no LIKE ?').all('SMOKEC%').map((r) => r.id);
+      ids.forEach((id) => {
+        db.prepare('DELETE FROM order_logs WHERE order_id = ?').run(id);
+        db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+        db.prepare('DELETE FROM stock_ledger WHERE ref_type = ? AND ref_id = ?').run('order', id);
+        db.prepare('DELETE FROM orders WHERE id = ?').run(id);
+      });
+      db.prepare("DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id NOT IN (SELECT id FROM orders))").run();
+      db.prepare("DELETE FROM ar_invoices WHERE bill_no LIKE 'SMOKECREDIT%'").run();
+      db.prepare("DELETE FROM stock_items WHERE style_no = ?").run(STYLE);
+      const cs = db.prepare("SELECT id FROM customers WHERE code = ?").all(TAG);
+      cs.forEach((c) => {
+        db.prepare('DELETE FROM credit_limits WHERE customer_id = ?').run(c.id);
+        db.prepare('DELETE FROM credit_holds WHERE customer_id = ?').run(c.id);
+        db.prepare('DELETE FROM credit_overrides WHERE customer_id = ?').run(c.id);
+        db.prepare('DELETE FROM customers WHERE id = ?').run(c.id);
+      });
+      return ids.length;
+    };
+    clean();
+
+    const t = new Date().toISOString();
+    const custId = db.prepare(
+      `INSERT INTO customers (code, name, level, credit_limit, credit_days, credit_status, created_at, updated_at)
+       VALUES (?, '冒烟·信用测试客户', 'B', 1000, 30, 'active', ?, ?)`
+    ).run(TAG, t, t).lastInsertRowid;
+
+    // 一张已入库、金额远超额度的订单（还能拿它试发货）
+    const orderId = db.prepare(
+      `INSERT INTO orders (order_no, type, customer_id, status, rate, total_usd, total_amount, currency, style_name, created_at, updated_at)
+       VALUES ('SMOKEC01', 'custom', ?, 'instock', 7, 700, 5000, 'CNY', '冒烟信用款', ?, ?)`
+    ).run(custId, t, t).lastInsertRowid;
+    const itemId = db.prepare(
+      `INSERT INTO order_items (order_id, product_name, style_no, sku, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?)`
+    ).run(orderId, '冒烟信用款', STYLE, STYLE + '-SKU', 100, 714, 5000).lastInsertRowid;
+    db.prepare(
+      `INSERT INTO order_item_sizes (item_id, color, size, qty, usd_price, cny_price, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?)`
+    ).run(itemId, '黑色', 'M', 100, 7.14, 50, 714, 5000);
+    db.prepare(
+      `INSERT INTO stock_items (warehouse, style_no, product_name, color, size, qty, updated_at) VALUES ('cn',?,?,?,?,?,?)`
+    ).run(STYLE, '冒烟信用款', '黑色', 'M', 100, t);
+
+    // 一张已逾期 20 天的发票：逾期 + 超宽限期
+    db.prepare(
+      `INSERT INTO ar_invoices (bill_no, customer_id, customer_name, currency, amount_orig, rate, amount,
+        paid_amount, due_date, status, source, created_at, updated_at)
+       VALUES ('SMOKECREDIT-INV', ?, '冒烟·信用测试客户', 'CNY', 3000, 7, 3000, 0, ?, 'unpaid', 'manual', ?, ?)`
+    ).run(custId, new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10), t, t);
+
+    // ---------- 台账 ----------
+    const bd = await req('/api/credit/board', { token });
+    const mine = (bd.json.data.rows || []).find((r) => r.customer.id === Number(custId));
+    ok('台账能算出这家客户的敞口（票 3000 + 单 5000）',
+      bd.status === 200 && mine && Number(mine.figures.exposure) === 8000,
+      `HTTP ${bd.status} exposure=${mine && mine.figures.exposure}`);
+    ok('台账把它标成超额度', mine && mine.risk === 'over', mine && mine.risk);
+    ok('台账带出逾期金额与最长逾期天数',
+      mine && Number(mine.figures.overdue) === 3000 && mine.figures.max_overdue_days >= 19,
+      `${mine && mine.figures.overdue} / ${mine && mine.figures.max_overdue_days}`);
+
+    const one = await req('/api/credit/' + custId, { token });
+    ok('单客户画像含发票与在途订单明细',
+      one.status === 200 && (one.json.data.invoices || []).length === 1 && (one.json.data.orders || []).length === 1,
+      `inv=${((one.json.data || {}).invoices || []).length} ord=${((one.json.data || {}).orders || []).length}`);
+
+    // ---------- 预检 ----------
+    const chk = await req('/api/credit/check/' + orderId, { token });
+    const cj = chk.json.data || {};
+    ok('预检判定为拦截', chk.status === 200 && cj.blocked === true, cj.level);
+    ok('预检同时给出「超额度」和「逾期」两条理由',
+      (cj.reasons || []).some((r) => r.includes('超额度')) && (cj.reasons || []).some((r) => r.includes('逾期')),
+      JSON.stringify(cj.reasons));
+
+    // ---------- 发货被拦 ----------
+    const ship1 = await req('/api/stock/ship', { method: 'POST', token, body: { order_id: orderId, warehouse: 'cn' } });
+    ok('超限订单发货被拦（CREDIT_BLOCK）',
+      ship1.status === 400 && ship1.json.code === 'CREDIT_BLOCK', `HTTP ${ship1.status}`);
+    ok('被拦时订单状态与库存都没动',
+      db.prepare('SELECT status FROM orders WHERE id = ?').get(orderId).status === 'instock' &&
+        db.prepare('SELECT qty FROM stock_items WHERE style_no = ?').get(STYLE).qty === 100,
+      db.prepare('SELECT status FROM orders WHERE id = ?').get(orderId).status);
+
+    // ---------- 空明细单不许「发货」 ----------
+    // （回归：原来没有明细的单也能被标成已发货，货一件没出库，状态还退不回来）
+    const emptyId = db.prepare(
+      `INSERT INTO orders (order_no, type, customer_id, status, rate, total_usd, total_amount, currency, created_at, updated_at)
+       VALUES ('SMOKEC02', 'custom', NULL, 'instock', 7, 0, 0, 'CNY', ?, ?)`
+    ).run(t, t).lastInsertRowid;
+    const shipEmpty = await req('/api/stock/ship', { method: 'POST', token, body: { order_id: emptyId, warehouse: 'cn' } });
+    ok('没有明细的订单不许发货（货没出库就别改状态）',
+      shipEmpty.status === 400 && /明细/.test(shipEmpty.json.message || ''), `HTTP ${shipEmpty.status} ${shipEmpty.json.message}`);
+
+    // ---------- 调额度 ----------
+    const shortReason = await req('/api/credit/' + custId, {
+      method: 'PUT', token, body: { credit_limit: 9000, credit_days: 30, reason: '调' }
+    });
+    ok('调额度必须写原因（太短被拒）', shortReason.status === 400, `HTTP ${shortReason.status}`);
+
+    const same = await req('/api/credit/' + custId, {
+      method: 'PUT', token, body: { credit_limit: 1000, credit_days: 30, reason: '冒烟：数值没变' }
+    });
+    ok('额度和账期都没变时拒绝（避免刷一堆无意义记录）', same.status === 400, `HTTP ${same.status}`);
+
+    const setOk = await req('/api/credit/' + custId, {
+      method: 'PUT', token, body: { credit_limit: 9000, credit_days: 45, reason: '冒烟：客户补了担保函，追加授信' }
+    });
+    ok('调额度成功并返回新画像',
+      setOk.status === 200 && Number(setOk.json.data.figures.limit) === 9000 && setOk.json.data.customer.credit_days === 45,
+      `HTTP ${setOk.status}`);
+    ok('额度变更进历史表（可追溯）',
+      db.prepare('SELECT COUNT(*) c FROM credit_limits WHERE customer_id = ?').get(custId).c >= 1);
+    ok('额度够用后不再因为「超额度」被拦',
+      !((await req('/api/credit/check/' + orderId, { token })).json.data.reasons || []).some((r) => r.includes('超额度')));
+
+    // ---------- 冻结 ----------
+    const hold = await req(`/api/credit/${custId}/hold`, {
+      method: 'POST', token, body: { action: 'hold', reason: '冒烟：客户出现退票记录，先冻' }
+    });
+    ok('冻结成功', hold.status === 200 && hold.json.data.customer.credit_status === 'hold', `HTTP ${hold.status}`);
+    const chkHold = await req('/api/credit/check/' + orderId, { token });
+    ok('冻结后即使额度充足也被拦', chkHold.json.data.blocked === true, JSON.stringify(chkHold.json.data.reasons));
+    ok('拦截理由写明是冻结', (chkHold.json.data.reasons || []).some((r) => r.includes('冻结')), JSON.stringify(chkHold.json.data.reasons));
+    const shipHold = await req('/api/stock/ship', { method: 'POST', token, body: { order_id: orderId, warehouse: 'cn' } });
+    ok('冻结客户的发货被拦下', shipHold.status === 400 && shipHold.json.code === 'CREDIT_BLOCK', `HTTP ${shipHold.status}`);
+
+    const dupHold = await req(`/api/credit/${custId}/hold`, {
+      method: 'POST', token, body: { action: 'hold', reason: '冒烟：重复冻结' }
+    });
+    ok('重复冻结被拒', dupHold.status === 400, `HTTP ${dupHold.status}`);
+
+    const release = await req(`/api/credit/${custId}/hold`, {
+      method: 'POST', token, body: { action: 'release', reason: '冒烟：退票已处理完，恢复' }
+    });
+    ok('解冻成功', release.status === 200 && release.json.data.customer.credit_status === 'active', `HTTP ${release.status}`);
+
+    // ---------- 额度 0 = 不管理 ----------
+    await req('/api/credit/' + custId, {
+      method: 'PUT', token, body: { credit_limit: 0, credit_days: 30, reason: '冒烟：改成不管理额度' }
+    });
+    const chkFree = await req('/api/credit/check/' + orderId, { token });
+    ok('额度 0 = 不管理：不再因额度拦截',
+      chkFree.json.data.blocked === false || !(chkFree.json.data.reasons || []).some((r) => r.includes('超额度')),
+      JSON.stringify(chkFree.json.data.reasons));
+    ok('额度 0 时给出「未设额度」提示（而不是静默放过）',
+      (chkFree.json.data.tips || []).some((x) => x.includes('没设信用额度')), JSON.stringify(chkFree.json.data.tips));
+
+    // 还原成超限状态，下面测放行
+    await req('/api/credit/' + custId, {
+      method: 'PUT', token, body: { credit_limit: 1000, credit_days: 30, reason: '冒烟：恢复为低额度以便测放行' }
+    });
+
+    // ---------- 放行单 ----------
+    const ovShort = await req('/api/credit/overrides', {
+      method: 'POST', token, body: { order_id: orderId, reason: '客户急' }
+    });
+    ok('放行理由太短被拒（审计只认这句话）', ovShort.status === 400, `HTTP ${ovShort.status}`);
+
+    const ov = await req('/api/credit/overrides', {
+      method: 'POST', token, body: { order_id: orderId, reason: 'SMOKE 客户已付 30% 定金，财务总监同意先发' }
+    });
+    const ovId = (ov.json.data || {}).id;
+    ok('开出放行单', ov.status === 200 && !!ovId, `HTTP ${ov.status}`);
+    ok('放行单记下当时的额度与敞口快照',
+      ov.json.data && Number(ov.json.data.exposure_snapshot) === 8000,
+      ov.json.data && ov.json.data.exposure_snapshot);
+
+    const ovDup = await req('/api/credit/overrides', {
+      method: 'POST', token, body: { order_id: orderId, reason: 'SMOKE 再来一张备用的' }
+    });
+    ok('同一单不许挂两张未用的放行单', ovDup.status === 400, `HTTP ${ovDup.status}`);
+
+    const ship2 = await req('/api/stock/ship', {
+      method: 'POST', token, body: { order_id: orderId, warehouse: 'cn', credit_override_id: ovId }
+    });
+    ok('带放行单发货成功', ship2.status === 200, `HTTP ${ship2.status} ${ship2.json.message}`);
+    ok('返回里标出用的哪张放行单', ship2.json.data && ship2.json.data.credit.override_id === ovId);
+    ok('放行单被核销（记时间与人）',
+      !!db.prepare('SELECT used_at FROM credit_overrides WHERE id = ?').get(ovId).used_at);
+    ok('发货日志里留了放行单号',
+      String(db.prepare('SELECT note FROM order_logs WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(orderId).note || '').includes('#' + ovId));
+
+    db.prepare("UPDATE orders SET status = 'instock' WHERE id = ?").run(orderId);
+    const ovReuse = await req('/api/stock/ship', {
+      method: 'POST', token, body: { order_id: orderId, warehouse: 'cn', credit_override_id: ovId }
+    });
+    ok('一张放行单只能用一次', ovReuse.status === 400 && /用过/.test(ovReuse.json.message || ''), `HTTP ${ovReuse.status}`);
+
+    const ovOther = await req('/api/credit/overrides', {
+      method: 'POST', token, body: { order_id: emptyId, reason: 'SMOKE 空单本来就没被拦，不需要放行' }
+    });
+    ok('没被拦的单不许开放行单（否则记录失去意义）', ovOther.status === 400, `HTTP ${ovOther.status}`);
+
+    // ---------- 权限 ----------
+    const salesToken = await loginAs('sales01');
+    if (salesToken) {
+      const salesRead = await req('/api/credit/board', { token: salesToken });
+      ok('销售能看信用台账（不然不知道能不能接单）', salesRead.status === 200, `HTTP ${salesRead.status}`);
+      const salesWrite = await req('/api/credit/' + custId, {
+        method: 'PUT', token: salesToken, body: { credit_limit: 999999, credit_days: 90, reason: '销售自己想提额' }
+      });
+      ok('销售不能自己提额度', salesWrite.status === 403, `HTTP ${salesWrite.status}`);
+      const salesOv = await req('/api/credit/overrides', {
+        method: 'POST', token: salesToken, body: { order_id: orderId, reason: '销售想自己开一张放行单看看' }
+      });
+      ok('销售不能开放行单', salesOv.status === 403, `HTTP ${salesOv.status}`);
+    } else {
+      ok('销售权限用例（没有 sales01 账号，跳过）', true);
+    }
+
+    const hrToken = await loginAs('hr01');
+    if (hrToken) {
+      const hrRead = await req('/api/credit/board', { token: hrToken });
+      ok('人事看不到客户信用（跟岗位无关）', hrRead.status === 403, `HTTP ${hrRead.status}`);
+    } else {
+      ok('人事权限用例（没有 hr01 账号，跳过）', true);
+    }
+
+    const noAuth = await req('/api/credit/board', {});
+    ok('未登录拿不到信用台账', noAuth.status === 401, `HTTP ${noAuth.status}`);
+
+    // ---------- 清理 ----------
+    const removed = clean();
+    ok('信用用例自清理（不污染演示数据）',
+      db.prepare('SELECT COUNT(*) c FROM customers WHERE code = ?').get(TAG).c === 0, `删了 ${removed} 张单`);
+  }
+
   // ================= 操作日志 / 审计 =================
   {
     console.log('\n[操作日志 / 审计]');

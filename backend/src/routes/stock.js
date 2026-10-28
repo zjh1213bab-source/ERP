@@ -6,7 +6,8 @@
  * POST /api/stock/adjust    { warehouse, style_no, product_name, color, size, qty(增量,可负), remark }
  * POST /api/stock/transfer  { from, to, style_no, color, size, qty, remark }
  * POST /api/stock/instock   { order_id, warehouse }   按订单明细入库
- * POST /api/stock/ship      { order_id, warehouse }   按订单明细出库发货
+ * POST /api/stock/ship      { order_id, warehouse, credit_override_id }  按订单明细出库发货
+ *                           —— 信用受限时返回 400 + code=CREDIT_BLOCK，办过放行单才能发
  */
 const express = require('express');
 const { db, now } = require('../db');
@@ -17,6 +18,8 @@ const router = express.Router();
 const WRITE = ['admin', 'warehouse', 'production', 'sales'];
 // 库存原子操作统一走 services/stockOps，避免与零售/渠道履约出现两套口径
 const { getStock, applyStock, addLedger, round2 } = require('../services/stockOps');
+// 客户信用闸门：货出门这一刻才判（下单时只提示，钱/货出门才拦）
+const credit = require('../services/credit');
 
 function orderSizeRows(orderId) {
   return db
@@ -204,14 +207,40 @@ router.post('/instock', authRequired, requireRole(['admin', 'warehouse', 'produc
 }));
 
 // ---------- 发货出库（按订单） ----------
-router.post('/ship', authRequired, requireRole(['admin', 'warehouse']), wrap(async (req, res) => {
-  const { order_id, warehouse = 'cn' } = req.body || {};
+router.post('/ship', authRequired, requireRole(['admin', 'warehouse', 'finance']), wrap(async (req, res) => {
+  const { order_id, warehouse = 'cn', credit_override_id } = req.body || {};
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(order_id);
   if (!order) return fail(res, 404, '订单不存在');
   if (order.status !== 'instock') return fail(res, 400, `订单当前为「${order.status}」，只有已入库可发货`);
   const rows = orderSizeRows(order_id);
+  // 入库那边有「订单没有明细」的校验，发货这边原来漏了：
+  // 没有明细的空单会一路走完流程被标成「已发货」，货一件没出库，
+  // 而 shipped 只能往 closed 走 —— 状态错了就改不回来，只能手工修库
+  if (!rows.length) return fail(res, 400, '订单没有明细（颜色/尺码），无法出库发货');
+  const totalQty = rows.reduce((n, r) => n + (Number(r.qty) || 0), 0);
+  if (totalQty <= 0) return fail(res, 400, '订单明细件数全是 0，没有可发的货');
+
+  // ---------- 信用闸门 ----------
+  // 只在这里读、不在事务里判：事务内 return 不会回滚（这个坑踩过），
+  // 而且判断本身要查十几张表，塞进事务会拉长锁时间。
+  const creditCheck = credit.judge(order_id);
+  if (creditCheck.blocked && !credit_override_id) {
+    return res.status(400).json({
+      ok: false,
+      code: 'CREDIT_BLOCK',
+      message: `信用受限，不能发货 —— ${creditCheck.reasons.join('；')}`,
+      data: creditCheck        // 前端要拿 reasons / profile 展示，并引导去办放行
+    });
+  }
+
   try {
     db.exec('BEGIN');
+    // 放行单在事务内核销：库存不足回滚时，这张放行单也跟着回滚，
+    // 不会出现「货没发出去，放行单却被用掉了」
+    let consumed = null;
+    if (credit_override_id) {
+      consumed = credit.consumeOverride(credit_override_id, order_id, req.user.username);
+    }
     // 先校验库存充足
     for (const r of rows) {
       if (!Number(r.qty)) continue;
@@ -227,10 +256,23 @@ router.post('/ship', authRequired, requireRole(['admin', 'warehouse']), wrap(asy
     });
     const t = now();
     db.prepare('UPDATE orders SET status=?, updated_at=? WHERE id=?').run('shipped', t, order_id);
+    const shipNote = consumed
+      ? `发货出库(${warehouse})·信用放行单#${consumed.id}`
+      : `发货出库(${warehouse})`;
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
-      .run(order_id, order.status, 'shipped', req.user.username, `发货出库(${warehouse})`, t);
+      .run(order_id, order.status, 'shipped', req.user.username, shipNote, t);
     db.exec('COMMIT');
-    return ok(res, { order_id: Number(order_id), warehouse, status: 'shipped' });
+    return ok(res, {
+      order_id: Number(order_id),
+      warehouse,
+      status: 'shipped',
+      credit: {
+        level: creditCheck.level,
+        risk: creditCheck.profile ? creditCheck.profile.risk : null,
+        notes: creditCheck.notes,
+        override_id: consumed ? consumed.id : null
+      }
+    });
   } catch (e) {
     db.exec('ROLLBACK');
     return fail(res, 400, e.message);

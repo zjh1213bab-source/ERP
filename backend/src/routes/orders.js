@@ -124,10 +124,23 @@ router.get('/export', authRequired, wrap(async (req, res) => {
 router.get('/find', authRequired, wrap(async (req, res) => {
   const raw = String(req.query.no || '').trim();
   if (!raw) return fail(res, 400, '请输入标签码');
-  const orderNo = raw.split('-')[0];
-  const order = db.prepare('SELECT id, order_no, style_name, status, customer_id FROM orders WHERE order_no = ?').get(orderNo);
-  if (!order) return fail(res, 404, '未找到对应订单：' + orderNo);
-  return ok(res, order);
+
+  // 标签码是「订单号-扎号-款号-色-码」，所以常规做法是取第一段。
+  // 但**订单号自身可能含横线**（客户给的编号、历史导入的数据都常见），
+  // 无脑切第一段会把 CREDITDEMO-03 切成 CREDITDEMO，扫出来是 404。
+  // 所以先拿整串精确匹配，匹配不到再退化到第一段 —— 两种码都能用。
+  const sel = 'SELECT id, order_no, style_name, status, customer_id FROM orders WHERE order_no = ?';
+  let order = db.prepare(sel).get(raw);
+  let matchedBy = 'exact';
+  if (!order) {
+    const head = raw.split('-')[0];
+    if (head && head !== raw) {
+      order = db.prepare(sel).get(head);
+      matchedBy = 'prefix';
+    }
+  }
+  if (!order) return fail(res, 404, '未找到对应订单：' + raw);
+  return ok(res, { ...order, matched_by: matchedBy });
 }));
 
 // ---------- 详情 ----------

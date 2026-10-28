@@ -69,11 +69,21 @@
         </tbody>
       </table>
     </div>
+    <CreditBlockModal
+      :model-value="!!blockCheck"
+      :check="blockCheck"
+      :order-id="blockOrder ? blockOrder.id : null"
+      :order-no="blockOrder ? blockOrder.no : ''"
+      warehouse="us"
+      @close="blockCheck = null; blockOrder = null"
+      @released="load"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
+import CreditBlockModal from '../components/CreditBlockModal.vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -85,6 +95,9 @@ const tab = ref('all');
 const open = reactive({});
 const busy = ref(false);
 const canShip = computed(() => can('order.ship'));
+// 信用拦截：原因 + 画像 + 放行入口
+const blockCheck = ref(null);
+const blockOrder = ref(null);
 const canStock = computed(() => can('stock.write'));
 
 const tabs = [
@@ -115,7 +128,15 @@ async function ship(o) {
   try {
     await api.orderShip({ order_id: o.id, warehouse: 'us' });
     await load();
-  } catch (e) { alert(e.message); } finally { busy.value = false; }
+  } catch (e) {
+    // 信用闸门拦下：不是「出错了」，是「业务上不许」，要给出路而不是弹一句话
+    if (e.code === 'CREDIT_BLOCK') {
+      blockOrder.value = { id: o.id, no: o.order_no };
+      blockCheck.value = e.data;
+      return;
+    }
+    alert(e.message);
+  } finally { busy.value = false; }
 }
 
 async function autoFill(o) {

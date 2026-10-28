@@ -221,6 +221,15 @@ cd backend && node scripts/check-ar-consistency.js
 # 客户对账单取证（屏幕版 + print 媒体）
 cd backend && node scripts/shot-statement.js
 
+# 信用闸门演练（走真实 HTTP：拦截 → 放行 → 发货 → 放行单作废，跑完自还原）
+cd backend && node scripts/drill-credit-gate.js
+
+# 信用演示数据（三家客户：超限+逾期 / 未额度但在途 / 额度够但冻结）
+cd backend && node scripts/seed-credit-demo.js --reset
+
+# 信用页面取证（台账 / 明细 / 调额 / 冻结 / 发货被拦 / 移动端）
+cd backend && node scripts/shot-credit.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

@@ -180,6 +180,10 @@ const PERMS = {
   // ===== 管理 =====
   'settings.write': ['admin'],
   'user.manage': ['admin'],
+  // 客户信用与账期：看的范围要跟业务一致（销售得知道自己客户的额度），
+  // 但**改额度、冻结、放行只有财务和管理员** —— 授信是钱的事，销售不能自己批给自己
+  'credit.read': ['admin', 'boss', 'finance', 'sales'],
+  'credit.write': ['admin', 'finance'],
   'audit.read': ['admin', 'boss'],   // 老板要看操作日志（只读，写操作仍只有 admin）
   'audit.archive': ['admin'],       // 归档会移出主表，是破坏性动作，只给管理员
   'approvalflow.manage': ['admin'],
@@ -254,6 +258,8 @@ const GUARDED = [
   { perm: 'cost.review', method: '*', prefix: '/api/costs' },
   { perm: 'gl.write', method: '*', prefix: '/api/gl' },
   { perm: 'bank.write', method: '*', prefix: '/api/bank' },
+  { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
+  { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },
   { perm: 'group.write', method: '*', prefix: '/api/group' },
   { perm: 'tax.write', method: '*', prefix: '/api/tax' },

@@ -654,7 +654,7 @@
 
           <div v-if="canStockWrite" style="margin: 12px 0 4px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center">
             <button v-if="['assigned','production'].includes(detail.status)" class="btn btn-ghost btn-sm" :disabled="busy" @click="doInstock">成品入库（生产仓）</button>
-            <button v-if="canShip && detail.status === 'instock'" class="btn btn-primary btn-sm" :disabled="busy" @click="doShip">发货出库（生产仓）</button>
+            <button v-if="canShip && detail.status === 'instock'" class="btn btn-primary btn-sm" :disabled="busy" @click="doShip()">发货出库（生产仓）</button>
             <span v-if="detail.status === 'shipped'" style="font-size: 12.5px; color: #16a34a">已发货</span>
           </div>
 
@@ -753,12 +753,23 @@
       </div>
     </div>
   </div>
+  <CreditBlockModal
+    v-if="blockCheck"
+    :model-value="!!blockCheck"
+    :check="blockCheck"
+    :order-id="blockOrder ? blockOrder.id : null"
+    :order-no="blockOrder ? blockOrder.no : ''"
+    warehouse="cn"
+    @close="blockCheck = null; blockOrder = null"
+    @released="doShip($event.id)"
+  />
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, exportOrders } from '../api';
+import CreditBlockModal from '../components/CreditBlockModal.vue';
 import { auth } from '../store/auth';
 import { can } from '../store/permissions';
 import TechPackDetail from '../components/TechPackDetail.vue';
@@ -908,6 +919,10 @@ async function doExecute() {
     batchBusy.value = false;
   }
 }
+
+// 信用拦截弹窗（发货被拦时用；放行后回调 doShip 续发）
+const blockCheck = ref(null);
+const blockOrder = ref(null);
 
 const canCreate = computed(() => can('order.create'));
 const canExport = computed(() => can('order.export'));
@@ -1294,15 +1309,30 @@ async function doInstock() {  if (!confirm('按订单明细入库到生产仓？
     await loadP2(detail.value.id);
   } catch (e) { alert(e.message); } finally { busy.value = false; }
 }
-async function doShip() {
-  if (!confirm('按订单明细从生产仓发货出库？库存将扣减，订单状态变为「已发货」。')) return;
+async function doShip(overrideId) {
+  // @click="doShip" 会把 MouseEvent 当第一个参数传进来（不是 null，也不是 id）。
+  // 直接透给后端会变成「放行单 id 是个事件对象」，报一句看不懂的 SQL 错误。
+  // 所以这里只认数字 id，其余一律当「没用放行单」。
+  const ovId = Number.isFinite(Number(overrideId)) && overrideId !== null && overrideId !== undefined
+    ? Number(overrideId)
+    : null;
+  if (!ovId && !confirm('按订单明细从生产仓发货出库？库存将扣减，订单状态变为「已发货」。')) return;
   busy.value = true;
   try {
-    await api.orderShip({ order_id: detail.value.id, warehouse: 'cn' });
+    await api.orderShip({ order_id: detail.value.id, warehouse: 'cn', credit_override_id: ovId || undefined });
     detail.value = await api.order(detail.value.id);
     await load();
     await loadP2(detail.value.id);
-  } catch (e) { alert(e.message); } finally { busy.value = false; }
+    blockCheck.value = null;
+  } catch (e) {
+    // 信用受限：给结构化弹窗，而不是一句 alert 让人无路可走
+    if (e.code === 'CREDIT_BLOCK') {
+      blockOrder.value = { id: detail.value.id, no: detail.value.order_no };
+      blockCheck.value = e.data;
+      return;
+    }
+    alert(e.message);
+  } finally { busy.value = false; }
 }
 
 function goPrint(type) {

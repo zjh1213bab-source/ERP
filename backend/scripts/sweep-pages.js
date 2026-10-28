@@ -23,7 +23,7 @@ const PAGES = [
   '/photos', '/inventory', '/purchases', '/receipts', '/hr', '/finance-books', '/integration',
   '/marketing', '/admin-contracts', '/facility', '/equipment', '/schedule', '/segments', '/spot-ops',
   '/mall-admin', '/suppliers', '/customers', '/reports', '/assess', '/users', '/notify', '/budget',
-  '/bank', '/group-books', '/cockpit', '/approval-flows', '/access-review', '/import-data',
+  '/bank', '/group-books', '/cockpit', '/credit', '/approval-flows', '/access-review', '/import-data',
   '/development', '/sample-archive', '/pattern-board', '/cuts', '/bundle-progress', '/piece-wage', '/first-article',
   '/production', '/approvals', '/costing', '/leads', '/spot-analysis', '/labels/5', '/print/production/5'
 ];

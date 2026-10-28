@@ -167,6 +167,7 @@ const navModel = [
     key: 'finance', label: '财务', icon: '💰',
     children: [
       { label: '往来账', to: '/finance' },
+      { label: '客户信用与账期', to: '/credit' },
       { label: '成本与毛利', to: '/costing' },
       { label: '价格快照与费用池', to: '/pricing' },
       { label: '财务报表与关账', to: '/finance-books' },

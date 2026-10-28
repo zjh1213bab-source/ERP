@@ -26,7 +26,16 @@ async function req(path, { method = 'GET', body, headers = {} } = {}) {
     clearAuth();
     if (location.pathname !== '/login') location.href = '/login';
   }
-  if (!res.ok) throw new Error(json.message || `请求失败（${res.status}）`);
+  if (!res.ok) {
+    // 把 status / code / data 一起挂到 error 上：
+    // 有些拒绝不是「出错了」，而是「业务上不许」（比如发货被信用闸门拦下 code=CREDIT_BLOCK），
+    // 页面要拿到结构化原因才能引导用户去办放行单，光一句 message 弹出来等于死路
+    const err = new Error(json.message || `请求失败（${res.status}）`);
+    err.status = res.status;
+    err.code = json.code;
+    err.data = json.data;
+    throw err;
+  }
   return json.data !== undefined ? json.data : json;
 }
 
@@ -193,6 +202,17 @@ export const api = {  // 登录
   // 客户对账单（对账函）
   statementCustomers: () => req('/api/statements/customers'),
   statement: (customerId, params) => req(`/api/statements/${customerId}` + qs(params)),
+  // 客户信用与账期
+  creditBoard: (params) => req('/api/credit/board' + qs(params)),
+  creditConfig: () => req('/api/credit/config'),
+  creditSaveConfig: (d) => req('/api/credit/config', { method: 'PUT', body: d }),
+  creditCheck: (orderId) => req(`/api/credit/check/${orderId}`),
+  creditDetail: (customerId) => req(`/api/credit/${customerId}`),
+  creditSetLimit: (customerId, d) => req(`/api/credit/${customerId}`, { method: 'PUT', body: d }),
+  creditHold: (customerId, d) => req(`/api/credit/${customerId}/hold`, { method: 'POST', body: d }),
+  creditOverride: (d) => req('/api/credit/overrides', { method: 'POST', body: d }),
+  creditOverrides: (params) => req('/api/credit/overrides' + qs(params)),
+  creditExportPath: (params) => '/api/credit/export' + qs(params),
 
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),

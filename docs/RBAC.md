@@ -171,6 +171,16 @@
 | craftTypes | POST | `/` | ✅ | — | ✅ | ✅ | ✅ | — | — | — |
 | craftTypes | PUT | `/:id` | ✅ | — | ✅ | ✅ | ✅ | — | — | — |
 | craftTypes | DELETE | `/:id` | ✅ | — | ✅ | ✅ | ✅ | — | — | — |
+| credit | GET | `/:customerId` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| credit | PUT | `/:customerId` | ✅ | — | — | — | — | — | ✅ | — |
+| credit | POST | `/:customerId/hold` | ✅ | — | — | — | — | — | ✅ | — |
+| credit | GET | `/board` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| credit | GET | `/check/:orderId` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| credit | GET | `/config` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| credit | PUT | `/config` | ✅ | — | — | — | — | — | ✅ | — |
+| credit | GET | `/export` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| credit | POST | `/overrides` | ✅ | — | — | — | — | — | ✅ | — |
+| credit | GET | `/overrides` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
 | crm | GET | `/commission-rules` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | crm | POST | `/commission-rules` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | POST | `/commission-rules/:id/approve` | ✅ | — | — | — | — | — | ✅ | — |
@@ -734,7 +744,7 @@
 | stock | POST | `/adjust` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | stock | POST | `/auto-transfer` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | stock | POST | `/instock` | ✅ | — | — | — | ✅ | ✅ | — | — |
-| stock | POST | `/ship` | ✅ | — | — | — | — | ✅ | — | — |
+| stock | POST | `/ship` | ✅ | — | — | — | — | ✅ | ✅ | — |
 | stock | POST | `/transfer` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | supplierEvals | PUT | `/:id` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | supplierEvals | POST | `/:id/decide` | ✅ | — | ✅ | — | — | ✅ | — | — |
@@ -939,6 +949,8 @@
 | `pattern.review` | 技术打版 |
 | `settings.write` | 系统管理员 |
 | `user.manage` | 系统管理员 |
+| `credit.read` | 系统管理员、总经理、财务会计、销售跟单 |
+| `credit.write` | 系统管理员、财务会计 |
 | `audit.read` | 系统管理员、总经理 |
 | `audit.archive` | 系统管理员 |
 | `approvalflow.manage` | 系统管理员 |

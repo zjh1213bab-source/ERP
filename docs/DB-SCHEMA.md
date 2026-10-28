@@ -38,6 +38,10 @@
 | attachments | id, target_type(order/techpack), target_id, filename, url, size, mime, uploader |
 | employees | id, code, name, department_id, position, phone, hire_date, status(active/left), remark |
 | leave_requests | id, employee_id, employee_name, type(annual/sick/personal/other), start_date, end_date, days, reason, status(pending/approved/rejected), reviewed_by |
+| credit_limits | customer_id, credit_limit, credit_days, old_limit, old_days, reason, operator, created_at | **额度版本历史**。现值仍在 `customers.credit_limit` / `credit_days`，这里留每次调整（谁、何时、为什么、从多少到多少） |
+| credit_holds | customer_id, action(hold/release), reason, exposure_snapshot, operator, created_at | 冻结/解冻流水。`exposure_snapshot` 记冻结那一刻的敞口，事后复盘「冻得对不对」 |
+| credit_overrides | order_id, customer_id, limit_snapshot, exposure_snapshot, order_amount, block_reasons(JSON), reason, operator, created_at, **used_at, used_by** | **发货放行单**。`used_at` 非空即已用；一张只能用一次（靠 `used_at IS NULL` 判断，不建唯一索引也能守） |
+| customers.credit_days / credit_status / credit_hold_reason / credit_updated_at | REAL / TEXT / TEXT / TEXT | 账期天数（到期日 = 开票日 + N 天）、`active`/`hold`、冻结原因、额度最后变动时间 |
 | audit_logs | id, username, method, path, status, ip, created_at, **seq, prev_hash, hash, module, module_group, action, target, summary, actor_role, duration_ms**；`hash = sha256(prev_hash|seq|账号|方法|路径|状态|时间)`，**改任一字段即断链**；语义列可重算、不参与哈希 |
 | audit_chain_state | id(恒为 1), last_seq, last_hash, anchor_seq, anchor_hash, updated_at；**删日志不动这张表** —— 最大 seq < last_seq 即尾部被删；归档推进 anchor 以区分「合法移除」与「偷删」 |
 | audit_archives | archive_no, from_seq, to_seq, rows, first_hash, last_hash, file, file_sha256, cutoff, note, created_by, created_at；归档只切**连续前缀**，否则剩余行 seq 断档、之后每次校验都报「头部不连续」 |

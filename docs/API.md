@@ -101,6 +101,17 @@
 | GET/POST | /api/leaves | 读:登录 / 写:admin,sales | 请假列表/新增 |
 | POST | /api/leaves/:id/review | admin,sales | 审批 `{approve}` |
 | DELETE | /api/leaves/:id | admin,sales | 删除 |
+| GET | /api/credit/board?q=&risk=&only_managed= | credit.read | **信用台账**：每户 `figures`（`billed_open` 已开票未收 / `unbilled` 未开票订单 / `shipped_unbilled` 其中货已发未开票 / `exposure` 敞口 / `available` 可用 / `overdue` 逾期 / `max_overdue_days`）+ `risk`（hold/over/overdue/near/unmanaged/ok） |
+| GET | /api/credit/config | credit.read | 判定参数：`grace_days` 逾期宽限、`warn_ratio` 预警线、`default_days` 默认账期 |
+| PUT | /api/credit/config | credit.write | 改参数 |
+| GET | /api/credit/check/:orderId | credit.read | **发货前预检**：`{level, blocked, reasons[], notes[], tips[], profile, open_override}`。`reasons` 是拦下来的硬理由，`notes` 是风险提示（会把 level 抬到 warn），`tips` 只是操作建议 |
+| POST | /api/credit/overrides | credit.write | `{order_id, reason}` 开放行单；理由 **≥8 字**；同一单不许挂两张未用的；**没被拦的单不许开** |
+| GET | /api/credit/overrides?order_id=&open=1 | credit.read | 放行单查询 |
+| GET | /api/credit/export?risk=&q= | credit.read | 台账 CSV（带 BOM，前四行写口径说明） |
+| GET | /api/credit/:customerId | credit.read | 单客户画像 + `invoices` / `orders` 明细 + `events` 变更流 |
+| PUT | /api/credit/:customerId | credit.write | `{credit_limit, credit_days, reason}`；原因 ≥4 字；**数值没变直接拒** |
+| POST | /api/credit/:customerId/hold | credit.write | `{action: hold\|release, reason}`；冻结期间一律不许发货 |
+| POST | /api/stock/ship | 见库存 | 新增 `credit_override_id`。被拦时返回 **400 + `code=CREDIT_BLOCK`** + `data`（预检详情）；带放行单则发货并在日志写 `#放行单号` |
 | GET | /api/statements/customers | admin,boss,finance,sales | 有往来的客户 + `open_amount`（未收发票）/ `unallocated`（已到账未核销）/ `real_open`（实际结欠） |
 | GET | /api/statements/:customerId?from=&to= | 同上 | **客户对账单（对账函）**：期初 / 本期开票 / 本期收款 / 期末结欠 + 逐笔流水（滚动余额）；`check_diff≠0` 表示流水口径与「未收发票 − 未核销」不符（账坏了，不能发客户） |
 | GET | /api/audit?from=&to=&username=&group=&action=&result=&q=&page=&pageSize= | admin,boss | 操作日志列表（分页 + 多维筛选）；每条带业务语义 `module/module_group/action/target/summary` 与 `role_label` |
