@@ -49,6 +49,8 @@ const PERMS = {
   'qc.write': ['production', 'tech'],
   // 现场照片：谁在生产/收货/装箱现场谁拍，财务与人事不产生现场照片
   'photo.write': ['production', 'warehouse', 'tech', 'sales'],
+  // 验货报告是对外文件（带客户信息与不良照片），人事/仓库不出这份东西
+  'inspection.write': ['sales', 'production', 'tech', 'finance'],
   'production.write': ['production', 'tech'],        // 返工报废与生产结单
   'equipment.write': ['production', 'warehouse'],    // 设备停机与产能
 
@@ -270,7 +272,9 @@ const GUARDED = [
   { perm: 'qc.write', method: '*', prefix: '/api/qc' },
   // 照片是证据：只有写（拍照/删除）受管，读放给全体业务岗
   { perm: 'photo.write', method: 'POST', prefix: '/api/photos' },
-  { perm: 'photo.write', method: 'DELETE', prefix: '/api/photos' }
+  { perm: 'photo.write', method: 'DELETE', prefix: '/api/photos' },
+  // 验货报告一旦发出去就是对客户的承诺，属于对外文件
+  { perm: 'inspection.write', method: 'POST', prefix: '/api/inspection' }
 ];
 
 /** 写方法（用于判断请求是否属于「写」） */

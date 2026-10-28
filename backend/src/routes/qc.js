@@ -28,6 +28,7 @@ const ISSUE_STATUS = { open: '待处理', processing: '处理中', closed: '已�
 const SOURCE_LABEL = { inspection: '检验', complaint: '客诉', recall: '召回', internal: '内部' };
 const RECALL_STATUS = { assessing: '评估中', confirmed: '已确认', executing: '执行中', closed: '已结案' };
 const BATCH_STATUS = { normal: '正常', hold: '已冻结', recalled: '已召回' };
+const AQL_LABEL = { pass: '合格', fail: '不合格', conditional: '让步接收' };
 
 // ---------------- 编号 ----------------
 function nextNo(table, field, prefix, width) {
@@ -314,7 +315,8 @@ router.post('/inspections/:id/finish', authRequired, requireRole(WRITE), wrap(as
         aqlResult === 'fail' ? 'rework' : 'concession',
         criticalNg ? 'critical' : (failQty > 0 ? 'major' : 'minor'),
         failQty > 0 ? failQty : 0,
-        `检验单 ${row.inspect_no} 判定 ${aqlResult}，不良项：${ngItems.map((x) => x.item_name).join('、') || '无明细'}`,
+        // 描述是给客户看的（会进验货报告），判定要写中文不能写 pass/fail
+        `检验单 ${row.inspect_no} 判定${AQL_LABEL[aqlResult] || aqlResult}，不良项：${ngItems.map((x) => x.item_name).join('、') || '无明细'}`,
         'open', req.user.username, t, t);
       issueId = Number(info.lastInsertRowid);
     }

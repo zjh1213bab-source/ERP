@@ -20,6 +20,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { db, now } = require('../db');
+const { stripDemo } = require('../utils/demo');
 
 const UPLOAD_ROOT = path.resolve(__dirname, '../../data/uploads');
 const PHOTO_DIR = path.join(UPLOAD_ROOT, 'photos');
@@ -204,7 +205,7 @@ function decorate(r) {
   return {
     ...r,
     // 演示数据用「演示·」前缀标记以便重复灌数据时清理，这层标记不该出现在页面上
-    note: r.note ? String(r.note).replace(/^演示[·:：]\s*/, '') : r.note,
+    note: stripDemo(r.note),
     cat_label: cat.label,
     size_kb: Math.round((Number(r.size) || 0) / 1024),
     shot_at: r.taken_at || r.created_at

@@ -170,6 +170,13 @@ export const api = {  // 登录
   createPhotos: (d) => req('/api/photos/batch', { method: 'POST', body: d }),
   deletePhoto: (id) => req(`/api/photos/${id}`, { method: 'DELETE' }),
 
+  // 验货报告（对外文件，走快照）
+  inspectionPreview: (orderId) => req(`/api/inspection/preview/${orderId}`),
+  inspectionCreate: (d) => req('/api/inspection', { method: 'POST', body: d }),
+  inspectionGet: (idOrNo) => req(`/api/inspection/${idOrNo}`),
+  inspectionHistory: (orderId) => req('/api/inspection?order_id=' + orderId),
+  inspectionRecent: (limit) => req('/api/inspection/recent' + (limit ? '?limit=' + limit : '')),
+
   // 审批 / 人事
   approvals: () => req('/api/approvals/pending'),
   myApprovalTasks: () => req('/api/approvals/my-tasks'),

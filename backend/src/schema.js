@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 600 个对象
- * （295 张表 + 305 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 602 个对象
+ * （296 张表 + 306 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -605,5 +605,7 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_bkjobs_kind ON backup_jobs(kind);",
   "CREATE INDEX IF NOT EXISTS idx_bkjobs_created ON backup_jobs(created_at);",
   "CREATE INDEX IF NOT EXISTS idx_att_order_cat ON attachments(target_type, target_id, cat);",
-  "CREATE INDEX IF NOT EXISTS idx_att_cat_time ON attachments(cat, created_at);"
+  "CREATE INDEX IF NOT EXISTS idx_att_cat_time ON attachments(cat, created_at);",
+  "CREATE TABLE IF NOT EXISTS inspection_reports (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  report_no TEXT UNIQUE NOT NULL,              -- JH+日期+序号，对外引用用这个\n  order_id INTEGER NOT NULL,\n  version INTEGER NOT NULL DEFAULT 1,          -- 同一订单可多次生成，旧版不覆盖\n  qc_result TEXT,                              -- pass / fail / conditional / none（未验货）\n  qc_inspection_no TEXT,                       -- 结论来自哪张验货单\n  photos_count INTEGER NOT NULL DEFAULT 0,\n  issues_open INTEGER NOT NULL DEFAULT 0,      -- 生成时仍未关闭的质量异常数\n  snapshot TEXT NOT NULL,                      -- JSON：订单/明细/验货/异常/首件/报工/照片\n  generated_by TEXT,\n  generated_at TEXT NOT NULL,\n  note TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_ireport_order ON inspection_reports(order_id, version);"
 ];

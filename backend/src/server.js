@@ -102,6 +102,7 @@ const investmentRoutes = require('./routes/investment');
 const cutdispatchRoutes = require('./routes/cutdispatch');
 const devmasterRoutes = require('./routes/devmaster');
 const supreviewRoutes = require('./routes/supreview');
+const inspectionRoutes = require('./routes/inspection');   // 验货报告（对外文件，快照）
 const photoRoutes = require('./routes/photos');   // 现场照片留证（手机拍照挂订单/工序）
 const backupRoutes = require('./routes/backup');   // 备份中心（服务端备份/校验/恢复计划/回滚）
 const accessRoutes = require('./routes/access');   // 岗位权限复核（权限矩阵/例外/职责分离/签字留痕）
@@ -239,6 +240,7 @@ app.use('/api/investment', investmentRoutes);
 app.use('/api/cutdispatch', cutdispatchRoutes);
 app.use('/api/devmaster', devmasterRoutes);
 app.use('/api/supreview', supreviewRoutes);
+app.use('/api/inspection', inspectionRoutes);   // 验货报告
 app.use('/api/photos', photoRoutes);   // 现场照片
 app.use('/api/backup', backupRoutes);   // 备份与恢复
 app.use('/api/access', accessRoutes);   // 岗位权限复核

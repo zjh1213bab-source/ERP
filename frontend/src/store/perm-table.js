@@ -25,6 +25,7 @@ export const PERM_TABLE = {
   'order.ship': ["warehouse"],
   'qc.write': ["production","tech"],
   'photo.write': ["production","warehouse","tech","sales"],
+  'inspection.write': ["sales","production","tech","finance"],
   'production.write': ["production","tech"],
   'equipment.write': ["production","warehouse"],
   'confirm.write': ["sales","tech","production"],

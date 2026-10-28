@@ -191,6 +191,7 @@
             <button class="btn btn-ghost btn-sm" @click="goPrint('packing')">打印装箱单</button>
             <button class="btn btn-ghost btn-sm" @click="goPrint('shipping')">打印发货单</button>
             <button class="btn btn-ghost btn-sm" @click="goLabels">打印标签</button>
+            <button class="btn btn-ghost btn-sm" @click="goInspection">验货报告</button>
           </div>
 
           <div style="display: flex; gap: 14px; align-items: center; margin-bottom: 14px">
@@ -1106,6 +1107,13 @@ function goPrint(type) {
   if (!detail.value) return;
   window.open(`/print/${type}/${detail.value.id}`, '_blank');
 }
+/** 验货报告：整单快照，可打印/另存 PDF 直接发客户 */
+function goInspection() {
+  const id = detail.value && detail.value.id;
+  if (!id) return;
+  router.push('/inspection/' + id);
+}
+
 function goLabels() {
   if (!detail.value) return;
   window.open(`/labels/${detail.value.id}`, '_blank');

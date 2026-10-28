@@ -87,6 +87,7 @@ import MobileHome from './views/MobileHome.vue';
 import MobileReport from './views/MobileReport.vue';
 import MobilePhoto from './views/MobilePhoto.vue';
 import Photos from './views/Photos.vue';
+import InspectionReport from './views/InspectionReport.vue';
 import QuotePrint from './views/QuotePrint.vue';
 import MallAdmin from './views/MallAdmin.vue';
 import Quality from './views/Quality.vue';
@@ -208,6 +209,8 @@ const routes = [
   { path: '/m/photo', component: MobilePhoto, meta: { title: '拍照留证' } },
   // 桌面照片墙
   { path: '/photos', component: Photos, meta: { title: '现场照片' } },
+  // 验货报告（独立 A4 排版，打印/另存 PDF）
+  { path: '/inspection/:orderId', component: InspectionReport, meta: { title: '验货报告' } },
   { path: '/print/quote/:id', component: QuotePrint, meta: { title: '打印报价单' } },
   { path: '/print/:type/:id', component: Print, meta: { title: '打印单据' } },
   { path: '/labels/:id', component: LabelPrint, meta: { title: '打印标签' } },

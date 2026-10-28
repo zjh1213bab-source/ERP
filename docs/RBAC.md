@@ -368,6 +368,7 @@
 | imports | POST | `/customers` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | imports | POST | `/materials` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | imports | POST | `/products` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| inspection | POST | `/` | ✅ | — | ✅ | ✅ | ✅ | — | ✅ | — |
 | integration | POST | `/dispatch` | ✅ | — | — | — | — | — | — | ✅ |
 | integration | POST | `/endpoints` | ✅ | — | — | — | — | — | — | ✅ |
 | integration | PUT | `/endpoints/:id` | ✅ | — | — | — | — | — | — | ✅ |
@@ -846,6 +847,7 @@
 | `order.ship` | 仓库采购 |
 | `qc.write` | 生产车间、技术打版 |
 | `photo.write` | 生产车间、仓库采购、技术打版、销售跟单 |
+| `inspection.write` | 销售跟单、生产车间、技术打版、财务会计 |
 | `production.write` | 生产车间、技术打版 |
 | `equipment.write` | 生产车间、仓库采购 |
 | `confirm.write` | 销售跟单、技术打版、生产车间 |

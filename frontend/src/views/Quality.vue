@@ -88,6 +88,7 @@
                 <button class="link-btn" @click="openInspection(r)">{{ r.status === 'draft' && canWrite ? '录入' : '查看' }}</button>
                 <button v-if="r.status === 'draft' && canWrite" class="link-btn danger" @click="removeInspection(r)">删除</button>
                 <button v-if="r.batch_no" class="link-btn" @click="openTrace(r.batch_no)">追溯</button>
+                <button v-if="r.order_id" class="link-btn" @click="openReport(r.order_id)">验货报告</button>
               </td>
             </tr>
             <tr v-if="!inspections.length"><td colspan="11" class="empty-cell">暂无检验单，点「新建检验」按订单+标准开单</td></tr>
@@ -688,6 +689,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '../api';
 import { can } from '../store/permissions';
 
@@ -698,6 +700,7 @@ const TABS = [
   { key: 'batches', label: '批次追溯' },
   { key: 'recalls', label: '召回评估' }
 ];
+const router = useRouter();
 const canWrite = computed(() => can('qc.write'));
 
 const tab = ref('inspections');
@@ -730,6 +733,11 @@ const canEditInsp = computed(() => {
 });
 
 async function loadStats() { try { Object.assign(s, await api.qcStats()); } catch (e) { /* ignore */ } }
+/** 验货报告：按这张检验单所属订单出报告（报告是整单的，不是单张检验单的） */
+function openReport(orderId) {
+  router.push('/inspection/' + orderId);
+}
+
 async function loadInspections() { try { inspections.value = await api.qcInspections({ type: f.type, status: f.status, q: f.q }); } catch (e) { alert(e.message); } }
 async function loadStandards() { try { standards.value = await api.qcStandards({ scope: f.scope }); } catch (e) { alert(e.message); } }
 async function loadIssues() { try { issues.value = await api.qcIssues({ status: f.istatus, source: f.isource }); } catch (e) { alert(e.message); } }

@@ -936,3 +936,21 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > 订单详情里仍按「图片走缩略图、其他走文件行」显示，不会丢。
 >
 > 磁盘：`data/uploads/photos/YYYY-MM/`，按月分目录；已被 `.gitignore` 忽略（`data/uploads/`）。
+
+## 验货报告（M-INSPECTION）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| inspection_reports | report_no(UNIQUE), order_id, **version**, qc_result(pass/fail/conditional/**none**), qc_inspection_no, photos_count, issues_open, **snapshot(JSON)**, generated_by, generated_at, note | **对外文件的快照**。`snapshot` 是生成那一刻的整单数据（订单/明细/尺码配比/验货单与检验项/异常/首件/报工/照片），之后内部怎么变都不影响已生成的报告。同订单可多次生成，`version` 递增，旧版不覆盖。索引 `idx_ireport_order(order_id, version)` |
+
+> **为什么存整份快照而不是只存关键数字**
+> 报告是给客户签字的文件。只存"结论 + 张数"这种摘要，客户追问"当时报告里那条异常写的什么"就答不上来。
+> 整份 JSON 一份几 KB 到几十 KB（照片只存 URL 不存二进制），换来的是一份可以原样复原的文件。
+>
+> **`qc_result='none'` 是正常取值**
+> 表示「本单还没有已完成的验货单」。报告里显示「未验货」，正文明确写「不作为出货依据」，
+> 不允许根据照片或报工数据推断合格。
+>
+> **照片在快照里存引用**
+> `snapshot.photos[].url` 指向 `/uploads/photos/...`。因为 `attachments` 是软删除（`deleted_at`）且文件不物理删除，
+> 已发报告里的图长期可访问。这是软删除决策的兑现 —— 若改成物理删除，历史报告会变成一堆裂图。

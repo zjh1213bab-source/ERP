@@ -5298,6 +5298,111 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 验货报告 =================
+  {
+    console.log('\n[验货报告]');
+
+    const TINY_PNG2 =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF+9WQAAAAASUVORK5CYII=';
+    const fs3 = require('fs');
+    const path3 = require('path');
+    const { db: DB2 } = require('../src/db');
+
+    const noAuth = await req('/api/inspection/preview/1');
+    ok('验货报告接口需要登录', noAuth.status === 401, `HTTP ${noAuth.status}`);
+
+    const orders2 = await req('/api/orders', { token });
+    const o = (orders2.json.data || [])[0];
+    if (!o) {
+      ok('验货报告用例（无订单跳过）', true, '跳过');
+    } else {
+      const before = DB2.prepare('SELECT COUNT(*) c FROM inspection_reports').get().c;
+
+      const pv = await req('/api/inspection/preview/' + o.id, { token });
+      const s = pv.status === 200 ? pv.json.data : {};
+      ok('预览能取到整单数据', pv.status === 200 && !!s.order && Array.isArray(s.item_lines),
+        `HTTP ${pv.status}`);
+      ok('预览不落库（不产生报告记录）',
+        DB2.prepare('SELECT COUNT(*) c FROM inspection_reports').get().c === before,
+        `仍为 ${before} 条`);
+      ok('预览里带验货结论口径（无验货即 none）',
+        ['pass', 'fail', 'conditional', 'none'].includes(s.qc && s.qc.result),
+        `result=${s.qc && s.qc.result}`);
+      ok('预览里照片按分类分组且总数对得上',
+        (s.photos_by_cat || []).reduce((a, g) => a + g.items.length, 0) === (s.photos_count || 0),
+        `${s.photos_count} 张`);
+      ok('不良照片排在照片分组最前',
+        !(s.photos_by_cat || []).length || (s.photos_by_cat || [])[0].cat === 'defect',
+        (s.photos_by_cat || []).map((g) => g.cat).join(',') || '无照片');
+
+      // 生成报告
+      const g1 = await req('/api/inspection', { method: 'POST', token, body: { order_id: o.id } });
+      const rep1 = g1.status === 200 ? g1.json.data : null;
+      ok('生成报告成功', g1.status === 200 && !!rep1, `HTTP ${g1.status} ${g1.json.message || ''}`);
+      if (rep1) {
+        ok('报告编号格式正确（JH+日期+4 位）', /^JH\d{12}$/.test(rep1.report_no), rep1.report_no);
+        ok('报告带版本号', Number(rep1.version) >= 1, `v${rep1.version}`);
+        ok('报告里存了快照（不是实时查）', !!rep1.snapshot && !!rep1.snapshot.order, '已快照');
+
+        // 用编号也能取
+        const byNo = await req('/api/inspection/' + rep1.report_no, { token });
+        ok('按报告编号能取回', byNo.status === 200 && byNo.json.data.id === rep1.id,
+          `HTTP ${byNo.status}`);
+
+        // ★ 核心断言：快照冻结
+        const photoCountBefore = rep1.photos_count;
+        const addPic = await req('/api/photos', {
+          method: 'POST',
+          token,
+          body: { order_id: o.id, dataUrl: TINY_PNG2, cat: 'other', note: '快照测试' }
+        });
+        const newPic = addPic.status === 200 ? addPic.json.data : null;
+        ok('为快照测试补了一张照片', addPic.status === 200, `HTTP ${addPic.status}`);
+
+        const again = await req('/api/inspection/' + rep1.id, { token });
+        ok('★ 已生成的报告不随数据变化（快照冻结）',
+          again.status === 200 && again.json.data.photos_count === photoCountBefore,
+          `报告仍 ${again.json.data && again.json.data.photos_count} 张 / 生成时 ${photoCountBefore} 张`);
+
+        const pv2 = await req('/api/inspection/preview/' + o.id, { token });
+        ok('预览会反映最新数据（+1 张）',
+          pv2.status === 200 && pv2.json.data.photos_count === photoCountBefore + 1,
+          `${pv2.json.data && pv2.json.data.photos_count} 张`);
+
+        // 再次生成 → 版本递增，旧版不被覆盖
+        const g2 = await req('/api/inspection', { method: 'POST', token, body: { order_id: o.id } });
+        ok('再次生成版本递增（旧版保留）',
+          g2.status === 200 && g2.json.data.version === rep1.version + 1 &&
+          g2.json.data.report_no !== rep1.report_no,
+          `v${g2.json.data && g2.json.data.version} / ${g2.json.data && g2.json.data.report_no}`);
+
+        const hist = await req('/api/inspection?order_id=' + o.id, { token });
+        ok('按订单能查到报告历史（版本倒序）',
+          hist.status === 200 && (hist.json.data || []).length >= 2 &&
+          Number(hist.json.data[0].version) >= Number(hist.json.data[1].version),
+          `${(hist.json.data || []).length} 份`);
+
+        // 清理：测试报告 + 测试照片
+        const ids = [rep1.id];
+        if (g2.status === 200 && g2.json.data) ids.push(g2.json.data.id);
+        ids.forEach((id) => DB2.prepare('DELETE FROM inspection_reports WHERE id = ?').run(id));
+        if (newPic) {
+          const rel = String(newPic.url || '').replace(/^\/uploads\//, '');
+          const f = path3.resolve(__dirname, '../data/uploads', rel);
+          try { if (fs3.existsSync(f)) fs3.unlinkSync(f); } catch (e) { /* ignore */ }
+          DB2.prepare('DELETE FROM attachments WHERE id = ?').run(newPic.id);
+        }
+        ok('报告用例跑完自清理', true, `清理 ${ids.length} 份报告 + 1 张测试照片`);
+      }
+
+      const notFound = await req('/api/inspection/preview/99999999', { token });
+      ok('订单不存在返回 404 而不是 500', notFound.status === 404, `HTTP ${notFound.status}`);
+
+      const badGet = await req('/api/inspection/JH000000000000', { token });
+      ok('不存在的报告编号返回 404', badGet.status === 404, `HTTP ${badGet.status}`);
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');
