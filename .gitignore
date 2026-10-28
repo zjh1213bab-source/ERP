@@ -25,6 +25,9 @@ backend/data/restore-plan.json
 # 本地 npm 缓存（装依赖时用工作区缓存避免 EPERM）
 .npmcache/
 
+# 发布打包产物（由 backend/scripts/pack-release.js 生成，体积大，不入库）
+packages/
+
 # 日志
 logs/
 *.log
