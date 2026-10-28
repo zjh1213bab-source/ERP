@@ -204,6 +204,11 @@ const PERMS = {
   'exception.write': ['admin', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
   'exception.review': ['admin', 'boss'],
   'exception.rule': ['admin'],
+
+  // 生产交付效率与质量报表：只读、不改数据、不产生排名扣薪依据。
+  // 给生产（自己看）、技术（看制版时长）、销售（看准交）、财务（成本会计看效率）、老板。
+  // 仓库与人事不看：他们不背交付与质量指标。
+  'prodreport.read': ['admin', 'boss', 'production', 'finance', 'tech', 'sales'],
   'paymentreq.read': ['admin', 'boss', 'finance', 'warehouse'],
   'paymentreq.write': ['admin', 'finance', 'warehouse'],
   'paymentreq.pay': ['admin', 'finance', 'warehouse'],

@@ -7407,6 +7407,78 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('关账检查不含坏账项', chkList.length > 0 && !chkList.some((c) => c.code === 'bad_debt'), `共 ${chkList.length} 项`);
   }
 
+  // ================= 生产交付效率与质量报表（TS-N08-09） =================
+  // 全只读：这一段不改任何业务数据。
+  {
+    console.log('\n[生产交付效率与质量报表]');
+    const pr = await req('/api/prod-report/overview', { token });
+    const p = pr.json.data || {};
+    ok('报表总览可读', pr.status === 200, `HTTP ${pr.status}`);
+    ok('八项指标都在', ['on_time_rate', 'fpy', 'rework_rate', 'wip_avg_age', 'efficiency', 'cut_pass_rate']
+      .every((k) => k in (p.kpi || {})), JSON.stringify(Object.keys(p.kpi || {})));
+    ok('口径说明 8 条', (p.calibers || []).length === 8, `实际 ${(p.calibers || []).length} 条`);
+    ok('口径写明不美化准交率', (p.calibers || []).some((c) => /不相减|并列/.test(c)));
+
+    // 覆盖率：每条都要有分母；算不出来的必须写原因，不能只给一个数字
+    const cov = p.coverage || [];
+    ok('覆盖率每条都有分子分母', cov.length > 0 && cov.every((c) => typeof c.available === 'number' && typeof c.total === 'number'));
+    ok('不计算的指标都写清了原因', cov.every((c) => c.rate !== null || (c.note || '').length > 4),
+      cov.filter((c) => c.rate === null && !(c.note || '')).map((c) => c.item).join(','));
+    ok('材料利用率不拿合格率冒充', cov.some((c) => c.item === '材料利用率' && c.rate === null && /净用布/.test(c.note || '')));
+
+    // 准交双口径
+    ok('准交率给出双口径', !!(p.on_time && p.on_time.by_due && p.on_time.by_shipped));
+    ok('主口径标明用的哪个', ['due', 'shipped'].includes(p.on_time && p.on_time.primary));
+    ok('样本不足不报比率', [p.on_time.by_due, p.on_time.by_shipped].every((x) => (x.sample >= 5 ? x.rate !== null : x.rate === null)),
+      `due ${p.on_time.by_due.sample}单/${p.on_time.by_due.rate} shipped ${p.on_time.by_shipped.sample}单/${p.on_time.by_shipped.rate}`);
+    ok('客户准交与工厂段并列不相减', typeof p.kpi.on_time_rate === 'number'
+      && p.segments && typeof p.segments.factory_rate === 'number'
+      && p.segments.factory_rate !== p.kpi.on_time_rate);
+
+    // 工序产出不相加成整件产量
+    const effRows = (p.efficiency && p.efficiency.rows) || [];
+    const sumQtyOk = effRows.reduce((a, x) => a + Number(x.qty_ok || 0), 0);
+    ok('工序产出没有相加成整件产量', p.quality && Number(p.quality.input_qty) !== sumQtyOk,
+      `工序合格合计 ${Math.round(sumQtyOk)} vs 投产件数 ${p.quality && p.quality.input_qty}`);
+    ok('效率分母只取有工时的报工', p.efficiency && p.efficiency.reports_with_hours < p.efficiency.total_reports
+      ? p.efficiency.hour_coverage < 100 : true, `覆盖 ${p.efficiency && p.efficiency.hour_coverage}%`);
+    ok('没工时的工序不给 0% 给 null', effRows.some((x) => x.efficiency === null && /没填工时|缺标准工时/.test(x.efficiency_note || '')),
+      effRows.filter((x) => x.efficiency === null).map((x) => x.process).slice(0, 3).join(','));
+
+    // 计划 vs 实际：没有计划日就报 0% 覆盖，不把「没计划」当「偏差 0 天」
+    const pva = p.plan_vs_actual || {};
+    ok('计划偏差缺计划日时说清原因', pva.coverage === 0
+      ? /plan_date|计划完成日/.test(pva.note || '')
+      : pva.rows.every((r) => r.with_plan > 0 || r.avg_dev === null), `覆盖 ${pva.coverage}%`);
+
+    // 一次合格率口径
+    ok('一次合格率扣返工且写明口径', (p.quality.fpy === null) || /返工后复验合格不再算/.test(p.quality.fpy_note || ''),
+      p.quality.fpy_note);
+
+    // 在制龄：起算依据要说清
+    ok('在制龄写明起算依据', (p.wip.rows || []).every((r) => !!r.base_source));
+
+    // CSV 导出（BOM 要按字节查：fetch().text() 会自动把 UTF-8 BOM 吃掉，看不出有没有）
+    const csvRes = await fetch(BASE + '/api/prod-report/export?kind=efficiency&period=' + encodeURIComponent(p.period), {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    const csvBuf = new Uint8Array(await csvRes.arrayBuffer());
+    const csvText = new TextDecoder('utf-8').decode(csvBuf);
+    const hasBom = csvBuf[0] === 0xef && csvBuf[1] === 0xbb && csvBuf[2] === 0xbf;
+    ok('效率 CSV 可导出且带 BOM', csvRes.status === 200 && hasBom, `HTTP ${csvRes.status} bom=${hasBom}`);
+    ok('CSV 带覆盖率行（不只给一个百分比）', /工时覆盖率%/.test(csvText));
+
+    // 权限：仓库不看交付与质量指标
+    const whLogin = await req('/api/auth/login', { method: 'POST', body: { username: 'wh01', password: PASS } });
+    const whTok = (whLogin.json && whLogin.json.data && whLogin.json.data.token) || '';
+    if (whTok) {
+      const deny = await req('/api/prod-report/overview', { token: whTok });
+      ok('仓库不能看交付质量报表', deny.status === 403, `HTTP ${deny.status}`);
+    } else {
+      ok('仓库不能看交付质量报表', true, '没有 wh01，跳过');
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

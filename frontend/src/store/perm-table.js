@@ -102,6 +102,7 @@ export const PERM_TABLE = {
   'exception.write': ["admin","sales","tech","production","warehouse","finance","hr"],
   'exception.review': ["admin","boss"],
   'exception.rule': ["admin"],
+  'prodreport.read': ["admin","boss","production","finance","tech","sales"],
   'paymentreq.read': ["admin","boss","finance","warehouse"],
   'paymentreq.write': ["admin","finance","warehouse"],
   'paymentreq.pay': ["admin","finance","warehouse"],

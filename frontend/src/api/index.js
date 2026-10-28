@@ -263,6 +263,18 @@ export const api = {  // 登录
   excNote: (id, d) => req(`/api/exceptions/${id}/note`, { method: 'POST', body: d }),
   excReopen: (id, d) => req(`/api/exceptions/${id}/reopen`, { method: 'POST', body: d }),
   excIgnore: (id, d) => req(`/api/exceptions/${id}/ignore`, { method: 'POST', body: d }),
+
+  // 生产交付效率与质量报表
+  prOverview: (params) => req('/api/prod-report/overview' + qs(params)),
+  prOnTime: (params) => req('/api/prod-report/on-time' + qs(params)),
+  prSegments: (params) => req('/api/prod-report/segments' + qs(params)),
+  prEfficiency: (params) => req('/api/prod-report/efficiency' + qs(params)),
+  prQuality: (params) => req('/api/prod-report/quality' + qs(params)),
+  prWip: (params) => req('/api/prod-report/wip' + qs(params)),
+  prPlan: (params) => req('/api/prod-report/plan-vs-actual' + qs(params)),
+  prMaterial: (params) => req('/api/prod-report/material' + qs(params)),
+  prLead: (params) => req('/api/prod-report/lead-time' + qs(params)),
+  prExportPath: (params) => '/api/prod-report/export' + qs(params),
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),
   resolveScan: (code) => req('/api/labels/resolve?code=' + encodeURIComponent(code)),

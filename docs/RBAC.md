@@ -680,6 +680,16 @@
 | process | POST | `/tasks/:id/escalate` | ✅ | — | ✅ | — | ✅ | — | ✅ | ✅ |
 | process | POST | `/tasks/:id/receive` | ✅ | — | ✅ | — | ✅ | — | ✅ | ✅ |
 | process | POST | `/tasks/:id/remind` | ✅ | — | ✅ | — | ✅ | — | ✅ | ✅ |
+| prodReport | GET | `/efficiency` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/export` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/lead-time` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/material` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/on-time` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/overview` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/plan-vs-actual` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/quality` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/segments` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| prodReport | GET | `/wip` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
 | products | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | products | PUT | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | products | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
@@ -1010,6 +1020,7 @@
 | `exception.write` | 系统管理员、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
 | `exception.review` | 系统管理员、总经理 |
 | `exception.rule` | 系统管理员 |
+| `prodreport.read` | 系统管理员、总经理、生产车间、财务会计、技术打版、销售跟单 |
 | `paymentreq.read` | 系统管理员、总经理、财务会计、仓库采购 |
 | `paymentreq.write` | 系统管理员、财务会计、仓库采购 |
 | `paymentreq.pay` | 系统管理员、财务会计、仓库采购 |

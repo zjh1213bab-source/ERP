@@ -2792,3 +2792,42 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 **已暂停**：`/api/bad-debt/*`（坏账准备计提）接口未挂载，返回 404；
 相关代码与已生成的凭证、1231/6702 余额均保留，恢复方式见 `server.js` 与 `services/gl.js` 的注释。
+
+## 生产交付效率与质量报表（`/api/prod-report`）
+
+> 只读，不改任何业务数据，**不产生排名或扣薪依据**。权限 `prodreport.read`
+> （admin/boss/production/finance/tech/sales；仓库与人事不看）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /api/prod-report/overview?period= | 八项指标 + 覆盖率清单（7 条）+ 8 条口径 + 各分块 |
+| GET | /api/prod-report/on-time | 准交率**双口径**：`by_due`（该交的）/ `by_shipped`（交了的），含按类型与延期原因 |
+| GET | /api/prod-report/segments | 工厂段达成（P1→E1 实际 vs 计划）+ 节点等待时长；**与客户准交并列不相减** |
+| GET | /api/prod-report/efficiency | 工序效率（只取有工时的报工） |
+| GET | /api/prod-report/quality | 一次合格率 / 返工 / 报废 / 按工序与责任分布 |
+| GET | /api/prod-report/wip | 在制龄分档与逐单明细 |
+| GET | /api/prod-report/plan-vs-actual | 计划 vs 实际；缺 `plan_date` 时报 0% 覆盖与原因 |
+| GET | /api/prod-report/material | 裁片合格率与余料；**材料利用率不计算并说明缺什么** |
+| GET | /api/prod-report/lead-time | 交期四段下钻（技术制版 / 销售接收 / 资料接收 / 在制变更） |
+| GET | /api/prod-report/export?kind=&period= | CSV（带 BOM）。kind: `on_time` / `efficiency` / `quality` / `wip` / `plan` |
+
+**八项指标与口径**
+
+| 指标 | 口径 | 算不出来时 |
+|---|---|---|
+| 准交率 | 实际发运日 ≤ 原批准承诺日；双口径并列 | 样本 < 5 只给数字不给比率 |
+| 工厂段达成 | P1 裁床算料实际开始 → E1 出厂发运实际结束，对比各节点 `plan_days` 之和（**含 E1**） | 无计划天数 → `factory_ok=null` |
+| 工序效率 | (标准单件分钟 × 合格件数 ÷ 60) ÷ 实际工时 | 缺工时或缺标准工时 → `efficiency=null` |
+| 一次合格率 | (投产件数 − 返工件数) ÷ 投产件数；返工复验合格不再计 | 查不到件数 → `fpy=null` |
+| 返工/报废率 | 返工件数、报废件数 ÷ 投产件数 | 同上 |
+| 在制龄 | 起算：首个工序实际开始 → T0 → 建单日（`base_source` 标注） | 全无 → `age_days=null` |
+| 材料利用 | **不计算**（缺净用布面积），只给裁片合格率与余料 | `utilization=null` + 原因 |
+| 计划实际差异 | `order_nodes.plan_date` vs `actual_date` | 覆盖率 0% 并提示去排程生成计划日 |
+
+**四条硬口径**
+
+1. **工序产出不相加成整件产量**：整件只认订单件数。
+2. **客户准交与工厂段达成并列，不相减**：剔掉下单前等待再叫准交率是化妆。
+3. **分母为 0 给 null 不给 0**：0 是「效率极差」，null 是「没数据」。
+4. **覆盖率为 0 也照实显示**：`order_nodes.plan_date` 为空时显示「0/101 可比」，
+   不把「没有计划」当成「计划偏差 0 天」。

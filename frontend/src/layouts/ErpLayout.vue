@@ -137,6 +137,7 @@ const navModel = [
       { label: '现场照片', to: '/photos' },
       { label: '返工报废与结单', to: '/production-close' },
       { label: '设备与产能', to: '/equipment' },
+      { label: '生产交付与质量', to: '/prod-report' },
       { label: '外协对账', to: '/outsource-recon' }
     ]
   },
