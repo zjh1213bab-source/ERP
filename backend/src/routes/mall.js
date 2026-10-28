@@ -35,6 +35,7 @@ const { hashPassword } = require('../auth/password');
 const crypto = require('crypto');
 const mall = require('../services/mall');
 const CP = require('../services/customerProgress');
+const R = require('../services/mallReorder');
 const AS = require('../services/afterSale');
 const SF = require('../services/statementFile');
 
@@ -356,6 +357,24 @@ router.get('/orders/:id', customerRequired, permRequired('order.view'), wrap(asy
   head.amount_visible = hasPerm(req.account, 'finance.view');
   return ok(res, head);
 }));
+
+// ---------------- 历史订单再次购买（TS-N20-08） ----------------
+/**
+ * 预览：把历史订单拆成可再购的行，逐行算「现在」的价格/可售量/技术版本差异。
+ *
+ * 为什么要有预览这一步：再购看起来是「复制订单」，实际上是一次新询价。
+ * 直接复制会让客户拿着去年的价来问「为什么这次贵了」——
+ * 所以先把差异摊开给他看，确认后再提交。
+ */
+router.get('/orders/:id/reorder-preview', customerRequired, permRequired('order.view'), wrap(async (req, res) =>
+  ok(res, R.preview(req.params.id, req.customer.cid))));
+
+/**
+ * 提交再购：生成一张新的询价单（不是订单）。
+ * 权限用 inquiry.create —— 跟「创建询价」同一个门槛，不能因为「上次买过」就跳过。
+ */
+router.post('/orders/:id/reorder', customerRequired, permRequired('inquiry.create'), wrap(async (req, res) =>
+  ok(res, R.submit(req.params.id, req.customer.cid, req.customer.sub, req.body || {}))));
 
 // ---------------- 待我确认（样衣封样 / 订单变更 / 交期变动） ----------------
 const SEAL_STATUS = { draft: '草稿', sent: '待确认', confirmed: '已确认', rejected: '已提修改', superseded: '已被替代' };

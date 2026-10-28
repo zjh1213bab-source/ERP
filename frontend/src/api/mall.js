@@ -68,6 +68,10 @@ export const mallApi = {
 
   orders: () => req('/api/mall/orders'),
   order: (id) => req('/api/mall/orders/' + id),
+  // 历史订单再次购买：预览是「按当前价格/可售量/技术版本重算后的差异」，
+  // 提交生成的是一张新询价单（不是订单）
+  reorderPreview: (id) => req(`/api/mall/orders/${id}/reorder-preview`),
+  reorder: (id, d) => req(`/api/mall/orders/${id}/reorder`, { method: 'POST', body: d || {} }),
   // 订单进度：只返回业务已发布的快照（没发布的订单不会出现）
   progress: () => req('/api/mall/progress'),
   orderProgress: (id) => req('/api/mall/orders/' + id + '/progress'),

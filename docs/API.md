@@ -3400,3 +3400,54 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 - `export_subscriptions.status`：`active` 生效中 → `paused` 暂停 → `active`（恢复）
   → `expired` 已到期/已终止（`cancel` 直接进 expired）。
 - `export_deliveries.status`：`pending` 待领取 → `taken` 已领取；`blocked` 通道未配置；`failed` 失败。
+
+## 历史订单再次购买（客户商城）
+
+> 「再来一单」不是复制订单，而是**用当前价格/可售量/技术版本重新确认后生成一张新询价单**。
+> 原型口径：只复制选品条件与源单关联，不沿用过期折扣、占用与付款状态。
+>
+> 权限：预览要 `order.view`（只能看自己的单）；提交要 `inquiry.create`（与创建询价同一门槛）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/mall/orders/:id/reorder-preview | order.view | 把历史单调成可再购的行，逐行算差异（价格/可售量/起订量/技术版本/是否下架） |
+| POST | /api/mall/orders/:id/reorder | inquiry.create | 提交再购：`{items:[{line_no, qty}], remark}` → 生成新询价单 |
+
+### 预览返回
+
+```
+{
+  order: { id, order_no, status, style_name, order_date, delivery_date, total_usd },
+  items: [{
+    line_no, product_name, style_no, color_summary,
+    sizes: [{color, size, qty, usd_price}],
+    hist_qty, hist_price_usd,            // 历史（源单）
+    mall_product_id, current_price_usd,  // 当前在架商品与价格（下架为 null）
+    price_source, moq, sellable,         // 价格来源 / 当前起订量 / 当前可售量
+    quote_qty,                           // 建议数量（= 历史数量，不自动加量）
+    tags: ["price_changed","stock_short","tech_newer",...],
+    tag_labels: ["价格变化","可售量不足","技术版本更新"],
+    messages: ["单价从 $10 涨到 $12（+$2）...", ...],
+    status: "ok" | "warn" | "blocked",   // blocked = 已下架，不允许提交
+    matched_by: "product_id" | "style_no" | "name"
+  }],
+  summary: { total, ok, warn, blocked, hist_usd, now_usd, hist_qty },
+  as_of, notes: [...]
+}
+```
+
+### 提交行为
+
+- 只接受 `line_no` + `qty`；**不传 items 表示「一键全要」**，此时自动跳过已下架行并回报 `skipped`；
+  传了 items 且显式包含已下架行 → 400（让客户知道这行不行）。
+- 生成的 `mall_inquiries`：`status='submitted'`、`order_id` 为空、带 `source_order_id/source_order_no`、
+  `reorder_diff` 存差异快照。
+- 明细 `price_usd` 一律取**当前**价格；`remark` 记录该行的差异说明。
+
+### 五条口径
+
+1. **不复制付款/折扣/占用**：新单从「待报价」开始。
+2. **差异双向报**（涨价降价都报），否则客户一旦自己发现就会核对每一张单。
+3. **已下架不允许提交**；可售量不足允许提交（可能仍在产）。
+4. **MOQ 只提示不拦**，也不自动把数量加到 MOQ。
+5. **草稿/已取消单不能当历史单**（没有「再买一次」的意义）。

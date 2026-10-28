@@ -583,6 +583,90 @@
             </tr>
           </tbody>
         </table>
+
+        <!-- 再来一单：走「按当前重算 + 确认差异」的路径，不是直接复制订单 -->
+        <div class="ml-reorder-bar">
+          <div class="ml-muted">
+            想按这张单再买一次？系统会按<b>当前</b>价格、起订量与可供量重新算一遍，
+            把差异列出来给你确认 —— 不会直接沿用当时的价。
+          </div>
+          <button class="ml-btn primary" @click="openReorder(orderDetail)" :disabled="reorderLoading">
+            {{ reorderLoading ? '读取中…' : '再来一单' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 再来一单：差异确认 -->
+    <div v-if="reorder" class="ml-mask" @click.self="reorder = null">
+      <div class="ml-modal wide">
+        <button class="ml-x" @click="reorder = null">×</button>
+        <h3>再来一单<span class="ml-muted ro-src">源单 {{ reorder.order.order_no }}</span></h3>
+        <div class="ml-note">
+          只复制款号、颜色、尺码与数量。价格 / 起订量 / 可售量 / 技术版本按<b>当前</b>重新确认，
+          原单的折扣、库存占用与付款状态一律不沿用 —— 提交后是一张<b>新询价单</b>，不是订单。
+        </div>
+
+        <div class="ro-sum">
+          <span>源单 {{ reorder.summary.total }} 个款</span>
+          <span>历史合计 ${{ money(reorder.summary.hist_usd) }}</span>
+          <span>按当前价约 <b>${{ money(reorderNowTotal) }}</b></span>
+          <span class="ro-ok" v-if="reorder.summary.ok">{{ reorder.summary.ok }} 行可直接提交</span>
+          <span class="ro-warn" v-if="reorder.summary.warn">{{ reorder.summary.warn }} 行需确认</span>
+          <span class="ro-block-t" v-if="reorder.summary.blocked">{{ reorder.summary.blocked }} 行不可再购</span>
+        </div>
+
+        <div class="ro-table-wrap">
+          <table class="ml-table ro-table">
+            <thead>
+              <tr>
+                <th style="width: 25%">款式</th>
+                <th class="num" style="width: 9%">上次</th>
+                <th class="num" style="width: 11%">当前价</th>
+                <th class="num" style="width: 8%">可售</th>
+                <th class="num" style="width: 11%">本次数量</th>
+                <th style="width: 36%">差异</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="it in reorder.items" :key="it.line_no" :class="{ 'ro-row-block': it.status === 'blocked' }">
+                <td>
+                  {{ it.product_name }}
+                  <div class="ml-muted">{{ it.style_no || '-' }}<template v-if="it.color_summary"> · {{ it.color_summary }}</template></div>
+                </td>
+                <td class="num">
+                  {{ it.hist_qty }}
+                  <div class="ml-muted">${{ money(it.hist_price_usd) }}</div>
+                </td>
+                <td class="num">
+                  <b v-if="it.current_price_usd">${{ money(it.current_price_usd) }}</b>
+                  <span v-else class="ml-muted">—</span>
+                  <div class="ml-muted" v-if="it.moq">起订 {{ it.moq }}</div>
+                </td>
+                <td class="num">{{ it.sellable || 0 }}</td>
+                <td class="num">
+                  <input v-if="it.status !== 'blocked'" v-model.number="it.quote_qty" type="number" min="0" class="ro-qty" />
+                  <span v-else class="ml-muted">不可再购</span>
+                </td>
+                <td>
+                  <span v-for="t in it.tag_labels" :key="t" class="ro-tag" :class="reorderTagCls(t)">{{ t }}</span>
+                  <div class="ml-muted ro-msg" :title="it.messages.join(String.fromCharCode(10))">{{ it.messages[0] }}<template v-if="it.messages.length > 1"> 等 {{ it.messages.length }} 条</template></div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="ro-foot">
+          <input v-model="reorderRemark" class="ml-input ro-remark" placeholder="备注（选填）" />
+          <button class="ml-btn ghost" @click="reorder = null">取消</button>
+          <button class="ml-btn primary" :disabled="reorderSubmitting" @click="doReorder">
+            {{ reorderSubmitting ? '提交中…' : '提交询价' }}
+          </button>
+        </div>
+        <div class="ml-muted ro-hint">
+          提交后由业务员确认价格与可供日期；确认前不占产能。可售量不足不代表不能做，可能仍在产。
+        </div>
       </div>
     </div>
   </div>
@@ -863,6 +947,52 @@ async function submitInquiry() {
 async function openInquiry(row) {
   try { inqDetail.value = await api.inquiry(row.id); } catch (e) { alert(e.message); }
 }
+// ---------- 再来一单（TS-N20-08） ----------
+const reorder = ref(null);
+const reorderLoading = ref(false);
+const reorderSubmitting = ref(false);
+const reorderRemark = ref('');
+const reorderNowTotal = computed(() => {
+  if (!reorder.value) return 0;
+  return reorder.value.items.reduce((s, it) => s + (Number(it.current_price_usd) || 0) * (Number(it.quote_qty) || 0), 0);
+});
+function reorderTagCls(label) {
+  const map = { 已下架: 'b', 低于起订量: 'w', 可售量不足: 'w', 价格变化: 'i', 尺码需确认: 'i', 技术版本更新: 'i', 按款号匹配: 'i' };
+  return map[label] || 'i';
+}
+async function openReorder(o) {
+  if (!o || !o.id) return;
+  reorderLoading.value = true;
+  try {
+    reorder.value = await api.reorderPreview(o.id);
+    reorderRemark.value = '';
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    reorderLoading.value = false;
+  }
+}
+async function doReorder() {
+  if (!reorder.value) return;
+  const items = reorder.value.items
+    .filter((it) => it.status !== 'blocked' && Number(it.quote_qty) > 0)
+    .map((it) => ({ line_no: it.line_no, qty: Number(it.quote_qty) }));
+  if (!items.length) return alert('请至少保留一行数量大于 0 的款式');
+  reorderSubmitting.value = true;
+  try {
+    const r = await api.reorder(reorder.value.order.id, { items, remark: reorderRemark.value || undefined });
+    reorder.value = null;
+    alert(`已提交询价 ${r.inquiry_no}（${r.total_qty} 件 / $${money(r.total_usd)}）\n${r.note || ''}`);
+    // 切到「询价」页让人马上看到这张单
+    tab.value = 'inquiries';
+    await loadTab();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    reorderSubmitting.value = false;
+  }
+}
+
 async function openOrder(row) {
   try {
     orderDetail.value = await api.order(row.id);
@@ -1107,6 +1237,30 @@ onMounted(async () => {
 .ml-cartbar span { margin-right: auto; color: #4a5b70; }
 
 .ml-mask { position: fixed; inset: 0; background: rgba(14, 25, 40, 0.5); z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding: 4vh 12px; overflow: auto; }
+/* 再购弹窗比商品详情宽：差异表有 6 列，挤在 560 里会全部换行 */
+.ml-modal.wide { width: 860px; }
+.ml-reorder-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e2e9f4; font-size: 12px; }
+.ro-src { font-size: 12px; font-weight: 400; margin-left: 8px; }
+.ro-sum { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #5b6b80; margin: 10px 0; }
+.ro-sum b { color: #16233b; }
+.ro-ok { color: #15803d; }
+.ro-warn { color: #b45309; }
+.ro-block-t { color: #c0392b; }
+.ro-table-wrap { max-height: 46vh; overflow: auto; border: 1px solid #eef2f8; border-radius: 10px; }
+.ro-table { table-layout: fixed; }
+.ro-table td { font-size: 12px; vertical-align: top; word-break: break-word; }
+.ro-table th { font-size: 11.5px; }
+.ro-table td:nth-child(2), .ro-table td:nth-child(3), .ro-table td:nth-child(4), .ro-table td:nth-child(5) { white-space: nowrap; }
+.ro-row-block { background: #fdf6f5; }
+.ro-qty { width: 74px; text-align: right; padding: 5px 7px; border: 1px solid #d8e1ee; border-radius: 7px; font-size: 12px; }
+.ro-tag { display: inline-block; font-size: 10.5px; padding: 1px 6px; border-radius: 20px; margin: 0 3px 3px 0; white-space: nowrap; }
+.ro-tag.b { background: #fdeceb; color: #c0392b; }
+.ro-tag.w { background: #fff5e6; color: #b45309; }
+.ro-tag.i { background: #eef3fa; color: #1f5fae; }
+.ro-msg { line-height: 1.5; margin-top: 3px; }
+.ro-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.ro-remark { flex: 1; min-width: 160px; margin: 0; }
+.ro-hint { font-size: 11.5px; margin-top: 8px; line-height: 1.5; }
 .ml-modal { background: #fff; border-radius: 14px; width: 560px; max-width: 100%; padding: 18px 18px 20px; position: relative; }
 .ml-x { position: absolute; right: 12px; top: 10px; border: none; background: none; font-size: 22px; color: #9aa8bc; cursor: pointer; }
 .ml-modal h3 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

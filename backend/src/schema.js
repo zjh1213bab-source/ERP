@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 770 个对象
- * （352 张表 + 418 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 771 个对象
+ * （352 张表 + 419 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -49,7 +49,7 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS mall_products (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  product_id INTEGER,\n  style_no TEXT,\n  name_cn TEXT NOT NULL,\n  name_en TEXT,\n  category TEXT,\n  cover_image TEXT,\n  images TEXT,\n  description TEXT,\n  moq INTEGER DEFAULT 1,\n  lead_days INTEGER DEFAULT 30,\n  price_usd REAL DEFAULT 0,\n  visible_stock INTEGER NOT NULL DEFAULT 1,\n  tags TEXT,\n  status TEXT NOT NULL DEFAULT 'published',    -- draft / published / off\n  sort INTEGER NOT NULL DEFAULT 0,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS mall_prices (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  customer_id INTEGER NOT NULL,\n  mall_product_id INTEGER NOT NULL,\n  price_usd REAL NOT NULL DEFAULT 0,\n  moq INTEGER,\n  updated_at TEXT,\n  UNIQUE (customer_id, mall_product_id)\n);",
   "CREATE TABLE IF NOT EXISTS mall_favorites (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  account_id INTEGER NOT NULL,\n  mall_product_id INTEGER NOT NULL,\n  created_at TEXT NOT NULL,\n  UNIQUE (account_id, mall_product_id)\n);",
-  "CREATE TABLE IF NOT EXISTS mall_inquiries (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  inquiry_no TEXT UNIQUE NOT NULL,\n  customer_id INTEGER NOT NULL,\n  account_id INTEGER,\n  contact TEXT,\n  status TEXT NOT NULL DEFAULT 'submitted',    -- submitted/quoted/confirmed/converted/cancelled\n  total_usd REAL NOT NULL DEFAULT 0,\n  total_qty INTEGER NOT NULL DEFAULT 0,\n  rate REAL NOT NULL DEFAULT 6.5,\n  remark TEXT,\n  sales_remark TEXT,\n  quoted_by TEXT,\n  quoted_at TEXT,\n  order_id INTEGER,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS mall_inquiries (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  inquiry_no TEXT UNIQUE NOT NULL,\n  customer_id INTEGER NOT NULL,\n  account_id INTEGER,\n  contact TEXT,\n  status TEXT NOT NULL DEFAULT 'submitted',    -- submitted/quoted/confirmed/converted/cancelled\n  total_usd REAL NOT NULL DEFAULT 0,\n  total_qty INTEGER NOT NULL DEFAULT 0,\n  rate REAL NOT NULL DEFAULT 6.5,\n  remark TEXT,\n  sales_remark TEXT,\n  quoted_by TEXT,\n  quoted_at TEXT,\n  order_id INTEGER,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n, source_order_id INTEGER, source_order_no TEXT, reorder_diff TEXT);",
   "CREATE TABLE IF NOT EXISTS mall_inquiry_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  inquiry_id INTEGER NOT NULL,\n  mall_product_id INTEGER,\n  product_id INTEGER,\n  style_no TEXT,\n  name TEXT,\n  qty INTEGER NOT NULL DEFAULT 0,\n  price_usd REAL NOT NULL DEFAULT 0,\n  amount_usd REAL NOT NULL DEFAULT 0,\n  remark TEXT\n);",
   "CREATE TABLE IF NOT EXISTS mall_messages (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  customer_id INTEGER,\n  account_id INTEGER,\n  type TEXT NOT NULL DEFAULT 'system',         -- order / promo / arrival / system\n  title TEXT NOT NULL,\n  body TEXT,\n  ref_type TEXT,\n  ref_id INTEGER,\n  read_at TEXT,\n  created_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS qc_standards (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT,\n  name TEXT NOT NULL,\n  category TEXT,                              -- 品类，可空=通用\n  scope TEXT NOT NULL DEFAULT 'final',        -- incoming 来料 / process 过程 / final 成品 / child 童装合规\n  aql TEXT,                                   -- 抽样标准，如 AQL 2.5\n  status TEXT NOT NULL DEFAULT 'active',\n  remark TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);",
@@ -775,5 +775,6 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_export_sub_next ON export_subscriptions(next_run_at);",
   "CREATE INDEX IF NOT EXISTS idx_export_del_job ON export_deliveries(job_id);",
   "CREATE INDEX IF NOT EXISTS idx_export_del_sub ON export_deliveries(subscription_id);",
-  "CREATE INDEX IF NOT EXISTS idx_export_del_rcpt ON export_deliveries(recipient, status);"
+  "CREATE INDEX IF NOT EXISTS idx_export_del_rcpt ON export_deliveries(recipient, status);",
+  "CREATE INDEX IF NOT EXISTS idx_mall_inq_source ON mall_inquiries(source_order_id);"
 ];

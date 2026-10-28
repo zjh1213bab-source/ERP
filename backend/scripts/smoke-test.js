@@ -9983,6 +9983,219 @@ async function req(path, { method = 'GET', body, token } = {}) {
       `导出记录 ${EDB.prepare('SELECT COUNT(*) c FROM export_jobs WHERE demo_tag = ?').get(MARK).c} / 订阅 ${EDB.prepare("SELECT COUNT(*) c FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '%__SMOKE%'").get().c}`);
   }
 
+
+  /* ================================================================== *
+   * 历史订单再次购买（TS-N20-08）
+   * 夹具自建客户 + 商品 + 历史订单 + 美仓库存 + 技术包两版，
+   * 全部带 RSMK- / SO202003019xxx / __SMOKE 标记，清理只认这几个标记
+   * ================================================================== */
+  {
+    const { db: RDB } = require('../src/db');
+    const R = require('../src/services/mallReorder');
+    console.log('\n[历史订单再次购买]');
+
+    const MARK = '__SMOKE';
+    const t = new Date().toISOString();
+    const pad = (n) => String(n).padStart(2, '0');
+    const day = (o) => {
+      const d = new Date(Date.now() + o * 86400000);
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+
+    const cleanSmoke = () => {
+      const orders = RDB.prepare("SELECT id FROM orders WHERE order_no LIKE 'SO202003019%'").all().map((r) => r.id);
+      orders.forEach((id) => {
+        RDB.prepare('SELECT id FROM order_items WHERE order_id = ?').all(id)
+          .forEach((i) => RDB.prepare('DELETE FROM order_item_sizes WHERE item_id = ?').run(i.id));
+        RDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+      });
+      RDB.prepare("DELETE FROM orders WHERE order_no LIKE 'SO202003019%'").run();
+      RDB.prepare("DELETE FROM mall_inquiry_items WHERE inquiry_id IN (SELECT id FROM mall_inquiries WHERE source_order_no LIKE 'SO202003019%')").run();
+      RDB.prepare("DELETE FROM mall_inquiries WHERE source_order_no LIKE 'SO202003019%'").run();
+      RDB.prepare("DELETE FROM mall_favorites WHERE mall_product_id IN (SELECT id FROM mall_products WHERE style_no LIKE 'RSMK-%')").run();
+      RDB.prepare("DELETE FROM mall_prices WHERE mall_product_id IN (SELECT id FROM mall_products WHERE style_no LIKE 'RSMK-%')").run();
+      RDB.prepare("DELETE FROM mall_products WHERE style_no LIKE 'RSMK-%'").run();
+      RDB.prepare("DELETE FROM stock_items WHERE style_no LIKE 'RSMK-%'").run();
+      RDB.prepare("DELETE FROM tech_packs WHERE product_name LIKE '%烟测再购%'").run();
+      RDB.prepare("DELETE FROM customers WHERE name LIKE '%烟测再购客户%'").run();
+    };
+    cleanSmoke();
+
+    // ---- 客户 ----
+    const cusId = Number(RDB.prepare(`INSERT INTO customers (code, name, contact, level, credit_limit, status, created_at, updated_at, company_id)
+      VALUES ('SMK-REORD', '烟测再购客户__SMOKE', '烟测', 'B', 0, 'active', ?, ?, 1)`).run(t, t).lastInsertRowid);
+
+    // ---- 两个在架商品 ----
+    const mkMp = (style, name, moq, price) => Number(RDB.prepare(`INSERT INTO mall_products (style_no, name_cn, name_en, category, moq, lead_days,
+        price_usd, visible_stock, status, sort, created_at, updated_at)
+      VALUES (?,?,?, '烟测', ?, 20, ?, 1, 'published', 0, ?, ?)`).run(style, name, name, moq, price, t, t).lastInsertRowid);
+    mkMp('RSMK-A', '烟测再购针织__SMOKE', 50, 12);
+    mkMp('RSMK-C', '烟测再购卫衣__SMOKE', 100, 7.5);
+
+    // ---- 历史订单（已发货，三个月前） ----
+    const totalUsd = 300 * 10 + 60 * 7.5 + 120 * 8;
+    const orderId = Number(RDB.prepare(`INSERT INTO orders (order_no, type, customer_id, status, rate, total_usd, total_amount,
+        currency, style_name, order_date, delivery_date, created_at, updated_at, company_id)
+      VALUES ('SO202003019001', 'stock', ?, 'shipped', 6.9, ?, ?, 'USD', '烟测再购针织__SMOKE', ?, ?, ?, ?, 1)`)
+      .run(cusId, totalUsd, Math.round(totalUsd * 6.9 * 100) / 100, day(-95), day(-30), t, t).lastInsertRowid);
+
+    const mkLine = (b) => {
+      const itemId = Number(RDB.prepare(`INSERT INTO order_items (order_id, product_name, style_no, color, qty, amount_usd, amount_cny)
+        VALUES (?,?,?,?,?,?,?)`).run(orderId, b.name, b.style, b.color, b.qty,
+        Math.round(b.qty * b.price * 100) / 100, Math.round(b.qty * b.price * 6.9 * 100) / 100).lastInsertRowid);
+      (b.sizes || []).forEach((sz) => {
+        RDB.prepare(`INSERT INTO order_item_sizes (item_id, color, size, qty, usd_price, cny_price, amount_usd, amount_cny)
+          VALUES (?,?,?,?,?,?,?,?)`).run(itemId, b.color, sz.size, sz.qty, b.price,
+          Math.round(b.price * 6.9 * 100) / 100, Math.round(sz.qty * b.price * 100) / 100,
+          Math.round(sz.qty * b.price * 6.9 * 100) / 100);
+      });
+      return itemId;
+    };
+    mkLine({ name: '烟测再购针织__SMOKE', style: 'RSMK-A', color: '米白', qty: 300, price: 10, sizes: [{ size: 'M', qty: 150 }, { size: 'L', qty: 150 }] });
+    mkLine({ name: '烟测再购卫衣__SMOKE', style: 'RSMK-C', color: '藏青', qty: 60, price: 7.5, sizes: [{ size: '均码', qty: 60 }] });
+    mkLine({ name: '烟测已下架款__SMOKE', style: 'RSMK-X', color: '深蓝', qty: 120, price: 8, sizes: [{ size: '均码', qty: 120 }] });
+
+    // ---- 美仓只有 40 件 ----
+    RDB.prepare("INSERT INTO stock_items (warehouse, style_no, product_name, color, size, qty, updated_at) VALUES ('us','RSMK-A','烟测再购针织__SMOKE','米白','M',40,?)").run(t);
+
+    // ---- 技术包两版 ----
+    RDB.prepare(`INSERT INTO tech_packs (order_id, product_name, version, stage, status, created_at, updated_at)
+      VALUES (?, '烟测再购针织__SMOKE', 1, 'confirmed', 'confirmed', ?, ?)`).run(orderId, day(-96), day(-96));
+    RDB.prepare(`INSERT INTO tech_packs (order_id, product_name, version, stage, status, created_at, updated_at)
+      VALUES (?, '烟测再购针织__SMOKE', 2, 'confirmed', 'confirmed', ?, ?)`).run(orderId, day(-10), day(-10));
+
+    // ================= 1. 预览：三类差异 =================
+    const pv = R.preview(orderId, cusId);
+    const lineOf = (style) => pv.items.find((x) => x.style_no === style) || {};
+
+    ok('★ 再购预览把历史单拆成可再购的行（3 个款）',
+      pv.items.length === 3 && pv.summary.total === 3,
+      `HTTP -${pv.items.length} 行 / 历史 ${pv.summary.hist_usd}`);
+
+    ok('★ 在架款：按当前价重算并报出价差（$10 → $12）',
+      lineOf('RSMK-A').current_price_usd === 12 && Math.abs(lineOf('RSMK-A').hist_price_usd - 10) < 0.01
+      && (lineOf('RSMK-A').tags || []).includes('price_changed'),
+      `历史 ${lineOf('RSMK-A').hist_price_usd} → 当前 ${lineOf('RSMK-A').current_price_usd}`);
+
+    ok('★ 可售量不足要报出来（历史 300 / 当前可售 40）',
+      (lineOf('RSMK-A').tags || []).includes('stock_short') && lineOf('RSMK-A').sellable === 40,
+      `可售 ${lineOf('RSMK-A').sellable} / 历史 ${lineOf('RSMK-A').hist_qty}`);
+
+    ok('★ 低于起订量只提示、不自动加量（60 < MOQ 100）',
+      (lineOf('RSMK-C').tags || []).includes('moq_short')
+      && lineOf('RSMK-C').quote_qty === 60 && lineOf('RSMK-C').moq === 100,
+      `数量 ${lineOf('RSMK-C').quote_qty} / MOQ ${lineOf('RSMK-C').moq}`);
+
+    ok('★ 已下架款标为不可再购（blocked）',
+      lineOf('RSMK-X').status === 'blocked' && (lineOf('RSMK-X').tags || []).includes('off_shelf'),
+      `${lineOf('RSMK-X').status} / ${(lineOf('RSMK-X').tag_labels || []).join('、')}`);
+
+    ok('★ 技术包版本变化要提示（原单 v1，现已有 v2）',
+      (lineOf('RSMK-A').tags || []).includes('tech_newer'),
+      (lineOf('RSMK-A').messages || []).find((m) => /技术包/.test(m)) || '未提示');
+
+    ok('汇总分清「可直接提交 / 需确认 / 不可再购」',
+      pv.summary.warn === 2 && pv.summary.blocked === 1 && pv.summary.ok === 0,
+      `ok ${pv.summary.ok} / warn ${pv.summary.warn} / blocked ${pv.summary.blocked}`);
+
+    ok('预览不写库（不产生询价单）',
+      RDB.prepare("SELECT COUNT(*) c FROM mall_inquiries WHERE source_order_no LIKE 'SO202003019%'").get().c === 0,
+      '询价单 0 张');
+
+    // ================= 2. 提交：只认当前价，不带旧折扣/占用 =================
+    const sub = R.submit(orderId, cusId, null, { remark: '烟测：再来一单' });
+    const inq = RDB.prepare('SELECT * FROM mall_inquiries WHERE inquiry_no = ?').get(sub.inquiry_no);
+    const lines = RDB.prepare('SELECT * FROM mall_inquiry_items WHERE inquiry_id = ? ORDER BY id').all(inq.id);
+
+    ok('★ 提交生成的是「新询价单」，不是订单（order_id 为空、来源单另存）',
+      !!inq && inq.status === 'submitted' && inq.order_id === null && Number(inq.source_order_id) === orderId,
+      `${inq ? inq.status : '?'} / order_id ${inq ? inq.order_id : '?'} / 来源 ${inq ? inq.source_order_no : '?'}`);
+
+    ok('★ 明细单价用当前价（$12 / $7.5），不是历史价',
+      lines.length === 2 && Math.abs(lines[0].price_usd - 12) < 0.01 && Math.abs(lines[1].price_usd - 7.5) < 0.01
+      && Math.abs(inq.total_usd - (300 * 12 + 60 * 7.5)) < 0.01,
+      `合计 ${inq.total_usd}（300×12 + 60×7.5 = 4050）`);
+
+    ok('★ 不沿用原单的付款/折扣/占用（金额按当前价、状态从待报价开始）',
+      inq.status === 'submitted' && Math.abs(inq.total_usd - 4410) > 0.01,
+      `当前 ${inq.total_usd} ≠ 历史 $4410`);
+
+    const diffSnap = JSON.parse(inq.reorder_diff || '{}');
+    ok('★ 差异快照落库（事后能解释「当时提示过什么」）',
+      (diffSnap.items || []).length === 2 && (diffSnap.items[0].tags || []).includes('price_changed')
+      && !!diffSnap.as_of,
+      `快照 ${(diffSnap.items || []).length} 行 / 首行标签 ${(diffSnap.items[0].tags || []).join(',')}`);
+
+    ok('需要业务员复核的差异有标记（needs_review）', sub.needs_review === true, `${sub.needs_review}`);
+
+    ok('★ 一键全要时自动跳过已下架行，并回报跳过了什么',
+      (sub.skipped || []).length === 1 && /下架/.test(sub.skipped[0].reason || ''),
+      sub.skipped && sub.skipped.length ? `${sub.skipped[0].product_name}：${sub.skipped[0].reason}` : '没有 skipped 信息');
+
+    // ================= 3. 已下架不能提交 =================
+    let blockErr = null;
+    try { R.submit(orderId, cusId, null, { items: pv.items.map((x) => ({ line_no: x.line_no, qty: x.quote_qty })) }); }
+    catch (e) { blockErr = e; }
+    ok('★ 勾选已下架款提交 → 直接拒绝（不能把发不出货的款放进新单）',
+      !!blockErr && /下架/.test(blockErr.message),
+      blockErr ? blockErr.message.slice(0, 40) : '居然提交成功了');
+
+    // ================= 4. 只提交部分行时，未勾选的下架行不拦 =================
+    let partialOk = false;
+    try {
+      const r2 = R.submit(orderId, cusId, null, { items: [{ line_no: 2, qty: 100 }] });
+      partialOk = !!r2.inquiry_no;
+      RDB.prepare('DELETE FROM mall_inquiry_items WHERE inquiry_id = ?').run(r2.id);
+      RDB.prepare('DELETE FROM mall_inquiries WHERE id = ?').run(r2.id);
+    } catch (e) { partialOk = false; }
+    ok('★ 只挑一行提交时，没勾的已下架行不拦（客户自己选择）', partialOk, partialOk ? '提交成功' : '被拦住了');
+
+    // ================= 5. 越权与状态门槛 =================
+    let crossErr = null;
+    try { R.preview(orderId, cusId + 9999); } catch (e) { crossErr = e; }
+    ok('★ 别的客户不能预览这张单', !!crossErr && crossErr.status === 403, crossErr ? crossErr.message : '未拦住');
+
+    const draftId = Number(RDB.prepare(`INSERT INTO orders (order_no, type, customer_id, status, rate, total_usd, total_amount,
+        currency, style_name, created_at, updated_at, company_id)
+      VALUES ('SO202003019002', 'stock', ?, 'draft', 6.9, 0, 0, 'USD', '烟测草稿', ?, ?, 1)`).run(cusId, t, t).lastInsertRowid);
+    RDB.prepare("INSERT INTO order_items (order_id, product_name, style_no, qty, amount_usd, amount_cny) VALUES (?, '烟测草稿款', 'RSMK-A', 10, 120, 828)").run(draftId);
+    let draftErr = null;
+    try { R.preview(draftId, cusId); } catch (e) { draftErr = e; }
+    ok('★ 草稿单不能当历史单再购', !!draftErr && /草稿/.test(draftErr.message), draftErr ? draftErr.message : '未拦住');
+
+    // ================= 6. 走 HTTP：商城客户身份 =================
+    const mallLogin = await req('/api/mall/auth/login', { method: 'POST', body: { username: MALL_USER, password: MALL_PASS } });
+    if (mallLogin.status === 200) {
+      const mt = mallLogin.json.data.token;
+      const foreign = await req(`/api/mall/orders/${orderId}/reorder-preview`, { token: mt });
+      ok('★ 接口层同样拦跨客户（abc001 看不到烟测客户的单）',
+        foreign.status === 403 || foreign.status === 404,
+        `HTTP ${foreign.status} ${foreign.json.message || ''}`);
+
+      // 自己客户的单：预览 + 提交（用演示单不存在时跳过）
+      const own = RDB.prepare("SELECT id FROM orders WHERE customer_id = (SELECT customer_id FROM customer_accounts WHERE username = ? LIMIT 1) AND status = 'shipped' AND id IN (SELECT order_id FROM order_items) ORDER BY id DESC LIMIT 1").get(MALL_USER);
+      if (own) {
+        const ownPv = await req(`/api/mall/orders/${own.id}/reorder-preview`, { token: mt });
+        ok('自己的订单可以走接口预览',
+          ownPv.status === 200 && Array.isArray(ownPv.json.data.items),
+          `HTTP ${ownPv.status} ${(ownPv.json.data && ownPv.json.data.items || []).length} 行`);
+      } else {
+        ok('自己的订单可以走接口预览', true, '没有合适的历史单，跳过');
+      }
+    } else {
+      ok('接口层跨客户校验', false, `商城登录失败 ${mallLogin.status}`);
+    }
+
+    // ================= 7. 清理 =================
+    cleanSmoke();
+    ok('冒烟夹具已清干净',
+      RDB.prepare("SELECT COUNT(*) c FROM orders WHERE order_no LIKE 'SO202003019%'").get().c === 0
+      && RDB.prepare("SELECT COUNT(*) c FROM mall_products WHERE style_no LIKE 'RSMK-%'").get().c === 0
+      && RDB.prepare("SELECT COUNT(*) c FROM mall_inquiries WHERE source_order_no LIKE 'SO202003019%'").get().c === 0
+      && RDB.prepare("SELECT COUNT(*) c FROM customers WHERE name LIKE '%烟测再购客户%'").get().c === 0,
+      `订单 ${RDB.prepare("SELECT COUNT(*) c FROM orders WHERE order_no LIKE 'SO202003019%'").get().c} / 商品 ${RDB.prepare("SELECT COUNT(*) c FROM mall_products WHERE style_no LIKE 'RSMK-%'").get().c}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');
