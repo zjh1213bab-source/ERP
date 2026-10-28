@@ -192,6 +192,91 @@
         </template>
       </section>
 
+      <!-- ============ 售后 ============ -->
+      <section v-else-if="tab === 'after'">
+        <div class="ml-msg-head">
+          <span class="ml-muted">
+            提了售后，业务受理后你可以在这里看到处理到哪一步。质量问题、错款、破损请<b>上传照片</b> ——
+            没有照片业务没法向工厂说明。
+          </span>
+          <button class="ml-btn primary" @click="openAfterForm">提新售后</button>
+        </div>
+
+        <!-- 提交表单 -->
+        <div v-if="afterForm.open" class="ml-block ml-after-form">
+          <div class="ml-block-title">提新售后</div>
+          <div class="ml-form-row">
+            <label>订单</label>
+            <select v-model="afterForm.order_id" class="ml-input" style="flex: 1" @change="afterForm.order_item_id = null">
+              <option :value="null">选择订单</option>
+              <option v-for="o in afterOptions" :key="o.id" :value="o.id">{{ o.order_no }}（{{ o.style_name || '-' }}）</option>
+            </select>
+          </div>
+          <div class="ml-form-row" v-if="afterForm.order_id">
+            <label>款式</label>
+            <select v-model="afterForm.order_item_id" class="ml-input" style="flex: 1">
+              <option :value="null">选择款</option>
+              <option v-for="it in currentItems" :key="it.id" :value="it.id" :disabled="it.available <= 0">
+                {{ it.style_no }} · {{ it.product_name }}（可提 {{ it.available }} 件）
+              </option>
+            </select>
+          </div>
+          <div class="ml-form-row">
+            <label>原因</label>
+            <select v-model="afterForm.reason_code" class="ml-input" style="width: 140px">
+              <option v-for="r in afterReasons" :key="r.code" :value="r.code">{{ r.label }}</option>
+            </select>
+            <label>怎么处理</label>
+            <select v-model="afterForm.resolution" class="ml-input" style="width: 140px">
+              <option v-for="r in afterResolutions" :key="r.code" :value="r.code">{{ r.label }}</option>
+            </select>
+          </div>
+          <div class="ml-form-row">
+            <label>数量</label>
+            <input v-model="afterForm.qty" class="ml-input" type="number" style="width: 100px" />
+            <label>索赔金额</label>
+            <input v-model="afterForm.amount_claim" class="ml-input" type="number" style="width: 120px" />
+            <span class="ml-muted" v-if="currentItem">最多 {{ currentItem.qty }} 件 / 货款 {{ currentItem.amount_usd }}</span>
+          </div>
+          <div class="ml-form-row">
+            <label>说明</label>
+            <textarea v-model="afterForm.reason" class="ml-input" rows="2" style="flex: 1"
+              placeholder="至少 8 个字：什么问题、多少件、客户怎么反馈的"></textarea>
+          </div>
+          <div class="ml-form-row">
+            <label>照片</label>
+            <input type="file" accept="image/*" multiple @change="onAfterPhotos" />
+            <span class="ml-muted">{{ afterForm.photos.length }} 张{{ needPhoto ? '（该原因必须上传）' : '' }}</span>
+          </div>
+          <div class="ml-form-foot">
+            <button class="ml-btn" @click="afterForm.open = false">取消</button>
+            <button class="ml-btn primary" @click="submitAfter">提交</button>
+          </div>
+        </div>
+
+        <!-- 我的售后单 -->
+        <div v-if="!afterRowList.length" class="ml-empty">还没有售后记录</div>
+        <div v-else class="ml-list">
+          <div v-for="r in afterRowList" :key="r.id" class="ml-after-row" @click="openAfterDetail(r.id)">
+            <div class="ml-after-main">
+              <div>
+                <strong>{{ r.ticket_no }}</strong>
+                <span class="ml-pill" :class="r.status === 'settled' ? 'g' : (r.status === 'rejected' ? '' : 'r')">{{ r.status_label }}</span>
+                <span class="ml-muted"> · {{ r.order_no }} · {{ r.style_no }} × {{ r.qty }}</span>
+              </div>
+              <div class="ml-muted">{{ r.reason_label }} → {{ r.resolution_label }}</div>
+              <div class="ml-muted">{{ r.progress_text }}</div>
+              <div class="ml-muted" v-if="r.refund_status === 'paid'">
+                已退款 {{ r.refund_amount }} {{ r.currency }}
+              </div>
+            </div>
+            <div class="ml-after-act">
+              <button v-if="r.status === 'submitted'" class="ml-btn" @click.stop="cancelAfter(r)">撤销</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ============ 消息 ============ -->
       <section v-else-if="tab === 'messages'">
         <div class="ml-msg-head">
@@ -241,6 +326,33 @@
             </tr>
           </tbody>
         </table>
+
+        <!-- 对账资料：只显示公司已授权的文件 -->
+        <div class="ml-block" style="margin-top: 16px">
+          <div class="ml-block-title">对账资料下载</div>
+          <div class="ml-muted" style="margin-bottom: 8px">
+            这里只有公司<b>已授权</b>给你的对账单文件。文件是发布当时的定版，后续账务变动不追溯 ——
+            你手上那份纸和我们系统里的数永远一致。
+          </div>
+          <div v-if="!statements.length" class="ml-empty">暂无已授权的对账文件</div>
+          <table v-else class="ml-table">
+            <thead>
+              <tr><th>文件号</th><th>期间</th><th>版本</th><th class="num">本期开票</th><th class="num">本期收款</th><th class="num">期末结欠</th><th>授权日</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in statements" :key="s.id">
+                <td>{{ s.file_no }}</td>
+                <td>{{ s.period_from }} ~ {{ s.period_to }}</td>
+                <td>v{{ s.version_no }}</td>
+                <td class="num">{{ money(s.amount_invoiced) }}</td>
+                <td class="num">{{ money(s.amount_paid) }}</td>
+                <td class="num strong">{{ money(s.amount_closing) }}</td>
+                <td>{{ (s.granted_at || '').slice(0, 10) }}</td>
+                <td><button class="ml-btn primary" @click="dlStatement(s)">下载</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <!-- ============ 成员与授权（主账号） ============ -->
@@ -479,7 +591,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { mallApi as api, clearMallAuth, getMallUser } from '../../api/mall';
+import { mallApi as api, clearMallAuth, getMallUser, downloadStatement } from '../../api/mall';
 
 const router = useRouter();
 // 标签按权限点显示（服务端同样校验，前端只是不给看不到的入口）
@@ -488,6 +600,7 @@ const ALL_TABS = [
   { key: 'favorites', label: '收藏', perm: 'catalog.view' },
   { key: 'inquiries', label: '我的询价', perm: 'inquiry.create' },
   { key: 'orders', label: '我的订单', perm: 'order.view' },
+  { key: 'after', label: '售后', perm: 'order.view' },
   { key: 'confirm', label: '待确认', perm: 'order.confirm' },
   { key: 'finance', label: '对账', perm: 'finance.view' },
   { key: 'members', label: '成员', perm: 'member.manage' },
@@ -527,6 +640,26 @@ const progressMap = ref({});
 
 // 对账 / 成员
 const finance = reactive({ rows: [], summary: {} });
+// 对账资料（只有公司已授权的文件出现在这里）
+const statements = ref([]);
+
+// 售后
+const afterRowList = ref([]);
+const afterOptions = ref([]);
+const afterReasons = ref([]);
+const afterResolutions = ref([]);
+const afterForm = reactive({
+  open: false, order_id: null, order_item_id: null, reason_code: 'quality',
+  resolution: 'return', qty: '', amount_claim: '', reason: '', photos: []
+});
+const currentItems = computed(() => {
+  const o = afterOptions.value.find((x) => x.id === afterForm.order_id);
+  return o ? o.items : [];
+});
+const currentItem = computed(() => currentItems.value.find((x) => x.id === afterForm.order_item_id) || null);
+// 这三个原因不给照片，业务没法向工厂举证
+const needPhoto = computed(() => ['quality', 'wrong_item', 'damaged'].includes(afterForm.reason_code));
+
 const members = reactive({ rows: [], limit: [], limit_labels: [], perm_dict: {}, role_presets: {} });
 const audits = ref([]);
 const newMember = reactive({ username: '', password: '', name: '', role: 'member', perms: [] });
@@ -563,12 +696,107 @@ async function loadTab() {
       } catch (e) { progressMap.value = {}; }
     }
     else if (tab.value === 'confirm') Object.assign(confirmations, await api.confirmations());
-    else if (tab.value === 'finance') Object.assign(finance, await api.finance());
+    else if (tab.value === 'finance') {
+      Object.assign(finance, await api.finance());
+      // 对账文件单独一次请求：就算文件拿不到，账单也不能跟着空白
+      try { statements.value = (await api.statements()).rows || []; } catch (e) { statements.value = []; }
+    }
+    else if (tab.value === 'after') await loadAfter();
     else if (tab.value === 'members') await loadMembers();
     else messages.value = await api.messages();
     await loadBadge();
   } catch (e) { alert(e.message); }
 }
+/* ---------------- 售后 ---------------- */
+async function loadAfter() {
+  try {
+    afterRowList.value = (await api.afterSales()).rows || [];
+  } catch (e) { afterRowList.value = []; }
+}
+
+async function openAfterForm() {
+  afterForm.open = true;
+  if (!afterOptions.value.length) {
+    try {
+      const d = await api.afterSaleOptions();
+      afterOptions.value = d.orders || [];
+      afterReasons.value = d.reasons || [];
+      afterResolutions.value = d.resolutions || [];
+    } catch (e) { alert(e.message); }
+  }
+}
+
+// 图片转 dataURL 再提交：客户侧没有独立上传通道，服务端会落盘并记路径
+function onAfterPhotos(ev) {
+  const files = Array.from(ev.target.files || []);
+  files.forEach((f) => {
+    if (afterForm.photos.length >= 6) return;
+    if (!/^image\//.test(f.type)) { alert(`${f.name} 不是图片`); return; }
+    if (f.size > 3.5 * 1024 * 1024) { alert(`${f.name} 超过 3.5MB，请压缩后再传`); return; }
+    const rd = new FileReader();
+    rd.onload = () => afterForm.photos.push({ dataUrl: rd.result, filename: f.name });
+    rd.readAsDataURL(f);
+  });
+  ev.target.value = '';
+}
+
+async function submitAfter() {
+  try {
+    const r = await api.submitAfterSale({
+      order_id: afterForm.order_id,
+      order_item_id: afterForm.order_item_id,
+      qty: Number(afterForm.qty),
+      amount_claim: Number(afterForm.amount_claim || 0),
+      reason_code: afterForm.reason_code,
+      resolution: afterForm.resolution,
+      reason: afterForm.reason,
+      photos: afterForm.photos
+    });
+    alert(r.note);
+    afterForm.open = false;
+    Object.assign(afterForm, {
+      open: false, order_id: null, order_item_id: null, reason_code: 'quality',
+      resolution: 'return', qty: '', amount_claim: '', reason: '', photos: []
+    });
+    await loadAfter();
+  } catch (e) { alert(e.message); }
+}
+
+async function cancelAfter(r) {
+  if (!confirm(`确定撤销 ${r.ticket_no}？业务已经看到的记录会保留。`)) return;
+  try {
+    await api.cancelAfterSale(r.id);
+    await loadAfter();
+  } catch (e) { alert(e.message); }
+}
+
+async function openAfterDetail(id) {
+  try {
+    const d = await api.afterSaleDetail(id);
+    const tr = d.tracks || {};
+    const lines = [
+      `${d.ticket_no}　${d.status_label}`,
+      `订单 ${d.order_no} · ${d.style_no} × ${d.qty}`,
+      `${d.reason_label} → ${d.resolution_label}`,
+      `客户描述：${d.reason}`,
+      '',
+      `退款：${d.refund_status_label}${d.refund_amount ? `（${d.refund_amount} ${d.currency}，${d.refund_method || ''}）` : ''}`,
+      `实物实收：${tr.receipt ? tr.receipt.label : '不涉及'}`,
+      `质量检验：${tr.inspect ? tr.inspect.label : '不涉及'}`,
+      `再上架：${tr.restock ? tr.restock.label : '不涉及'}`
+    ];
+    if (d.conclusion) lines.push('', `处理结论：${d.conclusion}`);
+    if (d.reject_reason) lines.push('', `驳回原因：${d.reject_reason}`);
+    alert(lines.join('\n'));
+  } catch (e) { alert(e.message); }
+}
+
+async function dlStatement(s) {
+  try {
+    await downloadStatement(s.id);
+  } catch (e) { alert(e.message); }
+}
+
 async function loadBadge() {
   try { Object.assign(badge, await api.summary()); } catch (e) { /* ignore */ }
 }
@@ -972,4 +1200,16 @@ onMounted(async () => {
 .ml-step.doing .ml-step-dot { background: #fff; border: 2px solid #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
 .ml-step.pending .ml-step-lb { color: #94a3b8; }
 .ml-pg-note { margin-top: 8px; font-size: 11.5px; line-height: 1.6; }
+
+/* ---- 售后 ---- */
+.ml-after-form { border: 1px solid #dbeafe; background: #f8fbff; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.ml-after-form .ml-form-row { margin-bottom: 8px; }
+.ml-after-form label { font-size: 12px; color: #667085; flex: 0 0 auto; min-width: 48px; }
+.ml-after-form .ml-input { min-width: 0; }
+.ml-form-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.ml-after-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; background: #fff; }
+.ml-after-row:hover { border-color: #d7e3f4; background: #fbfdff; }
+.ml-after-main { min-width: 0; font-size: 12.5px; line-height: 1.65; }
+.ml-after-main > div:first-child { margin-bottom: 2px; }
+.ml-after-act { flex: 0 0 auto; }
 </style>

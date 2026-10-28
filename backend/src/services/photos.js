@@ -285,4 +285,33 @@ function diskUsage() {
   return { files, size_mb: Math.round((bytes / 1024 / 1024) * 10) / 10 };
 }
 
-module.exports = { CATS, CAT_CODES, save, list, stats, remove, getById, diskUsage, PHOTO_DIR };
+/**
+ * 只把图片写进磁盘，不挂到订单上（给客户上传售后照片这类「先存图、后归属」的场景用）
+ *
+ * 与 save() 共用同一套校验与目录规则：MIME 白名单、4MB 上限、按月分目录。
+ * 分开是因为售后单不属于订单工序，硬塞进 save() 就得伪造一个 order_id。
+ * @returns {{url:string, size:number, mime:string, filename:string}}
+ */
+function writeImage(dataUrl, filename) {
+  const m = /^data:(image\/[a-z+.-]+);base64,(.+)$/i.exec(String(dataUrl || ''));
+  if (!m) throw bad('照片格式不正确（只接收图片）');
+  const mime = m[1].toLowerCase();
+  const ext = MIME_EXT[mime];
+  if (!ext) throw bad('只支持 jpg / png / webp');
+  const buf = Buffer.from(m[2], 'base64');
+  if (!buf.length) throw bad('照片内容为空');
+  if (buf.length > MAX_BYTES) {
+    throw bad(`照片压缩后仍有 ${(buf.length / 1024 / 1024).toFixed(1)}MB，超过 4MB，请重拍或调低画质`);
+  }
+  const name = crypto.randomBytes(10).toString('hex') + '.' + ext;
+  const file = path.join(monthDir(), name);
+  fs.writeFileSync(file, buf);
+  return {
+    url: '/uploads/photos/' + path.basename(path.dirname(file)) + '/' + name,
+    size: buf.length,
+    mime,
+    filename: String(filename || name).slice(0, 120)
+  };
+}
+
+module.exports = { CATS, CAT_CODES, save, writeImage, list, stats, remove, getById, diskUsage, PHOTO_DIR };

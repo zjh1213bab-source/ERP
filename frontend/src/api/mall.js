@@ -94,6 +94,16 @@ export const mallApi = {
   // 对账（财务子账号）
   finance: () => req('/api/mall/finance'),
 
+  // 对账资料下载（只含公司已授权的文件）
+  statements: () => req('/api/mall/statements'),
+
+  // 售后（挂在订单权限下）
+  afterSales: () => req('/api/mall/after-sales'),
+  afterSaleOptions: () => req('/api/mall/after-sales/options'),
+  afterSaleDetail: (id) => req('/api/mall/after-sales/' + id),
+  submitAfterSale: (d) => req('/api/mall/after-sales', { method: 'POST', body: d }),
+  cancelAfterSale: (id) => req('/api/mall/after-sales/' + id + '/cancel', { method: 'POST', body: {} }),
+
   // 改密码
   changePwd: (d) => req('/api/mall/auth/change-pwd', { method: 'POST', body: d }),
 
@@ -101,3 +111,25 @@ export const mallApi = {
   inviteInfo: (token) => req('/api/mall/auth/invite/' + token),
   acceptInvite: (token, d) => req(`/api/mall/auth/invite/${token}/accept`, { method: 'POST', body: d })
 };
+
+/** 下载对账文件（要带客户 token，不能直接用 <a href> 裸链） */
+export async function downloadStatement(id) {
+  const res = await fetch(BASE + '/api/mall/statements/' + id + '/download', {
+    headers: { Authorization: 'Bearer ' + getMallToken() }
+  });
+  if (!res.ok) {
+    let msg = `下载失败（${res.status}）`;
+    try { const j = await res.json(); msg = j.message || msg; } catch (e) { /* 非 JSON */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+  const name = m ? decodeURIComponent(m[1]) : `statement-${id}.csv`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}

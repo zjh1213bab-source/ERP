@@ -66,6 +66,8 @@ const privacyRoutes = require('./routes/privacy');           // 字段级脱敏�
 const skillRoutes = require('./routes/skills');              // 技能矩阵与岗位资格（人×工序 + 受限工序门禁）
 const selfRoutes = require('./routes/self');                 // 员工自助与薪资申诉（我的考勤/工资条/申请）
 const custProgressRoutes = require('./routes/customerProgress'); // 客户进度发布（内部发布 → 客户只读快照）
+const afterSaleRoutes = require('./routes/afterSales');       // 售后单（客户提 → 四条轨道 → 追偿 → 结案）
+const statementFileRoutes = require('./routes/statementFiles');// 对账资料（快照 → 授权发布 → 客户下载）
 // 【暂停】坏账准备计提：后端已实现（services/badDebt.js + routes/badDebt.js），
 // 财务模块暂缓上线，接口先不挂载（返回 404），代码与表结构、已生成的凭证全部保留。
 // 恢复：解开下面一行 + 解开 services/gl.js 里 bad_debt 关账检查项。
@@ -232,6 +234,8 @@ app.use('/api/privacy', privacyRoutes); // 字段级脱敏与访问审计（服�
 app.use('/api/skills', skillRoutes); // 技能矩阵与岗位资格（评定→矩阵→受限工序门禁→到期提醒）
 app.use('/api/self', selfRoutes); // 员工自助（账号绑定→我的考勤/工资条→申请→薪资申诉→调整单）
 app.use('/api/customer-progress', custProgressRoutes); // 客户进度发布（三条路线 → 发布快照 → 撤回留版本）
+app.use('/api/after-sales', afterSaleRoutes); // 售后单（退款/实收/检验/再上架/追偿 五轨独立）
+app.use('/api/statement-files', statementFileRoutes); // 对账资料（定版快照 → 授权 → 下载留痕）
 // 【暂停】app.use('/api/bad-debt', badDebtRoutes); // 坏账准备计提（按账龄差额补提/冲回，生成 6702/1231 凭证）
 app.use('/api/payrolls', payrollRoutes); // 薪酬核算
 app.use('/api/assets', assetRoutes); // 固定资产

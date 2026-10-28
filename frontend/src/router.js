@@ -95,6 +95,7 @@ import Privacy from './views/Privacy.vue';
 import Skills from './views/Skills.vue';
 import SelfService from './views/SelfService.vue';
 import CustomerProgress from './views/CustomerProgress.vue';
+import AfterSales from './views/AfterSales.vue';
 import PrintBatch from './views/PrintBatch.vue';
 import ScanGo from './views/ScanGo.vue';
 import MobileHome from './views/MobileHome.vue';
@@ -138,6 +139,7 @@ const routes = [
       { path: 'skills', component: Skills, meta: { title: '技能矩阵' } },
       { path: 'self', component: SelfService, meta: { title: '我的自助' } },
       { path: 'customer-progress', component: CustomerProgress, meta: { title: '客户进度发布' } },
+      { path: 'after-sales', component: AfterSales, meta: { title: '售后与对账资料' } },
       { path: 'scan', component: Scan, meta: { title: '扫码查询' } },
       { path: 'approvals', component: Approvals, meta: { title: '审批中心' } },
       { path: 'assistant', component: Assistant, meta: { title: '智能助手' } },

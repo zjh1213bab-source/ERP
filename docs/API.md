@@ -3062,3 +3062,82 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 - 外发未开始但后整/检验/发运已有进度 → 警告「客户看到会自相矛盾」
 
 发布本身不阻断（业务可分阶段对外），但 `warnings` 必须回给发布人。
+
+## 售后与对账资料（`/api/after-sales` + `/api/statement-files` + 商城客户侧）
+
+> 客户自助提售后，内部受理后**五条轨道各自独立**推进：退款 / 实物实收 / 质量检验 / 再上架 / 追偿。
+> 权限：`aftersale.read`（admin/boss/sales/quality/production/warehouse/finance）、
+> `aftersale.write`（admin/sales/quality/production/warehouse）、`aftersale.refund`（**仅 admin/finance**）、
+> `statementfile.read`（admin/boss/finance/sales）、`statementfile.publish`（**仅 admin/finance**）。
+
+### 售后单（内部）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/after-sales/meta | read | 字典（6 类原因 / 4 种处理方式 / 5 条轨道状态 / 追偿对象）+ 统计 |
+| GET | /api/after-sales?status=&customer_id=&overdue=&q= | read | 清单。`status=open` 只看未结案；排序按状态（待受理在前） |
+| GET | /api/after-sales/:id | read | 详情：五轨状态 + 退货单 + 明细 + 照片 + `settle_blockers` |
+| POST | /api/after-sales | write | 内部代提（客户打电话投诉时业务代开） |
+| POST | /api/after-sales/:id/accept | write | 受理：`{owner_role, due_date}`。**退货/返修会自动生成退货单草稿** |
+| POST | /api/after-sales/:id/reject | write | 驳回：`{reason}` ≥6 字（客户拿到「已驳回」三个字等于没回复） |
+| POST | /api/after-sales/**refund**/:id | **refund** | 登记退款：`{amount, method, note, goods_returned}` |
+| POST | /api/after-sales/:id/recovery | write | 追偿：`{party, amount, note}` 或 `{waive:true, note}` |
+| POST | /api/after-sales/:id/settle | write | 结案：`{conclusion}` ≥8 字，**三个前置条件见下** |
+| POST | /api/after-sales/:id/note | write | 加备注 |
+
+> 退款路径是 `/refund/:id` 而不是 `/:id/refund`：`GUARDED` 是**前缀匹配**，
+> 独立一段才能精确挂锁（`{perm:'aftersale.refund', method:'POST', prefix:'/api/after-sales/refund'}`），
+> 否则会把受理、结案一起锁成「只有财务能点」。
+
+### 对账文件（内部）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/statement-files/meta | read | 状态与类型字典 |
+| GET | /api/statement-files?customer_id=&status=&kind= | read | 清单（不含快照体积） |
+| POST | /api/statement-files/generate | publish | 生成草稿：`{customer_id, period \| period_from+period_to, kind}` |
+| GET | /api/statement-files/:id | read | 详情（含快照） |
+| POST | /api/statement-files/:id/publish | publish | 授权发布：`{expire_at?}`。**check_diff≠0 直接 400** |
+| POST | /api/statement-files/:id/revoke | publish | 撤销：`{reason}` ≥4 字 |
+| GET | /api/statement-files/:id/preview.csv | read | 内部预览（不计入客户下载次数） |
+
+### 客户侧（商城）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/mall/after-sales/options | order.view | 可提售后的订单与明细（含每行 `claimed` / `available`） |
+| GET | /api/mall/after-sales | order.view | 我的售后（**不含追偿与内部负责人**） |
+| GET | /api/mall/after-sales/:id | order.view | 我的售后详情（别家 403） |
+| POST | /api/mall/after-sales | order.view | 提交：`{order_id, order_item_id, qty, reason_code, resolution, reason, amount_claim, photos[]}` |
+| POST | /api/mall/after-sales/:id/cancel | order.view | 撤销（**仅待受理**；已受理要联系业务） |
+| GET | /api/mall/statements | finance.view | **只返回已授权且未过期**的文件 |
+| GET | /api/mall/statements/:id/download | finance.view | 下载 CSV（带 BOM）；撤销/过期/别家 → 400/403 |
+
+`customer_id` 一律取自登录态，**不接受请求体里的 customer_id**（防越权给别家开单）。
+
+### 五条轨道
+
+| 轨道 | 存储 | 状态值 |
+|---|---|---|
+| 退款 | `after_sale_tickets.refund_*` | none / pending / paid |
+| 实物实收 | **从关联退货单实时算** | none / pending / received / partial / cancelled |
+| 质量检验 | **实时算** | none / pending / passed / partial / failed |
+| 再上架 | **实时算** | none / pending / done |
+| 追偿 | `after_sale_tickets.recovery_*` | none / pending / done / waived |
+
+### 五条硬口径
+
+1. **退款不直接恢复库存**：`refund()` 不调 `applyStock`；库存只由仓库检验步骤写。
+2. **实收/检验/再上架不存副本**：存了副本，售后页与仓库页必然说两个数。
+3. **同一订单行 + 同原因 + 同处理方式，处理中只能一条**（部分唯一索引兜底），客户连点不会生成五张单。
+4. **金额两道闸**：索赔 ≤ 订单行货款；退款 ≤ 索赔；追偿 ≤ 退款。
+5. **结案三前提**：退货类实物已关单、要退钱的已退款、结论 ≥8 字。
+
+### 对账文件的三条硬约束
+
+1. **定版快照**：发布时把 `statement.build()` 的结果存进 `snapshot`，客户下载的就是它；内部账后续变动不追溯。
+2. **不平不许发**：`check_diff ≠ 0` 说明有发票的已收金额被手工改过、或有收款没走流水 —— 先自己查清。
+3. **每次下载留痕**：写 `doc_access_logs`（`doc_type='statement_file'`，`operator_role='customer'`）。
+
+> 为什么对账 CSV 单独给「原币金额」列：外贸客户是拿 USD 下的单，只看人民币会觉得金额不对。
+> 记账金额是本位币，原币列由逐笔的 `amount_orig + currency` 带出。

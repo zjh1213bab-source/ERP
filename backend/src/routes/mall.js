@@ -35,6 +35,8 @@ const { hashPassword } = require('../auth/password');
 const crypto = require('crypto');
 const mall = require('../services/mall');
 const CP = require('../services/customerProgress');
+const AS = require('../services/afterSale');
+const SF = require('../services/statementFile');
 
 const router = express.Router();
 const round2 = mall.round2;
@@ -816,6 +818,50 @@ router.get('/progress', customerRequired, permRequired('order.view'), wrap(async
 
 router.get('/orders/:id/progress', customerRequired, permRequired('order.view'), wrap(async (req, res) => {
   return ok(res, CP.customerOrderProgress(req.customer.cid, req.params.id));
+}));
+
+/* ---------- 售后（TS-N22-08：客户自助提，四条轨道由内部推进） ---------- */
+// 售后挂在订单权限下：能看订单的人就能提售后，不给客户账号再加一层权限点
+router.get('/after-sales/options', customerRequired, permRequired('order.view'), wrap(async (req, res) =>
+  ok(res, { orders: AS.submitOptions(req.customer.cid), reasons: AS.dict().reasons, resolutions: AS.dict().resolutions })));
+
+router.get('/after-sales', customerRequired, permRequired('order.view'), wrap(async (req, res) =>
+  ok(res, { rows: AS.customerList(req.customer.cid) })));
+
+router.get('/after-sales/:id', customerRequired, permRequired('order.view'), wrap(async (req, res) =>
+  ok(res, AS.customerDetail(req.customer.cid, req.params.id))));
+
+router.post('/after-sales', customerRequired, permRequired('order.view'), wrap(async (req, res) => {
+  const b = req.body || {};
+  // customer_id 只从登录态来，绝不接受请求体里的 customer_id（防越权给别家开单）
+  const r = AS.submit({
+    customerId: req.customer.cid,
+    customerName: req.customer.name,
+    source: 'customer',
+    body: b,
+    operator: req.account ? req.customer.username : 'customer'
+  });
+  return ok(res, r);
+}));
+
+router.post('/after-sales/:id/cancel', customerRequired, permRequired('order.view'), wrap(async (req, res) =>
+  ok(res, AS.cancel(req.params.id, req.body || {}, req.customer.username, req.customer.cid))));
+
+/* ---------- 对账资料（TS-N22-08：只给已授权的文件） ---------- */
+router.get('/statements', customerRequired, permRequired('finance.view'), wrap(async (req, res) =>
+  ok(res, { rows: SF.customerList(req.customer.cid) })));
+
+router.get('/statements/:id/download', customerRequired, permRequired('finance.view'), wrap(async (req, res) => {
+  const { row, snapshot } = SF.takeForDownload(req.customer.cid, req.params.id, {
+    operator: req.customer.username
+  });
+  const csv = SF.toCsv(snapshot);
+  const name = String(row.file_name || `${row.file_no}.csv`).replace(/["\\]/g, '');
+  // 中文文件名走 filename*（RFC 5987），否则部分浏览器会存成乱码
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition',
+    `attachment; filename="statement-${row.file_no}.csv"; filename*=UTF-8''${encodeURIComponent(name)}`);
+  return res.send(csv);
 }));
 
 module.exports = router;

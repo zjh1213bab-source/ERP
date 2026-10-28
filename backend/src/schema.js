@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 690 个对象
- * （329 张表 + 361 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 701 个对象
+ * （331 张表 + 370 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -695,5 +695,16 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS progress_publications (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  version_no INTEGER NOT NULL,\n  status TEXT NOT NULL DEFAULT 'published',    -- published / withdrawn\n  route TEXT NOT NULL,\n  snapshot TEXT NOT NULL,                      -- 客户可见的完整快照（JSON）\n  stage_count INTEGER DEFAULT 0,\n  done_count INTEGER DEFAULT 0,\n  can_complete INTEGER DEFAULT 0,              -- 快照当时是否允许宣称完工/可发货\n  show_qty INTEGER DEFAULT 0,                  -- 是否对外给了合格数\n  published_by TEXT,\n  published_at TEXT,\n  withdrawn_by TEXT,\n  withdrawn_at TEXT,\n  withdraw_reason TEXT,\n  note TEXT\n);",
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_pub_ver ON progress_publications(order_id, version_no);",
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_pub_live ON progress_publications(order_id) WHERE status = 'published';",
-  "CREATE INDEX IF NOT EXISTS idx_pub_order ON progress_publications(order_id);"
+  "CREATE INDEX IF NOT EXISTS idx_pub_order ON progress_publications(order_id);",
+  "CREATE TABLE IF NOT EXISTS after_sale_tickets (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  ticket_no TEXT NOT NULL,\n  company_id INTEGER NOT NULL DEFAULT 1,\n  source TEXT NOT NULL DEFAULT 'customer',     -- customer 客户自助 / internal 内部代提\n  customer_id INTEGER,\n  customer_name TEXT,\n  order_id INTEGER,\n  order_no TEXT,\n  order_item_id INTEGER,\n  style_no TEXT,\n  product_name TEXT,\n  qty REAL NOT NULL DEFAULT 0,\n  amount_claim REAL NOT NULL DEFAULT 0,        -- 客户索赔金额（上限 = 订单行金额）\n  currency TEXT NOT NULL DEFAULT 'USD',\n  reason_code TEXT NOT NULL,                   -- quality/short/wrong/damaged/late/other\n  reason TEXT,\n  photo_count INTEGER NOT NULL DEFAULT 0,      -- 附件在 attachments（target_type='after_sale'）\n  resolution TEXT NOT NULL,                    -- return 退货 / replace 补件 / refund 赔款 / repair 返修\n  status TEXT NOT NULL DEFAULT 'submitted',    -- submitted/accepted/rejected/handling/settled/cancelled\n\n  -- 轨道一：退款（只动钱，绝不动库存）\n  refund_status TEXT NOT NULL DEFAULT 'none',  -- none/pending/paid\n  refund_amount REAL NOT NULL DEFAULT 0,\n  refund_method TEXT,\n  refund_at TEXT,\n  refund_by TEXT,\n  refund_note TEXT,\n  goods_returned INTEGER,                      -- 退款时是否确认货物会回厂：1 会 / 0 不会（客户保留）\n\n  -- 轨道二~四：实物实收 / 检验 / 再上架 —— 全部由关联退货单实时算，不存副本\n  stock_return_id INTEGER,                     -- 关联 stock_returns（实物部分接在已有流程上）\n\n  -- 轨道五：追偿（向工厂/供应商要回来，与退款互不影响）\n  recovery_status TEXT NOT NULL DEFAULT 'none', -- none/pending/done/waived\n  recovery_party TEXT,                          -- factory 本厂 / supplier 供应商 / carrier 货代\n  recovery_amount REAL NOT NULL DEFAULT 0,\n  recovery_note TEXT,\n\n  owner_role TEXT,                              -- 主责：sales / quality / production / warehouse\n  due_date TEXT,\n  conclusion TEXT,\n  reject_reason TEXT,\n  handled_by TEXT,\n  handled_at TEXT,\n  settled_at TEXT,\n  demo_tag TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_as_no ON after_sale_tickets(ticket_no);",
+  "CREATE INDEX IF NOT EXISTS idx_as_customer ON after_sale_tickets(customer_id);",
+  "CREATE INDEX IF NOT EXISTS idx_as_order ON after_sale_tickets(order_id);",
+  "CREATE INDEX IF NOT EXISTS idx_as_status ON after_sale_tickets(status);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_as_open\n  ON after_sale_tickets(company_id, order_item_id, reason_code, resolution)\n  WHERE status IN ('submitted', 'accepted', 'handling');",
+  "CREATE TABLE IF NOT EXISTS statement_files (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  file_no TEXT NOT NULL,\n  company_id INTEGER NOT NULL DEFAULT 1,\n  customer_id INTEGER NOT NULL,\n  customer_name TEXT,\n  period_from TEXT NOT NULL,                   -- YYYY-MM-DD\n  period_to TEXT NOT NULL,\n  kind TEXT NOT NULL DEFAULT 'monthly',        -- monthly 月度对账 / payment_notice 付款通知\n  version_no INTEGER NOT NULL DEFAULT 1,\n  title TEXT,\n  file_name TEXT,                              -- 下载时的文件名（客户财务拿去存档）\n  snapshot TEXT NOT NULL,                      -- 定版快照（JSON）：逐笔流水 + 汇总 + 告示\n  amount_opening REAL DEFAULT 0,\n  amount_invoiced REAL DEFAULT 0,\n  amount_paid REAL DEFAULT 0,\n  amount_closing REAL DEFAULT 0,\n  check_diff REAL DEFAULT 0,                   -- 发布那一刻的内部校验差额，必须为 0 才允许发布\n  status TEXT NOT NULL DEFAULT 'draft',        -- draft/published/revoked\n  granted_by TEXT,                             -- 授权人（谁批准可以给客户看）\n  granted_at TEXT,\n  expire_at TEXT,                              -- 授权有效期；空 = 长期\n  revoked_by TEXT,\n  revoked_at TEXT,\n  revoke_reason TEXT,\n  download_count INTEGER NOT NULL DEFAULT 0,\n  last_download_at TEXT,\n  note TEXT,\n  created_by TEXT,\n  demo_tag TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_sf_no ON statement_files(file_no);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_sf_ver ON statement_files(customer_id, period_from, period_to, kind, version_no);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_sf_live\n  ON statement_files(customer_id, period_from, period_to, kind)\n  WHERE status = 'published';",
+  "CREATE INDEX IF NOT EXISTS idx_sf_customer ON statement_files(customer_id);"
 ];

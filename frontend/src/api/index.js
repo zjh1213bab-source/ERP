@@ -335,6 +335,25 @@ export const api = {  // 登录
   cpWithdraw: (pubId, d) => req(`/api/customer-progress/publications/${pubId}/withdraw`, { method: 'POST', body: d }),
   cpSetRoute: (id, d) => req(`/api/customer-progress/orders/${id}/route`, { method: 'PUT', body: d }),
 
+  // 售后与对账资料（内部侧）
+  asMeta: () => req('/api/after-sales/meta'),
+  asList: (params) => req('/api/after-sales' + qs(params)),
+  asDetail: (id) => req(`/api/after-sales/${id}`),
+  asAccept: (id, d) => req(`/api/after-sales/${id}/accept`, { method: 'POST', body: d }),
+  asReject: (id, d) => req(`/api/after-sales/${id}/reject`, { method: 'POST', body: d }),
+  // 退款走独立路径段：后端 GUARDED 是前缀挂锁，`/:id/refund` 那种写法锁不住单个动作
+  asRefund: (id, d) => req(`/api/after-sales/refund/${id}`, { method: 'POST', body: d }),
+  asRecovery: (id, d) => req(`/api/after-sales/${id}/recovery`, { method: 'POST', body: d }),
+  asSettle: (id, d) => req(`/api/after-sales/${id}/settle`, { method: 'POST', body: d }),
+  asNote: (id, d) => req(`/api/after-sales/${id}/note`, { method: 'POST', body: d }),
+
+  sfMeta: () => req('/api/statement-files/meta'),
+  sfList: (params) => req('/api/statement-files' + qs(params)),
+  sfGenerate: (d) => req('/api/statement-files/generate', { method: 'POST', body: d }),
+  sfPublish: (id, d) => req(`/api/statement-files/${id}/publish`, { method: 'POST', body: d || {} }),
+  sfRevoke: (id, d) => req(`/api/statement-files/${id}/revoke`, { method: 'POST', body: d }),
+  sfPreviewPath: (id) => `/api/statement-files/${id}/preview.csv`,
+
   // 字段级脱敏与访问审计
   pvMeta: () => req('/api/privacy/meta'),
   pvRules: () => req('/api/privacy/rules'),

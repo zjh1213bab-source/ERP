@@ -50,6 +50,18 @@
 | adminExpenses | POST | `/` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | adminExpenses | PUT | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | adminExpenses | DELETE | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| afterSales | GET | `/` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
+| afterSales | POST | `/` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
+| afterSales | GET | `/:id` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
+| afterSales | POST | `/:id/accept` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
+| afterSales | POST | `/:id/cancel` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
+| afterSales | POST | `/:id/note` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
+| afterSales | POST | `/:id/recovery` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
+| afterSales | POST | `/:id/reject` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
+| afterSales | POST | `/:id/settle` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
+| afterSales | GET | `/meta` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
+| afterSales | POST | `/refund/:id` | ✅ | — | — | — | — | — | ✅ | — |
+| afterSales | GET | `/stats` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
 | aiCenter | POST | `/drafts/:id/approve` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | aiCenter | POST | `/drafts/:id/reject` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | aiCenter | POST | `/evals/run` | ✅ | — | — | — | — | — | — | — |
@@ -857,6 +869,13 @@
 | spotops | GET | `/runs/:id/decisions` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | spotops | POST | `/runs/:id/publish` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | spotops | GET | `/skus` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| statementFiles | GET | `/` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| statementFiles | GET | `/:id` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| statementFiles | GET | `/:id/preview.csv` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| statementFiles | POST | `/:id/publish` | ✅ | — | — | — | — | — | ✅ | — |
+| statementFiles | POST | `/:id/revoke` | ✅ | — | — | — | — | — | ✅ | — |
+| statementFiles | POST | `/generate` | ✅ | — | — | — | — | — | ✅ | — |
+| statementFiles | GET | `/meta` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
 | statements | GET | `/:customerId` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
 | statements | GET | `/customers` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
 | stock | POST | `/adjust` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
@@ -1089,6 +1108,11 @@
 | `custprogress.read` | 系统管理员、总经理、销售跟单、技术打版、生产车间 |
 | `custprogress.publish` | 系统管理员、销售跟单 |
 | `custprogress.route` | 系统管理员、销售跟单、生产车间 |
+| `aftersale.read` | 系统管理员、总经理、销售跟单、quality、生产车间、仓库采购、财务会计 |
+| `aftersale.write` | 系统管理员、销售跟单、quality、生产车间、仓库采购 |
+| `aftersale.refund` | 系统管理员、财务会计 |
+| `statementfile.read` | 系统管理员、总经理、财务会计、销售跟单 |
+| `statementfile.publish` | 系统管理员、财务会计 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |

@@ -1152,3 +1152,37 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 >
 > 工序 → 阶段映射在 `services/customerProgress.js` 的 `NODE_STAGE` 里，改它等于改客户能看到什么。
 > 底层依赖：`order_nodes`（节点完成状态）、`cut_dispatches`（交出/回货/验收）、`orders.delivery_date`（预计完成）。
+
+## 售后与对账资料（M-AFTERSALE）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| after_sale_tickets | ticket_no, company_id, source(customer/internal), customer_id/name, order_id/no, order_item_id, style_no, product_name, qty, amount_claim, currency, reason_code(quality/short/wrong_item/damaged/late/other), reason, photo_count, resolution(return/replace/refund/repair), status(submitted/accepted/rejected/handling/settled/cancelled), **refund_status**(none/pending/paid), refund_amount/method/at/by/note, goods_returned, **stock_return_id**, **recovery_status**(none/pending/done/waived), recovery_party/amount/note, owner_role, due_date, conclusion, reject_reason, demo_tag | 售后单。**退款轨道与实物三轨分开存**：实物那条不存副本，从 `stock_returns` 实时算 |
+| statement_files | file_no, company_id, customer_id/name, period_from/to, kind(monthly/payment_notice), version_no, title, file_name, **snapshot(JSON)**, amount_opening/invoiced/paid/closing, **check_diff**, status(draft/published/revoked), granted_by/at, expire_at, revoked_by/at/reason, download_count, last_download_at, demo_tag | 对账资料。客户下载的是 `snapshot`，不是实时查询 |
+
+> **为什么售后单不直接复用 `stock_returns`**：客户投诉里有一半不涉及实物。
+> 「少发 20 件，赔款即可」「色差，我自己处理掉」「要退但运费你们出」——
+> 把纯赔款硬塞进实物退货单，就会出现「退货单上没有实物、却要写退款金额」的怪状。
+> 所以：售后单是业务对象，实物部分**生成一张 `stock_returns` 去走仓库流程**，二者用 `stock_return_id` 关联。
+>
+> **实物三轨（实收/检验/再上架）不落列**：它们是 `stock_returns.status` + `qty_received/qty_good` 的投影。
+> 存副本就要写同步逻辑，漏一处即「售后页说待判定、仓库页说已判定」。
+> 唯一例外是「还没受理的退货单」：`receipt` 显示「待生成退货单」，因为那一刻退货单确实还不存在。
+>
+> **退款不写 `stock_items`**：`services/afterSale.js` 的 `refund()` 全文没有 `applyStock`。
+> 库存只有 `routes/spot.js` 的 `inspect()` 能写（要求逐件判完、良品必须指定可售库位）。
+> 混在一起的后果：钱退了、货没回来、库存却多了 —— 月底盘点永远差这一笔。
+>
+> **`goods_returned` 允许为 NULL**：没登记退款前「货会不会回来」还没有答案，
+> 不能用 0 代替（0 的语义是「客户明确保留货物」）。
+>
+> **部分唯一索引 `uq_as_open`**：`(company_id, order_item_id, reason_code, resolution) WHERE status IN ('submitted','accepted','handling')`。
+> 只约束未结案：同一行同样的毛病，处理完还能再提（复发是事实，不是重复提交）。
+>
+> **`statement_files` 的双唯一索引**：`uq_sf_ver` 保版本号唯一；
+> `uq_sf_live ON (customer_id, period_from, period_to, kind) WHERE status='published'`
+> 保「同期间同类型只有一份生效」—— 并发发布在这里兜底，重新发布自动把旧版转 `revoked`（不删行）。
+>
+> 底层依赖：`orders` / `order_items`（金额上限与归属）、`attachments`（`target_type='after_sale'` 存照片）、
+> `stock_returns` / `stock_return_items`（实物三轨）、`doc_access_logs`（客户下载留痕）、
+> `ar_invoices` / `payments`（对账快照来源，经 `services/statement.js`）。

@@ -240,6 +240,16 @@ const PERMS = {
   'custprogress.publish': ['admin', 'sales'],
   'custprogress.route': ['admin', 'sales', 'production'],
 
+  // ===== 售后与对账资料（TS-N22-08）=====
+  // 受理会生成退货单、会改客户可见状态；退款是真把钱退出去 —— 拆成两层。
+  // 仓库要能看（要点收、要判定），但不需要能受理；财务要能退款，但不需要能改主责。
+  'aftersale.read': ['admin', 'boss', 'sales', 'quality', 'production', 'warehouse', 'finance'],
+  'aftersale.write': ['admin', 'sales', 'quality', 'production', 'warehouse'],
+  'aftersale.refund': ['admin', 'finance'],
+  // 对账文件：销售能看能生成，但**「发出去」是我们的账，只给财务与管理员**
+  'statementfile.read': ['admin', 'boss', 'finance', 'sales'],
+  'statementfile.publish': ['admin', 'finance'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -362,6 +372,11 @@ const GUARDED = [
   // 发布进度等于对外发声，撤回也要留痕 —— 都挂高危
   { perm: 'custprogress.publish', method: 'POST', prefix: '/api/customer-progress' },
   { perm: 'custprogress.route', method: 'PUT', prefix: '/api/customer-progress' },
+  // 退款是真把钱退出去，单独一段路径以便精确挂锁（GUARDED 是前缀匹配，
+  // 若写成 /api/after-sales 会把受理、结案一起锁成「只有财务能点」）
+  { perm: 'aftersale.refund', method: 'POST', prefix: '/api/after-sales/refund' },
+  // 对账文件一旦「授权发布」就等于我们对外承认这组数，不能销售自己拍板
+  { perm: 'statementfile.publish', method: 'POST', prefix: '/api/statement-files' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

@@ -8320,6 +8320,246 @@ async function req(path, { method = 'GET', body, token } = {}) {
   }
 
 
+  /* ================================================================== *
+   * 售后与对账资料（TS-N22-08）
+   * 自己建夹具、跑完删净；不复用演示数据，避免和别人的用例抢单据
+   * ================================================================== */
+  {
+    const { db: ASDB } = require('../src/db');
+    const AS_MARK = '__smoke_as__';
+    console.log('\n[售后与对账资料]');
+
+    const meta = await req('/api/after-sales/meta', { token });
+    ok('售后字典：6 类原因 / 4 种处理方式',
+      meta.status === 200 && meta.json.data.reasons.length === 6 && meta.json.data.resolutions.length === 4,
+      `HTTP ${meta.status} / 原因 ${(meta.json.data || {}).reasons ? meta.json.data.reasons.length : '?'}`);
+
+    // 本块自备登录与清理助手，不依赖别处的变量（越靠后越容易踩到作用域）
+    const loginAsLocal3 = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    };
+    const mallLogin = (await req('/api/mall/auth/login', {
+      method: 'POST', body: { username: MALL_USER, password: MALL_PASS }
+    })).json.data;
+    const mallTok = mallLogin.token;
+    const mallLoginCid = mallLogin.customer ? mallLogin.customer.id : 1;
+    // 退款只给财务/管理员，用财务账号验证（用 admin 会绕开权限本身）
+    const finTok = await loginAsLocal3('fin01');
+
+    const opt = await req('/api/mall/after-sales/options', { token: mallTok });
+    const optOrders = (opt.json.data && opt.json.data.orders) || [];
+    // 优先挑「一件都没提过售后」的行：演示数据里已有几条处理中的单，
+    // 随便挑一行会撞上自己写的防重规则（同一行同原因只许一条处理中），
+    // 那样测的就不是主流程，而是防重规则本身。
+    let withItem = null;
+    let line = null;
+    for (const o of optOrders) {
+      const it = (o.items || []).find((x) => x.claimed === 0 && x.available >= 1);
+      if (it) { withItem = o; line = it; break; }
+    }
+    if (!withItem) {
+      withItem = optOrders.find((o) => (o.items || []).some((it) => it.available > 0)) || null;
+      line = withItem ? withItem.items.find((it) => it.available > 0) : null;
+    }
+    ok('客户能拿到可提售后的订单与明细（含剩余可提数量）',
+      opt.status === 200 && !!withItem && !!line, `HTTP ${opt.status} / 订单 ${optOrders.length}`);
+
+    const base = {
+      order_id: withItem ? withItem.id : 0,
+      order_item_id: line ? line.id : 0,
+      qty: 1,
+      // 主流程用「其他」：质量问题必须带照片，那条单独测；
+      // 混在一起会让人分不清失败的到底是照片要求还是链路本身
+      reason_code: 'other',
+      resolution: 'return',
+      reason: '客户反馈包装破损，先提一条售后核对处理方式'
+    };
+
+    // 1. 质量问题没照片 → 拦
+    const noPhoto = await req('/api/mall/after-sales', {
+      method: 'POST', token: mallTok, body: { ...base, reason_code: 'quality', amount_claim: 1 }
+    });
+    ok('质量问题没照片被拦（业务没法向工厂举证）', noPhoto.status === 400, `HTTP ${noPhoto.status}`);
+
+    // 2. 索赔超订单行金额 → 拦
+    const tooMuch = await req('/api/mall/after-sales', {
+      method: 'POST', token: mallTok,
+      body: { ...base, amount_claim: 999999, photos: [{ url: '/uploads/photos/x.jpg' }] }
+    });
+    ok('索赔金额超订单行货款被拦（手滑多打一个零不该变成巨额退款）', tooMuch.status === 400, `HTTP ${tooMuch.status}`);
+
+    // 3. 正常提交
+    const good = await req('/api/mall/after-sales', {
+      method: 'POST', token: mallTok,
+      body: { ...base, amount_claim: 10, photos: [{ url: '/uploads/photos/2026-10/56d1e148529e2f43e399.jpg' }] }
+    });
+    const tkId = good.json.data && good.json.data.id;
+    if (!tkId) console.log('  ⚠ 售后夹具没建成，后续用例会连带失败：', JSON.stringify(good.json).slice(0, 160));
+    const tkNo = good.json.data && good.json.data.ticket_no;
+    ok('客户提售后成功（待受理）', good.status === 200 && good.json.data.status === 'submitted', `HTTP ${good.status} / ${tkNo}`);
+
+    // 4. 同一行同原因重复 → 拦
+    const dup = await req('/api/mall/after-sales', {
+      method: 'POST', token: mallTok,
+      body: { ...base, amount_claim: 10, photos: [{ url: '/uploads/photos/x.jpg' }] }
+    });
+    ok('同一订单行同原因只允许一条处理中（连点不产生多张单）', dup.status === 400, `HTTP ${dup.status}`);
+
+    // 5. 客户能看到自己刚提的单，且看不到内部追偿字段
+    const mine = await req('/api/mall/after-sales', { token: mallTok });
+    const mineRow = (mine.json.data.rows || []).find((r) => r.id === tkId);
+    ok('客户能查到自己提的售后', mine.status === 200 && !!mineRow, `HTTP ${mine.status}`);
+    ok('客户视图不含内部追偿字段', mineRow && mineRow.recovery_amount === undefined && mineRow.recovery_party === undefined);
+
+    // 6. 内部受理（退货退款 → 应生成退货单草稿）
+    const acc = await req('/api/after-sales/' + tkId + '/accept', {
+      method: 'POST', token, body: { owner_role: 'quality' }
+    });
+    const retId = acc.json.data && acc.json.data.stock_return_id;
+    ok('受理「退货退款」自动生成退货单草稿（实物接在仓库已有流程上）',
+      acc.status === 200 && !!retId, `HTTP ${acc.status} / 退货单 ${retId || '无'}`);
+
+    // 7. 结案被拦：货还没到仓
+    const earlySettle = await req('/api/after-sales/' + tkId + '/settle', {
+      method: 'POST', token, body: { conclusion: '客户同意抵扣，货已安排寄回，等仓库点收' }
+    });
+    ok('货没到仓不许结案（否则结完案没人盯仓库）', earlySettle.status === 400, `HTTP ${earlySettle.status}`);
+
+    // 8. 退款金额超索赔 → 拦
+    const overRefund = await req('/api/after-sales/refund/' + tkId, {
+      method: 'POST', token: finTok || token, body: { amount: 999, method: '原路退回' }
+    });
+    ok('退款金额超过客户索赔被拦', overRefund.status === 400, `HTTP ${overRefund.status}`);
+
+    // 9. ★ 退款不改库存 —— 这个模块最硬的一条
+    const stockBefore = ASDB.prepare('SELECT COALESCE(SUM(qty),0) q FROM stock_items').get().q;
+    const rf = await req('/api/after-sales/refund/' + tkId, {
+      method: 'POST', token: finTok || token,
+      body: { amount: 10, method: '原路退回', goods_returned: 1, note: '客户确认寄回' }
+    });
+    const stockAfter = ASDB.prepare('SELECT COALESCE(SUM(qty),0) q FROM stock_items').get().q;
+    ok('退款登记成功', rf.status === 200 && rf.json.data.refund_status === 'paid', `HTTP ${rf.status}`);
+    ok('★ 退款不动库存（原型：退款不直接恢复库存）',
+      Math.abs(Number(stockBefore) - Number(stockAfter)) < 0.001, `前 ${stockBefore} / 后 ${stockAfter}`);
+
+    // 10. 重复退款 → 拦
+    const rf2 = await req('/api/after-sales/refund/' + tkId, {
+      method: 'POST', token: finTok || token, body: { amount: 5, method: '原路退回' }
+    });
+    ok('同一单不能退两次', rf2.status === 400, `HTTP ${rf2.status}`);
+
+    // 11. 追偿金额超过退款 → 拦
+    const overRec = await req('/api/after-sales/' + tkId + '/recovery', {
+      method: 'POST', token, body: { party: 'factory', amount: 999, note: '想多追一点' }
+    });
+    ok('追偿不能超过赔给客户的金额', overRec.status === 400, `HTTP ${overRec.status}`);
+
+    // 12. 走完仓库流程（模拟点收 + 判定 + 关单），再结案
+    ASDB.prepare('UPDATE stock_return_items SET qty_received = qty_apply WHERE return_id = ?').run(retId);
+    ASDB.prepare("UPDATE stock_returns SET status='received', qty_received=qty_apply WHERE id=?").run(retId);
+    const t1 = await req('/api/after-sales/' + tkId, { token });
+    ok('点收后实物轨道跟着变（不存副本，实时算）',
+      t1.json.data.tracks.receipt.code === 'received', JSON.stringify(t1.json.data.tracks.receipt));
+
+    const midSettle = await req('/api/after-sales/' + tkId + '/settle', {
+      method: 'POST', token, body: { conclusion: '客户同意抵扣，货已到仓待判定，先结案试试' }
+    });
+    ok('货到仓但没判定，仍然不许结案', midSettle.status === 400, `HTTP ${midSettle.status}`);
+
+    ASDB.prepare('UPDATE stock_return_items SET qty_good = qty_received, qty_defect = 0 WHERE return_id = ?').run(retId);
+    ASDB.prepare("UPDATE stock_returns SET status='closed', qty_good=qty_apply WHERE id=?").run(retId);
+    const t2 = await req('/api/after-sales/' + tkId, { token });
+    ok('判定合格后「再上架」显示已入可售',
+      t2.json.data.tracks.restock.code === 'done', JSON.stringify(t2.json.data.tracks.restock));
+
+    const fin = await req('/api/after-sales/' + tkId + '/settle', {
+      method: 'POST', token, body: { conclusion: '退 1 件，良品已回可售；已退 10 美元，客户确认不再追究' }
+    });
+    ok('实物与退款都走完后可以结案', fin.status === 200 && fin.json.data.status === 'settled', `HTTP ${fin.status}`);
+
+    // 13. 权限：仓库能看售后，但不能登记退款（动钱只给财务/管理员）
+    const whTok = await loginAsLocal3('wh01');
+    if (whTok) {
+      const whList = await req('/api/after-sales', { token: whTok });
+      ok('仓库能看售后清单（要点收要判定）', whList.status === 200, `HTTP ${whList.status}`);
+      const whRefund = await req('/api/after-sales/refund/' + tkId, {
+        method: 'POST', token: whTok, body: { amount: 1, method: '原路退回' }
+      });
+      ok('仓库不能登记退款', whRefund.status === 403, `HTTP ${whRefund.status}`);
+    } else {
+      ok('仓库不能登记退款', true, '没有 wh01，跳过');
+    }
+
+    /* ---------------- 对账资料 ---------------- */
+    const sfDraft = await req('/api/statement-files/generate', {
+      method: 'POST', token, body: { customer_id: withItem ? (mallLoginCid || 1) : 1, period: '2026-09', kind: 'monthly' }
+    });
+    const sfId = sfDraft.json.data && sfDraft.json.data.id;
+    ok('生成对账单草稿（含内部校验差额）', sfDraft.status === 200 && !!sfId,
+      `HTTP ${sfDraft.status} / 差额 ${sfDraft.json.data ? sfDraft.json.data.check_diff : '?'}`);
+
+    const custSeeDraft = await req('/api/mall/statements', { token: mallTok });
+    const draftVisible = (custSeeDraft.json.data.rows || []).some((r) => r.id === sfId);
+    ok('草稿客户看不到（未授权不对外）', custSeeDraft.status === 200 && !draftVisible);
+
+    // 伪造一份校验不平的文件，验证「对账不平不许发」
+    const badInfo = ASDB.prepare(
+      `INSERT INTO statement_files (file_no, company_id, customer_id, customer_name, period_from, period_to,
+         kind, version_no, title, file_name, snapshot, amount_opening, amount_invoiced, amount_paid,
+         amount_closing, check_diff, status, created_by, created_at, updated_at, demo_tag)
+       VALUES (?,1,?,?,?,?, 'monthly', 99, ?, ?, '{}', 0,0,0,0, 1.23, 'draft', 'smoke', ?, ?, ?)`
+    ).run('SF__SMOKE_BAD__', mallLoginCid || 1, '__smoke 客户__', '2025-01-01', '2025-01-31', '__smoke 不平的对账单__', 'x.csv',
+      new Date().toISOString(), new Date().toISOString(), AS_MARK);
+    const badPub = await req('/api/statement-files/' + badInfo.lastInsertRowid + '/publish', { method: 'POST', token, body: {} });
+    ok('对账不平（check_diff≠0）不许授权给客户', badPub.status === 400, `HTTP ${badPub.status}`);
+
+    const pub = await req('/api/statement-files/' + sfId + '/publish', { method: 'POST', token, body: {} });
+    ok('授权发布后客户才能看到', pub.status === 200 && pub.json.data.status === 'published', `HTTP ${pub.status}`);
+
+    const custSeePub = await req('/api/mall/statements', { token: mallTok });
+    ok('客户能看到已授权的对账文件', (custSeePub.json.data.rows || []).some((r) => r.id === sfId));
+
+    const dl = await fetch(BASE + '/api/mall/statements/' + sfId + '/download', {
+      headers: { Authorization: 'Bearer ' + mallTok }
+    });
+    const dlBuf = Buffer.from(await dl.arrayBuffer());
+    ok('客户能下载对账 CSV（带 UTF-8 BOM）',
+      dl.status === 200 && dlBuf[0] === 0xef && dlBuf[1] === 0xbb && dlBuf[2] === 0xbf, `HTTP ${dl.status}`);
+    const dlText = dlBuf.toString('utf8');
+    ok('对账 CSV 含期初/期末与逐笔流水', /期初结欠/.test(dlText) && /期末结欠/.test(dlText));
+
+    const logged = ASDB.prepare("SELECT COUNT(*) c FROM doc_access_logs WHERE doc_type='statement_file' AND doc_id=?").get(sfId).c;
+    ok('客户下载留痕（可追溯到谁什么时候下的）', logged >= 1, `日志 ${logged} 条`);
+
+    const rev = await req('/api/statement-files/' + sfId + '/revoke', { method: 'POST', token, body: { reason: '金额算错重出' } });
+    ok('撤销已授权文件', rev.status === 200 && rev.json.data.status === 'revoked', `HTTP ${rev.status}`);
+    const dl2 = await fetch(BASE + '/api/mall/statements/' + sfId + '/download', {
+      headers: { Authorization: 'Bearer ' + mallTok }
+    });
+    ok('撤销后客户立刻下不了', dl2.status === 400 || dl2.status === 403, `HTTP ${dl2.status}`);
+
+    /* ---------------- 清夹具 ---------------- */
+    try {
+      const rets = ASDB.prepare('SELECT id FROM stock_returns WHERE source_no = ?').all(tkNo);
+      rets.forEach((r) => {
+        ASDB.prepare('DELETE FROM stock_return_items WHERE return_id = ?').run(r.id);
+        ASDB.prepare('DELETE FROM stock_returns WHERE id = ?').run(r.id);
+      });
+      ASDB.prepare("DELETE FROM attachments WHERE target_type='after_sale' AND target_id=?").run(tkId);
+      ASDB.prepare('DELETE FROM after_sale_tickets WHERE id = ?').run(tkId);
+      ASDB.prepare("DELETE FROM doc_access_logs WHERE doc_type='statement_file' AND doc_id IN (SELECT id FROM statement_files WHERE customer_id=?)").run(mallLoginCid || 1);
+      ASDB.prepare('DELETE FROM statement_files WHERE demo_tag = ?').run(AS_MARK);
+      ASDB.prepare("DELETE FROM statement_files WHERE file_no='SF__SMOKE_BAD__'").run();
+      ASDB.prepare('DELETE FROM statement_files WHERE id = ?').run(sfId);
+      ok('冒烟夹具已清干净',
+        !ASDB.prepare('SELECT 1 x FROM after_sale_tickets WHERE id = ?').get(tkId)
+        && !ASDB.prepare("SELECT 1 x FROM statement_files WHERE file_no='SF__SMOKE_BAD__'").get());
+    } catch (e) {
+      ok('冒烟夹具已清干净', false, e.message);
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');
