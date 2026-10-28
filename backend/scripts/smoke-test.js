@@ -6038,7 +6038,8 @@ async function req(path, { method = 'GET', body, token } = {}) {
       const ids = db.prepare('SELECT id FROM orders WHERE remark = ?').all(TAG).map((r) => r.id);
       ids.forEach((id) => {
         db.prepare('DELETE FROM order_logs WHERE order_id = ?').run(id);
-        db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+        db.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
+        db.prepare('DELETE FROM order_items WHERE order_id=?').run(id);
         db.prepare('DELETE FROM orders WHERE id = ?').run(id);
       });
       return ids.length;
@@ -6226,7 +6227,8 @@ async function req(path, { method = 'GET', body, token } = {}) {
       const ids = db.prepare('SELECT id FROM orders WHERE order_no LIKE ?').all('SMOKEC%').map((r) => r.id);
       ids.forEach((id) => {
         db.prepare('DELETE FROM order_logs WHERE order_id = ?').run(id);
-        db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+        db.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
+        db.prepare('DELETE FROM order_items WHERE order_id=?').run(id);
         db.prepare('DELETE FROM stock_ledger WHERE ref_type = ? AND ref_id = ?').run('order', id);
         db.prepare('DELETE FROM orders WHERE id = ?').run(id);
       });
@@ -7246,6 +7248,7 @@ async function req(path, { method = 'GET', body, token } = {}) {
       const o = db.prepare("SELECT id FROM orders WHERE order_no='EXSMOKE0001'").get();
       if (o) {
         db.prepare('DELETE FROM order_logs WHERE order_id=?').run(o.id);
+        db.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id=?)').run(o.id);
         db.prepare('DELETE FROM order_items WHERE order_id=?').run(o.id);
         db.prepare('DELETE FROM orders WHERE id=?').run(o.id);
       }
@@ -10194,6 +10197,33 @@ async function req(path, { method = 'GET', body, token } = {}) {
       && RDB.prepare("SELECT COUNT(*) c FROM mall_inquiries WHERE source_order_no LIKE 'SO202003019%'").get().c === 0
       && RDB.prepare("SELECT COUNT(*) c FROM customers WHERE name LIKE '%烟测再购客户%'").get().c === 0,
       `订单 ${RDB.prepare("SELECT COUNT(*) c FROM orders WHERE order_no LIKE 'SO202003019%'").get().c} / 商品 ${RDB.prepare("SELECT COUNT(*) c FROM mall_products WHERE style_no LIKE 'RSMK-%'").get().c}`);
+  }
+
+  /* ================================================================== *
+   * 收尾自检：冒烟不该在库里留下烟测夹具
+   *
+   * 这条断言是这几轮「演示数据体检」的产物：冒烟各段各自 cleanSmoke，
+   * 但总有几处漏掉（cost_pools / dev_projects / SKU 等），一次跑完留几十行尾巴，
+   * 攒了几个月就变成 2000 多行假的研发项目与 SKU。
+   * 与其每个月人工体检，不如让它每次跑完自己证明「库里是干净的」。
+   * ================================================================== */
+  {
+    try {
+      const A = require('./audit-demo-data');
+      // 兜底清一遍：各段自己 cleanSmoke 是主力，但总有几处漏（supplier_confirms /
+      // bank_imports / cost_pools / SKU 套装…）。这里用同一个体检脚本收口，
+      // 而不是再手写一遍 DELETE —— 判据只有一份，才不会再出现「改了 A 忘了 B」。
+      const swept = A.clean({ includeFinance: true, skipBackup: true });
+      // 顺手把孤儿也补了：删父行没删子行的地方（历史遗留 + 上面补的那几处之外）
+      const orph = A.fixOrphans(false);
+      const sc = A.scan();
+      const rows = sc.l1.reduce((a, x) => a + x.rows, 0);
+      const list = sc.l1.map((x) => `${x.table}(${x.rows})`).join(', ');
+      ok('★ 冒烟跑完库里没有烟测残留（L1 = 0）', rows === 0,
+        rows ? `兜底清了 ${swept.deleted} 行 + 孤儿 ${orph.fixed} 行后仍残留 ${rows} 行：${list}` : `兜底清了 ${swept.deleted} 行、补孤儿 ${orph.fixed} 行，现干净`);
+    } catch (e) {
+      ok('★ 冒烟跑完库里没有烟测残留（L1 = 0）', false, '自检失败：' + e.message);
+    }
   }
 
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);

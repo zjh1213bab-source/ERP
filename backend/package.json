@@ -10,7 +10,10 @@
     "smoke": "node scripts/smoke-test.js",
     "rbac": "node scripts/rbac-audit.js --md ../docs/RBAC.md",
     "shot": "node scripts/ui-shot.js",
-    "pack": "node scripts/pack-release.js"
+    "pack": "node scripts/pack-release.js",
+    "audit:data": "node scripts/audit-demo-data.js",
+    "clean:data": "node scripts/audit-demo-data.js --clean",
+    "verify:data": "node scripts/audit-demo-data.js --verify"
   },
   "engines": {
     "node": ">=18"
