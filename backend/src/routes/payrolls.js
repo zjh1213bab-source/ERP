@@ -33,77 +33,11 @@ const router = express.Router();
 const WRITE = ['admin', 'hr', 'finance'];
 // 工资是全公司最敏感的数据：读也要限岗（原来 GET 只要求登录，任何角色都能拉全员工资）
 const READ = ['admin', 'boss', 'hr', 'finance'];
-const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
-
-const STATUS_LABELS = { draft: '草稿', confirmed: '已确认', paid: '已发放' };
-const TAX_THRESHOLD = 5000;
-const SOCIAL_RATE = 0.105; // 个人社保简化比例（可逐单覆盖）
-
-const TAX_BRACKETS = [
-  { cap: 3000, rate: 0.03, sub: 0 },
-  { cap: 12000, rate: 0.10, sub: 210 },
-  { cap: 25000, rate: 0.20, sub: 1410 },
-  { cap: 35000, rate: 0.25, sub: 2660 },
-  { cap: 55000, rate: 0.30, sub: 4410 },
-  { cap: 80000, rate: 0.35, sub: 7160 },
-  { cap: Infinity, rate: 0.45, sub: 15160 }
-];
-
-function calcTax(taxable) {
-  if (!(taxable > 0)) return 0;
-  const b = TAX_BRACKETS.find((x) => taxable <= x.cap);
-  return round2(Math.max(0, taxable * b.rate - b.sub));
-}
-
-/** 当月工作日（周一至周五）天数 */
-function workDaysInMonth(period) {
-  const [y, m] = String(period).split('-').map(Number);
-  if (!y || !m) return 0;
-  const days = new Date(y, m, 0).getDate();
-  let n = 0;
-  for (let d = 1; d <= days; d++) {
-    const w = new Date(y, m - 1, d).getDay();
-    if (w !== 0 && w !== 6) n++;
-  }
-  return n;
-}
-
-function periodRange(period) {
-  const [y, m] = String(period).split('-').map(Number);
-  const from = `${y}-${String(m).padStart(2, '0')}-01`;
-  const last = new Date(y, m, 0).getDate();
-  const to = `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
-  return { from, to };
-}
-
-/** 按已有字段重算：加班费/应发/个税/实发 */
-function recalc(r) {
-  const daily = r.work_days > 0 ? r.base_salary / r.work_days : 0;
-  const absentCut = round2(daily * r.absent_days);
-  const overtimePay = round2((daily / 8) * r.overtime_hours * 1.5);
-  // 计件工资是「干出来的钱」，与基本工资并列计入应发；它只能来自已确认的计件核算单
-  const pieceWage = round2(r.piece_wage);
-  const gross = round2(
-    r.base_salary + overtimePay + r.bonus + r.allowance + pieceWage - r.deduction - absentCut
-  );
-  const taxable = round2(gross - r.social_insurance - TAX_THRESHOLD);
-  const tax = calcTax(taxable);
-  const net = round2(gross - r.social_insurance - tax);
-  return { daily: round2(daily), absentCut, overtimePay, gross, tax, net };
-}
-
-function withComputed(row) {
-  const c = recalc(row);
-  return {
-    ...row,
-    status_label: STATUS_LABELS[row.status] || row.status,
-    daily_salary: c.daily,
-    absent_cut: c.absentCut,
-    tax: c.tax,
-    net_pay: c.net,
-    gross_pay: c.gross
-  };
-}
+// 公式抽到 services/payrollCalc.js：工资核对要拿同一份公式独立验算，
+// 复制一份在核对里「看起来一致」但毫无意义
+const {
+  round2, STATUS_LABELS, SOCIAL_RATE, calcTax, workDaysInMonth, periodRange, recalc, withComputed
+} = require('../services/payrollCalc');
 
 function listByPeriod(period, status) {
   const where = [];

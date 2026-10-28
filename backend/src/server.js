@@ -71,6 +71,7 @@ const statementFileRoutes = require('./routes/statementFiles');// 对账资料�
 const officeSupplyRoutes = require('./routes/officeSupply');    // 办公耗材与服务采购（独立办公仓 + 验收三合一）
 const custodyRoutes = require('./routes/custody');              // 资产工衣与领归（东西在谁身上）
 const adminOpsRoutes = require('./routes/adminOps');            // 行政运营报表（八项指标 + 差异复核）
+const payrollCheckRoutes = require('./routes/payrollCheck');    // 薪酬计件与工资核对（计件来源 / 勾稽 / 差异调整）
 // 【暂停】坏账准备计提：后端已实现（services/badDebt.js + routes/badDebt.js），
 // 财务模块暂缓上线，接口先不挂载（返回 404），代码与表结构、已生成的凭证全部保留。
 // 恢复：解开下面一行 + 解开 services/gl.js 里 bad_debt 关账检查项。
@@ -242,6 +243,7 @@ app.use('/api/statement-files', statementFileRoutes); // 对账资料（定版�
 app.use('/api/office-supply', officeSupplyRoutes); // 办公耗材与服务采购（申领→采购→验收→入库/转资产/入费用）
 app.use('/api/custody', custodyRoutes);            // 资产工衣与领归（实物档案/领用/归还/清退/损坏复核）
 app.use('/api/admin-ops', adminOpsRoutes);         // 行政运营报表（宿舍/费用/饭卡/资产/耗材/预算/工单）
+app.use('/api/payroll-check', payrollCheckRoutes); // 薪酬计件与工资核对（重算勾稽 + 差异登记调整单）
 // 【暂停】app.use('/api/bad-debt', badDebtRoutes); // 坏账准备计提（按账龄差额补提/冲回，生成 6702/1231 凭证）
 app.use('/api/payrolls', payrollRoutes); // 薪酬核算
 app.use('/api/assets', assetRoutes); // 固定资产

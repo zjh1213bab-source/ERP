@@ -1264,3 +1264,24 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > `admin_expenses`、`assets` + `custody_*`、`office_items` / `office_stock` / `office_ledger`、
 > `budgets` / `budget_items`、`repairs`、`companies`、`departments`。
 > **本模块不写上述任何一张表**，也不写 `stock_items` / `gl_entries` / `payroll_adjustments`。
+
+## 薪酬计件与工资核对（M-PAYCHECK）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| payroll_check_runs | check_no(HD+ymmdd+4), period, company_id/name, currency, status(open/reviewed), items_count, ok_count, diff_count, policy_count, missing_count, piece_expected, piece_in_payroll, piece_diff, gross_diff_total, net_diff_total, payload(JSON), basis, created_by/at, reviewed_by/at | 核对批次。`payload` 冻结八类结论与口径；汇总列冗余用于列表页 |
+| payroll_check_items | run_id, employee_id/name, department, company_id, currency, piece_qty/expected/in_payroll/diff, base_salary, overtime_pay, bonus, allowance, deduction, social_insurance, tax_stored, gross_stored/recalc, net_stored/recalc, adj_piece, status(pending/ok/diff/policy/missing), issues(JSON), adj_no, adj_amount, review_note, reviewed_by/at | 逐人核对行。`issues` 是 `[{kind,msg}]`；`adj_no` 指向登记生成的调整单 |
+
+> **为什么核对要存一份快照（payload）**：一个月内工资单会被反复改（草稿阶段），
+> 而批次是「某一时刻的核对结论」。不存快照，回看历史批次时数字会跟着变，
+> 「当时为什么判它一致」就再也说不清。
+>
+> **为什么 `gross_stored` 与 `gross_recalc` 都存**：只存一个就失去了核对的意义。
+> 两个数不同才说明「工资单被改过但没重算」——这是这个模块存在的主要理由。
+>
+> **为什么差异要落 `adj_no` 而不是记个标记**：钱最终要发出去，得有一条真正的调整单接着走
+> 薪酬模块的带入流程；标记留在核对面，钱却没人发，是最难查的一类错。
+>
+> 数据来源（只读）：`piece_wage_runs` / `piece_wage_items`、`payrolls`、`payroll_adjustments`、
+> `employees`、`departments`、`companies`。
+> **本模块不写工资单**，只写自己的两张表 + 登记差异时写一条 `payroll_adjustments`。

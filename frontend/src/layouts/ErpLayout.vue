@@ -200,6 +200,7 @@ const navModel = [
       { label: '请假管理', to: '/leaves' },
       { label: '招聘与合同', to: '/hr' },
       { label: '薪酬核算', to: '/payrolls' },
+      { label: '薪酬计件与工资核对', to: '/payroll-check' },
       { label: '计件工资', to: '/piece-wage' },
       { label: '技能矩阵与资格', to: '/skills' },
       { label: '岗位绩效', to: '/kpi' },

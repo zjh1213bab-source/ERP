@@ -9424,6 +9424,239 @@ async function req(path, { method = 'GET', body, token } = {}) {
       `报表 ${left} / 工单 ${ADB.prepare("SELECT COUNT(*) c FROM repairs WHERE remark LIKE '%__SMOKE%'").get().c} / 床位 ${ADB.prepare("SELECT COUNT(*) c FROM dorm_beds WHERE bed_no LIKE 'SMK%'").get().c}`);
   }
 
+
+  /* ================================================================== *
+   * 薪酬计件与工资核对（TS-N13-05）
+   * 用一段「没有其它数据」的历史期间做夹具（2020-03），
+   * 避免与演示库的计件批次/工资单互相干扰（同期多个 confirmed 批次会被整批标红）
+   * ================================================================== */
+  {
+    const { db: PDB } = require('../src/db');
+    const Calc = require('../src/services/payrollCalc');
+    console.log('\n[薪酬计件与工资核对]');
+
+    const P = '2020-03';
+    const NEXT = '2020-04';
+    const MARK = '__SMOKE';
+    const t = new Date().toISOString();
+    const RUN_NO = 'PW_SMOKE_2003';
+    const RUN_NO2 = 'PW_SMOKE_2003_B';
+
+    let emp = [];
+    const cleanSmoke = () => {
+      const runs = PDB.prepare("SELECT id FROM piece_wage_runs WHERE run_no LIKE 'PW_SMOKE%'").all().map((r) => r.id);
+      runs.forEach((id) => PDB.prepare('DELETE FROM piece_wage_items WHERE run_id = ?').run(id));
+      PDB.prepare("DELETE FROM piece_wage_runs WHERE run_no LIKE 'PW_SMOKE%'").run();
+      // 按备注删更可靠：员工一旦先被删掉，按 employee_id 子查询就再也匹配不上，
+      // 工资单会变成孤儿留在库里（这次就踩到了）
+      PDB.prepare("DELETE FROM payrolls WHERE period IN (?, ?) AND remark LIKE '%烟测工资单__SMOKE%'").run(P, NEXT);
+      PDB.prepare("DELETE FROM payrolls WHERE period IN (?, ?) AND employee_id IN (SELECT id FROM employees WHERE name LIKE '%__SMOKE%')").run(P, NEXT);
+      const chk = PDB.prepare("SELECT id FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").all().map((r) => r.id);
+      chk.forEach((id) => PDB.prepare('DELETE FROM payroll_check_items WHERE run_id = ?').run(id));
+      PDB.prepare("DELETE FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").run();
+      PDB.prepare("DELETE FROM payroll_adjustments WHERE reason LIKE '%烟测工资差异%'").run();
+      PDB.prepare("DELETE FROM employees WHERE name LIKE '%__SMOKE%'").run();
+    };
+    cleanSmoke();
+
+    const mkEmp = (tag) => {
+      const name = `烟测工资${tag}__SMOKE`;
+      const info = PDB.prepare("INSERT INTO employees (code, name, department_id, status, hire_date, created_at) VALUES (?,?,1,'active',?,?)")
+        .run(`SMKP-${tag}`, name, '2019-01-01', t);
+      return { id: Number(info.lastInsertRowid), name };
+    };
+    emp = [mkEmp('A'), mkEmp('B'), mkEmp('C'), mkEmp('D')];
+    const [EA, EB, EC, ED] = emp;
+
+    // 计件批次（confirmed）+ 三条明细
+    const runInfo = PDB.prepare(`INSERT INTO piece_wage_runs (run_no, period, status, items_count, employees_count,
+        total_qty, total_amount, created_by, created_at, confirmed_by, confirmed_at)
+      VALUES (?, ?, 'confirmed', 3, 3, 45, 270, 'smoke', ?, 'smoke', ?)`).run(RUN_NO, P, t, t);
+    const runId = Number(runInfo.lastInsertRowid);
+    const mkItem = (e, qty, unit, amount) => PDB.prepare(`INSERT INTO piece_wage_items (run_id, employee_id, employee_code,
+        employee_name, department, style_no, process_name, bundle_no, raw_qty, qty, capped, unit_price, amount,
+        rate_source, matched_by, report_date, created_at)
+      VALUES (?,?,?,?, '烟测车间', 'SMK-STYLE', '车缝', 'Z-01', ?, ?, 0, ?, ?, 'style', 'id', ?, ?)`)
+      .run(runId, e.id, `SMKP-${e.id}`, e.name, qty, qty, unit, amount, `${P}-10`, t);
+    mkItem(EA, 10, 10, 100);
+    mkItem(EB, 5, 10, 50);
+    mkItem(EC, 12, 10, 120);
+
+    // 工资单：A 正确带入；B 计件多 30 且应发被改过；D 挂 USD 主体
+    const mkPay = (e, opts) => {
+      const base = opts.base;
+      const row = {
+        base_salary: base, work_days: Calc.workDaysInMonth(P), actual_days: Calc.workDaysInMonth(P),
+        leave_days: 0, absent_days: 0, overtime_hours: 0, bonus: opts.bonus || 0,
+        allowance: opts.allowance || 0, piece_wage: opts.piece, deduction: 0, social_insurance: 0
+      };
+      const pre = Calc.recalc(row);
+      row.social_insurance = Calc.round2(pre.gross * 0.105);
+      const c = Calc.recalc(row);
+      const gross = opts.fakeGross !== undefined ? opts.fakeGross : c.gross;
+      PDB.prepare(`INSERT INTO payrolls (period, employee_id, employee_name, department, base_salary, work_days,
+          actual_days, leave_days, absent_days, overtime_hours, overtime_pay, bonus, allowance, deduction,
+          social_insurance, tax, gross_pay, net_pay, status, remark, created_at, updated_at, company_id, piece_wage)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'draft', ?, ?, ?, ?, ?)`).run(
+        P, e.id, e.name, '烟测车间', base, row.work_days, row.actual_days, 0, 0, 0, c.overtimePay,
+        row.bonus, row.allowance, 0, row.social_insurance, c.tax, gross, c.net, `烟测工资单__SMOKE`, t, t,
+        opts.companyId || 1, opts.piece
+      );
+    };
+    mkPay(EA, { base: 6000, piece: 100 });
+    mkPay(EB, { base: 5000, piece: 80, fakeGross: 5000 });      // 计件多 30 + 应发被改
+    mkPay(ED, { base: 5000, piece: 0, companyId: 3 });           // USD 主体 → 政策待配
+
+    const baseAdj = PDB.prepare("SELECT COUNT(*) c FROM payroll_adjustments WHERE reason LIKE '%烟测工资差异%'").get().c;
+
+    const meta = await req('/api/payroll-check/meta', { token });
+    ok('工资核对字典（状态 / 差异类型 / 主体 / 期间）',
+      meta.status === 200 && (meta.json.data.statuses || []).length === 5 && (meta.json.data.companies || []).length > 0,
+      `HTTP ${meta.status}`);
+
+    // 1. 预览：四类结论
+    const pv = await req(`/api/payroll-check/preview?period=${P}`, { token });
+    const items = pv.json.data.items || [];
+    const rowOf = (e) => items.find((x) => x.employee_id === e.id) || {};
+    ok('★ 计件应计只认已确认批次（270 = 100 + 50 + 120）',
+      pv.status === 200 && pv.json.data.summary.piece_expected === 270,
+      `应计 ${pv.json.data ? pv.json.data.summary.piece_expected : '?'}`);
+
+    ok('★ 计件与工资单一致 → 核对一致',
+      rowOf(EA).status === 'ok', `${rowOf(EA).employee_name} ${rowOf(EA).status}`);
+
+    ok('★ 工资单计件比批次多 → 有差异，并指出差额',
+      rowOf(EB).status === 'diff' && Math.abs(rowOf(EB).piece_diff - 30) < 0.01
+      && (rowOf(EB).issues || []).some((x) => x.kind === 'piece_mismatch'),
+      `${rowOf(EB).employee_name} ${rowOf(EB).piece_diff}`);
+
+    ok('★ 应发与公式重算不符 → 也点出来（手工改过的痕迹）',
+      (rowOf(EB).issues || []).some((x) => x.kind === 'gross_mismatch'),
+      `存 ${rowOf(EB).gross_stored} / 算 ${rowOf(EB).gross_recalc}`);
+
+    ok('★ 有计件但没工资单 → 缺工资单',
+      rowOf(EC).status === 'missing' && rowOf(EC).piece_expected === 120,
+      `${rowOf(EC).employee_name} ${rowOf(EC).status}`);
+
+    ok('★ 境外主体（USD）标政策待配，不套国内税率',
+      rowOf(ED).status === 'policy' && rowOf(ED).currency === 'USD'
+      && (rowOf(ED).issues || []).some((x) => x.kind === 'foreign_policy'),
+      `${rowOf(ED).employee_name} ${rowOf(ED).status} / ${rowOf(ED).currency}`);
+
+    ok('一致的人应发/实发与重算完全相同', Math.abs(rowOf(EA).gross_stored - rowOf(EA).gross_recalc) < 0.01,
+      `${rowOf(EA).gross_stored} vs ${rowOf(EA).gross_recalc}`);
+
+    // 2. 同期第二个「已确认」批次：库里有部分唯一索引兜底
+    //    （uq 只约束 status='confirmed'，草稿与作废可以有多份）
+    let dupErr = '';
+    try {
+      PDB.prepare(`INSERT INTO piece_wage_runs (run_no, period, status, items_count, employees_count, total_qty, total_amount,
+          created_by, created_at, confirmed_by, confirmed_at)
+        VALUES (?, ?, 'confirmed', 0, 0, 0, 0, 'smoke', ?, 'smoke', ?)`).run(RUN_NO2, P, t, t);
+    } catch (e) {
+      dupErr = e.message || '';
+    }
+    ok('★ 同期第二个「已确认」计件批次被数据库挡住（不靠人工记得别建）',
+      /UNIQUE/.test(dupErr), dupErr || '插入居然成功了');
+
+    const pv2 = await req(`/api/payroll-check/preview?period=${P}`, { token });
+    ok('单批次时不报「多批次」警报', (pv2.json.data.batch_issues || []).length === 0,
+      `batch_issues ${(pv2.json.data.batch_issues || []).length}`);
+
+    // 3. 生成批次
+    const run1 = await req('/api/payroll-check/run', { method: 'POST', token, body: { period: P, note: '烟测批次__SMOKE' } });
+    const gotEmps = new Set((run1.json.data ? run1.json.data.items || [] : []).map((x) => x.employee_id));
+    ok('生成核对批次（落库，供逐行处理）',
+      run1.status === 200 && !!run1.json.data.check_no
+      && [EA, EB, EC, ED].every((e) => gotEmps.has(e.id)),
+      `HTTP ${run1.status} ${run1.json.data ? run1.json.data.check_no : ''} 覆盖 ${gotEmps.size} 人`);
+
+    const rid = run1.json.data.id;
+    const rItems = run1.json.data.items;
+    const rowB = rItems.find((x) => x.employee_id === EB.id);
+    const rowC = rItems.find((x) => x.employee_id === EC.id);
+
+    // 有未处理的差异行时不许「完成核对」（政策待配只算提示，不拦）
+    const rvEarly = await req(`/api/payroll-check/review/${rid}`, { method: 'POST', token, body: {} });
+    ok('有未处理的差异行时不能完成核对', rvEarly.status === 400, `HTTP ${rvEarly.status} ${rvEarly.json.message || ''}`);
+
+    // 4. 登记差异：必须写原因、必须非 0；缺工资单默认补发
+    const noReason = await req(`/api/payroll-check/diff/${rowB.id}`, { method: 'POST', token, body: { amount: 30 } });
+    ok('登记差异必须写原因', noReason.status === 400, `HTTP ${noReason.status}`);
+
+    const zero = await req(`/api/payroll-check/diff/${rowB.id}`, { method: 'POST', token, body: { amount: 0, reason: '烟测工资差异：金额为 0' } });
+    ok('调整金额为 0 不许登记', zero.status === 400, `HTTP ${zero.status}`);
+
+    const regB = await req(`/api/payroll-check/diff/${rowB.id}`, {
+      method: 'POST', token, body: { amount: -30, reason: '烟测工资差异：计件多计 30 元，下期扣回' }
+    });
+    ok('★ 登记差异生成「下一期」调整单，不改本期工资单',
+      regB.status === 200 && !!regB.json.data.adj_no && regB.json.data.period === NEXT,
+      `HTTP ${regB.status} ${regB.json.data ? regB.json.data.adj_no + ' @' + regB.json.data.period : ''}`);
+
+    const payB = PDB.prepare('SELECT piece_wage, gross_pay FROM payrolls WHERE period = ? AND employee_id = ?').get(P, EB.id);
+    ok('★ 工资单本身没被改动（80 / 5000 原样）',
+      Number(payB.piece_wage) === 80 && Number(payB.gross_pay) === 5000,
+      `计件 ${payB.piece_wage} / 应发 ${payB.gross_pay}`);
+
+    const adjB = PDB.prepare('SELECT * FROM payroll_adjustments WHERE adj_no = ?').get(regB.json.data.adj_no);
+    ok('调整单是 pending 且记录了来源期', adjB && adjB.status === 'pending' && adjB.source_period === P,
+      adjB ? `${adjB.status} / ${adjB.source_period}` : '未生成');
+
+    const regC = await req(`/api/payroll-check/diff/${rowC.id}`, {
+      method: 'POST', token, body: { reason: '烟测工资差异：新员工漏生成工资单，下期补发' }
+    });
+    ok('★ 缺工资单登记差异默认「补发」而不是扣回（+120）',
+      regC.status === 200 && Number(regC.json.data.amount) === 120,
+      `金额 ${regC.json.data ? regC.json.data.amount : '?'}`);
+
+    const regAgain = await req(`/api/payroll-check/diff/${rowB.id}`, {
+      method: 'POST', token, body: { amount: -10, reason: '烟测工资差异：重复登记' }
+    });
+    ok('同一行不能重复登记差异', regAgain.status === 400, `HTTP ${regAgain.status}`);
+
+    const rowD = rItems.find((x) => x.employee_id === ED.id);
+    const noteD = await req(`/api/payroll-check/annotate/${rowD.id}`, { method: 'POST', token, body: { review_note: '烟测：美国主体，等总部确认个税口径' } });
+    ok('可以给境外主体写核对说明（不改钱）', noteD.status === 200 && !!noteD.json.data.review_note, `HTTP ${noteD.status}`);
+
+    const rvOk = await req(`/api/payroll-check/review/${rid}`, { method: 'POST', token, body: { note: '烟测：已处理完' } });
+    ok('处理好后可以完成核对', rvOk.status === 200 && rvOk.json.data.status === 'reviewed', `HTTP ${rvOk.status}`);
+
+    const runDup = await req('/api/payroll-check/run', { method: 'POST', token, body: { period: P, note: '烟测再跑__SMOKE' } });
+    ok('已完成的批次不悄悄覆盖，重跑要确认', runDup.status === 400, `HTTP ${runDup.status}`);
+
+    // 6. 下钻计件来源
+    const src = await req(`/api/payroll-check/sources?run_id=${rid}&employee_id=${EA.id}`, { token });
+    ok('可以下钻到具体报工（钱是怎么算出来的）',
+      src.status === 200 && (src.json.data.rows || []).length === 1 && src.json.data.total_amount === 100,
+      `行 ${src.json.data ? (src.json.data.rows || []).length : '?'} / 合计 ${src.json.data ? src.json.data.total_amount : '?'}`);
+
+    // 7. 权限：工资数据连看都限岗
+    const salesLogin = await req('/api/auth/login', { method: 'POST', body: { username: 'sales01', password: PASS } });
+    if (salesLogin.status === 200) {
+      const sPrev = await req(`/api/payroll-check/preview?period=${P}`, { token: salesLogin.json.data.token });
+      ok('★ 销售不能看工资核对（工资数据连读都限岗）', sPrev.status === 403, `HTTP ${sPrev.status}`);
+    } else {
+      ok('销售不能看工资核对', true, '没有 sales01，跳过');
+    }
+    const whLogin = await req('/api/auth/login', { method: 'POST', body: { username: 'wh01', password: PASS } });
+    if (whLogin.status === 200) {
+      const wRun = await req('/api/payroll-check/run', { method: 'POST', token: whLogin.json.data.token, body: { period: P, note: '烟测越权__SMOKE', force: true } });
+      ok('仓库不能生成核对批次', wRun.status === 403, `HTTP ${wRun.status}`);
+    } else {
+      ok('仓库不能生成核对批次', true, '没有 wh01，跳过');
+    }
+
+    // 8. 清理
+    cleanSmoke();
+    ok('冒烟夹具已清干净',
+      PDB.prepare("SELECT COUNT(*) c FROM piece_wage_runs WHERE run_no LIKE 'PW_SMOKE%'").get().c === 0
+      && PDB.prepare("SELECT COUNT(*) c FROM payrolls WHERE period IN (?, ?) AND remark LIKE '%__SMOKE%'").get(P, NEXT).c === 0
+      && PDB.prepare("SELECT COUNT(*) c FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").get().c === 0
+      && PDB.prepare("SELECT COUNT(*) c FROM employees WHERE name LIKE '%__SMOKE%'").get().c === 0,
+      `批次 ${PDB.prepare("SELECT COUNT(*) c FROM piece_wage_runs WHERE run_no LIKE 'PW_SMOKE%'").get().c} / 核对 ${PDB.prepare("SELECT COUNT(*) c FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").get().c}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

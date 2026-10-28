@@ -414,6 +414,17 @@ export const api = {  // 登录
   aoIgnore: (id, d) => req(`/api/admin-ops/ignore/${id}`, { method: 'POST', body: d }),
   aoDrill: (params) => req('/api/admin-ops/drill' + qs(params)),
 
+  // 薪酬计件与工资核对
+  pcMeta: () => req('/api/payroll-check/meta'),
+  pcPreview: (params) => req('/api/payroll-check/preview' + qs(params)),
+  pcRun: (d) => req('/api/payroll-check/run', { method: 'POST', body: d }),
+  pcRuns: (params) => req('/api/payroll-check/runs' + qs(params)),
+  pcRunDetail: (id) => req(`/api/payroll-check/runs/${id}`),
+  pcSources: (params) => req('/api/payroll-check/sources' + qs(params)),
+  pcDiff: (itemId, d) => req(`/api/payroll-check/diff/${itemId}`, { method: 'POST', body: d }),
+  pcAnnotate: (itemId, d) => req(`/api/payroll-check/annotate/${itemId}`, { method: 'POST', body: d }),
+  pcReview: (id, d) => req(`/api/payroll-check/review/${id}`, { method: 'POST', body: d || {} }),
+
   // 字段级脱敏与访问审计
   pvMeta: () => req('/api/privacy/meta'),
   pvRules: () => req('/api/privacy/rules'),

@@ -279,6 +279,13 @@ const PERMS = {
   'adminops.run': ['admin', 'hr', 'finance'],
   'adminops.review': ['admin', 'hr', 'finance'],
 
+  // ===== 薪酬计件与工资核对（TS-N13-05）=====
+  // 工资数据连「看」都限岗（与 /api/payrolls 同一口径）：老板可看，销售/生产/仓库不行。
+  // 核对会重算个税社保、登记差异会生成下期调整单 —— 只给人事/财务/管理员。
+  'paycheck.read': ['admin', 'boss', 'hr', 'finance'],
+  'paycheck.run': ['admin', 'hr', 'finance'],
+  'paycheck.fix': ['admin', 'hr', 'finance'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -423,6 +430,11 @@ const GUARDED = [
   { perm: 'adminops.review', method: 'POST', prefix: '/api/admin-ops/review' },
   { perm: 'adminops.review', method: 'POST', prefix: '/api/admin-ops/close' },
   { perm: 'adminops.review', method: 'POST', prefix: '/api/admin-ops/ignore' },
+  // 生成核对批次会冻结一版工资结论；登记差异会真的生成调整单（下期发钱）—— 都挂高危
+  { perm: 'paycheck.run', method: 'POST', prefix: '/api/payroll-check/run' },
+  { perm: 'paycheck.fix', method: 'POST', prefix: '/api/payroll-check/diff' },
+  { perm: 'paycheck.fix', method: 'POST', prefix: '/api/payroll-check/annotate' },
+  { perm: 'paycheck.fix', method: 'POST', prefix: '/api/payroll-check/review' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

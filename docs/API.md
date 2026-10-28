@@ -3300,3 +3300,46 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 床日计算在 `services/bedDays.js`，`GET /api/facility/dorm/occupancy` 与报表共用同一份 ——
 两个页面各算一遍的结果是可预期的：开会先花二十分钟争论哪个数对。
+
+## 薪酬计件与工资核对（`/api/payroll-check`）
+
+> 只做一件事：**工资单里的计件数，能不能对回已确认的核算单**。
+> 应发/个税/实发用 `services/payrollCalc.js` **独立重算**再与库里存的比；
+> 差额**不自动改工资单**，只能登记下一期生效的调整单。
+>
+> 权限：`paycheck.read`（admin / boss / hr / finance —— 工资数据连读都限岗）、
+> `paycheck.run`（生成核对批次）、`paycheck.fix`（登记差异 / 写说明 / 完成核对）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/payroll-check/meta | read | 状态、差异类型、主体（含本位币）、可选期间 |
+| GET | /api/payroll-check/preview?period=&company_id= | read | 实时核对（不落库），含 `batch_issues` 与 `coverage` |
+| POST | /api/payroll-check/run | run | 生成核对批次（落库）；已完成的期间重跑需 `force:true` |
+| GET | /api/payroll-check/runs?period=&company_id= | read | 历史批次 |
+| GET | /api/payroll-check/runs/:id | read | 批次详情（含逐人核对行与 issues） |
+| GET | /api/payroll-check/sources?run_id=&employee_id= | read | 该员工本期计件来源明细（报工级） |
+| POST | /api/payroll-check/diff/:itemId | fix | 登记差异：`{amount, period, reason}` → 生成 `payroll_adjustments` |
+| POST | /api/payroll-check/annotate/:itemId | fix | 写核对说明（不改钱） |
+| POST | /api/payroll-check/review/:id | fix | 完成核对（有未处理差异 → 400） |
+
+### 每行结论怎么来
+
+| 结论 | 触发条件 |
+|---|---|
+| `ok` 核对一致 | 计件一致、应发/个税/实发与重算一致 |
+| `diff` 有差异 | 计件金额不符 / 应发或实发或个税与重算不符 / 工资单有计件但批次无来源 |
+| `missing` 缺工资单 | 批次里有计件，本期没有工资单 |
+| `policy` 政策待配 | 主体本位币非 CNY（只核对来源与金额，不判税社保） |
+
+提示类（不影响结论）：调整单本期待带入、已带入调整单未体现、报销/借款混入、员工已离职。
+
+### 六条口径
+
+1. **计件只认 `status='confirmed'` 批次**；库里部分唯一索引保证同期只有一个已确认批次，
+   服务层另有 `multi_run` 报警防迁移导入。
+2. **独立重算**：公式在 `payrollCalc.js`，`routes/payrolls.js` 与核对共用同一份。
+3. **差额不改工资单**：登记差异生成 `payroll_adjustments`（`item='piece_wage'`，状态 pending，
+   `source_period` 记来源期）；冒烟断言登记后工资单原值未变。
+4. **缺工资单默认补发**（金额取 `piece_expected` 正数），不是扣回。
+5. **境外主体不套国内口径**。
+6. **完成核对前必须逐行处理**（登记调整单或写说明），否则 400 列出未处理的人。

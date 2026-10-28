@@ -706,6 +706,15 @@
 | paymentRequests | GET | `/export` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
 | paymentRequests | GET | `/meta` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
 | paymentRequests | GET | `/stats` | ✅ | ✅ | — | — | — | ✅ | ✅ | — |
+| payrollCheck | POST | `/annotate/:itemId` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| payrollCheck | POST | `/diff/:itemId` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| payrollCheck | GET | `/meta` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| payrollCheck | GET | `/preview` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| payrollCheck | POST | `/review/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| payrollCheck | POST | `/run` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| payrollCheck | GET | `/runs` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| payrollCheck | GET | `/runs/:id` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| payrollCheck | GET | `/sources` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | payrolls | GET | `/` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | payrolls | PUT | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | payrolls | DELETE | `/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
@@ -1179,6 +1188,9 @@
 | `adminops.detail` | 系统管理员、人事行政、财务会计 |
 | `adminops.run` | 系统管理员、人事行政、财务会计 |
 | `adminops.review` | 系统管理员、人事行政、财务会计 |
+| `paycheck.read` | 系统管理员、总经理、人事行政、财务会计 |
+| `paycheck.run` | 系统管理员、人事行政、财务会计 |
+| `paycheck.fix` | 系统管理员、人事行政、财务会计 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |
