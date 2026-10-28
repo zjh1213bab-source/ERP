@@ -88,6 +88,7 @@ import Payable from './views/Payable.vue';
 import Cashflow from './views/Cashflow.vue';
 import PaymentRequests from './views/PaymentRequests.vue';
 import Collections from './views/Collections.vue';
+import Exceptions from './views/Exceptions.vue';
 import PrintBatch from './views/PrintBatch.vue';
 import ScanGo from './views/ScanGo.vue';
 import MobileHome from './views/MobileHome.vue';
@@ -124,6 +125,7 @@ const routes = [
     children: [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: Dashboard, meta: { title: '工作台' } },
+      { path: 'exceptions', component: Exceptions, meta: { title: '异常日清' } },
       { path: 'scan', component: Scan, meta: { title: '扫码查询' } },
       { path: 'approvals', component: Approvals, meta: { title: '审批中心' } },
       { path: 'assistant', component: Assistant, meta: { title: '智能助手' } },

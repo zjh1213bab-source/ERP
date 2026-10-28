@@ -246,6 +246,23 @@ export const api = {  // 登录
   colReopen: (id, d) => req(`/api/collections/${id}/reopen`, { method: 'POST', body: d }),
   colExportPath: (params) => '/api/collections/export' + qs(params),
 
+  // 异常协同与日清
+  excMeta: (params) => req('/api/exceptions/meta' + qs(params)),
+  excDaily: (params) => req('/api/exceptions/daily' + qs(params)),
+  excReport: (params) => req('/api/exceptions/report' + qs(params)),
+  excStats: (params) => req('/api/exceptions/stats' + qs(params)),
+  excScan: (d) => req('/api/exceptions/scan', { method: 'POST', body: d || {} }),
+  excRules: () => req('/api/exceptions/rules'),
+  excSaveRule: (code, d) => req(`/api/exceptions/rules/${code}`, { method: 'PUT', body: d }),
+  excList: (params) => req('/api/exceptions' + qs(params)),
+  excDetail: (id) => req(`/api/exceptions/${id}`),
+  excClaim: (id) => req(`/api/exceptions/${id}/claim`, { method: 'POST', body: {} }),
+  excAssign: (id, d) => req(`/api/exceptions/${id}/assign`, { method: 'POST', body: d }),
+  excClose: (id, d) => req(`/api/exceptions/${id}/close`, { method: 'POST', body: d }),
+  excReview: (id, d) => req(`/api/exceptions/${id}/review`, { method: 'POST', body: d }),
+  excNote: (id, d) => req(`/api/exceptions/${id}/note`, { method: 'POST', body: d }),
+  excReopen: (id, d) => req(`/api/exceptions/${id}/reopen`, { method: 'POST', body: d }),
+  excIgnore: (id, d) => req(`/api/exceptions/${id}/ignore`, { method: 'POST', body: d }),
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),
   resolveScan: (code) => req('/api/labels/resolve?code=' + encodeURIComponent(code)),

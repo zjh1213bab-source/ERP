@@ -188,9 +188,22 @@ const PERMS = {
   // **付**只给能碰钱的手（admin/finance/warehouse 里的出纳岗）
   // 催收：销售要看自己名下的单（不然不知道催谁），财务/老板看全部；
   // 结案（尤其核销坏账）会影响应收质量口径，只给财务
+  // 坏账准备影响利润表与资产总额，只给财务/老板看；改比例、过账只给财务
+  // 【暂停】接口未挂载（server.js 已注释），权限点先留着，恢复时无需再改这里
+  'baddebt.read': ['admin', 'boss', 'finance'],
+  'baddebt.write': ['admin', 'finance'],
   'collection.read': ['admin', 'boss', 'finance', 'sales'],
   'collection.write': ['admin', 'finance', 'sales'],
   'collection.close': ['admin', 'finance'],
+
+  // 异常协同与日清：异常是所有部门共用的账，所以**全员可读**（看不到就没人处理）；
+  // 认领与关闭给实际干活的岗位（老板只读，老板不该去关异常单）；
+  // 复核给主管与老板（复核人不能是处理人，服务层另有校验）；
+  // 改规则阈值只给管理员 —— 改错了会让全公司少提醒或多提醒，属于治理动作。
+  'exception.read': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'exception.write': ['admin', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'exception.review': ['admin', 'boss'],
+  'exception.rule': ['admin'],
   'paymentreq.read': ['admin', 'boss', 'finance', 'warehouse'],
   'paymentreq.write': ['admin', 'finance', 'warehouse'],
   'paymentreq.pay': ['admin', 'finance', 'warehouse'],
@@ -274,8 +287,13 @@ const GUARDED = [
   { perm: 'gl.write', method: '*', prefix: '/api/gl' },
   { perm: 'bank.write', method: '*', prefix: '/api/bank' },
   // 执行付款是真正把钱搬出去的动作，必须挂高危路由（前端按钮 + 后端 403 双保险）
+  { perm: 'baddebt.write', method: 'POST', prefix: '/api/bad-debt' },
+  { perm: 'baddebt.write', method: 'PUT', prefix: '/api/bad-debt' },
   { perm: 'collection.close', method: 'POST', prefix: '/api/collections' },
   { perm: 'collection.write', method: 'POST', prefix: '/api/collections' },
+  // 复核结论会决定一条异常算不算真的解决，属于治理动作
+  { perm: 'exception.review', method: 'POST', prefix: '/api/exceptions' },
+  { perm: 'exception.rule', method: 'PUT', prefix: '/api/exceptions' },
   { perm: 'paymentreq.pay', method: 'POST', prefix: '/api/payment-requests' },
   { perm: 'paymentreq.write', method: 'POST', prefix: '/api/payment-requests' },
   { perm: 'paymentreq.write', method: 'PUT', prefix: '/api/payment-requests' },

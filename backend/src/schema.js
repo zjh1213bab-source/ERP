@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 640 个对象
- * （310 张表 + 330 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 654 个对象
+ * （315 张表 + 339 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -645,5 +645,19 @@ module.exports = [
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_col_item ON collection_task_items(task_id, invoice_id);",
   "CREATE INDEX IF NOT EXISTS idx_col_item_inv ON collection_task_items(invoice_id);",
   "CREATE TABLE IF NOT EXISTS collection_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  task_id INTEGER NOT NULL,\n  channel TEXT,                                 -- phone/wechat/email/visit/letter\n  contact TEXT,                                 -- 对接人（客户那边的谁）\n  result TEXT,                                  -- no_answer/promised/refused/partial/dispute/other\n  promise_date TEXT,\n  promise_amount REAL,\n  note TEXT,\n  operator TEXT,\n  created_at TEXT\n);",
-  "CREATE INDEX IF NOT EXISTS idx_col_log_task ON collection_logs(task_id);"
+  "CREATE INDEX IF NOT EXISTS idx_col_log_task ON collection_logs(task_id);",
+  "CREATE TABLE IF NOT EXISTS bad_debt_policies (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  company_id INTEGER NOT NULL DEFAULT 1,\n  bucket TEXT NOT NULL,                         -- current / d1_30 / d31_60 / d61_90 / d90p\n  rate REAL NOT NULL DEFAULT 0,                 -- 计提比例（%）\n  note TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_badpolicy ON bad_debt_policies(company_id, bucket);",
+  "CREATE TABLE IF NOT EXISTS exception_rules (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT UNIQUE NOT NULL,                    -- order_overdue / material_short ...\n  name TEXT NOT NULL,\n  category TEXT NOT NULL,                       -- tech / material / quality / capacity / hr / cash\n  owner_dept TEXT,                              -- 归口部门（页面上显示「找谁」）\n  owner_role TEXT,                              -- 归口角色（用于筛人，不用于自动指派）\n  sla_hours INTEGER NOT NULL DEFAULT 24,        -- 超过多久没人认领就升级\n  threshold REAL,                               -- 阈值（逾期天数 / 停留天数 / 小时）\n  threshold_unit TEXT,                          -- day / hour\n  severity TEXT NOT NULL DEFAULT 'warn',        -- warn / serious（serious 在必办列表置顶）\n  rule_note TEXT,                               -- 判定口径（页面上要能看懂，不能只在代码里）\n  enabled INTEGER NOT NULL DEFAULT 1,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE TABLE IF NOT EXISTS exception_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  item_no TEXT UNIQUE,                          -- EX202610280001\n  company_id INTEGER NOT NULL DEFAULT 1,\n  rule_code TEXT NOT NULL,\n  category TEXT NOT NULL,\n  severity TEXT NOT NULL DEFAULT 'warn',\n\n  first_day TEXT NOT NULL,                      -- 首次发现日\n  last_seen_at TEXT,                            -- 最后一次扫描仍存在\n  seen_count INTEGER NOT NULL DEFAULT 1,\n\n  source_type TEXT NOT NULL,                    -- order / purchase_order / ar_invoice ...\n  source_id INTEGER NOT NULL,\n  source_no TEXT,                               -- 原单号，列表直接显示\n  biz_key TEXT NOT NULL DEFAULT '',             -- 同一原单多条异常时的区分键（如缺料用物料名）\n\n  title TEXT NOT NULL,\n  detail TEXT,\n  impact_qty REAL,\n  impact_amount REAL,\n  impact_note TEXT,                             -- 金额口径说明；算不出就写原因，不填 0\n  overdue_days INTEGER,\n\n  owner_user_id INTEGER,\n  owner_username TEXT,\n  owner_name TEXT,\n  owner_source TEXT,                            -- order / assign / none\n  owner_dept TEXT,\n\n  status TEXT NOT NULL DEFAULT 'open',          -- open / claimed / handling / waiting / closed / auto_resolved\n  cause TEXT,                                   -- 原因（人工填）\n  expect_date TEXT,                             -- 预计解决日\n  result TEXT,                                  -- 处理结果\n  closed_by TEXT,\n  closed_at TEXT,\n\n  auto_resolved_at TEXT,\n  auto_resolve_note TEXT,\n\n  escalated INTEGER NOT NULL DEFAULT 0,\n  escalated_at TEXT,\n  escalate_reason TEXT,\n\n  review_status TEXT,                           -- null / pending / passed / rejected\n  reviewed_by TEXT,\n  reviewed_at TEXT,\n  review_note TEXT,\n\n  note TEXT,\n  created_at TEXT,\n  updated_at TEXT\n, ignore_until TEXT, ignore_reason TEXT);",
+  "CREATE INDEX IF NOT EXISTS idx_exc_status ON exception_items(status);",
+  "CREATE INDEX IF NOT EXISTS idx_exc_day ON exception_items(first_day);",
+  "CREATE INDEX IF NOT EXISTS idx_exc_rule ON exception_items(rule_code);",
+  "CREATE INDEX IF NOT EXISTS idx_exc_owner ON exception_items(owner_username);",
+  "CREATE INDEX IF NOT EXISTS idx_exc_source ON exception_items(source_type, source_id);",
+  "CREATE TABLE IF NOT EXISTS exception_actions (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  item_id INTEGER NOT NULL,\n  action TEXT NOT NULL,                         -- detect/claim/assign/note/close/reopen/review/auto_resolve/escalate\n  from_status TEXT,\n  to_status TEXT,\n  operator TEXT,\n  target TEXT,                                  -- 指派给谁\n  reason TEXT,\n  payload TEXT,                                 -- JSON 快照（关闭时的原因/结果/预计日）\n  created_at TEXT NOT NULL\n);",
+  "CREATE INDEX IF NOT EXISTS idx_excact_item ON exception_actions(item_id);",
+  "CREATE TABLE IF NOT EXISTS daily_clear_batches (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  batch_no TEXT UNIQUE,                         -- DC20261028\n  company_id INTEGER NOT NULL DEFAULT 1,\n  day TEXT NOT NULL,\n  data_until TEXT,                              -- 数据截止时间（页面上必须显示，否则不知道数据新不新）\n  scanned_rules INTEGER DEFAULT 0,\n  opened INTEGER DEFAULT 0,                     -- 本次新开\n  refreshed INTEGER DEFAULT 0,                  -- 仍然存在（刷新）\n  auto_resolved INTEGER DEFAULT 0,              -- 由系统按事实消除\n  escalated INTEGER DEFAULT 0,\n  must_do INTEGER DEFAULT 0,                    -- 今日必办条数\n  coverage TEXT,                                -- JSON：每条规则的扫描量/跳过量/跳过原因\n  summary TEXT,                                 -- JSON：六类归口计数\n  generated_by TEXT,\n  generated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily ON daily_clear_batches(company_id, day);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_exc_open\n  ON exception_items(company_id, rule_code, source_type, source_id, biz_key)\n  WHERE status NOT IN ('closed','auto_resolved','ignored');"
 ];

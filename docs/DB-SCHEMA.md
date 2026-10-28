@@ -1012,3 +1012,28 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > **为什么不在 `production_reports` 上加「是否已计件」标记**：报工是事实，计件是结算，
 > 两者生命周期不同（报工可补、计件按月锁定）。用 `(period + 单价生效日)` 反推，
 > 比在报工行上打标记更不容易出错 —— 打标记一旦漏打或打错，工钱就错了。
+
+## 异常协同与日清（M-EXCEPTION）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| exception_rules | code, name, category(tech/material/quality/capacity/hr/cash/governance), owner_dept, owner_role, sla_hours, threshold, threshold_unit(day/hour), severity(warn/serious), rule_note, enabled | 规则与阈值。`rule_note` 是**判定口径**，页面上显示给用户看 —— 口径不能只藏在代码里。改阈值下次扫描生效，不追溯已生成条目 |
+| exception_items | item_no, company_id, rule_code, category, severity, first_day, last_seen_at, seen_count, source_type, source_id, source_no, biz_key, title, detail, impact_qty, impact_amount, impact_note, overdue_days, owner_user_id/username/name/source(order/assign/none), owner_dept, status(open/claimed/handling/waiting/closed/auto_resolved/ignored), cause, expect_date, result, closed_by/at, auto_resolved_at/note, escalated/at/reason, review_status(pending/passed/rejected), reviewed_by/at/note, ignore_reason, ignore_until | 异常条目。**部分唯一索引** `uq_exc_open ON (company_id, rule_code, source_type, source_id, biz_key) WHERE status NOT IN ('closed','auto_resolved','ignored')` 是幂等的全部保证 |
+| exception_actions | item_id, action(detect/claim/assign/note/close/reopen/review/auto_resolve/escalate/ignore), from_status, to_status, operator, target, reason, payload, created_at | 全量动作流水。系统动作（detect/auto_resolve/escalate）的 operator 写「系统」，与人工动作分开可辨 |
+| daily_clear_batches | batch_no, company_id, day, data_until, scanned_rules, opened/refreshed/auto_resolved/escalated/suppressed/must_do, coverage(JSON), summary(JSON), generated_by/at | 日清批次快照。唯一索引 `(company_id, day)`，同一天重扫覆盖而不是追加。`coverage` 存每条规则的扫描量/跳过量/跳过原因，`data_until` 必须显示在页面上（否则不知道数据新不新） |
+
+> **幂等键的选择是这张表唯一容易做错的地方**：
+> 缺料异常最初用 `material_requirements.id` 做 `source_id`，结果一天堆了 12 条重复 ——
+> 齐套算料是「整批删了重建」，每算一次 id 就换一批。现在用**订单 id + `biz_key='mat:<物料>'`**，
+> 算料重算多少次都是同一条。凡是上游会重建行的表（算料、快照、投影），都不能用它自己的自增 id 做键。
+>
+> **`auto_resolved` 与 `closed` 必须分开**：前者是「事实消失了」（订单发货 → 超期异常自然不该存在），
+> 后者是「人处理完了」。混在一起，月底的「异常处理率」会虚高到 100%。
+> 事实再次出现时恢复原条目（因为没人确认过），只有人关过的才新开一条。
+>
+> **`ignored` 也必须排除在唯一索引之外**：否则「标为数据遗留」之后反而插不进新条目，
+> 扫描会直接报唯一约束冲突。
+>
+> 底层事实的来源：`orders` / `order_logs` / `tech_packs` / `material_requirements` / `purchase_orders` /
+> `first_articles` / `production_reports` / `qc_inspections` / `equipment_downtimes` /
+> `ar_invoices` / `ap_invoices` / `approval_tasks`。**本模块不写这些表**。

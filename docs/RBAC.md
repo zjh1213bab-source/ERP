@@ -93,6 +93,12 @@
 | backup | POST | `/restore/prepare` | ✅ | — | — | — | — | — | — | — |
 | backup | POST | `/restore/rollback` | ✅ | — | — | — | — | — | — | — |
 | backup | POST | `/restore/upload` | ✅ | — | — | — | — | — | — | — |
+| badDebt | GET | `/aging` | ✅ | ✅ | — | — | — | — | ✅ | — |
+| badDebt | GET | `/history` | ✅ | ✅ | — | — | — | — | ✅ | — |
+| badDebt | GET | `/policy` | ✅ | ✅ | — | — | — | — | ✅ | — |
+| badDebt | PUT | `/policy` | ✅ | — | — | — | — | — | ✅ | — |
+| badDebt | POST | `/post` | ✅ | — | — | — | — | — | ✅ | — |
+| badDebt | GET | `/preview` | ✅ | ✅ | — | — | — | — | ✅ | — |
 | bank | POST | `/accounts` | ✅ | — | — | — | — | — | — | — |
 | bank | PUT | `/accounts/:id` | ✅ | — | — | — | — | — | — | — |
 | bank | POST | `/auto-match` | ✅ | — | — | — | — | — | ✅ | — |
@@ -295,6 +301,22 @@
 | equipment | POST | `/downtimes/:id/finish-repair` | ✅ | — | — | ✅ | ✅ | ✅ | — | — |
 | equipment | POST | `/downtimes/:id/safety` | ✅ | — | — | ✅ | ✅ | ✅ | — | — |
 | equipment | POST | `/downtimes/:id/start-repair` | ✅ | — | — | ✅ | ✅ | ✅ | — | — |
+| exceptions | GET | `/` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | GET | `/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | POST | `/:id/assign` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | POST | `/:id/claim` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | POST | `/:id/close` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | POST | `/:id/ignore` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | POST | `/:id/note` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | POST | `/:id/reopen` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | POST | `/:id/review` | ✅ | ✅ | — | — | — | — | — | — |
+| exceptions | GET | `/daily` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | GET | `/meta` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | GET | `/report` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | GET | `/rules` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | PUT | `/rules/:code` | ✅ | — | — | — | — | — | — | — |
+| exceptions | POST | `/scan` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| exceptions | GET | `/stats` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | facility | POST | `/certificates` | ✅ | — | — | — | — | ✅ | — | ✅ |
 | facility | PUT | `/certificates/:id` | ✅ | — | — | — | — | ✅ | — | ✅ |
 | facility | POST | `/certificates/:id/void` | ✅ | — | — | — | — | ✅ | — | ✅ |
@@ -979,9 +1001,15 @@
 | `pattern.review` | 技术打版 |
 | `settings.write` | 系统管理员 |
 | `user.manage` | 系统管理员 |
+| `baddebt.read` | 系统管理员、总经理、财务会计 |
+| `baddebt.write` | 系统管理员、财务会计 |
 | `collection.read` | 系统管理员、总经理、财务会计、销售跟单 |
 | `collection.write` | 系统管理员、财务会计、销售跟单 |
 | `collection.close` | 系统管理员、财务会计 |
+| `exception.read` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `exception.write` | 系统管理员、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `exception.review` | 系统管理员、总经理 |
+| `exception.rule` | 系统管理员 |
 | `paymentreq.read` | 系统管理员、总经理、财务会计、仓库采购 |
 | `paymentreq.write` | 系统管理员、财务会计、仓库采购 |
 | `paymentreq.pay` | 系统管理员、财务会计、仓库采购 |

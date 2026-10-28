@@ -2737,3 +2737,58 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 计件金额**只由已确认的核算单带入** `payrolls.piece_wage`，工资单页不允许手填。
 `POST /api/payrolls/generate` 返回 `piece_wage_run` / `piece_wage_total` /
 `warnings`（工资单已确认/已发放导致计件没进单的人）。
+
+## 异常协同与日清（`/api/exceptions`）
+
+> 把技术/缺料/质量/产能/人事/资金六类异常 + 流程审批超时，扫成一张「今日必办」。
+> 读权限全员（`exception.read`），认领与关闭给实际岗位（`exception.write`），
+> 复核给主管与老板（`exception.review`），改规则阈值只给管理员（`exception.rule`）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/exceptions/meta | exception.read | 字典（七类归口 / 状态 / 规则 / 人员）+ 统计 |
+| GET | /api/exceptions/daily?day= | exception.read | 日清清单：`must`（今日必办）/ `doing`（处理中）/ `coverage`（覆盖率）/ `auto_resolved_today` |
+| GET | /api/exceptions/report?day= | exception.read | 日报初稿：已完成 / 处理中 / 等待外部 / 超时升级 / 系统消除 + 按责任人分布 + 口径说明 |
+| GET | /api/exceptions/stats | exception.read | 顶部统计（未结 / 升级 / 待指派 / 严重 / 今日关闭 / 今日自动消除 / 待复核 / 已忽略） |
+| POST | /api/exceptions/scan | exception.write | 扫描（**幂等**）：`{opened, refreshed, auto_resolved, escalated, suppressed, must_do, coverage}` |
+| GET | /api/exceptions/rules | exception.read | 规则与阈值（含 `rule_note` 判定口径） |
+| PUT | /api/exceptions/rules/:code | exception.rule | 改阈值 / SLA / 启停。**下次扫描生效，不追溯已生成条目** |
+| GET | /api/exceptions | exception.read | 列表（`status` 默认 active；可按 `category`/`rule`/`owner`/`no_owner`/`escalated`/`q` 过滤） |
+| GET | /api/exceptions/:id | exception.read | 详情 + 动作流水 |
+| POST | /api/exceptions/:id/claim | exception.write | 认领（谁认领谁负责；已被别人认领需先转派） |
+| POST | /api/exceptions/:id/assign | exception.write | 指派 / 转派：`{to_username, reason}`，**reason ≥4 字** |
+| POST | /api/exceptions/:id/close | exception.write | 关闭：`{cause, result, expect_date?}`，**cause 与 result 都 ≥4 字** |
+| POST | /api/exceptions/:id/review | exception.review | 复核：`{pass, note}`，**复核人不能是处理人**；不通过则打回 `handling` |
+| POST | /api/exceptions/:id/note | exception.write | 加备注（不改状态） |
+| POST | /api/exceptions/:id/reopen | exception.write | 重开：只允许 `auto_resolved` 的条目 |
+| POST | /api/exceptions/:id/ignore | exception.write | 标为数据遗留：`{reason, until?}`，**reason ≥4 字**；到期自动重新检出 |
+
+**11 条检测规则**
+
+| 规则 | 归口 | 级 | 判定 |
+|---|---|---|---|
+| `order_overdue` | 产能与交付 | 严重 | 在产订单交期已过仍未发货；**未填交期的不参与判定，计入覆盖率** |
+| `order_stuck` | 产能与交付 | 常规 | 当前状态停留超阈值天数（默认 3） |
+| `tech_pack_missing` | 技术 | 严重 | 定制单已进财务审核及之后，无 `status='confirmed'` 的技术包 |
+| `material_short` | 缺料 | 严重 | 齐套净缺口 > 0；**在途不抵扣**；键用「订单 + 物料」 |
+| `purchase_late` | 缺料 | 常规 | 采购承诺到货日已过仍有未到货 |
+| `fa_not_released` | 质量 | 严重 | 首件未放行但已有报工 |
+| `qc_fail_open` | 质量 | 严重 | 质检 AQL 判定 fail 且单据未关闭 |
+| `equipment_down` | 产能与交付 | 常规 | 停机未恢复且超阈值小时（默认 24） |
+| `ar_overdue` | 资金 | 常规 | 应收未核销且逾期超阈值天（默认 1 天，当天到期不算） |
+| `ap_overdue` | 资金 | 常规 | 应付未付且已过账期 |
+| `approval_timeout` | 流程与审批 | 常规 | 审批任务过了应处理时限（**只提醒，不自动通过**） |
+
+**四条硬口径**
+
+1. **幂等**：唯一键 `(company_id, rule_code, source_type, source_id, biz_key)`，
+   只约束「未关闭」条目（`WHERE status NOT IN ('closed','auto_resolved','ignored')`）。
+   同一天扫 10 次仍是一条，只刷新 `last_seen_at` / `seen_count`。
+2. **自动消除 ≠ 人工关闭**：事实消失记 `auto_resolved` 并写「由系统按事实消除」，
+   不计入人工完成量；事实再次出现时**恢复原条目**而不是新建。
+3. **覆盖率必须可见**：每条规则返回 `scanned / found / skipped / skip_reason`；
+   没有规则的类别在 `coverage.category_gaps` 里显式写「暂无自动检测规则，需人工排查」。
+4. **只写清单**：不改任何业务单据状态、不扣绩效、不扣工资。
+
+**已暂停**：`/api/bad-debt/*`（坏账准备计提）接口未挂载，返回 404；
+相关代码与已生成的凭证、1231/6702 余额均保留，恢复方式见 `server.js` 与 `services/gl.js` 的注释。

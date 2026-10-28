@@ -7219,6 +7219,194 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 异常协同与日清（TS-N01-03） =================
+  // 这一段自建 EXSMOKE 夹具并跑完删净，不碰演示数据。
+  {
+    console.log('\n[异常协同与日清]');
+    const { db } = require('../src/db');
+    const loginAsLocal = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    };
+    const back = (n) => {
+      const d = new Date(); d.setDate(d.getDate() - n);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const tnow = new Date().toISOString();
+
+    const cleanupExc = () => {
+      const ids = db.prepare("SELECT id FROM exception_items WHERE source_no='EXSMOKE0001'").all().map((x) => x.id);
+      ids.forEach((id) => {
+        db.prepare('DELETE FROM exception_actions WHERE item_id=?').run(id);
+        db.prepare('DELETE FROM exception_items WHERE id=?').run(id);
+      });
+      const o = db.prepare("SELECT id FROM orders WHERE order_no='EXSMOKE0001'").get();
+      if (o) {
+        db.prepare('DELETE FROM order_logs WHERE order_id=?').run(o.id);
+        db.prepare('DELETE FROM order_items WHERE order_id=?').run(o.id);
+        db.prepare('DELETE FROM orders WHERE id=?').run(o.id);
+      }
+    };
+    const makeOrder = () => {
+      const cust = db.prepare('SELECT id FROM customers ORDER BY id LIMIT 1').get();
+      return db.prepare(
+        `INSERT INTO orders (order_no,type,customer_id,status,rate,total_usd,total_amount,currency,style_name,manager,order_date,delivery_date,remark,created_by,created_at,updated_at,company_id)
+         VALUES ('EXSMOKE0001','stock',?,'production',6.5,1000,6500,'USD','冒烟款','冒烟跟单',?,?,'冒烟夹具',1,?,?,1)`
+      ).run(cust ? cust.id : null, back(10), back(2), tnow, tnow).lastInsertRowid;
+    };
+
+    // ---- 只读口径 ----
+    const dl = await req('/api/exceptions/daily', { token });
+    const d0 = dl.json.data || {};
+    ok('日清清单可读', dl.status === 200, `HTTP ${dl.status}`);
+    ok('七类归口都返回（六类业务 + 流程与审批）', (d0.summary || []).length >= 7, `实际 ${(d0.summary || []).length} 类`);
+
+    const covRules = (d0.coverage && d0.coverage.rules) || [];
+    const skipNoReason = covRules.filter((c) => c.skipped > 0 && !c.skip_reason);
+    ok('跳过的规则都写清了原因', covRules.length > 0 && skipNoReason.length === 0, skipNoReason.map((c) => c.rule).join(','));
+    ok('覆盖率里显式说明未覆盖的类别', ((d0.coverage && d0.coverage.category_gaps) || []).length > 0
+      && /暂无自动检测规则/.test(JSON.stringify(d0.coverage.category_gaps || [])));
+
+    const allowWhy = ['已升级', '严重级', '过预计解决日', '超时未认领'];
+    const badWhy = (d0.must || []).filter((x) => !allowWhy.includes(x.why));
+    ok('今日必办只收升级类事项', badWhy.length === 0, badWhy.map((x) => x.title + ':' + x.why).join(' | '));
+    ok('处理中里没有已升级条目', (d0.doing || []).every((x) => !x.escalated));
+
+    const rules = await req('/api/exceptions/rules', { token });
+    ok('规则 11 条且每条都有判定口径',
+      (rules.json.data || []).length === 11 && (rules.json.data || []).every((r) => (r.rule_note || '').length > 10),
+      `条数 ${(rules.json.data || []).length}`);
+    // 人事类暂时没有自动检测规则（覆盖率里显式声明了），所以这里只要求
+    // 技术/缺料/质量/产能/资金 + 流程归口 六类都各有规则 —— 逐类点名，
+    // 少哪一类一眼能看出来，比数类别个数有用
+    const cats = new Set((rules.json.data || []).map((r) => r.category));
+    const missingCat = ['tech', 'material', 'quality', 'capacity', 'cash', 'governance'].filter((c) => !cats.has(c));
+    ok('规则覆盖技术/缺料/质量/产能/资金 + 流程归口', missingCat.length === 0, `缺 ${missingCat.join(',')}`);
+
+    // ---- 夹具：过交期订单 → 检出 → 幂等 ----
+    cleanupExc();
+    const oid = makeOrder();
+
+    const scan1 = await req('/api/exceptions/scan', { method: 'POST', token, body: {} });
+    ok('扫描可执行', scan1.status === 200, `HTTP ${scan1.status}`);
+    const mine = db.prepare("SELECT * FROM exception_items WHERE source_no='EXSMOKE0001' ORDER BY id").all();
+    ok('过交期订单被检出', mine.length === 1 && mine[0].rule_code === 'order_overdue', `条数 ${mine.length}`);
+    ok('检出的异常是严重级', mine.length === 1 && mine[0].severity === 'serious');
+    ok('影响金额带上了原单金额', mine.length === 1 && Number(mine[0].impact_amount) === 6500, mine.length ? mine[0].impact_amount : '-');
+    ok('责任人取原单跟单员', mine.length === 1 && mine[0].owner_name === '冒烟跟单' && mine[0].owner_source === 'order');
+
+    const cnt1 = db.prepare('SELECT COUNT(*) c FROM exception_items').get().c;
+    const scan2 = await req('/api/exceptions/scan', { method: 'POST', token, body: {} });
+    const cnt2 = db.prepare('SELECT COUNT(*) c FROM exception_items').get().c;
+    ok('同一天重扫不重复派单', scan2.json.data.opened === 0 && cnt1 === cnt2, `新开 ${scan2.json.data.opened} / ${cnt1}→${cnt2}`);
+    ok('重扫只刷新不重置处理状态', db.prepare('SELECT seen_count FROM exception_items WHERE source_no=?').get('EXSMOKE0001').seen_count >= 2);
+
+    const itemId = mine[0].id;
+    const det = await req(`/api/exceptions/${itemId}`, { token });
+    ok('详情带动作流水', det.status === 200 && (det.json.data.actions || []).length >= 1, `HTTP ${det.status}`);
+    ok('详情说明规则口径', (det.json.data.rule_note || '').length > 10);
+
+    // 幂等键的口径：缺料不能用 material_requirements 的行 id —— 齐套算料是整批删了重建，
+    // 用行 id 会变成「同一件缺料天天出新单」（实际踩过，一天堆了 12 条重复）
+    const mreq = await req('/api/exceptions?rule=material_short', { token });
+    const mrows = mreq.json.data || [];
+    ok('缺料异常以「订单 + 物料」为幂等键',
+      mrows.length > 0 && mrows.every((x) => x.source_type === 'order' && /^mat:/.test(x.biz_key || '')),
+      `${mrows.length} 条 / ${mrows.slice(0, 3).map((x) => x.source_type + ':' + x.biz_key).join(',')}`);
+
+    // ---- 关闭与复核校验 ----
+    const noResult = await req(`/api/exceptions/${itemId}/close`, { method: 'POST', token, body: { cause: '冒烟原因写够了' } });
+    ok('关闭不写处理结果被拦', noResult.status === 400 && /处理结果/.test(noResult.json.message || ''), `HTTP ${noResult.status}`);
+    const noCause = await req(`/api/exceptions/${itemId}/close`, { method: 'POST', token, body: { result: '冒烟结果写够了' } });
+    ok('关闭不写原因被拦', noCause.status === 400 && /原因/.test(noCause.json.message || ''), `HTTP ${noCause.status}`);
+
+    const noReason = await req(`/api/exceptions/${itemId}/assign`, { method: 'POST', token, body: { to_username: 'admin' } });
+    ok('转派不写原因被拦', noReason.status === 400 && /原因/.test(noReason.json.message || ''), `HTTP ${noReason.status}`);
+
+    const cl = await req(`/api/exceptions/${itemId}/claim`, { method: 'POST', token, body: {} });
+    ok('认领成功', cl.status === 200 && cl.json.data.status === 'claimed', `HTTP ${cl.status}`);
+    const closed = await req(`/api/exceptions/${itemId}/close`, {
+      method: 'POST', token, body: { cause: '冒烟：排产延后导致超期', result: '冒烟：已调整排产并补发' }
+    });
+    ok('关闭成功且转待复核', closed.status === 200 && closed.json.data.status === 'closed'
+      && closed.json.data.review_status === 'pending', `HTTP ${closed.status}`);
+    const reClaim = await req(`/api/exceptions/${itemId}/claim`, { method: 'POST', token, body: {} });
+    ok('已关闭不能再认领', reClaim.status === 400, `HTTP ${reClaim.status}`);
+
+    const selfRev = await req(`/api/exceptions/${itemId}/review`, { method: 'POST', token, body: { pass: true, note: '冒烟自审' } });
+    ok('处理人不能自己复核', selfRev.status === 400 && /复核人不能是处理人/.test(selfRev.json.message || ''), `HTTP ${selfRev.status}`);
+
+    db.prepare("UPDATE exception_items SET closed_by='冒烟跟单' WHERE id=?").run(itemId);
+    const rev = await req(`/api/exceptions/${itemId}/review`, { method: 'POST', token, body: { pass: true, note: '冒烟复核通过' } });
+    ok('换人复核可通过', rev.status === 200 && rev.json.data.review_status === 'passed', `HTTP ${rev.status}`);
+
+    // ---- 事实消失 → 自动消除（重新造一张，前面的已关闭不会再被扫到） ----
+    cleanupExc();
+    const oid2 = makeOrder();
+    await req('/api/exceptions/scan', { method: 'POST', token, body: {} });
+    const openOne = db.prepare("SELECT id FROM exception_items WHERE source_no='EXSMOKE0001' AND status='open'").get();
+    ok('重新建单后再次检出', !!openOne);
+    const statsBefore = (await req('/api/exceptions/stats', { token })).json.data;
+
+    db.prepare("UPDATE orders SET status='shipped' WHERE id=?").run(oid2);
+    const scan3 = await req('/api/exceptions/scan', { method: 'POST', token, body: {} });
+    const st = db.prepare("SELECT status, auto_resolve_note FROM exception_items WHERE source_no='EXSMOKE0001'").get();
+    ok('事实消失后由系统自动消除', !!st && st.status === 'auto_resolved', `status=${st ? st.status : '-'}`);
+    ok('自动消除写明是按事实而非人工处理', !!st && /未再检出/.test(st.auto_resolve_note || ''), st ? st.auto_resolve_note : '-');
+    const statsAfter = (await req('/api/exceptions/stats', { token })).json.data;
+    ok('自动消除没被算成人工完成', (statsAfter.closed_today || 0) === (statsBefore.closed_today || 0),
+      `${statsBefore.closed_today}→${statsAfter.closed_today}`);
+    ok('扫描不改业务单据状态', db.prepare('SELECT status FROM orders WHERE id=?').get(oid2).status === 'shipped');
+
+    cleanupExc();
+    ok('冒烟夹具已清干净',
+      !db.prepare("SELECT 1 FROM exception_items WHERE source_no='EXSMOKE0001'").get()
+      && !db.prepare("SELECT 1 FROM orders WHERE order_no='EXSMOKE0001'").get());
+
+    // ---- 标为数据遗留：日清要能清零，但不能静默 ----
+    const oid3 = makeOrder();
+    await req('/api/exceptions/scan', { method: 'POST', token, body: {} });
+    const leg = db.prepare("SELECT id FROM exception_items WHERE source_no='EXSMOKE0001' AND status='open'").get();
+    ok('造出的异常可用于忽略测试', !!leg);
+    if (leg) {
+      const noReason2 = await req(`/api/exceptions/${leg.id}/ignore`, { method: 'POST', token, body: {} });
+      ok('标为遗留不写理由被拦', noReason2.status === 400 && /理由/.test(noReason2.json.message || ''), `HTTP ${noReason2.status}`);
+      const s1 = (await req('/api/exceptions/stats', { token })).json.data;
+      const ign = await req(`/api/exceptions/${leg.id}/ignore`, {
+        method: 'POST', token, body: { reason: '冒烟：历史遗留单，不参与日清' }
+      });
+      ok('标为遗留成功且状态单独记', ign.status === 200 && ign.json.data.status === 'ignored', `HTTP ${ign.status}`);
+      const s2 = (await req('/api/exceptions/stats', { token })).json.data;
+      ok('标为遗留不算处理完成', s2.closed_today === s1.closed_today, `${s1.closed_today}→${s2.closed_today}`);
+      ok('已压住的条数单独统计', (s2.ignored || 0) === (s1.ignored || 0) + 1, `${s1.ignored}→${s2.ignored}`);
+      const scanIg = await req('/api/exceptions/scan', { method: 'POST', token, body: {} });
+      ok('标为遗留后重扫不再开新条目', scanIg.json.data.opened === 0 && (scanIg.json.data.suppressed || 0) >= 1,
+        `opened=${scanIg.json.data.opened} suppressed=${scanIg.json.data.suppressed}`);
+      ok('被压住的条数在扫描结果里可见（不静默）', (scanIg.json.data.suppressed || 0) >= 1);
+    }
+    cleanupExc();
+
+    // ---- 权限 ----
+    const salesTok = await loginAsLocal('sales01');
+    if (salesTok) {
+      const denyRule = await req('/api/exceptions/rules/order_overdue', { method: 'PUT', token: salesTok, body: { threshold: 1 } });
+      ok('销售不能改规则阈值', denyRule.status === 403, `HTTP ${denyRule.status}`);
+      const denyRev = await req('/api/exceptions/1/review', { method: 'POST', token: salesTok, body: { pass: true } });
+      ok('销售不能复核', denyRev.status === 403, `HTTP ${denyRev.status}`);
+      const denyScan = await req('/api/exceptions/scan', { method: 'POST', token: salesTok, body: {} });
+      ok('销售可以手动触发扫描（干活的人要能刷新）', denyScan.status === 200, `HTTP ${denyScan.status}`);
+    } else {
+      ok('销售不能改规则阈值 / 不能复核', true, '没有 sales01，跳过');
+    }
+
+    // ---- 坏账计提已暂停：接口必须下线，关账检查里也不该再出现 ----
+    const bd = await req('/api/bad-debt/policy', { token });
+    ok('坏账计提接口已暂停（404）', bd.status === 404, `HTTP ${bd.status}`);
+    const ck = await req('/api/gl/periods/2026-10/checks', { token });
+    const chkList = (ck.json.data && ck.json.data.checks) || [];
+    ok('关账检查不含坏账项', chkList.length > 0 && !chkList.some((c) => c.code === 'bad_debt'), `共 ${chkList.length} 项`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

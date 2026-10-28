@@ -701,7 +701,22 @@ const CHECKS = [
         detail: rows.length ? `${rows.length} 张订单已发货但无成本结转凭证` : '已发货订单成本均已结转'
       };
     }
-  }
+  },
+  // ── 坏账准备计提：功能已实现但**暂停启用**（2026-10-28 挂起，财务模块暂缓）──────
+  // 恢复方法：解开下面整段注释，并解开 server.js 里 badDebt 路由的两处注释。
+  // 已计提的凭证与 1231/6702 余额不受影响（保留在账上，关账检查不再要求）。
+  // {
+  //   code: 'bad_debt',
+  //   name: '期末应收已计提坏账准备',
+  //   // 计提是会计要求，但历史上已关账的期间补不了 → 先按提醒处理，不阻断关账。
+  //   // 真要卡死，把 severity 改成 'error' 即可（新月份会立刻生效）。
+  //   severity: 'warn',
+  //   run(period, co) {
+  //     // 懒加载：badDebt 依赖 gl，顶部 require 会循环
+  //     const { checkForClose } = require('./badDebt');
+  //     return checkForClose(period, co);
+  //   }
+  // }
 ];
 
 /** 跑一遍检查并落库 */
@@ -719,7 +734,7 @@ function runChecks(period, companyId) {
   CHECKS.forEach((c) => {
     let r;
     try { r = c.run(period, co); } catch (e) { r = { passed: false, amount: 0, detail: '检查异常：' + e.message }; }
-    const severity = c.code === 'cost_missing' ? 'warn' : 'error';
+    const severity = c.severity || (c.code === 'cost_missing' ? 'warn' : 'error');
     ins.run(co, period, c.code, c.name, severity, r.passed ? 1 : 0, r2(r.amount), r.detail || '', t);
     out.push({ code: c.code, name: c.name, severity, passed: !!r.passed, amount: r2(r.amount), detail: r.detail });
   });

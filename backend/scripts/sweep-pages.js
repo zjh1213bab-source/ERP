@@ -19,7 +19,7 @@ const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe'].find((p
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PAGES = [
-  '/dashboard', '/orders', '/quality', '/process', '/mail', '/audit', '/ai-center', '/backup',
+  '/dashboard', '/exceptions', '/orders', '/quality', '/process', '/mail', '/audit', '/ai-center', '/backup',
   '/photos', '/inventory', '/purchases', '/receipts', '/hr', '/finance-books', '/integration',
   '/marketing', '/admin-contracts', '/facility', '/equipment', '/schedule', '/segments', '/spot-ops',
   '/mall-admin', '/suppliers', '/customers', '/reports', '/assess', '/users', '/notify', '/budget',
