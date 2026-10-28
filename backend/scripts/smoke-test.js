@@ -6897,6 +6897,220 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 应收催收 =================
+  {
+    console.log('\n— 应收催收 —');
+    const { db } = require('../src/db');
+    const S4 = require('../src/services/invoiceStatus');
+    const C4 = require('../src/services/collection');
+
+    const loginY = async (u) => {
+      const r = await fetch(BASE + '/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: PASS })
+      });
+      const j = await r.json().catch(() => ({}));
+      return j && j.ok ? j.data.token : null;
+    };
+    const ymd = (d) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+
+    // 独立测试样本：自建客户 + 逾期 40 天发票（不用演示数据，避免互相干扰）
+    const TAG = 'SMOKECOL';
+    const t0 = new Date().toISOString();
+    const taskIds = [];
+    const payIds = [];
+    const wipe = () => {
+      const ivs = db.prepare('SELECT id FROM ar_invoices WHERE bill_no LIKE ?').all(TAG + '%').map((x) => x.id);
+      ivs.forEach((id) => db.prepare('DELETE FROM collection_task_items WHERE invoice_id = ?').run(id));
+      // 上次跑到一半崩了会留下同名单据 → 开头先清干净，保证可重复跑
+      db.prepare("SELECT id FROM collection_tasks WHERE IFNULL(customer_name,'') LIKE '冒烟·催收%' OR IFNULL(note,'') LIKE ?")
+        .all(TAG + '%')
+        .forEach((x) => {
+          db.prepare('DELETE FROM collection_logs WHERE task_id = ?').run(x.id);
+          db.prepare('DELETE FROM collection_task_items WHERE task_id = ?').run(x.id);
+          db.prepare('DELETE FROM collection_tasks WHERE id = ?').run(x.id);
+        });
+      ivs.forEach((id) => db.prepare('DELETE FROM ar_invoices WHERE id = ?').run(id));
+      db.prepare('DELETE FROM customers WHERE code = ?').run(TAG);
+    };
+    const cleanup = () => {
+      taskIds.forEach((tid) => {
+        db.prepare('DELETE FROM collection_logs WHERE task_id = ?').run(tid);
+        db.prepare('DELETE FROM collection_task_items WHERE task_id = ?').run(tid);
+        db.prepare('DELETE FROM collection_tasks WHERE id = ?').run(tid);
+      });
+      payIds.forEach((pid) => {
+        const allocs = db.prepare('SELECT * FROM payment_allocations WHERE payment_id = ?').all(pid);
+        db.prepare('DELETE FROM payment_allocations WHERE payment_id = ?').run(pid);
+        db.prepare('DELETE FROM payments WHERE id = ?').run(pid);
+        allocs.forEach((a) => S4.syncPaidStatus(a.invoice_kind, a.invoice_id));
+      });
+    };
+    payIds.length = 0;
+    cleanup();
+    wipe();
+
+    const custId = db.prepare(
+      `INSERT INTO customers (code, name, level, credit_limit, credit_days, credit_status, created_at, updated_at)
+       VALUES (?, '冒烟·催收测试客户', 'B', 200000, 30, 'active', ?, ?)`
+    ).run(TAG, t0, t0).lastInsertRowid;
+    const invId = db.prepare(
+      `INSERT INTO ar_invoices (bill_no, customer_id, customer_name, currency, amount_orig, rate, amount,
+         paid_amount, due_date, status, source, remark, created_at, updated_at)
+       VALUES (?, ?, '冒烟·催收测试客户', 'CNY', 50000, 1, 50000, 0, ?, 'unpaid', 'manual', 'SMOKE', ?, ?)`
+    ).run(TAG + '-INV1', custId, ymd(-40), t0, t0).lastInsertRowid;
+
+    // ---------- 台账：集团内部不算催收对象 ----------
+    const bd = await req('/api/collections/board', { token });
+    const internalIds = [...C4.internalCustomerIds()];
+    const rowsInternal = (bd.json.data.rows || []).filter((x) => x.is_internal);
+    ok('逾期台账排除集团内部往来（不催自家公司）',
+      internalIds.every((id) => {
+        const row = (bd.json.data.rows || []).find((x) => Number(x.customer_id) === Number(id));
+        return !row || row.is_internal === true;
+      }) && (bd.json.data.summary.internal_amount >= 0),
+      `内部 ${bd.json.data.summary.internal_count} 家 / ${bd.json.data.summary.internal_amount}`);
+    ok('台账把外部逾期与内部往来分开统计',
+      typeof bd.json.data.summary.external_amount === 'number' &&
+        bd.json.data.summary.external_amount + bd.json.data.summary.internal_amount >= 0,
+      `外部 ${bd.json.data.summary.external_amount} + 内部 ${bd.json.data.summary.internal_amount}`);
+
+    // ---------- 生成 ----------
+    let r = await req('/api/collections/generate', {
+      method: 'POST', token, body: { customer_ids: [custId], min_overdue_days: 1 }
+    });
+    const task = (r.json.data.created || [])[0];
+    if (task) taskIds.push(task.id);
+    ok('按客户生成催收任务', r.status === 200 && !!task, task ? `${task.task_no} ${task.amount}` : JSON.stringify(r.json.data.skipped));
+
+    r = await req('/api/collections/generate', {
+      method: 'POST', token, body: { customer_ids: [custId], min_overdue_days: 1 }
+    });
+    ok('重复生成被跳过（不堆重复单）',
+      r.json.data.summary.created === 0 && (r.json.data.skipped || []).some((x) => /已有任务/.test(x.reason)),
+      JSON.stringify(r.json.data.summary));
+
+    if (!task) { console.log('  ⚠ 没生成任务，跳过后续'); } else {
+      // ---------- 剩余额实时算 ----------
+      r = await req(`/api/collections/${task.id}`, { token });
+      ok('剩余额 = 发票实时未付（不是快照）',
+        Math.abs(Number(r.json.data.live.remaining) - 50000) < 0.01, String(r.json.data.live.remaining));
+
+      // ---------- 承诺的三道门槛 ----------
+      let lg = await req(`/api/collections/${task.id}/log`, {
+        method: 'POST', token, body: { channel: 'phone', result: 'promised' }
+      });
+      ok('「答应付款」缺承诺日期 → 拒', lg.status === 400 && /承诺日期/.test(lg.json.message || ''), `HTTP ${lg.status}`);
+
+      lg = await req(`/api/collections/${task.id}/log`, {
+        method: 'POST', token, body: { channel: 'phone', result: 'promised', promise_date: ymd(5) }
+      });
+      ok('「答应付款」缺承诺金额 → 拒（只说下周付等于没承诺）',
+        lg.status === 400 && /承诺金额/.test(lg.json.message || ''), `HTTP ${lg.status}`);
+
+      lg = await req(`/api/collections/${task.id}/log`, {
+        method: 'POST', token,
+        body: { channel: 'phone', result: 'promised', promise_date: ymd(-2), promise_amount: 1000 }
+      });
+      ok('承诺日期早于今天 → 拒', lg.status === 400 && /不能早于今天/.test(lg.json.message || ''), `HTTP ${lg.status}`);
+
+      lg = await req(`/api/collections/${task.id}/log`, {
+        method: 'POST', token,
+        body: { channel: 'phone', result: 'promised', promise_date: ymd(5), promise_amount: 60000 }
+      });
+      ok('承诺金额超过未收额 → 拒', lg.status === 400 && /超过/.test(lg.json.message || ''), `HTTP ${lg.status}`);
+
+      lg = await req(`/api/collections/${task.id}/log`, {
+        method: 'POST', token, body: { channel: 'phone', result: 'dispute' }
+      });
+      ok('「有争议」不写说明 → 拒', lg.status === 400 && /至少 4 个字/.test(lg.json.message || ''), `HTTP ${lg.status}`);
+
+      // ---------- 正常承诺 ----------
+      lg = await req(`/api/collections/${task.id}/log`, {
+        method: 'POST', token,
+        body: { channel: 'wechat', result: 'promised', promise_date: ymd(5), promise_amount: 50000, note: '冒烟：客户确认月底付清' }
+      });
+      ok('记承诺成功，状态变「客户承诺」',
+        lg.status === 200 && lg.json.data.status === 'promised', `HTTP ${lg.status} ${lg.json.data && lg.json.data.status}`);
+      ok('跟进次数 +1 且记录可查',
+        Number(lg.json.data.follow_count) === 1 && lg.json.data.logs.length === 1);
+
+      // ---------- 承诺跳票 ----------
+      db.prepare('UPDATE collection_tasks SET promise_date = ? WHERE id = ?').run(ymd(-3), task.id);
+      C4.refreshAll();
+      const esc = await req(`/api/collections/${task.id}`, { token });
+      ok('过了承诺日没收到钱 → 自动升级「承诺跳票」', esc.json.data.status === 'escalated', esc.json.data.status);
+      ok('升级后「跳票」标记仍亮着（否则看不出为什么升级）',
+        esc.json.data.live.promise_broken === true && esc.json.data.live.promise_overdue_days >= 2,
+        `${esc.json.data.live.promise_broken} / ${esc.json.data.live.promise_overdue_days} 天`);
+
+      // ---------- 结案门槛 ----------
+      r = await req(`/api/collections/${task.id}/close`, { method: 'POST', token, body: { reason: 'paid' } });
+      ok('还有钱没收到，不能按「已收回」结案',
+        r.status === 400 && /没收到/.test(r.json.message || ''), `HTTP ${r.status}`);
+
+      r = await req(`/api/collections/${task.id}/close`, {
+        method: 'POST', token, body: { reason: 'bad_debt', note: '坏账' }
+      });
+      ok('核销坏账说明太短 → 拒', r.status === 400 && /8 个字/.test(r.json.message || ''), `HTTP ${r.status}`);
+
+      // ---------- 回款自动结案（跨模块） ----------
+      const pay = await req('/api/finance/payments', {
+        method: 'POST', token,
+        body: {
+          direction: 'in', partner_id: custId, partner_name: '冒烟·催收测试客户',
+          currency: 'CNY', amount: 50000, pay_date: ymd(0), method: '银行转账',
+          remark: 'SMOKE-COLLECTION',
+          allocations: [{ invoice_id: invId, amount: 50000 }]
+        }
+      });
+      if (pay.json.data && pay.json.data.id) payIds.push(pay.json.data.id);
+      ok('回款登记成功', pay.status === 200, `HTTP ${pay.status}`);
+
+      const after = db.prepare('SELECT * FROM collection_tasks WHERE id = ?').get(task.id);
+      ok('钱收齐后催收任务**自动结案**（不用人去点）', after.status === 'closed', after.status);
+      ok('自动结案原因记为 paid 并写了说明',
+        after.closed_reason === 'paid' && /自动结案|回款结清/.test(after.closed_note || ''),
+        `${after.closed_reason}`);
+
+      r = await req(`/api/collections/${task.id}`, { token });
+      ok('结案后剩余额为 0、明细全标已结清',
+        Number(r.json.data.live.remaining) === 0 && r.json.data.items.every((x) => x.settled));
+    }
+
+    // ---------- 权限 ----------
+    const tkSales2 = await loginY('sales01');
+    if (tkSales2) {
+      r = await req('/api/collections', { token: tkSales2 });
+      ok('销售能看自己名下的催收单', r.status === 200, `HTTP ${r.status}`);
+      const other = db.prepare(
+        "SELECT id FROM collection_tasks WHERE status <> 'closed' AND IFNULL(owner_username,'') <> 'sales01' LIMIT 1"
+      ).get();
+      if (other) {
+        r = await req(`/api/collections/${other.id}/close`, {
+          method: 'POST', token: tkSales2, body: { reason: 'other', note: '销售想自己结案' }
+        });
+        ok('销售不能结案（会影响应收质量口径）', r.status === 403, `HTTP ${r.status}`);
+      }
+      r = await req('/api/collections/generate', { method: 'POST', token: tkSales2, body: { all: true } });
+      ok('销售不能批量生成催收单', r.status === 403, `HTTP ${r.status}`);
+    }
+    const tkHr2 = await loginY('hr01');
+    if (tkHr2) {
+      r = await req('/api/collections', { token: tkHr2 });
+      ok('人事看不到催收（跟岗位无关）', r.status === 403, `HTTP ${r.status}`);
+    }
+    r = await req('/api/collections', {});
+    ok('未登录 401', r.status === 401, `HTTP ${r.status}`);
+
+    // ---------- 自清理 ----------
+    cleanup();
+    wipe();
+    ok('催收用例自清理（任务/客户/发票都删净）',
+      db.prepare('SELECT COUNT(*) c FROM customers WHERE code = ?').get(TAG).c === 0 &&
+        db.prepare('SELECT COUNT(*) c FROM ar_invoices WHERE bill_no LIKE ?').get(TAG + '%').c === 0);
+  }
+
   // ================= 操作日志 / 审计 =================
   {
     console.log('\n[操作日志 / 审计]');

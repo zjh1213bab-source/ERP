@@ -120,6 +120,19 @@ function syncPaidStatus(kind, invoiceId, dbRef) {
     now(),
     invoiceId
   );
+
+  // 应收核销后同步催收任务：钱收到了，催收单就该收尾。
+  // 挂在这里而不是各调用方 —— **所有应收回款都要经过这个函数**（上一轮把状态回写
+  // 抽成公共实现的红利），漏一个入口就会出现「钱收了、催收单还挂在业务员名下」。
+  // 懒加载 + try/catch：催收同步失败绝不能让收款本身失败。
+  if (kind === 'ar') {
+    try {
+      require('./collection').onInvoiceSettled('ar', invoiceId);
+    } catch (e) {
+      /* 静默：催收台账下次打开时 refreshAll 会补上 */
+    }
+  }
+
   return { paid, status };
 }
 

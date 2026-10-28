@@ -251,6 +251,15 @@ cd backend && node scripts/seed-payment-request-demo.js
 # 付款申请页面取证（列表 / 新建挑发票 / 详情审批进度 / 执行付款 / 移动端）
 cd backend && node scripts/shot-payment-requests.js
 
+# 应收催收全链路演练（生成 → 承诺 → 跳票 → 回款自动结案，自建样本、跑完删净）
+cd backend && node scripts/drill-collection.js
+
+# 应收催收演示数据（承诺中 / 跳票 / 有争议 / 核销坏账）
+cd backend && node scripts/seed-collection-demo.js
+
+# 应收催收页面取证（列表 / 逾期台账 / 详情跟进 / 结案 / 移动端）
+cd backend && node scripts/shot-collections.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

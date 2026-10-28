@@ -142,6 +142,16 @@
 | cockpit | POST | `/kpis/snapshot` | ✅ | — | — | — | — | — | ✅ | — |
 | cockpit | GET | `/overview` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | cockpit | GET | `/trend` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| collections | GET | `/` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| collections | GET | `/:id` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| collections | POST | `/:id/assign` | ✅ | — | — | — | — | — | ✅ | — |
+| collections | POST | `/:id/close` | ✅ | — | — | — | — | — | ✅ | — |
+| collections | POST | `/:id/log` | ✅ | — | ✅ | — | — | — | ✅ | — |
+| collections | POST | `/:id/reopen` | ✅ | — | — | — | — | — | ✅ | — |
+| collections | GET | `/board` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| collections | GET | `/export` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
+| collections | POST | `/generate` | ✅ | — | — | — | — | — | ✅ | — |
+| collections | GET | `/meta` | ✅ | ✅ | ✅ | — | — | — | ✅ | — |
 | commitments | POST | `/:id/nodes/:nodeId` | ✅ | — | ✅ | — | ✅ | — | — | — |
 | commitments | POST | `/:id/review` | ✅ | — | ✅ | — | ✅ | — | — | — |
 | commitments | POST | `/capacity` | ✅ | — | — | — | — | — | — | — |
@@ -968,6 +978,9 @@
 | `pattern.review` | 技术打版 |
 | `settings.write` | 系统管理员 |
 | `user.manage` | 系统管理员 |
+| `collection.read` | 系统管理员、总经理、财务会计、销售跟单 |
+| `collection.write` | 系统管理员、财务会计、销售跟单 |
+| `collection.close` | 系统管理员、财务会计 |
 | `paymentreq.read` | 系统管理员、总经理、财务会计、仓库采购 |
 | `paymentreq.write` | 系统管理员、财务会计、仓库采购 |
 | `paymentreq.pay` | 系统管理员、财务会计、仓库采购 |

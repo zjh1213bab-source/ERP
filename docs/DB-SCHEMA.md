@@ -38,6 +38,9 @@
 | attachments | id, target_type(order/techpack), target_id, filename, url, size, mime, uploader |
 | employees | id, code, name, department_id, position, phone, hire_date, status(active/left), remark |
 | leave_requests | id, employee_id, employee_name, type(annual/sick/personal/other), start_date, end_date, days, reason, status(pending/approved/rejected), reviewed_by |
+| collection_tasks | task_no, customer_id, customer_name, owner_user_id/username/name, **owner_source**(profile/order/manual/none), **overdue_amount(生成时快照)**, **remaining(上次刷新值，读取时实时重算)**, invoice_count, max_overdue_days, oldest_due, promise_date/amount/at, **promise_count / promise_broken**, level(D1~D4), status(open/following/promised/escalated/closed), next_follow_at, follow_count, closed_reason/note/at/by | **一个客户一张任务**。`closed_reason=paid` 且未收为 0 时由 `syncPaidStatus` 自动结案。`promise_broken` 是事实标记，升级后仍保留 |
+| collection_task_items | task_id, invoice_id, bill_no, due_date, **open_at_create(挂单时快照)**, open_now, settled_at | 唯一索引 `(task_id, invoice_id)`。剩余额每次从未付发票重算，**不靠这一列判定** |
+| collection_logs | task_id, channel(phone/wechat/email/visit/letter/other), contact, result(no_answer/promised/refused/partial/dispute/other), promise_date, promise_amount, note, operator | 跟进流水。`promised` 的日期与金额由服务层强制成对 |
 | payment_requests | req_no, supplier_id, supplier_name, **amount(=明细合计，禁止手填)**, currency, plan_pay_date, method, bank_account_id, status(draft/submitted/approved/paid/cancelled), reason, remark, approval_instance_id, **payment_id**, created_by, submitted_at, decided_at/by, paid_at/by, created_at/updated_at | **付款申请单**。`approved` 之后才允许 `pay`；`paid` 不可取消；驳回退回 `draft`（不是作废），改完能再提交 |
 | payment_request_items | request_id, invoice_id, bill_no, due_date, **open_amount(申请时未付快照)**, amount, created_at | 唯一索引 `(request_id, invoice_id)`。**未完成状态（draft/submitted/approved）会占用该发票的未付额**，`available = 未付 − 占用` |
 | payments.payment_request_id | INTEGER | 付款流水反查来源申请单。有它就说明这笔钱走过审批，可直接追溯「谁申请的、谁批的」 |

@@ -103,6 +103,16 @@
 | DELETE | /api/leaves/:id | admin,sales | 删除 |
 | GET | /api/cashflow/plan?weeks=13&base_date=&scenario=base\|conservative\|optimistic&collect_rate= | cashflow.read | **资金计划**：`summary`（期初现金 / 流入 / 流出 / 期末 / `min_cash` 最低点 / `first_neg_week` 首次转负 / `gap` 缺口 / `ar_at_risk` 大概率收不回的部分）+ `weeks_detail`（逐周，含 `inflow_items`/`outflow_items` 每笔依据）+ `buckets`（按逾期档的回收率）。**支出侧三档完全相同** |
 | GET | /api/cashflow/compare?weeks=13 | cashflow.read | 三档情景并排；`outflow_consistent` 表示三档支出是否一致（必须为 true） |
+| GET | /api/collections/meta | collection.read | 枚举（状态/等级/渠道/结果/结案原因）+ 可指派的账号 + `stats` |
+| GET | /api/collections/board | collection.read | **逾期台账**：按客户汇总逾期，含 `is_internal`（集团内部不催）/ `has_task` / `owner`（三级解析结果与 `source`）/ `can_generate`；`summary` 把外部与内部金额分开 |
+| POST | /api/collections/generate | collection.close | `{all?\|customer_ids?, min_overdue_days?}`。**幂等**：已有未结任务的客户跳过；**集团内部往来跳过** |
+| GET | /api/collections?status=&level=&owner=&no_owner=1&q= | collection.read | 任务列表；排序为「跳票 → 承诺 → 已联系 → 待跟进」；销售强制只看自己名下 |
+| GET | /api/collections/:id | collection.read | 详情：`live`（实时剩余/已结清数/跳票标记）+ `items`（发票，含 `open_at_create` 快照与 `open_now`）+ `logs` |
+| POST | /api/collections/:id/log | collection.write | 记一次跟进 `{channel, result, promise_date?, promise_amount?, contact?, note?}`。**result=promised 时日期与金额都必填**；日期不得早于今天；金额不得超未收；refused/dispute 必须写说明 |
+| POST | /api/collections/:id/assign | collection.close | `{username}` 指派负责人（`owner_source` 变 `manual`） |
+| POST | /api/collections/:id/close | collection.close | `{reason: paid\|bad_debt\|legal\|offset\|other, note}`。`paid` 要求未收为 0；`bad_debt` 说明 ≥8 字；其他原因未收 >0 时说明 ≥4 字 |
+| POST | /api/collections/:id/reopen | collection.close | `{reason}` 重新打开已结案任务 |
+| GET | /api/collections/export?status=&q= | collection.read | CSV（带 BOM，含回收率/承诺/跳票次数） |
 | GET | /api/payment-requests/meta | paymentreq.read | 枚举（状态/供应商/出账账户/付款方式）+ `stats`。**出账账户只列 `status='active'`** |
 | GET | /api/payment-requests/candidates?supplier_id=&q= | paymentreq.read | 可申请的应付发票：`open_amount` 未付 / `committed` 已被其他未完成申请占用 / **`available` = 可申请额** / `committed_by` 占用它的单号 / `fully_committed` |
 | GET | /api/payment-requests?status=&supplier_id=&q=&mine=1 | paymentreq.read | 列表；`summary` 与 `/stats` 同源（`draft/submitted/approved/paid` 各自 count+amount、`pipeline_amount`、`committed_amount`、`overdue_pending_count`） |

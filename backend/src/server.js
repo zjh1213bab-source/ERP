@@ -58,6 +58,7 @@ const creditRoutes = require('./routes/credit');         // 客户信用与账�
 const payableRoutes = require('./routes/payable');       // 应付台账与付款计划
 const cashflowRoutes = require('./routes/cashflow');     // 资金计划（13 周现金流）
 const paymentRequestRoutes = require('./routes/paymentRequests'); // 付款申请单（审批后出纳执行）
+const collectionRoutes = require('./routes/collections');     // 应收催收任务
 const payrollRoutes = require('./routes/payrolls');
 const assetRoutes = require('./routes/assets');
 const adminExpenseRoutes = require('./routes/adminExpenses');
@@ -212,6 +213,7 @@ app.use('/api/credit', creditRoutes); // 客户信用与账期管控（发货闸
 app.use('/api/payable', payableRoutes); // 应付台账与付款计划
 app.use('/api/cashflow', cashflowRoutes); // 资金计划（13 周现金流）
 app.use('/api/payment-requests', paymentRequestRoutes); // 付款申请单（审批 → 出纳执行付款）
+app.use('/api/collections', collectionRoutes); // 应收催收任务（逾期 → 派单 → 跟进 → 承诺 → 回款自动结案）
 app.use('/api/payrolls', payrollRoutes); // 薪酬核算
 app.use('/api/assets', assetRoutes); // 固定资产
 app.use('/api/admin-expenses', adminExpenseRoutes); // 行政费用

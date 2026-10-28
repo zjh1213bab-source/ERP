@@ -167,6 +167,7 @@ const navModel = [
     key: 'finance', label: '财务', icon: '💰',
     children: [
       { label: '往来账', to: '/finance' },
+      { label: '应收催收', to: '/collections' },
       { label: '客户信用与账期', to: '/credit' },
       { label: '应付与付款计划', to: '/payable' },
       { label: '资金计划（13 周）', to: '/cashflow' },

@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 631 个对象
- * （307 张表 + 324 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 640 个对象
+ * （310 张表 + 330 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -636,5 +636,14 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_preq_status ON payment_requests(status);",
   "CREATE TABLE IF NOT EXISTS payment_request_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  request_id INTEGER NOT NULL,\n  invoice_id INTEGER NOT NULL,\n  bill_no TEXT,\n  due_date TEXT,\n  open_amount REAL DEFAULT 0,                  -- 申请时发票未付余额（快照）\n  amount REAL NOT NULL DEFAULT 0,              -- 本次申请金额\n  created_at TEXT\n);",
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_preq_item ON payment_request_items(request_id, invoice_id);",
-  "CREATE INDEX IF NOT EXISTS idx_preq_item_inv ON payment_request_items(invoice_id);"
+  "CREATE INDEX IF NOT EXISTS idx_preq_item_inv ON payment_request_items(invoice_id);",
+  "CREATE TABLE IF NOT EXISTS collection_tasks (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  task_no TEXT UNIQUE,                          -- CS202610280001\n  customer_id INTEGER,\n  customer_name TEXT,\n\n  -- 负责人解析三级：客户档案 → 订单跟单员 → 未指派（宁可标「待指派」也不瞎分）\n  owner_user_id INTEGER,\n  owner_username TEXT,\n  owner_name TEXT,\n  owner_source TEXT,                            -- profile / order / none\n\n  -- 金额\n  overdue_amount REAL NOT NULL DEFAULT 0,       -- 生成时的逾期快照（看降了多少）\n  remaining REAL NOT NULL DEFAULT 0,            -- 上次刷新时的剩余（仅供展示，读取时实时重算）\n  invoice_count INTEGER DEFAULT 0,\n  max_overdue_days INTEGER DEFAULT 0,\n  oldest_due TEXT,\n\n  -- 承诺还款（PTP）\n  promise_date TEXT,\n  promise_amount REAL,\n  promised_at TEXT,\n  promise_count INTEGER DEFAULT 0,              -- 承诺过几次（老赖识别）\n  promise_broken INTEGER DEFAULT 0,             -- 违约过几次\n\n  level TEXT,                                   -- D1 1-30 / D2 31-60 / D3 61-90 / D4 90+\n  status TEXT NOT NULL DEFAULT 'open',          -- open/following/promised/escalated/closed\n  next_follow_at TEXT,\n  follow_count INTEGER DEFAULT 0,               -- 跟进次数\n\n  closed_reason TEXT,                           -- paid/bad_debt/legal/offset/other\n  closed_note TEXT,\n  closed_at TEXT,\n  closed_by TEXT,\n\n  note TEXT,\n  created_by TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_col_customer ON collection_tasks(customer_id);",
+  "CREATE INDEX IF NOT EXISTS idx_col_status ON collection_tasks(status);",
+  "CREATE INDEX IF NOT EXISTS idx_col_owner ON collection_tasks(owner_username);",
+  "CREATE TABLE IF NOT EXISTS collection_task_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  task_id INTEGER NOT NULL,\n  invoice_id INTEGER NOT NULL,\n  bill_no TEXT,\n  due_date TEXT,\n  open_at_create REAL DEFAULT 0,                -- 挂单时的未付（快照）\n  open_now REAL DEFAULT 0,                      -- 上次刷新时的未付\n  settled_at TEXT,                              -- 结清时间（<>NULL 即这笔已收）\n  created_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_col_item ON collection_task_items(task_id, invoice_id);",
+  "CREATE INDEX IF NOT EXISTS idx_col_item_inv ON collection_task_items(invoice_id);",
+  "CREATE TABLE IF NOT EXISTS collection_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  task_id INTEGER NOT NULL,\n  channel TEXT,                                 -- phone/wechat/email/visit/letter\n  contact TEXT,                                 -- 对接人（客户那边的谁）\n  result TEXT,                                  -- no_answer/promised/refused/partial/dispute/other\n  promise_date TEXT,\n  promise_amount REAL,\n  note TEXT,\n  operator TEXT,\n  created_at TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_col_log_task ON collection_logs(task_id);"
 ];

@@ -234,6 +234,17 @@ export const api = {  // 登录
   prCancel: (id, reason) => req(`/api/payment-requests/${id}/cancel`, { method: 'POST', body: { reason } }),
   prPay: (id, d) => req(`/api/payment-requests/${id}/pay`, { method: 'POST', body: d }),
   prExportPath: (params) => '/api/payment-requests/export' + qs(params),
+  // 应收催收
+  colMeta: () => req('/api/collections/meta'),
+  colBoard: () => req('/api/collections/board'),
+  colGenerate: (d) => req('/api/collections/generate', { method: 'POST', body: d }),
+  colList: (params) => req('/api/collections' + qs(params)),
+  colDetail: (id) => req(`/api/collections/${id}`),
+  colLog: (id, d) => req(`/api/collections/${id}/log`, { method: 'POST', body: d }),
+  colAssign: (id, d) => req(`/api/collections/${id}/assign`, { method: 'POST', body: d }),
+  colClose: (id, d) => req(`/api/collections/${id}/close`, { method: 'POST', body: d }),
+  colReopen: (id, d) => req(`/api/collections/${id}/reopen`, { method: 'POST', body: d }),
+  colExportPath: (params) => '/api/collections/export' + qs(params),
 
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),

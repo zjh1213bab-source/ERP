@@ -186,6 +186,11 @@ const PERMS = {
   // 资金计划：期初现金、断点周、缺口 —— 只有财务和老板看
   // 付款申请：看单的人多一些（出纳要执行），但**批**走审批流的角色校验，
   // **付**只给能碰钱的手（admin/finance/warehouse 里的出纳岗）
+  // 催收：销售要看自己名下的单（不然不知道催谁），财务/老板看全部；
+  // 结案（尤其核销坏账）会影响应收质量口径，只给财务
+  'collection.read': ['admin', 'boss', 'finance', 'sales'],
+  'collection.write': ['admin', 'finance', 'sales'],
+  'collection.close': ['admin', 'finance'],
   'paymentreq.read': ['admin', 'boss', 'finance', 'warehouse'],
   'paymentreq.write': ['admin', 'finance', 'warehouse'],
   'paymentreq.pay': ['admin', 'finance', 'warehouse'],
@@ -269,6 +274,8 @@ const GUARDED = [
   { perm: 'gl.write', method: '*', prefix: '/api/gl' },
   { perm: 'bank.write', method: '*', prefix: '/api/bank' },
   // 执行付款是真正把钱搬出去的动作，必须挂高危路由（前端按钮 + 后端 403 双保险）
+  { perm: 'collection.close', method: 'POST', prefix: '/api/collections' },
+  { perm: 'collection.write', method: 'POST', prefix: '/api/collections' },
   { perm: 'paymentreq.pay', method: 'POST', prefix: '/api/payment-requests' },
   { perm: 'paymentreq.write', method: 'POST', prefix: '/api/payment-requests' },
   { perm: 'paymentreq.write', method: 'PUT', prefix: '/api/payment-requests' },

@@ -1,0 +1,157 @@
+/**
+ * 应收催收任务
+ *
+ * GET    /api/collections/meta                 枚举（状态/等级/渠道/结果/结案原因）+ 统计
+ * GET    /api/collections/board                逾期台账（谁欠、多久、有没有人在催）
+ * POST   /api/collections/generate             批量生成任务 {all|customer_ids, min_overdue_days}
+ * GET    /api/collections                      任务列表
+ * GET    /api/collections/:id                  详情（含发票与跟进记录）
+ * POST   /api/collections/:id/log              记一次跟进 {channel, result, promise_date, promise_amount, note}
+ * POST   /api/collections/:id/assign           指派负责人 {username|owner_name}
+ * POST   /api/collections/:id/close            结案 {reason, note}
+ * POST   /api/collections/:id/reopen           重新打开 {reason}
+ * GET    /api/collections/export               导出 CSV
+ *
+ * ⚠️ 字面量路由（meta/board/generate/export）必须写在 `/:id` 之前。
+ */
+const express = require('express');
+const { db } = require('../db');
+const { ok, wrap } = require('../utils/http');
+const { authRequired, requireRole } = require('../middleware/auth');
+const C = require('../services/collection');
+const { toCsv } = require('../utils/csv');
+
+const router = express.Router();
+
+// 业务员要看自己名下的催收单；财务/老板看全部
+const READ = ['admin', 'boss', 'finance', 'sales'];
+const WRITE = ['admin', 'finance', 'sales'];
+// 结案（尤其核销坏账）会影响应收质量口径，只给财务
+const CLOSE = ['admin', 'finance'];
+
+router.get(
+  '/meta',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) => {
+    const users = db
+      .prepare("SELECT username, name FROM users WHERE active = 1 AND role IN ('sales','finance','admin') ORDER BY id")
+      .all();
+    return ok(res, {
+      statuses: Object.entries(C.STATUS_LABEL).map(([code, label]) => ({ code, label })),
+      levels: Object.entries(C.LEVEL_LABEL).map(([code, label]) => ({ code, label })),
+      channels: Object.entries(C.CHANNEL_LABEL).map(([code, label]) => ({ code, label })),
+      results: Object.entries(C.RESULT_LABEL).map(([code, label]) => ({ code, label })),
+      close_reasons: Object.entries(C.CLOSE_REASON_LABEL).map(([code, label]) => ({ code, label })),
+      owners: users,
+      stats: C.stats()
+    });
+  })
+);
+
+router.get(
+  '/board',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) => ok(res, C.board(req.query)))
+);
+
+router.post(
+  '/generate',
+  authRequired,
+  requireRole(CLOSE),
+  wrap(async (req, res) => ok(res, C.generate(req.body || {}, req.user)))
+);
+
+router.get(
+  '/export',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) => {
+    const l = C.list(req.query);
+    const head = [
+      '任务号', '客户', '负责人', '归属', '等级', '状态', '逾期金额', '剩余未收', '已收回',
+      '回收率%', '发票数', '最长逾期天数', '承诺日期', '承诺金额', '承诺次数', '跳票次数',
+      '跟进次数', '结案原因', '结案说明'
+    ];
+    const rows = l.rows.map((t) => [
+      t.task_no,
+      t.customer_name || '',
+      t.owner_name || '（待指派）',
+      { profile: '客户档案', order: '订单跟单员', manual: '人工指派', none: '待指派' }[t.owner_source] || '',
+      t.level_label,
+      t.status_label,
+      t.overdue_amount,
+      t.remaining,
+      t.recovered,
+      t.recover_rate,
+      t.invoice_count,
+      t.max_overdue_days,
+      t.promise_date || '',
+      t.promise_amount || '',
+      t.promise_count,
+      t.promise_broken,
+      t.follow_count,
+      t.closed_reason || '',
+      t.closed_note || ''
+    ]);
+    const csv = toCsv(head, rows);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="collections-${new Date().toISOString().slice(0, 10)}.csv"`);
+    return res.send(csv);
+  })
+);
+
+router.get(
+  '/',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) => {
+    // 销售只看自己名下的（普通业务员不该看到别人客户的欠款明细）
+    const q = { ...req.query };
+    if (req.user.role === 'sales') {
+      const u = db.prepare('SELECT name FROM users WHERE username = ?').get(req.user.username);
+      q.owner = req.user.username;
+      // 兼容「只有名字没账号」的单子
+      if (u && u.name) q.owner_name = u.name;
+    }
+    return ok(res, C.list(q));
+  })
+);
+
+router.get(
+  '/:id',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) => ok(res, C.detail(Number(req.params.id))))
+);
+
+router.post(
+  '/:id/log',
+  authRequired,
+  requireRole(WRITE),
+  wrap(async (req, res) => ok(res, C.log(Number(req.params.id), req.body || {}, req.user)))
+);
+
+router.post(
+  '/:id/assign',
+  authRequired,
+  requireRole(CLOSE),
+  wrap(async (req, res) => ok(res, C.assign(Number(req.params.id), req.body || {}, req.user)))
+);
+
+router.post(
+  '/:id/close',
+  authRequired,
+  requireRole(CLOSE),
+  wrap(async (req, res) => ok(res, C.close(Number(req.params.id), req.body || {}, req.user)))
+);
+
+router.post(
+  '/:id/reopen',
+  authRequired,
+  requireRole(CLOSE),
+  wrap(async (req, res) => ok(res, C.reopen(Number(req.params.id), req.body || {}, req.user)))
+);
+
+module.exports = router;
