@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 602 个对象
- * （296 张表 + 306 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 603 个对象
+ * （296 张表 + 307 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -26,7 +26,7 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS order_nodes (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  name TEXT NOT NULL,                         -- 工序名称\n  seq INTEGER DEFAULT 0,\n  status TEXT NOT NULL DEFAULT 'pending',     -- pending 待开始 / doing 进行中 / done 已完成\n  plan_date TEXT,                             -- 计划完成\n  actual_date TEXT,                           -- 实际完成\n  operator TEXT,                              -- 责任人\n  remark TEXT,\n  created_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS stock_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  warehouse TEXT NOT NULL DEFAULT 'cn',       -- cn 生产仓 / us 美仓\n  style_no TEXT NOT NULL DEFAULT '',\n  product_name TEXT,\n  color TEXT NOT NULL DEFAULT '',\n  size TEXT NOT NULL DEFAULT '',\n  qty REAL NOT NULL DEFAULT 0,\n  updated_at TEXT NOT NULL,\n  UNIQUE (warehouse, style_no, color, size)\n);",
   "CREATE TABLE IF NOT EXISTS stock_ledger (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  warehouse TEXT NOT NULL,\n  style_no TEXT,\n  product_name TEXT,\n  color TEXT,\n  size TEXT,\n  type TEXT NOT NULL,                         -- in 入库 / out 出库 / adjust 调整 / transfer_in / transfer_out\n  qty REAL NOT NULL,                          -- 变动数量（正负）\n  ref_type TEXT,                              -- order / manual\n  ref_id INTEGER,\n  remark TEXT,\n  operator TEXT,\n  created_at TEXT NOT NULL\n);",
-  "CREATE TABLE IF NOT EXISTS production_reports (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  node_id INTEGER,                            -- order_nodes.id\n  node_name TEXT,\n  report_date TEXT,\n  qty_ok REAL NOT NULL DEFAULT 0,             -- 合格数\n  qty_defect REAL NOT NULL DEFAULT 0,         -- 不良数\n  hours REAL NOT NULL DEFAULT 0,              -- 工时\n  operator TEXT,\n  remark TEXT,\n  created_at TEXT NOT NULL\n, employee_id INTEGER);",
+  "CREATE TABLE IF NOT EXISTS production_reports (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  node_id INTEGER,                            -- order_nodes.id\n  node_name TEXT,\n  report_date TEXT,\n  qty_ok REAL NOT NULL DEFAULT 0,             -- 合格数\n  qty_defect REAL NOT NULL DEFAULT 0,         -- 不良数\n  hours REAL NOT NULL DEFAULT 0,              -- 工时\n  operator TEXT,\n  remark TEXT,\n  created_at TEXT NOT NULL\n, employee_id INTEGER, bundle_no TEXT);",
   "CREATE TABLE IF NOT EXISTS factories (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT,\n  name TEXT NOT NULL,\n  type TEXT NOT NULL DEFAULT 'outsource',      -- own 本厂 / outsource 外协\n  contact TEXT,\n  phone TEXT,\n  address TEXT,\n  status TEXT NOT NULL DEFAULT 'active',\n  created_at TEXT NOT NULL\n, image_url TEXT);",
   "CREATE TABLE IF NOT EXISTS dispatch_orders (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  factory_id INTEGER,\n  factory_name TEXT,\n  type TEXT NOT NULL DEFAULT 'own',            -- own 本厂 / outsource 外协\n  qty REAL NOT NULL DEFAULT 0,\n  price REAL NOT NULL DEFAULT 0,\n  status TEXT NOT NULL DEFAULT 'dispatched',\n  remark TEXT,\n  created_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS attachments (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,                  -- order / techpack\n  target_id INTEGER NOT NULL,\n  filename TEXT NOT NULL,\n  url TEXT NOT NULL,\n  size INTEGER DEFAULT 0,\n  mime TEXT,\n  uploader TEXT,\n  created_at TEXT NOT NULL\n, cat TEXT NOT NULL DEFAULT 'other', note TEXT, node_id INTEGER, taken_at TEXT, deleted_at TEXT);",
@@ -607,5 +607,6 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_att_order_cat ON attachments(target_type, target_id, cat);",
   "CREATE INDEX IF NOT EXISTS idx_att_cat_time ON attachments(cat, created_at);",
   "CREATE TABLE IF NOT EXISTS inspection_reports (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  report_no TEXT UNIQUE NOT NULL,              -- JH+日期+序号，对外引用用这个\n  order_id INTEGER NOT NULL,\n  version INTEGER NOT NULL DEFAULT 1,          -- 同一订单可多次生成，旧版不覆盖\n  qc_result TEXT,                              -- pass / fail / conditional / none（未验货）\n  qc_inspection_no TEXT,                       -- 结论来自哪张验货单\n  photos_count INTEGER NOT NULL DEFAULT 0,\n  issues_open INTEGER NOT NULL DEFAULT 0,      -- 生成时仍未关闭的质量异常数\n  snapshot TEXT NOT NULL,                      -- JSON：订单/明细/验货/异常/首件/报工/照片\n  generated_by TEXT,\n  generated_at TEXT NOT NULL,\n  note TEXT\n);",
-  "CREATE INDEX IF NOT EXISTS idx_ireport_order ON inspection_reports(order_id, version);"
+  "CREATE INDEX IF NOT EXISTS idx_ireport_order ON inspection_reports(order_id, version);",
+  "CREATE INDEX IF NOT EXISTS idx_preport_bundle ON production_reports(bundle_no);"
 ];

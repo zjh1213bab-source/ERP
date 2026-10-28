@@ -9,6 +9,7 @@
  *        首件没放行就报工，等于绕过首件确认直接批量投产（原型 TS-N08-03）。
  */
 const express = require('express');
+const { localDate } = require('../utils/time');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
@@ -63,14 +64,29 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
     if (emp) employeeId = emp.id;
   }
 
+  // 扎号（可选）：扫扎标报工时带上，用于追溯「这一扎是谁做的」
+  // 必须是这单真实存在的扎，否则追溯链就是假的
+  let bundleNo = b.bundle_no ? String(b.bundle_no).trim() : null;
+  if (bundleNo) {
+    const hit = db
+      .prepare(
+        `SELECT b.bundle_no FROM cut_bundles b JOIN cut_orders c ON c.id = b.cut_order_id
+          WHERE c.order_id = ? AND b.bundle_no = ?`
+      )
+      .get(orderId, bundleNo);
+    if (!hit) return fail(res, 400, `扎号「${bundleNo}」不属于这张订单，报工未保存`);
+    bundleNo = hit.bundle_no;
+  }
+
   const info = db.prepare(
-    `INSERT INTO production_reports (order_id, node_id, node_name, report_date, qty_ok, qty_defect, hours, operator, employee_id, remark, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO production_reports (order_id, node_id, node_name, report_date, qty_ok, qty_defect, hours, operator, employee_id, remark, bundle_no, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     orderId, b.node_id || null, (node && node.name) || b.node_name || null,
-    b.report_date || new Date().toISOString().slice(0, 10),
+    // 默认日期用本地时区：toISOString 是 UTC，晚上 8 点后报工会被记成前一天
+    b.report_date || localDate(now()),
     Number(b.qty_ok) || 0, Number(b.qty_defect) || 0, Number(b.hours) || 0,
-    operatorName, employeeId, b.remark || null, now()
+    operatorName, employeeId, b.remark || null, bundleNo, now()
   );
   return ok(res, db.prepare('SELECT * FROM production_reports WHERE id = ?').get(Number(info.lastInsertRowid)));
 }));

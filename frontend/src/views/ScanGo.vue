@@ -9,6 +9,30 @@
     <div v-if="loading" class="sg-loading">正在查询…</div>
 
     <div v-else-if="order" class="sg-card">
+      <!-- 扫的是扎标：先把「这是哪一扎」摆在最上面，工人核对的是这个 -->
+      <div v-if="bundle" class="sg-bundle">
+        <div class="sg-bundle-h">
+          <span class="sg-bundle-label">扎号</span>
+          <span class="sg-bundle-no">{{ bundle.bundle_no }}</span>
+          <span class="sg-bundle-qty">{{ bundle.qty }} 件</span>
+        </div>
+        <div class="sg-bundle-body">
+          <span>{{ bundle.color || '均色' }} / {{ bundle.size }}</span>
+          <span v-if="bundle.dye_lot || bundle.bed_no" class="sg-bundle-lot">
+            {{ [bundle.dye_lot, bundle.bed_no].filter(Boolean).join(' · ') }}
+          </span>
+          <span v-if="bundle.cut_no" class="sg-bundle-lot">{{ bundle.cut_no }}</span>
+          <span class="sg-tag" :class="bundle.checked ? 'green' : 'orange'">
+            {{ bundle.checked ? '裁片已复核' : '待复核' }}
+          </span>
+        </div>
+      </div>
+
+      <div v-if="missingBundle" class="sg-missing">
+        码里的扎号「{{ missingBundle }}」在这单里找不到（这单有 {{ bundleTotal }} 扎）。
+        可能是标签印错了单，或扎号被改过 —— 别急着贴，先核对实物。
+      </div>
+
       <div class="sg-no">{{ order.order_no }}</div>
       <div class="sg-style">{{ order.style_name || '（未填款名）' }}</div>
 
@@ -37,7 +61,7 @@
       <div class="sg-fail">没有找到对应的单据</div>
       <p class="sg-hint">
         扫到的码是 <code>{{ code }}</code>。<br />
-        可能是：码不属于订单（例如扎号、款号），或者这单已被删除。
+        可能是：码不属于订单（扎号或款号改了、这单被删了），或者标签打印时选错了单。
       </p>
       <div class="sg-manual">
         <input v-model="manual" class="sg-input" placeholder="直接输入订单号，如 SO202610260005" @keyup.enter="search(manual)" />
@@ -62,6 +86,9 @@ const router = useRouter();
 const code = computed(() => String(route.params.code || ''));
 const loading = ref(true);
 const order = ref(null);
+const bundle = ref(null);
+const missingBundle = ref('');
+const bundleTotal = ref(0);
 const manual = ref('');
 
 const STATUS = {
@@ -83,8 +110,15 @@ async function search(raw) {
   if (!no) return;
   loading.value = true;
   order.value = null;
+  bundle.value = null;
+  missingBundle.value = '';
   try {
-    order.value = await api.findOrder(no);
+    // resolve 能分清「订单号」和「订单号-扎号」；扎标扫进来要显示这一扎的信息
+    const r = await api.resolveScan(no);
+    order.value = r.order;
+    bundle.value = r.bundle || null;
+    missingBundle.value = r.bundle_missing || '';
+    bundleTotal.value = r.bundle_total || 0;
   } catch (e) {
     order.value = null;
   } finally {
@@ -100,7 +134,10 @@ function openOrder() {
 
 function goReport() {
   if (!order.value) return;
-  router.push({ path: '/m/report', query: { no: order.value.order_no } });
+  // 扫扎标进来的，把扎号带到报工页：报了工就知道是哪一扎做的
+  const q = { no: order.value.order_no };
+  if (bundle.value) q.bundle = bundle.value.bundle_no;
+  router.push({ path: '/m/report', query: q });
 }
 
 function openPrint() {
@@ -167,6 +204,37 @@ watch(code, (v) => search(v));
   padding: 20px 18px;
   box-shadow: 0 2px 12px rgba(16, 32, 64, 0.06);
 }
+.sg-missing {
+  border: 1px solid #f3c3cb;
+  background: #fef5f6;
+  color: #a81b31;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+
+/* 扎标：把扎号放大，工人核对的就是这个 */
+.sg-bundle {
+  border: 1px solid #cfe0ff;
+  background: #f4f8ff;
+  border-radius: 12px;
+  padding: 12px 13px;
+  margin-bottom: 12px;
+}
+.sg-bundle-h { display: flex; align-items: baseline; gap: 8px; }
+.sg-bundle-label { font-size: 11.5px; color: #6b7688; }
+.sg-bundle-no {
+  font-size: 24px; font-weight: 800; color: #16233b;
+  font-family: Consolas, Menlo, monospace; letter-spacing: 1px;
+}
+.sg-bundle-qty { margin-left: auto; font-size: 15px; font-weight: 800; color: #d92d45; }
+.sg-bundle-body {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin-top: 6px; font-size: 12.5px; color: #4a5769;
+}
+.sg-bundle-lot { font-size: 11.5px; color: #8a94a6; }
 .sg-no {
   font-size: 19px;
   font-weight: 800;

@@ -954,3 +954,16 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > **照片在快照里存引用**
 > `snapshot.photos[].url` 指向 `/uploads/photos/...`。因为 `attachments` 是软删除（`deleted_at`）且文件不物理删除，
 > 已发报告里的图长期可访问。这是软删除决策的兑现 —— 若改成物理删除，历史报告会变成一堆裂图。
+
+## 扎标（M-LABEL）
+
+只加一列：
+
+| 表.列 | 说明 |
+|---|---|
+| production_reports.bundle_no | 报工对应的扎号（可空）。扫扎标报工时自动带上，用于追溯「这一扎是谁做的」。**只用于追溯，不参与任何汇总** —— 报工累计、工序状态、成本分摊仍按 `order_id + node_id` 聚合，所以加这一列不改变既有口径 |
+
+索引 `idx_preport_bundle(bundle_no)`：查「某一扎做过哪些工序」用。
+
+> **扎标本身不建表**。扎的数据来自既有的 `cut_bundles` + `cut_lots`（缸号/床次）+ `cut_orders`（裁剪单号/混缸标记），
+> 标签是「渲染视图」，不产生新数据 —— 否则扎会存两份，迟早不一致。

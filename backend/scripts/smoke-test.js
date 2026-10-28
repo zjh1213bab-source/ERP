@@ -5442,6 +5442,100 @@ async function req(path, { method = 'GET', body, token } = {}) {
       lastCellTime[0] || '（无订单数据）');
   }
 
+  // ================= 扎标与扎号报工 =================
+  {
+    console.log('\n[扎标与扎号报工]');
+
+    const noAuth = await req('/api/labels/bundles/1');
+    ok('扎标接口需要登录', noAuth.status === 401, `HTTP ${noAuth.status}`);
+
+    const { db: DB3 } = require('../src/db');
+    const withBundles = DB3.prepare(
+      `SELECT c.order_id AS id, o.order_no, COUNT(b.id) AS n
+         FROM cut_orders c JOIN cut_bundles b ON b.cut_order_id = c.id
+         JOIN orders o ON o.id = c.order_id
+        GROUP BY c.order_id ORDER BY n DESC LIMIT 1`
+    ).get();
+
+    if (!withBundles) {
+      ok('扎标用例（无扎包数据跳过）', true, '跳过');
+    } else {
+      const bid = withBundles.id;
+      const lb = await req('/api/labels/bundles/' + bid, { token });
+      const d = lb.status === 200 ? lb.json.data : {};
+      ok('能取到整单的扎', lb.status === 200 && Array.isArray(d.bundles) && d.bundles.length > 0,
+        `${(d.bundles || []).length} 扎`);
+
+      const b0 = (d.bundles || [])[0] || {};
+      ok('扎码 = 订单号-扎号（纯 ASCII）',
+        b0.code === `${withBundles.order_no}-${b0.bundle_no}` && /^[\x20-\x7E]+$/.test(b0.code || ''),
+        b0.code);
+      ok('扎合计与逐扎求和一致',
+        d.total_qty === (d.bundles || []).reduce((a, b) => a + Number(b.qty || 0), 0),
+        `${d.total_qty}`);
+
+      // 扫码解析：三种码
+      const r1 = await req('/api/labels/resolve?code=' + encodeURIComponent(withBundles.order_no), { token });
+      ok('扫订单号 → 解析成订单',
+        r1.status === 200 && r1.json.data.kind === 'order' && !r1.json.data.bundle,
+        `kind=${r1.json.data && r1.json.data.kind}`);
+
+      const r2 = await req('/api/labels/resolve?code=' + encodeURIComponent(b0.code), { token });
+      ok('★ 扫扎标码 → 解析出这一扎',
+        r2.status === 200 && r2.json.data.kind === 'bundle' &&
+        r2.json.data.bundle.bundle_no === b0.bundle_no,
+        `kind=${r2.json.data && r2.json.data.kind} / ${r2.json.data && r2.json.data.bundle && r2.json.data.bundle.bundle_no}`);
+
+      const fake = await req('/api/labels/resolve?code=' + encodeURIComponent(withBundles.order_no + '-NO-SUCH-BUNDLE'), { token });
+      ok('码里的扎号对不上时给出提示（不当作正常单）',
+        fake.status === 200 && fake.json.data.kind === 'order' && !!fake.json.data.bundle_missing,
+        `missing=${fake.json.data && fake.json.data.bundle_missing}`);
+
+      const empty = await req('/api/labels/resolve?code=', { token });
+      ok('空码被拒', empty.status === 400, `HTTP ${empty.status}`);
+
+      const nf = await req('/api/labels/resolve?code=NOSUCHORDER-1', { token });
+      ok('订单不存在返回 404', nf.status === 404, `HTTP ${nf.status}`);
+
+      const badOrder = await req('/api/labels/bundles/99999999', { token });
+      ok('订单不存在时扎标接口 404', badOrder.status === 404, `HTTP ${badOrder.status}`);
+
+      // 报工带扎号
+      const nodes = await req('/api/order-nodes?order_id=' + bid, { token });
+      const node = (nodes.json.data || [])[0];
+      if (node) {
+        const before = DB3.prepare('SELECT COUNT(*) c FROM production_reports WHERE order_id = ?').get(bid).c;
+        const rep = await req('/api/reports', {
+          method: 'POST', token,
+          body: { order_id: bid, node_id: node.id, qty_ok: 1, qty_defect: 0, hours: 0, bundle_no: b0.bundle_no }
+        });
+        const got = rep.status === 200 ? rep.json.data : null;
+        ok('报工能带扎号落库', rep.status === 200 && got && got.bundle_no === b0.bundle_no,
+          `HTTP ${rep.status} bundle_no=${got && got.bundle_no}`);
+
+        // 默认日期必须是本地今天（UTC 会在晚上 8 点后跑到前一天）
+        const T = require('../src/utils/time');
+        const todayLocal = T.localDate(new Date().toISOString());
+        ok('报工默认日期是本地今天（不是 UTC）',
+          got && got.report_date === todayLocal, `${got && got.report_date} vs ${todayLocal}`);
+
+        const badBundle = await req('/api/reports', {
+          method: 'POST', token,
+          body: { order_id: bid, node_id: node.id, qty_ok: 1, bundle_no: 'NOT-A-REAL-BUNDLE' }
+        });
+        ok('扎号不属于该单时拒绝报工', badBundle.status === 400, `HTTP ${badBundle.status}`);
+        ok('被拒的报工没有落库',
+          DB3.prepare('SELECT COUNT(*) c FROM production_reports WHERE order_id = ?').get(bid).c === before + 1,
+          `前后差 ${DB3.prepare('SELECT COUNT(*) c FROM production_reports WHERE order_id = ?').get(bid).c - before} 条`);
+
+        if (got) {
+          DB3.prepare('DELETE FROM production_reports WHERE id = ?').run(got.id);
+          ok('扎标用例跑完自清理', true, `删除测试报工 ${got.id}`);
+        }
+      }
+    }
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

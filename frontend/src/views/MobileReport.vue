@@ -3,6 +3,7 @@
     <div class="mr-bar">
       <button class="mr-back" @click="back">‹</button>
       <b>扫码报工</b>
+      <span v-if="bundleNo" class="mr-bundle-chip">扎 {{ bundleNo }}</span>
       <span v-if="order" class="mr-no">{{ order.order_no }}</span>
     </div>
 
@@ -118,6 +119,8 @@ const route = useRoute();
 const router = useRouter();
 
 const codeInput = ref(String(route.query.no || ''));
+// 扫扎标进来会带扎号：报工要记到这一扎上，才能追溯「谁做的哪一扎」
+const bundleNo = ref(route.query.bundle ? String(route.query.bundle) : '');
 const order = ref(null);
 const nodes = ref([]);
 const reports = ref([]);
@@ -220,7 +223,8 @@ async function submit() {
       qty_defect: defectQty,
       hours: Number(form.hours) || 0,
       remark: form.remark || '',
-      report_date: today
+      report_date: today,
+      bundle_no: bundleNo.value || null
     });
 
     // 报工已经写库了，照片失败不能把它算成失败 —— 分开处理，分别提示
@@ -304,6 +308,16 @@ onMounted(() => {
   cursor: pointer;
 }
 .mr-bar b { font-size: 15px; }
+.mr-bundle-chip {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #2563eb;
+  background: #e8f0ff;
+  border: 1px solid #cfe0ff;
+  border-radius: 20px;
+  padding: 2px 9px;
+  font-family: Consolas, Menlo, monospace;
+}
 .mr-no {
   margin-left: auto;
   font-size: 12px;

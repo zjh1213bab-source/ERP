@@ -170,6 +170,10 @@ export const api = {  // 登录
   createPhotos: (d) => req('/api/photos/batch', { method: 'POST', body: d }),
   deletePhoto: (id) => req(`/api/photos/${id}`, { method: 'DELETE' }),
 
+  // 扎标与扫码解析
+  labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),
+  resolveScan: (code) => req('/api/labels/resolve?code=' + encodeURIComponent(code)),
+
   // 验货报告（对外文件，走快照）
   inspectionPreview: (orderId) => req(`/api/inspection/preview/${orderId}`),
   inspectionCreate: (d) => req('/api/inspection', { method: 'POST', body: d }),
