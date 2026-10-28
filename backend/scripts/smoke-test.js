@@ -8577,6 +8577,261 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  /* ================================================================== *
+   * 办公耗材与服务采购（TS-N14-07）
+   * 夹具用固定文案标记（物品名 / 供应商 / 事由都带 __SMOKE），开头与结尾各清一次
+   * ================================================================== */
+  {
+    const { db: ODB } = require('../src/db');
+    console.log('\n[办公耗材与服务采购]');
+
+    // 本块自备登录助手，不依赖别处的作用域
+    const loginAsLocal4 = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    };
+
+    const cleanSmoke = () => {
+      const items = ODB.prepare("SELECT id FROM office_items WHERE name LIKE '%__SMOKE%'").all().map((r) => r.id);
+      const pos = ODB.prepare("SELECT id, po_no FROM office_purchases WHERE supplier LIKE '%__SMOKE%'").all();
+      const reqs = ODB.prepare("SELECT id FROM office_requests WHERE purpose LIKE '%__SMOKE%'").all().map((r) => r.id);
+      pos.forEach((p) => {
+        ODB.prepare('DELETE FROM office_purchase_items WHERE purchase_id = ?').run(p.id);
+        ODB.prepare('DELETE FROM office_purchase_sources WHERE purchase_id = ?').run(p.id);
+        ODB.prepare('DELETE FROM assets WHERE remark LIKE ?').run(`%${p.po_no}%`);
+        ODB.prepare('DELETE FROM admin_expenses WHERE remark LIKE ?').run(`%${p.po_no}%`);
+        ODB.prepare("DELETE FROM budget_commitments WHERE source_type='office_purchase' AND source_id=?").run(p.id);
+      });
+      ODB.prepare("DELETE FROM office_purchases WHERE supplier LIKE '%__SMOKE%'").run();
+      reqs.forEach((id) => ODB.prepare('DELETE FROM office_request_items WHERE request_id = ?').run(id));
+      ODB.prepare("DELETE FROM office_requests WHERE purpose LIKE '%__SMOKE%'").run();
+      items.forEach((id) => {
+        ODB.prepare('DELETE FROM office_ledger WHERE item_id = ?').run(id);
+        ODB.prepare('DELETE FROM office_stock WHERE item_id = ?').run(id);
+      });
+      ODB.prepare("DELETE FROM office_items WHERE name LIKE '%__SMOKE%'").run();
+    };
+    cleanSmoke();   // 上次跑到一半崩了也能自愈
+
+    const meta = await req('/api/office-supply/meta', { token });
+    ok('办公耗材字典（物品 / 部门 / 统计）',
+      meta.status === 200 && Array.isArray(meta.json.data.categories) && !!meta.json.data.stats, `HTTP ${meta.status}`);
+
+    // 基线：办公操作绝不能动生产库存
+    const baseStock = Number(ODB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v);
+    const baseMat = Number(ODB.prepare('SELECT COALESCE(SUM(stock_qty),0) v FROM materials').get().v);
+    const baseMatLedger = ODB.prepare('SELECT COUNT(*) c FROM material_ledger').get().c;
+
+    // 1. 建档
+    const itPaper = await req('/api/office-supply/items', {
+      method: 'POST', token, body: { name: '烟测用纸__SMOKE', spec: '500张', category: 'printing', unit: '包', min_qty: 5 }
+    });
+    const itPen = await req('/api/office-supply/items', {
+      method: 'POST', token, body: { name: '烟测用笔__SMOKE', category: 'stationery', unit: '支', min_qty: 10, monthly_limit: 20 }
+    });
+    const itDurable = await req('/api/office-supply/items', {
+      method: 'POST', token,
+      body: { name: '烟测打印机__SMOKE', category: 'electronic', unit: '台', durable: 1, asset_category: '办公设备', useful_years: 5 }
+    });
+    ok('建办公物品档案（含耐用品）',
+      itPaper.status === 200 && itPen.status === 200 && itDurable.status === 200,
+      `HTTP ${itPaper.status}/${itPen.status}/${itDurable.status}`);
+    const pid = itPaper.json.data.id;
+    const nid = itPen.json.data.id;
+    const did = itDurable.json.data.id;
+
+    // 2. 耐用品不能走耗材申领（它验收即转资产，永远没有库存）
+    const durableReq = await req('/api/office-supply/requests', {
+      method: 'POST', token,
+      body: { dept_id: 6, requester: 'smoke', purpose: '烟测：领一台打印机__SMOKE', items: [{ item_id: did, qty_apply: 1 }], submit: true }
+    });
+    ok('耐用品不走耗材申领（要转资产的走资产领用）', durableReq.status === 400, `HTTP ${durableReq.status}`);
+
+    // 3. 没库存就申领 → 拦
+    const noStock = await req('/api/office-supply/requests', {
+      method: 'POST', token,
+      body: { dept_id: 6, requester: 'smoke', purpose: '烟测：没库存先申领__SMOKE', items: [{ item_id: pid, qty_apply: 2 }], submit: true }
+    });
+    ok('库存不足时申领被拦（先采购再领）', noStock.status === 400, `HTTP ${noStock.status}`);
+
+    // 4. 采购：耗材 + 耐用品混单
+    const po = await req('/api/office-supply/purchases', {
+      method: 'POST', token,
+      body: {
+        supplier: '烟测供应商__SMOKE', dept_id: 6,
+        items: [
+          { item_id: pid, qty: 20, price: 10 },
+          { item_id: nid, qty: 50, price: 2 },
+          { item_id: did, qty: 2, price: 1000 }
+        ]
+      }
+    });
+    ok('建采购单（耗材与耐用品混在一张）', po.status === 200 && po.json.data.total_amount === 20 * 10 + 50 * 2 + 2000,
+      `HTTP ${po.status} / 金额 ${po.json.data ? po.json.data.total_amount : '?'}`);
+    const poId = po.json.data.id;
+    const poNo = po.json.data.po_no;
+
+    // 5. 0 元单不能审批
+    const poZero = await req('/api/office-supply/purchases', {
+      method: 'POST', token, body: { supplier: '烟测零元单__SMOKE', items: [{ item_id: pid, qty: 1, price: 0 }] }
+    });
+    const zeroApprove = await req('/api/office-supply/purchases/' + poZero.json.data.id + '/approve', { method: 'POST', token, body: {} });
+    ok('金额为 0 的采购单不能审批（否则费用会是 0，账上就丢了这笔）', zeroApprove.status === 400, `HTTP ${zeroApprove.status}`);
+    await req('/api/office-supply/purchases/' + poZero.json.data.id + '/cancel', { method: 'POST', token, body: { reason: '烟测零元单撤销' } });
+
+    // 6. 审批 → 下单 → 验收
+    await req('/api/office-supply/purchases/' + poId + '/approve', { method: 'POST', token, body: {} });
+    await req('/api/office-supply/purchases/' + poId + '/order', { method: 'POST', token, body: {} });
+    const rc = await req('/api/office-supply/purchases/' + poId + '/receive', {
+      method: 'POST', token, body: { payment_method: '转账' }
+    });
+    ok('验收成功', rc.status === 200 && rc.json.data.status === 'received', `HTTP ${rc.status}`);
+    ok('★ 耐用品金额单独进资产，不进费用',
+      rc.json.data.asset_amount === 2000 && rc.json.data.expense_amount === 20 * 10 + 50 * 2,
+      `资产 ${rc.json.data.asset_amount} / 费用 ${rc.json.data.expense_amount}`);
+    ok('耐用品按件建资产卡（一物一码）', (rc.json.data.assets || []).length === 2, `建了 ${(rc.json.data.assets || []).length} 张`);
+
+    const exp = ODB.prepare('SELECT * FROM admin_expenses WHERE id = ?').get(rc.json.data.expense_id);
+    ok('费用自动入账（验收与费用同源，不用再手工录一遍）',
+      !!exp && Number(exp.amount) === rc.json.data.expense_amount, `费用单 ${exp ? exp.amount : '无'}`);
+    const commit = ODB.prepare("SELECT * FROM budget_commitments WHERE source_type='office_purchase' AND source_id=?").get(poId);
+    ok('费用同时占用部门预算（否则预算执行表少这一笔）', !!commit && Number(commit.amount) === rc.json.data.expense_amount,
+      commit ? `占用 ${commit.amount}` : '未占用');
+
+    // 7. 办公仓有货，生产仓没动
+    const stockAfter = await req('/api/office-supply/board', { token });
+    const paperRow = (stockAfter.json.data || []).find((x) => x.id === pid);
+    ok('耗材进的是办公仓（不是生产成品仓）', !!paperRow && Number(paperRow.qty) === 20, `办公仓 ${paperRow ? paperRow.qty : '?'}`);
+    const nowStock = Number(ODB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v);
+    const nowMat = Number(ODB.prepare('SELECT COALESCE(SUM(stock_qty),0) v FROM materials').get().v);
+    const nowMatLedger = ODB.prepare('SELECT COUNT(*) c FROM material_ledger').get().c;
+    ok('★ 办公采购不动生产成品库存', baseStock === nowStock, `前 ${baseStock} / 后 ${nowStock}`);
+    ok('★ 办公采购不动生产材料库存与材料流水',
+      baseMat === nowMat && baseMatLedger === nowMatLedger, `材料 ${baseMat}→${nowMat}，流水 ${baseMatLedger}→${nowMatLedger}`);
+
+    // 8. 申领 → 审批 → 出库
+    const rq = await req('/api/office-supply/requests', {
+      method: 'POST', token,
+      body: { dept_id: 6, requester: 'smoke', requester_name: '烟测员', purpose: '烟测：正常领用__SMOKE', items: [{ item_id: pid, qty_apply: 5 }], submit: true }
+    });
+    ok('提交申领（库存够，通过三道闸）', rq.status === 200 && rq.json.data.status === 'submitted', `HTTP ${rq.status}`);
+    const rqId = rq.json.data.id;
+    const rqNo = rq.json.data.req_no;
+
+    const dup = await req('/api/office-supply/requests', {
+      method: 'POST', token,
+      body: { dept_id: 6, requester: 'smoke', purpose: '烟测：重复领用__SMOKE', items: [{ item_id: pid, qty_apply: 1 }], submit: true }
+    });
+    ok('同一人同一物品未结时再提被拦（防重复领用）', dup.status === 400, `HTTP ${dup.status}`);
+
+    await req('/api/office-supply/requests/' + rqId + '/approve', { method: 'POST', token, body: {} });
+    const issue = await req('/api/office-supply/requests/' + rqId + '/issue', { method: 'POST', token, body: {} });
+    ok('出库成功（真正扣库存）', issue.status === 200 && issue.json.data.status === 'issued', `HTTP ${issue.status}`);
+    const afterIssue = (await req('/api/office-supply/board', { token })).json.data.find((x) => x.id === pid);
+    ok('出库后办公仓减少 5', Number(afterIssue.qty) === 15, `剩 ${afterIssue.qty}`);
+
+    const led = await req('/api/office-supply/ledger?item_id=' + pid, { token });
+    const ledTypes = (led.json.data || []).map((l) => l.type);
+    ok('收发流水记录入库与领用（in + out）', ledTypes.includes('in') && ledTypes.includes('out'), ledTypes.join(','));
+
+    // 9. 退回回补库存
+    const rqLine = ODB.prepare('SELECT * FROM office_request_items WHERE request_id = ?').all(rqId)[0];
+    const back = await req('/api/office-supply/requests/' + rqId + '/return', {
+      method: 'POST', token, body: { items: [{ id: rqLine.id, qty: 2 }], reason: '多领了退回来' }
+    });
+    ok('退回入库', back.status === 200 && back.json.data.status === 'returned', `HTTP ${back.status}`);
+    const afterBack = (await req('/api/office-supply/board', { token })).json.data.find((x) => x.id === pid);
+    ok('退回后库存回补到 17', Number(afterBack.qty) === 17, `剩 ${afterBack.qty}`);
+
+    // 10. 月限额：笔限 20，已有 0，提 25 → 拦；写例外 → 放行
+    const overLimit = await req('/api/office-supply/requests', {
+      method: 'POST', token,
+      body: { dept_id: 6, requester: 'smoke2', purpose: '烟测：超月限额__SMOKE', items: [{ item_id: nid, qty_apply: 25 }], submit: true }
+    });
+    ok('超部门月限额被拦（要求写例外说明）', overLimit.status === 400, `HTTP ${overLimit.status}`);
+    const withReason = await req('/api/office-supply/requests', {
+      method: 'POST', token,
+      body: {
+        dept_id: 6, requester: 'smoke2', purpose: '烟测：超限但有说明__SMOKE',
+        items: [{ item_id: nid, qty_apply: 18 }], submit: true,
+        exception_reason: '烟测：新入职集中配文具，已口头报备行政主管'
+      }
+    });
+    ok('写了例外说明后可以提交（例外审批而非硬拒）', withReason.status === 200, `HTTP ${withReason.status}`);
+
+    // 11. 合并申领 → 采购单（聚合同一物品）
+    const rqApproved = await req('/api/office-supply/requests', {
+      method: 'POST', token,
+      body: { dept_id: 6, requester: 'smoke3', purpose: '烟测：待合并__SMOKE', items: [{ item_id: pid, qty_apply: 3 }], submit: true }
+    });
+    const rqApprovedId = rqApproved.json.data.id;
+    await req('/api/office-supply/requests/' + rqApprovedId + '/approve', { method: 'POST', token, body: {} });
+    const merged = await req('/api/office-supply/purchases', {
+      method: 'POST', token, body: { supplier: '烟测合并单__SMOKE', request_ids: [rqApprovedId] }
+    });
+    ok('从已批准申领合并成采购单', merged.status === 200, `HTTP ${merged.status}`);
+    const mergedDetail = await req('/api/office-supply/purchases/' + merged.json.data.id, { token });
+    ok('合并后记下来源申领（可控、可追溯）',
+      (mergedDetail.json.data.sources || []).some((s) => s.req_no === rqApproved.json.data.req_no),
+      JSON.stringify((mergedDetail.json.data.sources || []).map((s) => s.req_no)));
+    const reMerge = await req('/api/office-supply/purchases', {
+      method: 'POST', token, body: { supplier: '烟测重复合并__SMOKE', request_ids: [rqApprovedId] }
+    });
+    ok('同一申领不能被两张在途采购单同时占用', reMerge.status === 400, `HTTP ${reMerge.status}`);
+
+    // 12. 最低库存只提示，不自动下单
+    const lowBefore = await req('/api/office-supply/low-stock', { token });
+    const poCountBefore = ODB.prepare('SELECT COUNT(*) c FROM office_purchases').get().c;
+    const lowAgain = await req('/api/office-supply/low-stock', { token });
+    const poCountAfter = ODB.prepare('SELECT COUNT(*) c FROM office_purchases').get().c;
+    ok('最低库存给出建议量', lowAgain.status === 200 && (lowAgain.json.data.rows || []).every((r) => r.suggest_qty > 0),
+      `缺口 ${lowAgain.json.data ? lowAgain.json.data.count : '?'} 项`);
+    ok('★ 最低库存只提示，不会自动生成采购单', poCountBefore === poCountAfter, `${poCountBefore} → ${poCountAfter}`);
+
+    // 13. 服务采购：验收才计费
+    const svc = await req('/api/office-supply/purchases', {
+      method: 'POST', token,
+      body: {
+        kind: 'service', supplier: '烟测保洁__SMOKE',
+        items: [{ line_type: 'service', item_name: '烟测保洁服务', qty: 1, price: 800 }]
+      }
+    });
+    const svcExpBefore = ODB.prepare("SELECT COUNT(*) c FROM admin_expenses WHERE remark LIKE '%烟测保洁%'").get().c;
+    ok('服务采购建单后还没计费', svcExpBefore === 0, `已有 ${svcExpBefore} 条`);
+    await req('/api/office-supply/purchases/' + svc.json.data.id + '/approve', { method: 'POST', token, body: {} });
+    const svcRc = await req('/api/office-supply/purchases/' + svc.json.data.id + '/receive', { method: 'POST', token, body: {} });
+    ok('服务验收后计费用（服务没有库存，不进仓）',
+      svcRc.status === 200 && svcRc.json.data.expense_amount === 800 && svcRc.json.data.asset_amount === 0,
+      `费用 ${svcRc.json.data ? svcRc.json.data.expense_amount : '?'}`);
+
+    // 14. 已验收不能撤销
+    const cancelReceived = await req('/api/office-supply/purchases/' + poId + '/cancel', {
+      method: 'POST', token, body: { reason: '烟测：想撤销已验收的单' }
+    });
+    ok('已验收的单不能撤销（货入库、费用已入账）', cancelReceived.status === 400, `HTTP ${cancelReceived.status}`);
+
+    // 15. 权限：仓库能申领，但不能建采购单（会花钱）
+    const whTok = await loginAsLocal4('wh01');
+    if (whTok) {
+      const whBoard = await req('/api/office-supply/board', { token: whTok });
+      ok('仓库能看办公库存', whBoard.status === 200, `HTTP ${whBoard.status}`);
+      const whPo = await req('/api/office-supply/purchases', {
+        method: 'POST', token: whTok, body: { supplier: '烟测越权__SMOKE', items: [{ item_id: pid, qty: 1, price: 1 }] }
+      });
+      ok('仓库不能建采购单（花钱的动作只给行政/财务）', whPo.status === 403, `HTTP ${whPo.status}`);
+    } else {
+      ok('仓库不能建采购单', true, '没有 wh01，跳过');
+    }
+
+    // 清理
+    cleanSmoke();
+    ok('冒烟夹具已清干净',
+      ODB.prepare("SELECT COUNT(*) c FROM office_items WHERE name LIKE '%__SMOKE%'").get().c === 0
+      && ODB.prepare("SELECT COUNT(*) c FROM office_purchases WHERE supplier LIKE '%__SMOKE%'").get().c === 0
+      && ODB.prepare("SELECT COUNT(*) c FROM office_requests WHERE purpose LIKE '%__SMOKE%'").get().c === 0,
+      `物品 ${ODB.prepare("SELECT COUNT(*) c FROM office_items WHERE name LIKE '%__SMOKE%'").get().c} / 采购 ${ODB.prepare("SELECT COUNT(*) c FROM office_purchases WHERE supplier LIKE '%__SMOKE%'").get().c}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

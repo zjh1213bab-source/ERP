@@ -602,6 +602,27 @@
 | notify | GET | `/wechat` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | notify | POST | `/wechat` | ✅ | — | ✅ | — | — | — | — | — |
 | notify | POST | `/wechat/sync` | ✅ | — | ✅ | — | — | — | — | — |
+| officeSupply | GET | `/board` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | POST | `/items` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | GET | `/ledger` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | GET | `/low-stock` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | GET | `/meta` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | GET | `/purchases` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | POST | `/purchases` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | GET | `/purchases/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | POST | `/purchases/:id/approve` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | POST | `/purchases/:id/cancel` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | POST | `/purchases/:id/order` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | PUT | `/purchases/:id/prices` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | POST | `/purchases/:id/receive` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | GET | `/requests` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | POST | `/requests` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | GET | `/requests/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | POST | `/requests/:id/approve` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | POST | `/requests/:id/issue` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | POST | `/requests/:id/reject` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| officeSupply | POST | `/requests/:id/return` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| officeSupply | POST | `/requests/:id/submit` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | orderMaterials | POST | `/` | ✅ | — | — | ✅ | — | — | ✅ | — |
 | orderMaterials | PUT | `/:id` | ✅ | — | — | ✅ | — | — | ✅ | — |
 | orderMaterials | DELETE | `/:id` | ✅ | — | — | ✅ | — | — | ✅ | — |
@@ -1112,6 +1133,9 @@
 | `aftersale.write` | 系统管理员、销售跟单、quality、生产车间、仓库采购 |
 | `aftersale.refund` | 系统管理员、财务会计 |
 | `statementfile.read` | 系统管理员、总经理、财务会计、销售跟单 |
+| `office.read` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `office.apply` | 系统管理员、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `office.manage` | 系统管理员、人事行政、财务会计 |
 | `statementfile.publish` | 系统管理员、财务会计 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |

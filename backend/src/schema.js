@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 701 个对象
- * （331 张表 + 370 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 723 个对象
+ * （339 张表 + 384 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -706,5 +706,27 @@ module.exports = [
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_sf_no ON statement_files(file_no);",
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_sf_ver ON statement_files(customer_id, period_from, period_to, kind, version_no);",
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_sf_live\n  ON statement_files(customer_id, period_from, period_to, kind)\n  WHERE status = 'published';",
-  "CREATE INDEX IF NOT EXISTS idx_sf_customer ON statement_files(customer_id);"
+  "CREATE INDEX IF NOT EXISTS idx_sf_customer ON statement_files(customer_id);",
+  "CREATE TABLE IF NOT EXISTS office_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  item_no TEXT NOT NULL,\n  company_id INTEGER NOT NULL DEFAULT 1,\n  name TEXT NOT NULL,\n  spec TEXT,\n  category TEXT NOT NULL DEFAULT 'stationery',   -- stationery 文具 / printing 打印耗材 / cleaning 清洁 / ppe 劳保 / electronic 电子 / furniture 家具 / service 服务\n  unit TEXT NOT NULL DEFAULT '个',\n  min_qty REAL NOT NULL DEFAULT 0,               -- 最低库存（只提示，不自动采购）\n  durable INTEGER NOT NULL DEFAULT 0,            -- 1 = 耐用品，验收后转资产、不费用化\n  asset_category TEXT,                           -- 耐用品转资产时的资产分类\n  useful_years REAL,                             -- 耐用品折旧年限（建资产卡时带过去）\n  monthly_limit REAL NOT NULL DEFAULT 0,         -- 每部门每月限领数量，0 = 不限\n  default_supplier TEXT,\n  status TEXT NOT NULL DEFAULT 'active',         -- active / inactive\n  note TEXT,\n  created_at TEXT,\n  updated_at TEXT\n, demo_tag TEXT);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_office_item_no ON office_items(item_no);",
+  "CREATE INDEX IF NOT EXISTS idx_office_item_cat ON office_items(category);",
+  "CREATE TABLE IF NOT EXISTS office_stock (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  item_id INTEGER NOT NULL,\n  qty REAL NOT NULL DEFAULT 0,\n  avg_price REAL NOT NULL DEFAULT 0,             -- 移动加权，只用于估算金额，不做成本核算\n  location TEXT,                                 -- 存放地点（如「行政库房 A2 层」）\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_office_stock_item ON office_stock(item_id);",
+  "CREATE TABLE IF NOT EXISTS office_ledger (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  item_id INTEGER NOT NULL,\n  type TEXT NOT NULL,                            -- in 采购入库 / out 领用出库 / back 退回入库 / adjust 盘点调整\n  qty REAL NOT NULL,                             -- 入库为正、出库为负（统一用它算余额，省得每种类型再判断一次）\n  ref_type TEXT,                                 -- purchase / request / manual\n  ref_id INTEGER,\n  ref_no TEXT,\n  dept_id INTEGER,\n  operator TEXT,\n  note TEXT,\n  created_at TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_office_ledger_item ON office_ledger(item_id);",
+  "CREATE INDEX IF NOT EXISTS idx_office_ledger_ref ON office_ledger(ref_type, ref_id);",
+  "CREATE TABLE IF NOT EXISTS office_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  req_no TEXT NOT NULL,\n  company_id INTEGER NOT NULL DEFAULT 1,\n  dept_id INTEGER,\n  dept_name TEXT,\n  requester TEXT NOT NULL,\n  requester_name TEXT,\n  status TEXT NOT NULL DEFAULT 'draft',          -- draft/submitted/approved/rejected/issued/returned/closed\n  purpose TEXT,\n  need_date TEXT,\n  exception_reason TEXT,                         -- 超部门月限额时的例外说明\n  approved_by TEXT,\n  approved_at TEXT,\n  issued_by TEXT,\n  issued_at TEXT,\n  reject_reason TEXT,\n  note TEXT,\n  demo_tag TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_office_req_no ON office_requests(req_no);",
+  "CREATE INDEX IF NOT EXISTS idx_office_req_status ON office_requests(status);",
+  "CREATE INDEX IF NOT EXISTS idx_office_req_dept ON office_requests(dept_id);",
+  "CREATE TABLE IF NOT EXISTS office_request_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  request_id INTEGER NOT NULL,\n  item_id INTEGER NOT NULL,\n  item_name TEXT,\n  unit TEXT,\n  qty_apply REAL NOT NULL DEFAULT 0,\n  qty_approved REAL NOT NULL DEFAULT 0,\n  qty_issued REAL NOT NULL DEFAULT 0,\n  qty_returned REAL NOT NULL DEFAULT 0,\n  note TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_office_req_item ON office_request_items(request_id);",
+  "CREATE TABLE IF NOT EXISTS office_purchases (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  po_no TEXT NOT NULL,\n  company_id INTEGER NOT NULL DEFAULT 1,\n  kind TEXT NOT NULL DEFAULT 'item',             -- item 物品 / service 服务\n  supplier TEXT,\n  status TEXT NOT NULL DEFAULT 'draft',          -- draft/submitted/approved/ordered/received/closed/cancelled\n  total_amount REAL NOT NULL DEFAULT 0,\n  expense_amount REAL NOT NULL DEFAULT 0,        -- 验收时计入费用的金额（不含耐用品）\n  asset_amount REAL NOT NULL DEFAULT 0,          -- 验收时转资产的金额\n  expense_id INTEGER,                            -- 生成的那条 admin_expenses\n  expected_date TEXT,\n  received_by TEXT,\n  received_at TEXT,\n  note TEXT,\n  created_by TEXT,\n  demo_tag TEXT,\n  created_at TEXT,\n  updated_at TEXT\n, dept_id INTEGER);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_office_po_no ON office_purchases(po_no);",
+  "CREATE INDEX IF NOT EXISTS idx_office_po_status ON office_purchases(status);",
+  "CREATE TABLE IF NOT EXISTS office_purchase_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  purchase_id INTEGER NOT NULL,\n  line_type TEXT NOT NULL DEFAULT 'item',        -- item / service\n  item_id INTEGER,                               -- 服务行为空\n  item_name TEXT NOT NULL,\n  spec TEXT,\n  unit TEXT,\n  qty REAL NOT NULL DEFAULT 0,\n  price REAL NOT NULL DEFAULT 0,\n  amount REAL NOT NULL DEFAULT 0,\n  durable INTEGER NOT NULL DEFAULT 0,            -- 从档案带过来，验收时据此决定「入资产」还是「入费用」\n  asset_id INTEGER,                              -- 转成的资产卡片\n  note TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_office_po_items ON office_purchase_items(purchase_id);",
+  "CREATE TABLE IF NOT EXISTS office_purchase_sources (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  purchase_id INTEGER NOT NULL,\n  request_id INTEGER NOT NULL,\n  req_no TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_office_po_src ON office_purchase_sources(request_id, purchase_id);",
+  "CREATE INDEX IF NOT EXISTS idx_office_po_src_po ON office_purchase_sources(purchase_id);"
 ];

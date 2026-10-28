@@ -248,6 +248,14 @@ const PERMS = {
   'aftersale.refund': ['admin', 'finance'],
   // 对账文件：销售能看能生成，但**「发出去」是我们的账，只给财务与管理员**
   'statementfile.read': ['admin', 'boss', 'finance', 'sales'],
+
+  // ===== 办公耗材与服务采购（TS-N14-07）=====
+  // 看：申领是每个人的事，全角色可读
+  // 申领与领用：老板只读（出库是操作动作，不该由老板点）
+  // 采购与档案：会花钱、会改全厂口径，只给行政/财务/管理员
+  'office.read': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'office.apply': ['admin', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'office.manage': ['admin', 'hr', 'finance'],
   'statementfile.publish': ['admin', 'finance'],
 
   // ===== 字段级明文权限（TS-N18-03）=====
@@ -377,6 +385,9 @@ const GUARDED = [
   { perm: 'aftersale.refund', method: 'POST', prefix: '/api/after-sales/refund' },
   // 对账文件一旦「授权发布」就等于我们对外承认这组数，不能销售自己拍板
   { perm: 'statementfile.publish', method: 'POST', prefix: '/api/statement-files' },
+  // 办公采购会真的花钱（验收即生成费用并占预算），档案会决定全厂口径 —— 都挂高危
+  { perm: 'office.manage', method: '*', prefix: '/api/office-supply/purchases' },
+  { perm: 'office.manage', method: 'POST', prefix: '/api/office-supply/items' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

@@ -205,6 +205,7 @@ const navModel = [
       { label: '岗位绩效', to: '/kpi' },
       { label: '行政合同与证照', to: '/admin-contracts' },
       { label: '后勤管理', to: '/facility' },
+      { label: '办公耗材与服务采购', to: '/office-supply' },
       { label: '固定资产', to: '/assets' },
       { label: '行政费用', to: '/admin-expenses' }
     ]

@@ -1186,3 +1186,33 @@ idx_att_cat_time   ON attachments(cat, created_at)              -- 照片墙按�
 > 底层依赖：`orders` / `order_items`（金额上限与归属）、`attachments`（`target_type='after_sale'` 存照片）、
 > `stock_returns` / `stock_return_items`（实物三轨）、`doc_access_logs`（客户下载留痕）、
 > `ar_invoices` / `payments`（对账快照来源，经 `services/statement.js`）。
+
+## 办公耗材与服务采购（M-OFFICE）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| office_items | item_no(BG+ymmdd+4), name, spec, category(stationery/printing/cleaning/ppe/electronic/furniture/service), unit, **min_qty**, **durable**, asset_category, useful_years, **monthly_limit**, default_supplier, status, demo_tag | 物品档案。`min_qty` 只用于提示；`durable=1` 的物品验收后转资产、不进办公仓 |
+| office_stock | item_id(唯一), qty, avg_price, location | **独立办公仓**。avg_price 是移动加权，只用于估算金额，不做存货计价 |
+| office_ledger | item_id, type(in/out/back/adjust), **qty（入库正、出库负）**, ref_type(purchase/request/manual), ref_id, ref_no, dept_id, operator | 收发流水。**库存数字永远等于这张表的合计**，对不上说明有人绕过流水改了库存 |
+| office_requests | req_no(SQ+ymmdd+4), dept_id/name, requester/name, status(draft/submitted/approved/rejected/issued/returned/closed), purpose, exception_reason, approved_by/at, issued_by/at, reject_reason, demo_tag | 申领单。`exception_reason` 是超部门月限额时的人工说明 |
+| office_request_items | request_id, item_id, qty_apply, qty_approved, qty_issued, qty_returned | 明细。审批可砍量：`qty_approved ≤ qty_apply` |
+| office_purchases | po_no(CG+ymmdd+4), kind(item/service), **dept_id**, supplier, status(draft/approved/ordered/received/closed/cancelled), total_amount, **expense_amount**, **asset_amount**, **expense_id**, received_by/at, demo_tag | 采购单。`expense_amount` 与 `asset_amount` 互斥相加等于「耗材+服务」与「耐用品」两部分 |
+| office_purchase_items | purchase_id, line_type(item/service), item_id, item_name, qty, price, amount, **durable**, **asset_id** | 明细。`durable` 从档案带过来，**验收时据此决定入资产还是入费用** |
+| office_purchase_sources | purchase_id, request_id, req_no | 需求合并的来源。同一申领在采购单撤销前不能被重复合并 |
+
+> **为什么办公仓不复用 `stock_items`**：`stock_items` 是成品（款号/颜色/尺码），
+> `materials` 是面辅料（有齐套算料、领料出库一整套逻辑）。办公用品塞进任何一边都会污染那条链路 ——
+> 最典型的后果是「面料库存里出现 A4 纸 -5 包」，然后齐套算料把它算成缺料。
+>
+> **`office_ledger.qty` 用正负号而不是按类型判断**：入库 +20、领用 -5、退回 +2，
+> 余额永远是 `SUM(qty)`。每种类型各自定方向，早晚出现「退回被当成出库」这种算错的账。
+>
+> **`dept_id` 在采购单上是必需的语义**：`budget.commit()` 对 `department_id` 为空**直接返回 null**，
+> 不挂部门的采购在预算执行表里根本不出现。缺省落「人事行政部」。
+>
+> **`asset_id` 只记最后一件**：耐用品按件建卡（`qty` 件就建 `qty` 张卡，一物一码），
+> 明细行只回填最后一张用于追溯，完整清单看 `assets.remark` 里的采购单号。
+>
+> 底层依赖：`departments`（部门与月限额口径）、`admin_expenses`（费用入账）、
+> `budget_commitments`（预算占用）、`assets`（耐用品转资产）。
+> **本模块不写 `stock_items` / `materials` / `material_ledger`。**

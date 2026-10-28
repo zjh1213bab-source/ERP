@@ -3141,3 +3141,56 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 > 为什么对账 CSV 单独给「原币金额」列：外贸客户是拿 USD 下的单，只看人民币会觉得金额不对。
 > 记账金额是本位币，原币列由逐笔的 `amount_orig + currency` 带出。
+
+## 办公耗材与服务采购（`/api/office-supply`）
+
+> 办公用品有**自己的仓**（`office_stock` / `office_ledger`），与生产材料仓、成品仓没有任何写入口。
+> 采购验收时一次做完三件事：耗材入库、耐用品转资产、费用入账，三者互不重复。
+> 权限：`office.read`（全角色）、`office.apply`（除老板外全角色，申领与领用）、
+> `office.manage`（admin / hr / finance，采购与档案）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/office-supply/meta | read | 字典（分类 / 状态 / 物品 / 部门）+ 统计 |
+| GET | /api/office-supply/board?category=&q= | read | 办公仓看板：库存、最低库存、`low`、`suggest_qty`、耐用品标记 |
+| GET | /api/office-supply/low-stock | read | **最低库存缺口 + 建议量，不生成采购单** |
+| GET | /api/office-supply/ledger?item_id=&type=&month= | read | 收发流水（入库为正、领用为负） |
+| POST | /api/office-supply/items | manage | 建 / 改物品档案（耐用品必须填资产分类） |
+| GET | /api/office-supply/requests?status=&dept_id=&q= | read | 申领清单（含 `merged` 已合并到的采购单、`short` 库存不足标记） |
+| GET | /api/office-supply/requests/:id | read | 申领详情（含每行库存、部门本月已领、月限额） |
+| POST | /api/office-supply/requests | apply | 建申领：`{dept_id, requester, purpose, items[], submit, exception_reason}` |
+| POST | /api/office-supply/requests/:id/submit | apply | 提交（再过一遍三道闸） |
+| POST | /api/office-supply/requests/:id/approve | manage | 审批：`{items:[{id, qty_approved}]}`，可砍量 |
+| POST | /api/office-supply/requests/:id/reject | manage | 驳回：`{reason}` ≥6 字 |
+| POST | /api/office-supply/requests/:id/issue | apply | **出库：真正扣库存并写流水** |
+| POST | /api/office-supply/requests/:id/return | apply | 退回：`{items:[{id, qty}], reason}` |
+| GET | /api/office-supply/purchases?status=&kind=&q= | read | 采购清单（区分物品 / 服务） |
+| GET | /api/office-supply/purchases/:id | read | 详情：明细归属（耗材→费用 / 耐用品→资产 / 服务→费用）+ 来源申领 |
+| POST | /api/office-supply/purchases | manage | 建单：`{kind, supplier, dept_id, items[]}` 或 `{request_ids[]}` 从申领合并 |
+| PUT | /api/office-supply/purchases/:id/prices | manage | 填单价（合并来的单默认没价） |
+| POST | /api/office-supply/purchases/:id/approve | manage | 审批（**金额为 0 直接 400**） |
+| POST | /api/office-supply/purchases/:id/order | manage | 标为已下单 |
+| POST | /api/office-supply/purchases/:id/receive | manage | **验收：入库 / 转资产 / 生成费用 + 占预算，一次做完** |
+| POST | /api/office-supply/purchases/:id/cancel | manage | 撤销（已验收不行），释放合并的申领 |
+
+### 验收时的金额怎么分
+
+| 明细类型 | 去哪 | 进 `admin_expenses` |
+|---|---|---|
+| 耗材 `durable=0` | `office_stock` 入库 + `office_ledger` 记 in | **是** |
+| 耐用品 `durable=1` | `assets` 逐件建卡（一物一码），`office_purchase_items.asset_id` 回填 | **否** |
+| 服务 `line_type=service` | 无库存 | **是**（验收即计费，没验收就不该有这笔钱） |
+
+生成的费用单：`category='办公'`（物品）或 `'服务采购'`，`remark` 里带采购单号与「耐用品 X 已转资产，不在本条」，
+并按 `dept_id` 调 `budget.commit()` 占额度。采购单没有归属部门时**费用照记但预算占不上**，接口会在 `note` 里点名。
+
+### 五条硬口径
+
+1. **办公领用不碰生产仓**（原型原话）：`office_*` 与 `stock_items`、`materials`、`material_ledger` 无写入口。
+2. **耐用品转资产就不当耗材费用化**（原型原话）：按 `durable` 分两边算，金额不重叠。
+3. **验收与费用同源**（原型原话）：验收即生成费用并占预算，不需要行政再手工录一遍。
+4. **最低库存只提示**（原型原话）：返回 `suggest_qty` 但不建单 —— 自动补货等于在没人核价的项目上自动花钱。
+5. **申领三道闸**：库存不足拦、同人同物品未结拦、超部门月限额要写例外说明（≥6 字）才放行。
+
+> 耐用品**不走耗材申领**：它验收即转资产、永远没有库存，混进申领会「从空仓里扣出负数」。
+> 耐用品的领用登记在「资产台账」（一物一码、记保管人）。
