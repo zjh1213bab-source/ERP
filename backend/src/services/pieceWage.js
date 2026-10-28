@@ -735,12 +735,149 @@ function voidRun(id, reason, operator) {
   return getRun(id);
 }
 
+// ---------------- 工资条 / 车间公示 ----------------
+
+/**
+ * 姓名脱敏：公示表贴在车间墙上，金额本来就要公开，但姓名不必连名带姓
+ * 张建军 → 张*军；李四 → 李*；英文名 Amy → A***
+ */
+function maskName(name) {
+  const s = String(name || '').trim();
+  if (!s) return '***';
+  if (/^[A-Za-z]/.test(s)) return s[0] + '***';
+  const chars = [...s];
+  if (chars.length === 1) return s + '*';
+  if (chars.length === 2) return chars[0] + '*';
+  return chars[0] + '*'.repeat(chars.length - 2) + chars[chars.length - 1];
+}
+
+/**
+ * 出工资条（person）或车间公示表（public）
+ *
+ * 两条硬规则：
+ *  1. **只认已确认的核算单**。草案的数字还会变，照草案发出去，第二天改价就是一场吵架。
+ *  2. **口径要印在纸上**：每张条子都带核算单号、期间、生成时间，以及「超报封顶/考勤处理」的说明
+ *     —— 工人拿着一张没有出处的条子来问，谁也说不清。
+ *
+ * @param {number} runId
+ * @param {'person'|'public'} mode
+ */
+function payslips(runId, mode = 'person') {
+  const run = db.prepare('SELECT * FROM piece_wage_runs WHERE id = ?').get(runId);
+  if (!run) throw bad('核算单不存在', 404);
+  if (run.status !== 'confirmed') {
+    throw bad('只有「已确认」的核算单才能出工资条 —— 草案的数字还会变，发出去要吵架', 400);
+  }
+  const items = db
+    .prepare(
+      `SELECT employee_id, employee_code, employee_name, department, process_name,
+              order_no, bundle_no, qty, unit_price, amount, capped, cap_kind, att_status
+         FROM piece_wage_items WHERE run_id = ?
+        ORDER BY department, employee_name, order_no, bundle_no, process_name`
+    )
+    .all(runId);
+
+  // 按人聚合；明细按「工序 × 订单」合并（同工序多扎合成一行，条子才看得下）
+  const byEmp = new Map();
+  items.forEach((it) => {
+    const id = Number(it.employee_id);
+    if (!byEmp.has(id)) {
+      byEmp.set(id, {
+        employee_id: id,
+        employee_code: it.employee_code,
+        employee_name: it.employee_name,
+        mask_name: maskName(it.employee_name),
+        department: it.department,
+        qty: 0,
+        amount: 0,
+        lines: 0,
+        capped: 0,
+        att: 0,
+        _lines: new Map()
+      });
+    }
+    const e = byEmp.get(id);
+    e.qty = round2(e.qty + (Number(it.qty) || 0));
+    e.amount = round2(e.amount + (Number(it.amount) || 0));
+    e.lines++;
+    if (it.capped) e.capped++;
+    if (it.att_status === 'leave' || it.att_status === 'absent') e.att++;
+    const k = `${it.process_name}|${it.order_no || ''}`;
+    const hit = e._lines.get(k);
+    if (hit) {
+      hit.qty = round2(hit.qty + (Number(it.qty) || 0));
+      hit.amount = round2(hit.amount + (Number(it.amount) || 0));
+    } else {
+      e._lines.set(k, {
+        process_name: it.process_name,
+        order_no: it.order_no,
+        qty: Number(it.qty) || 0,
+        unit_price: Number(it.unit_price) || 0,
+        amount: Number(it.amount) || 0
+      });
+    }
+  });
+
+  const rows = [...byEmp.values()]
+    .map((e, i) => {
+      const lines = [...e._lines.values()].sort((a, b) => b.amount - a.amount);
+      return {
+        employee_id: e.employee_id,
+        employee_code: e.employee_code || '',
+        employee_name: e.employee_name,
+        mask_name: e.mask_name,
+        department: e.department || '',
+        qty: round2(e.qty),
+        amount: round2(e.amount),
+        item_lines: e.lines,
+        capped_lines: e.capped,
+        att_flagged: e.att,
+        lines: mode === 'public' ? [] : lines,   // 公示表不展开明细（贴墙上是看总数）
+        seq: 0
+      };
+    })
+    .sort((a, b) => b.amount - a.amount)
+    .map((r, i) => ({ ...r, seq: i + 1 }));   // 按金额排名，公示表上更容易核对
+
+  const totalAmount = round2(rows.reduce((s, r) => s + r.amount, 0));
+  const totalQty = round2(rows.reduce((s, r) => s + r.qty, 0));
+
+  return {
+    mode,
+    run: {
+      id: run.id,
+      run_no: run.run_no,
+      period: run.period,
+      status: run.status,
+      total_amount: round2(run.total_amount),
+      total_qty: round2(run.total_qty),
+      employees_count: run.employees_count,
+      confirmed_by: run.confirmed_by,
+      confirmed_at: run.confirmed_at,
+      note: run.note,
+      missing_rate_count: run.missing_rate_count,
+      unassigned_count: run.unassigned_count,
+      capped_count: run.capped_count,
+      att_conflict_count: run.att_conflict_count,
+      att_excluded_count: run.att_excluded_count
+    },
+    rows,
+    summary: {
+      employees: rows.length,
+      total_amount: totalAmount,
+      total_qty: totalQty,
+      avg_amount: rows.length ? round2(totalAmount / rows.length) : 0,
+      max_amount: rows.length ? rows[0].amount : 0,
+      min_amount: rows.length ? rows[rows.length - 1].amount : 0
+    }
+  };
+}
+
 /**
  * 给工资单用：某月已确认的计件金额，按员工汇总
  * 没有已确认核算单时返回空 Map（工资单计件列就是 0，不是「未算」）
  */
-function confirmedByEmployee(period) {
-  const run = db
+function confirmedByEmployee(period) {  const run = db
     .prepare("SELECT * FROM piece_wage_runs WHERE period = ? AND status = 'confirmed'")
     .get(period);
   if (!run) return { run: null, map: new Map() };
@@ -769,6 +906,8 @@ module.exports = {
   getRun,
   confirmRun,
   voidRun,
+  payslips,
+  maskName,
   confirmedByEmployee,
   round2
 };

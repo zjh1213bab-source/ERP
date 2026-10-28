@@ -2667,6 +2667,7 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 | POST | /api/piece-wage/runs/:id/confirm | piecewage.approve | 确认；**缺单价一条都不许过**；无法归属 / 考勤冲突时要求备注 ≥4 字；策略 `block` 时冲突笔直接拒 |
 | POST | /api/piece-wage/runs/:id/void | piecewage.approve | `{reason}` 作废（理由 ≥4 字） |
 | GET | /api/piece-wage/export?run_id= | 同上 | 明细 CSV（带 BOM，含报工日期与当天考勤） |
+| GET | /api/piece-wage/runs/:id/payslips?mode=person\|public | 同上 | 工资条（按人分组，明细按「工序×订单」合并，含脱敏名 `mask_name` 与封顶/考勤笔数）或车间公示表（不含明细）。**只认 `status='confirmed'`**，草案返回 400 |
 
 **取价规则**
 

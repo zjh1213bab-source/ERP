@@ -189,6 +189,7 @@ export const api = {  // 登录
   pieceVoid: (id, reason) =>
     req(`/api/piece-wage/runs/${id}/void`, { method: 'POST', body: { reason } }),
   pieceExportPath: (runId) => '/api/piece-wage/export' + qs({ run_id: runId }),
+  piecePayslips: (runId, mode) => req(`/api/piece-wage/runs/${runId}/payslips` + qs({ mode })),
 
   // 扎标与扫码解析
   labelBundles: (orderId) => req(`/api/labels/bundles/${orderId}`),

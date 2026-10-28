@@ -12,6 +12,7 @@
  * GET    /api/piece-wage/runs                核算单列表
  * POST   /api/piece-wage/runs                生成草案 { period, note }
  * GET    /api/piece-wage/runs/:id            核算单详情（含明细与诊断）
+ * GET    /api/piece-wage/runs/:id/payslips   工资条 / 车间公示表（?mode=person|public；只认已确认）
  * POST   /api/piece-wage/runs/:id/confirm    确认（缺单价直接拒）
  * POST   /api/piece-wage/runs/:id/void       作废 { reason }
  * GET    /api/piece-wage/export?run_id=      导出明细 CSV
@@ -154,6 +155,16 @@ router.get(
   authRequired,
   requireRole(READ),
   wrap(async (req, res) => ok(res, PW.getRun(req.params.id)))
+);
+
+// 工资条 / 车间公示表：只认已确认的核算单（草案数字会变，发出去是吵架）
+router.get(
+  '/runs/:id/payslips',
+  authRequired,
+  requireRole(READ),
+  wrap(async (req, res) =>
+    ok(res, PW.payslips(req.params.id, req.query.mode === 'public' ? 'public' : 'person'))
+  )
 );
 
 router.post(

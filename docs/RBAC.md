@@ -584,6 +584,7 @@
 | pieceWage | POST | `/runs` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | pieceWage | GET | `/runs/:id` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | pieceWage | POST | `/runs/:id/confirm` | ✅ | — | — | — | — | — | ✅ | — |
+| pieceWage | GET | `/runs/:id/payslips` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | pieceWage | POST | `/runs/:id/void` | ✅ | — | — | — | — | — | ✅ | — |
 | priceTiers | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | priceTiers | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |

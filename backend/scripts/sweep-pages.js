@@ -28,8 +28,24 @@ const PAGES = [
   '/production', '/approvals', '/costing', '/leads', '/spot-analysis', '/labels/5', '/print/production/5'
 ];
 
+/** 需要真实 id 的页面（工资条要取最新一份已确认核算单） */
+function withDynamicPages(base) {
+  const out = [...base];
+  try {
+    const { db } = require('../src/db');
+    const r = db.prepare("SELECT id FROM piece_wage_runs WHERE status = 'confirmed' ORDER BY id DESC LIMIT 1").get();
+    if (r) {
+      out.push('/payslip/' + r.id);
+      out.push('/payslip/' + r.id + '?mode=public');
+    }
+  } catch (e) { /* 库还没建好就跳过 */ }
+  return out;
+}
+
 (async () => {
-  const list = process.argv[2] ? process.argv[2].split(',').map((s) => s.trim()).filter(Boolean) : PAGES;
+  const list = process.argv[2]
+    ? process.argv[2].split(',').map((s) => s.trim()).filter(Boolean)
+    : withDynamicPages(PAGES);
   const lg = await (await fetch(BASE + '/api/auth/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: 'admin', password: 'admin123456' })

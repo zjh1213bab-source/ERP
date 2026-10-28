@@ -252,6 +252,16 @@
               作废
             </button>
             <button v-if="run" class="btn btn-ghost btn-sm" @click="exportCsv">导出 CSV</button>
+            <button v-if="run && run.status === 'confirmed'" class="btn btn-ghost btn-sm" @click="openPayslip(run.id)">
+              出工资条
+            </button>
+            <button
+              v-if="run && run.status === 'confirmed'"
+              class="btn btn-ghost btn-sm"
+              @click="openPayslip(run.id, 'public')"
+            >
+              车间公示表
+            </button>
           </div>
         </div>
         <div class="table-wrap" style="max-height: 520px; overflow-y: auto">
@@ -558,6 +568,8 @@
               <td>
                 <button class="link-btn" @click="openRun(r.id)">查看</button>
                 <button v-if="r.status === 'confirmed'" class="link-btn" @click="exportRun(r.id)">导出</button>
+                <button v-if="r.status === 'confirmed'" class="link-btn" @click="openPayslip(r.id)">工资条</button>
+                <button v-if="r.status === 'confirmed'" class="link-btn" @click="openPayslip(r.id, 'public')">公示表</button>
               </td>
             </tr>
             <tr v-if="!runs.length"><td colspan="12" class="empty">还没有核算单</td></tr>
@@ -570,8 +582,11 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { api, downloadFile } from '../api';
 import { can } from '../store/permissions';
+
+const router = useRouter();
 
 const canWrite = computed(() => can('piecewage.write'));
 const canApprove = computed(() => can('piecewage.approve'));
@@ -800,6 +815,11 @@ async function openRun(id) {
   } catch (e) {
     alert(e.message);
   }
+}
+
+/** 出工资条 / 车间公示表：只对已确认的核算单开放（草案数字会变） */
+function openPayslip(id, mode) {
+  router.push({ path: '/payslip/' + id, query: mode ? { mode } : {} });
 }
 
 async function exportRun(id) {

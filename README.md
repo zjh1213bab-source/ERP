@@ -212,6 +212,9 @@ cd backend && node scripts/shot-audit.js
 # 订单批量流转取证（勾选→预检；**只到预检为止，不会真的改单**）
 cd backend && node scripts/shot-orders-batch.js
 
+# 计件工资条 / 车间公示表取证（含 print 媒体模拟，验 A4 分页）
+cd backend && node scripts/shot-payslip.js
+
 # 计件工资演示数据（工序单价 + 按「扎 × 工序」整组分人，--reset 可重放）
 cd backend && node scripts/seed-piecewage-demo.js --reset
 

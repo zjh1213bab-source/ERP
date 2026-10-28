@@ -5951,6 +5951,65 @@ async function req(path, { method = 'GET', body, token } = {}) {
         ok('人事可读计件 / 不能确认', true, '没有 hr01，跳过');
       }
 
+      // ---------- 工资条 / 车间公示表 ----------
+      {
+        // 自造一份 draft + 一份 confirmed：不依赖演示数据，也不碰真实月份
+        const t2 = new Date().toISOString();
+        const mkRun = (no, status) =>
+          Number(
+            db
+              .prepare(
+                `INSERT INTO piece_wage_runs (run_no, period, status, items_count, employees_count, total_qty, total_amount, created_by, created_at)
+                 VALUES (?, ?, ?, 2, 1, 10, 100, 'smoke', ?)`
+              )
+              .run(no, TEST_PERIOD, status, t2).lastInsertRowid
+          );
+        const draftId = mkRun('PW199901-TD', 'draft');
+        const confId = mkRun('PW199901-TC', 'confirmed');
+        const insIt = db.prepare(
+          `INSERT INTO piece_wage_items
+             (run_id, employee_id, employee_name, employee_code, department, process_name, order_no, qty, unit_price, amount, att_status, capped, cap_kind, report_date)
+           VALUES (?, 2, '李四', 'E002', '生产部', ?, ?, ?, 10, ?, ?, ?, ?, '1999-01-10')`
+        );
+        insIt.run(confId, '车缝', 'SO-SMOKE', 6, 60, 'normal', 0, null);
+        insIt.run(confId, '整烫', 'SO-SMOKE', 4, 40, 'leave', 1, 'daily');
+
+        const ps = await req(`/api/piece-wage/runs/${confId}/payslips?mode=person`, { token });
+        ok('已确认核算单可出工资条', ps.status === 200 && (ps.json.data.rows || []).length === 1,
+          `HTTP ${ps.status} rows=${ps.json.data && ps.json.data.rows && ps.json.data.rows.length}`);
+        const psRow = (ps.json.data.rows || [])[0] || {};
+        ok('工资条金额与核算单一致', Number(psRow.amount) === 100 && Number(psRow.qty) === 10,
+          `amt=${psRow.amount} qty=${psRow.qty}`);
+        ok('个人条展开明细（合并同工序）', (psRow.lines || []).length === 2, `lines=${(psRow.lines || []).length}`);
+        ok('姓名脱敏（两字姓名 → 李*）', psRow.mask_name === '李*', psRow.mask_name);
+        ok('条子上标出封顶/考勤笔数（工人来问时纸面能自证）',
+          Number(psRow.capped_lines) === 1 && Number(psRow.att_flagged) === 1,
+          `capped=${psRow.capped_lines} att=${psRow.att_flagged}`);
+
+        const psPub = await req(`/api/piece-wage/runs/${confId}/payslips?mode=public`, { token });
+        ok('公示表不展开明细（贴墙只看总数）',
+          psPub.status === 200 && ((psPub.json.data.rows || [])[0] || {}).lines.length === 0,
+          `HTTP ${psPub.status}`);
+
+        const psDraft = await req(`/api/piece-wage/runs/${draftId}/payslips`, { token });
+        ok('草案不能出工资条（数字还会变）', psDraft.status === 400, `HTTP ${psDraft.status}`);
+        const ps404 = await req('/api/piece-wage/runs/999999/payslips', { token });
+        ok('不存在的核算单 404', ps404.status === 404, `HTTP ${ps404.status}`);
+
+        const salesPsToken = await loginAs('sales01');
+        if (salesPsToken) {
+          const salesPs = await req(`/api/piece-wage/runs/${confId}/payslips`, { token: salesPsToken });
+          ok('销售看不到工资条（工钱敏感）', salesPs.status === 403, `HTTP ${salesPs.status}`);
+        } else {
+          ok('销售看不到工资条（工钱敏感）', true, '没有 sales01，跳过');
+        }
+
+        // 用完立刻删：后面的「工资单带入」用例断言「没有已确认核算单时计件为 0」，
+        // 留着这份 confirmed 会误伤它
+        db.prepare('DELETE FROM piece_wage_items WHERE run_id IN (?, ?)').run(confId, draftId);
+        db.prepare('DELETE FROM piece_wage_runs WHERE id IN (?, ?)').run(confId, draftId);
+      }
+
       // ---------- 工资单带入 ----------
       const gen = await req('/api/payrolls/generate', {
         method: 'POST', token, body: { period: TEST_PERIOD, overwrite: true }

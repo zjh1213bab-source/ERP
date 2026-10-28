@@ -81,6 +81,7 @@ import Blueprint from './views/Blueprint.vue';
 import Settings from './views/Settings.vue';
 import Users from './views/Users.vue';
 import Print from './views/Print.vue';
+import Payslip from './views/Payslip.vue';
 import PrintBatch from './views/PrintBatch.vue';
 import ScanGo from './views/ScanGo.vue';
 import MobileHome from './views/MobileHome.vue';
@@ -216,6 +217,8 @@ const routes = [
   // 验货报告（独立 A4 排版，打印/另存 PDF）
   { path: '/inspection/:orderId', component: InspectionReport, meta: { title: '验货报告' } },
   { path: '/print/quote/:id', component: QuotePrint, meta: { title: '打印报价单' } },
+  // 计件工资条 / 车间公示表（独立 A4 排版，打印后裁剪发放或贴墙）
+  { path: '/payslip/:runId', component: Payslip, meta: { title: '计件工资条' } },
   { path: '/print/:type/:id', component: Print, meta: { title: '打印单据' } },
   { path: '/labels/:id', component: LabelPrint, meta: { title: '打印标签' } },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' }
