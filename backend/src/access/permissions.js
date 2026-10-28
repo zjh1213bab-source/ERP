@@ -258,6 +258,18 @@ const PERMS = {
   'office.manage': ['admin', 'hr', 'finance'],
   'statementfile.publish': ['admin', 'finance'],
 
+  // ===== 资产工衣与领归（TS-N14-03）=====
+  // 看：每个人都要能看自己身上挂着什么（工衣、钥匙、工具），全角色可读。
+  // 发放与回收：东西在行政仓，发料/收料是行政、人事与仓库的动作；老板只读。
+  // 档案与处置：改档案会改全厂口径，处置等于东西消失 —— 只给行政与人事。
+  // 定责：行政/人事先出结论，**财务确认金额单独一层**（`custody.finance`），
+  //       否则人事自己就能把赔偿金额「确认」进系统，等于自己收钱自己签字。
+  'custody.read': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'custody.issue': ['admin', 'hr', 'warehouse'],
+  'custody.manage': ['admin', 'hr'],
+  'custody.claim': ['admin', 'hr', 'finance'],
+  'custody.finance': ['admin', 'finance'],
+
   // ===== 字段级明文权限（TS-N18-03）=====
   // 一条原则：**谁真的需要看，才给谁**。
   //   hr.pii 只给人事 —— 给销售一个通用 pii 权限，等于把员工身份证也给了销售。
@@ -388,6 +400,14 @@ const GUARDED = [
   // 办公采购会真的花钱（验收即生成费用并占预算），档案会决定全厂口径 —— 都挂高危
   { perm: 'office.manage', method: '*', prefix: '/api/office-supply/purchases' },
   { perm: 'office.manage', method: 'POST', prefix: '/api/office-supply/items' },
+  // 实物档案会改全厂统计口径；处置等于东西消失；定责会被当成扣钱依据；财务确认是收钱的最后一道。
+  // 四个动作各自独立成段：GUARDED 是前缀匹配，若写成 /api/custody 一整个前缀，
+  // 连「看我身上有什么」都会被锁成只有行政能进。
+  { perm: 'custody.manage', method: 'POST', prefix: '/api/custody/items' },
+  { perm: 'custody.manage', method: 'POST', prefix: '/api/custody/scrap' },
+  { perm: 'custody.manage', method: 'POST', prefix: '/api/custody/restore' },
+  { perm: 'custody.claim', method: 'POST', prefix: '/api/custody/review' },
+  { perm: 'custody.finance', method: 'POST', prefix: '/api/custody/finance' },
   { perm: 'credit.write', method: 'PUT', prefix: '/api/credit' },
   { perm: 'credit.write', method: 'POST', prefix: '/api/credit' },
   { perm: 'budget.write', method: '*', prefix: '/api/budget' },

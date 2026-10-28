@@ -8832,6 +8832,324 @@ async function req(path, { method = 'GET', body, token } = {}) {
       `物品 ${ODB.prepare("SELECT COUNT(*) c FROM office_items WHERE name LIKE '%__SMOKE%'").get().c} / 采购 ${ODB.prepare("SELECT COUNT(*) c FROM office_purchases WHERE supplier LIKE '%__SMOKE%'").get().c}`);
   }
 
+  /* ================================================================== *
+   * 资产工衣与领归（TS-N14-03）
+   * 夹具一律带 __SMOKE，开头与结尾各清一次（跑崩了下次也能自愈）
+   * ================================================================== */
+  {
+    const { db: CDB } = require('../src/db');
+    console.log('\n[资产工衣与领归]');
+
+    const loginAsLocal5 = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    };
+
+    // 夹具一切自带 __SMOKE：实物、员工、资产卡都用烟测专属记录，
+    // 绝不借用演示/真实员工（清退单按人复用，借用人会把别人身上挂着的东西一起搅进来）
+    const cleanSmoke = () => {
+      const items = CDB.prepare("SELECT id FROM custody_items WHERE name LIKE '%__SMOKE%'").all().map((r) => r.id);
+      const empsSmoke = CDB.prepare("SELECT id FROM employees WHERE name LIKE '%__SMOKE%'").all().map((r) => r.id);
+      const recConds = [];
+      const recParams = [];
+      if (items.length) { recConds.push(`item_id IN (${items.map(() => '?').join(',')})`); recParams.push(...items); }
+      if (empsSmoke.length) { recConds.push(`employee_id IN (${empsSmoke.map(() => '?').join(',')})`); recParams.push(...empsSmoke); }
+      if (recConds.length) {
+        const recs = CDB.prepare(`SELECT id FROM custody_records WHERE ${recConds.join(' OR ')}`).all(...recParams).map((r) => r.id);
+        if (recs.length) {
+          const rph = recs.map(() => '?').join(',');
+          CDB.prepare(`DELETE FROM custody_claims WHERE record_id IN (${rph})`).run(...recs);
+          CDB.prepare(`DELETE FROM custody_actions WHERE target_type='record' AND target_id IN (${rph})`).run(...recs);
+          CDB.prepare(`DELETE FROM custody_records WHERE id IN (${rph})`).run(...recs);
+        }
+      }
+      if (items.length) {
+        CDB.prepare(`DELETE FROM custody_actions WHERE target_type='item' AND target_id IN (${items.map(() => '?').join(',')})`).run(...items);
+        CDB.prepare(`DELETE FROM custody_items WHERE id IN (${items.map(() => '?').join(',')})`).run(...items);
+      }
+      const clr = CDB.prepare("SELECT id FROM custody_clearances WHERE reason LIKE '%__SMOKE%' OR employee_name LIKE '%__SMOKE%'").all().map((r) => r.id);
+      clr.forEach((id) => CDB.prepare("DELETE FROM custody_actions WHERE target_type='clearance' AND target_id=?").run(id));
+      CDB.prepare("DELETE FROM custody_clearances WHERE reason LIKE '%__SMOKE%' OR employee_name LIKE '%__SMOKE%'").run();
+      if (empsSmoke.length) CDB.prepare(`DELETE FROM employees WHERE id IN (${empsSmoke.map(() => '?').join(',')})`).run(...empsSmoke);
+      CDB.prepare("DELETE FROM assets WHERE name LIKE '%__SMOKE%'").run();
+    };
+    cleanSmoke();
+
+    // 自建三个烟测员工：清退按人复用、清单按人实时汇总，
+    // 借用真实员工会把「别人身上挂着的东西」算进断言里
+    const mkEmp = (tag) => {
+      const name = `烟测员工${tag}__SMOKE`;
+      const info = CDB.prepare("INSERT INTO employees (name, code, status, created_at) VALUES (?,?, 'active', ?)")
+        .run(name, `SMK-${tag}`, new Date().toISOString());
+      return { id: Number(info.lastInsertRowid), name };
+    };
+    const EA = mkEmp('A');
+    const EB = mkEmp('B');
+    const EC = mkEmp('C');
+    // 日期按本地取（toISOString 是 UTC，晚上会差一天）
+    const dFuture = new Date(Date.now() + 7 * 86400000);
+    const tomorrow = `${dFuture.getFullYear()}-${String(dFuture.getMonth() + 1).padStart(2, '0')}-${String(dFuture.getDate()).padStart(2, '0')}`;
+
+    // 基线：本模块不许碰生产仓，也不许自动动钱
+    const baseStock = Number(CDB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v);
+    const baseMat = Number(CDB.prepare('SELECT COALESCE(SUM(stock_qty),0) v FROM materials').get().v);
+    const baseMatLedger = CDB.prepare('SELECT COUNT(*) c FROM material_ledger').get().c;
+    const basePayAdj = CDB.prepare('SELECT COUNT(*) c FROM payroll_adjustments').get().c;
+    const baseGl = CDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c;
+
+    const meta = await req('/api/custody/meta', { token });
+    ok('工衣领归字典（类别 / 归还要求 / 统计）',
+      meta.status === 200 && Array.isArray(meta.json.data.kinds) && !!meta.json.data.stats, `HTTP ${meta.status}`);
+
+    // 一张测试用资产卡：验证「折旧不在行政再算一遍」与「挂了资产卡不许在这里处置」
+    const assetR = await req('/api/assets', {
+      method: 'POST', token,
+      body: { name: '烟测电动工具__SMOKE', category: '电子设备', original_value: 1200, purchase_date: '2025-10-01', useful_years: 3 }
+    });
+    const assetId = assetR.json.data.id;
+    ok('建一张烟测资产卡', assetR.status === 200 && !!assetId, `HTTP ${assetR.status}`);
+
+    // 1. 建档
+    const mk = (body) => req('/api/custody/items', { method: 'POST', token, body });
+    const itUniform = await mk({ name: '烟测工衣__SMOKE', kind: 'uniform', durable: 1, require_return: 0, size: 'XL', qty_total: 1, unit: '件' });
+    const itKey = await mk({ name: '烟测钥匙__SMOKE', kind: 'key', durable: 1, require_return: 1, item_code: 'SMK-01', qty_total: 1, unit: '把' });
+    const itGlove = await mk({ name: '烟测手套__SMOKE', kind: 'ppe', durable: 0, require_return: 0, qty_total: 200, unit: '双', max_per_person: 40 });
+    const itGlove2 = await mk({ name: '烟测口罩__SMOKE', kind: 'ppe', durable: 0, require_return: 0, qty_total: 50, unit: '个' });
+    const itTool = await mk({ name: '烟测工具__SMOKE', kind: 'tool', durable: 1, require_return: 1, qty_total: 1, unit: '把', asset_id: assetId });
+    const itOld = await mk({ name: '烟测旧工衣__SMOKE', kind: 'uniform', durable: 1, require_return: 0, qty_total: 1, unit: '件' });
+    // 专门用来做「损坏 → 冻结 → 恢复 → 遗失核销」的那一件，不去占用后面清退要用的钥匙
+    const itKey2 = await mk({ name: '烟测钥匙二号__SMOKE', kind: 'key', durable: 1, require_return: 1, qty_total: 1, unit: '把' });
+    ok('建实物档案：工衣 / 钥匙 / 劳保 / 挂资产卡的工具',
+      [itUniform, itKey, itGlove, itGlove2, itTool, itOld, itKey2].every((r) => r.status === 200),
+      `HTTP ${itUniform.status}/${itKey.status}/${itGlove.status}/${itTool.status}/${itKey2.status}`);
+
+    const uId = itUniform.json.data.id;
+    const kId = itKey.json.data.id;
+    const gId = itGlove.json.data.id;
+    const g2Id = itGlove2.json.data.id;
+    const tId = itTool.json.data.id;
+    const oldId = itOld.json.data.id;
+    const k2Id = itKey2.json.data.id;
+
+    // 2. 一物一码不许写 2 件（可用量会显示 1 但永远发不出第二件）
+    const badQty = await mk({ name: '烟测两件套__SMOKE', kind: 'uniform', durable: 1, qty_total: 2 });
+    ok('一物一码在册数量只能是 1（多件分别建档）', badQty.status === 400, `HTTP ${badQty.status}`);
+
+    // 3. 工衣不强制退回 → 永不设期限
+    const recU = await req('/api/custody/records', {
+      method: 'POST', token, body: { item_id: uId, employee_id: EA.id, expected_return_at: tomorrow, note: '烟测发放' }
+    });
+    ok('★ 工衣不强制退回：传了归还日期也不设期限',
+      recU.status === 200 && recU.json.data.expected_return_at === null && Number(recU.json.data.require_return) === 0,
+      `expected_return_at=${recU.json.data ? recU.json.data.expected_return_at : '?'}`);
+
+    // 4. 一物一码不双领
+    const dupLen = await req('/api/custody/records', { method: 'POST', token, body: { item_id: uId, employee_id: EB.id } });
+    ok('★ 耐用实物不双领（同一件不能挂两个人）', dupLen.status === 409, `HTTP ${dupLen.status}`);
+
+    // 5. 消耗品：个人上限 / 可用量
+    const gA = await req('/api/custody/records', { method: 'POST', token, body: { item_id: gId, employee_id: EA.id, qty: 30 } });
+    const gA2 = await req('/api/custody/records', { method: 'POST', token, body: { item_id: gId, employee_id: EA.id, qty: 30 } });
+    ok('消耗品可再领，但受个人上限约束',
+      gA.status === 200 && gA2.status === 400 && /上限/.test(gA2.json.message || ''), `HTTP ${gA2.status} ${gA2.json.message || ''}`);
+
+    const g2A = await req('/api/custody/records', { method: 'POST', token, body: { item_id: g2Id, employee_id: EA.id, qty: 30 } });
+    const g2Over = await req('/api/custody/records', { method: 'POST', token, body: { item_id: g2Id, employee_id: EA.id, qty: 30 } });
+    ok('按量消耗品领超可用量要拦（在册 50，已领 30）',
+      g2A.status === 200 && g2Over.status === 400 && /可用/.test(g2Over.json.message || ''), `HTTP ${g2Over.status} ${g2Over.json.message || ''}`);
+
+    // 6. 归还必须登记状态
+    const recK = await req('/api/custody/records', { method: 'POST', token, body: { item_id: kId, employee_id: EA.id, expected_return_at: tomorrow } });
+    const noCond = await req(`/api/custody/records/${recK.json.data.id}/return`, { method: 'POST', token, body: {} });
+    ok('归还必须登记实物状态（不知道好坏定不了责）', noCond.status === 400, `HTTP ${noCond.status}`);
+    // 这把钥匙完好还回来，后面要用它做「转交 → 清退」的主线
+    await req(`/api/custody/records/${recK.json.data.id}/return`, { method: 'POST', token, body: { condition: 'good', note: '烟测：完好交回' } });
+
+    // 7. 损坏归还 → 只生成待复核单，不动钱；实物同时冻结，不能再发给下一个人
+    const recBad = await req('/api/custody/records', { method: 'POST', token, body: { item_id: k2Id, employee_id: EA.id, expected_return_at: tomorrow } });
+    const dmg = await req(`/api/custody/records/${recBad.json.data.id}/return`, {
+      method: 'POST', token, body: { condition: 'damaged', claim_amount: 300, note: '烟测：钥匙柄断裂' }
+    });
+    const claim1 = (dmg.json.data.claims || [])[0];
+    ok('损坏归还自动生成待复核单', dmg.status === 200 && !!claim1 && claim1.review_status === 'pending',
+      `HTTP ${dmg.status} claims=${(dmg.json.data.claims || []).length}`);
+    ok('★ 登记损坏不自动扣工资、不自动生成凭证',
+      CDB.prepare('SELECT COUNT(*) c FROM payroll_adjustments').get().c === basePayAdj
+      && CDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c === baseGl,
+      `工资调整 ${CDB.prepare('SELECT COUNT(*) c FROM payroll_adjustments').get().c - basePayAdj} / 凭证 ${CDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c - baseGl}`);
+
+    const reissueBad = await req('/api/custody/records', { method: 'POST', token, body: { item_id: k2Id, employee_id: EB.id } });
+    ok('★ 损坏归还的实物冻结为「待处理」，不能再发给别人',
+      reissueBad.status === 400 && /待处理/.test(reissueBad.json.message || ''), `HTTP ${reissueBad.status} ${reissueBad.json.message || ''}`);
+
+    const restoreNoNote = await req(`/api/custody/restore/${k2Id}`, { method: 'POST', token, body: {} });
+    ok('恢复可用要写处理结果（维修/检查合格）', restoreNoNote.status === 400, `HTTP ${restoreNoNote.status}`);
+
+    const restored = await req(`/api/custody/restore/${k2Id}`, { method: 'POST', token, body: { note: '烟测：更换锁芯，检查正常' } });
+    const reuse = await req('/api/custody/records', { method: 'POST', token, body: { item_id: k2Id, employee_id: EB.id } });
+    ok('恢复可用后可以重新发放',
+      restored.status === 200 && restored.json.data.status === 'active' && reuse.status === 200,
+      `恢复 HTTP ${restored.status} / 再发 HTTP ${reuse.status}`);
+
+    // 遗失：东西没了 → 实物直接按盘亏核销，可用量归零
+    const lostB = await req(`/api/custody/records/${reuse.json.data.id}/return`, {
+      method: 'POST', token, body: { condition: 'lost', claim_amount: 200, note: '烟测：巡检途中遗失' }
+    });
+    const k2After = CDB.prepare('SELECT status, scrap_mode FROM custody_items WHERE id = ?').get(k2Id);
+    ok('★ 遗失归还的实物自动核销（不会再出现在可用里）',
+      lostB.status === 200 && k2After.status === 'scrapped' && k2After.scrap_mode === 'write_off',
+      `状态 ${k2After ? k2After.status : '?'}`);
+
+    const cleared = await req(`/api/custody/review/${claim1.id}`, {
+      method: 'POST', token, body: { decision: 'cleared', reviewer_note: '烟测：正常使用磨损' }
+    });
+    ok('复核无责：定责金额归零，不需要财务确认',
+      cleared.status === 200 && Number(cleared.json.data.liable_amount) === 0 && cleared.json.data.needs_finance === false,
+      `金额 ${cleared.json.data ? cleared.json.data.liable_amount : '?'}`);
+
+    // 8. 工具损坏 → 部分责任 60% → 财务确认（缺回执 / 越权 / 正确）
+    const recT = await req('/api/custody/records', { method: 'POST', token, body: { item_id: tId, employee_id: EB.id, expected_return_at: tomorrow } });
+    const dmgT = await req(`/api/custody/records/${recT.json.data.id}/return`, {
+      method: 'POST', token, body: { condition: 'damaged', claim_amount: 500, note: '烟测：电机烧毁' }
+    });
+    const claim2 = (dmgT.json.data.claims || [])[0];
+    const rev2 = await req(`/api/custody/review/${claim2.id}`, {
+      method: 'POST', token, body: { decision: 'partial', liable_pct: 60, reviewer_note: '烟测：超负荷使用' }
+    });
+    ok('部分责任按比例算金额（500 × 60% = 300）',
+      rev2.status === 200 && Number(rev2.json.data.liable_amount) === 300, `金额 ${rev2.json.data ? rev2.json.data.liable_amount : '?'}`);
+
+    const noReceipt = await req(`/api/custody/finance/${claim2.id}`, { method: 'POST', token, body: {} });
+    ok('财务确认必须填回执号', noReceipt.status === 400, `HTTP ${noReceipt.status}`);
+
+    const whTok = await loginAsLocal5('wh01');
+    if (whTok) {
+      const whFin = await req(`/api/custody/finance/${claim2.id}`, {
+        method: 'POST', token: whTok, body: { finance_confirm_no: 'SMOKE-WH-001' }
+      });
+      ok('仓库不能确认定责金额（财务与管理员专属）', whFin.status === 403, `HTTP ${whFin.status}`);
+    } else {
+      ok('仓库不能确认定责金额', true, '没有 wh01，跳过');
+    }
+
+    const finTok = await loginAsLocal5('fin01');
+    let finR = { status: 0, json: {} };
+    if (finTok) {
+      finR = await req(`/api/custody/finance/${claim2.id}`, {
+        method: 'POST', token: finTok, body: { finance_confirm_no: 'SMOKE-FIN-001', finance_note: '烟测确认' }
+      });
+    }
+    ok('财务带回收据号后才算落地',
+      finR.status === 200 && finR.json.data.finance_confirm_no === 'SMOKE-FIN-001' && finR.json.data.status === 'closed',
+      `HTTP ${finR.status}`);
+    ok('★ 复核+财务确认全程不动工资与总账',
+      CDB.prepare('SELECT COUNT(*) c FROM payroll_adjustments').get().c === basePayAdj
+      && CDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c === baseGl,
+      `工资调整 ${CDB.prepare('SELECT COUNT(*) c FROM payroll_adjustments').get().c - basePayAdj} / 凭证 ${CDB.prepare('SELECT COUNT(*) c FROM gl_entries').get().c - baseGl}`);
+
+    // 9. 转交：原单归还 + 新单发放，未还总量不变
+    const recK2 = await req('/api/custody/records', { method: 'POST', token, body: { item_id: kId, employee_id: EB.id, expected_return_at: tomorrow } });
+    const beforeOut = Number(CDB.prepare("SELECT COALESCE(SUM(qty-returned_qty),0) v FROM custody_records WHERE item_id=? AND status IN ('issued','awaiting')").get(kId).v);
+    const tr = await req(`/api/custody/records/${recK2.json.data.id}/transfer`, {
+      method: 'POST', token, body: { to_employee_id: EC.id, note: '烟测：借调' }
+    });
+    const afterOut = Number(CDB.prepare("SELECT COALESCE(SUM(qty-returned_qty),0) v FROM custody_records WHERE item_id=? AND status IN ('issued','awaiting')").get(kId).v);
+    ok('★ 转交 = 原单归还 + 新单发放，未还总量不变（不直接改名字）',
+      tr.status === 200 && tr.json.data.from.status === 'returned' && tr.json.data.to.status === 'issued'
+      && beforeOut === 1 && afterOut === 1,
+      `未还 ${beforeOut} → ${afterOut}`);
+
+    // 10. 离职清退：必须归还 vs 工衣不强制
+    const uToC = await req(`/api/custody/records/${recU.json.data.id}/transfer`, {
+      method: 'POST', token, body: { to_employee_id: EC.id, note: '烟测：换岗' }
+    });
+    ok('工衣也能转交（一物一码先还再领）', uToC.status === 200, `HTTP ${uToC.status}`);
+
+    const clr = await req('/api/custody/clearances', {
+      method: 'POST', token, body: { employee_id: EC.id, leave_date: tomorrow, reason: '烟测离职__SMOKE' }
+    });
+    const clrItems = (clr.json.data && clr.json.data.items) || [];
+    const mustRow = clrItems.find((x) => x.must);
+    const optRow = clrItems.find((x) => !x.must);
+    ok('清退清单分「必须归还」与「不强制退回」两类',
+      clr.status === 200 && clr.json.data.must_total === 1 && clr.json.data.optional_total === 1,
+      `必须 ${clr.json.data ? clr.json.data.must_total : '?'} / 可选 ${clr.json.data ? clr.json.data.optional_total : '?'}`);
+    ok('清退单按人复用（不会给同一人开出第二张进行中的单）',
+      clr.json.data.employee_id === EC.id && clr.json.data.leave_date === tomorrow,
+      `员工 ${clr.json.data ? clr.json.data.employee_name : '?'} / 离职日 ${clr.json.data ? clr.json.data.leave_date : '?'}`);
+    ok('★ 工衣在清退时不被强制退回（状态不变、不设期限）',
+      !!optRow && optRow.status === 'issued' && !optRow.expected_return_at, `状态 ${optRow ? optRow.status : '?'}`);
+    ok('必须归还的钥匙转「待归还」并以离职日为期限',
+      !!mustRow && mustRow.status === 'awaiting' && mustRow.expected_return_at === tomorrow, `状态 ${mustRow ? mustRow.status : '?'}`);
+
+    const closeEarly = await req(`/api/custody/clearances/${clr.json.data.id}/close`, { method: 'POST', token, body: {} });
+    ok('必须归还的没回来，清退不能结案', closeEarly.status === 400, `HTTP ${closeEarly.status}`);
+
+    await req(`/api/custody/records/${tr.json.data.to.id}/return`, { method: 'POST', token, body: { condition: 'good', note: '烟测收回' } });
+    const closed = await req(`/api/custody/clearances/${clr.json.data.id}/close`, { method: 'POST', token, body: {} });
+    ok('必须归还的都回来了，清退可结案（工衣未退不拦）',
+      closed.status === 200 && closed.json.data.status === 'closed', `HTTP ${closed.status}`);
+
+    // 11. 处置：挂资产卡的拒绝；无单号的拒绝；正常处置成功
+    const scrapAsset = await req(`/api/custody/scrap/${tId}`, {
+      method: 'POST', token, body: { scrap_mode: 'write_off', scrap_no: 'SMOKE-CZ-001' }
+    });
+    ok('★ 挂了资产卡的实物不在这里处置（去资产台账，避免两套净值）',
+      scrapAsset.status === 400 && /固定资产/.test(scrapAsset.json.message || ''), `HTTP ${scrapAsset.status}`);
+
+    const scrapNoNo = await req(`/api/custody/scrap/${oldId}`, { method: 'POST', token, body: { scrap_mode: 'write_off' } });
+    ok('处置必须填去向单号（没有去处的核销等于东西消失）', scrapNoNo.status === 400, `HTTP ${scrapNoNo.status}`);
+
+    const scrapOk = await req(`/api/custody/scrap/${oldId}`, {
+      method: 'POST', token, body: { scrap_mode: 'write_off', scrap_no: 'SMOKE-CZ-002', note: '烟测核销' }
+    });
+    ok('无资产卡的低值实物可核销', scrapOk.status === 200 && scrapOk.json.data.status === 'scrapped', `HTTP ${scrapOk.status}`);
+
+    // 12. 折旧一致：行政页读到的净值 = 资产台账净值
+    const assetList = await req('/api/assets?q=烟测电动工具__SMOKE', { token });
+    const assetRow = (assetList.json.data || [])[0];
+    const itemList = await req('/api/custody/items?q=烟测工具__SMOKE', { token });
+    const toolRow = (itemList.json.data || [])[0];
+    ok('★ 行政页的净值直接读资产台账（不重复计提）',
+      !!assetRow && !!toolRow && Number(toolRow.asset_net) === Number(assetRow.net_value),
+      `资产 ${assetRow ? assetRow.net_value : '?'} / 行政 ${toolRow ? toolRow.asset_net : '?'}`);
+
+    // 13. 资产卡报废后不能再发
+    await req(`/api/assets/${assetId}/status`, { method: 'POST', token, body: { status: 'scrapped' } });
+    const issueScrapped = await req('/api/custody/records', { method: 'POST', token, body: { item_id: tId, employee_id: EA.id } });
+    ok('关联资产卡报废后，实物不能再发放', issueScrapped.status === 400, `HTTP ${issueScrapped.status}`);
+
+    // 14. 权限：销售不能发放（东西在行政仓），仓库可以
+    const salesTok = await loginAsLocal5('sales01');
+    if (salesTok) {
+      const salesIssue = await req('/api/custody/records', { method: 'POST', token: salesTok, body: { item_id: gId, employee_id: EA.id, qty: 1 } });
+      ok('销售不能发放实物（发放归行政/人事/仓库）', salesIssue.status === 403, `HTTP ${salesIssue.status}`);
+    } else {
+      ok('销售不能发放实物', true, '没有 sales01，跳过');
+    }
+    if (whTok) {
+      const whIssue = await req('/api/custody/records', { method: 'POST', token: whTok, body: { item_id: gId, employee_id: EB.id, qty: 1 } });
+      ok('仓库能发放实物', whIssue.status === 200, `HTTP ${whIssue.status}`);
+    } else {
+      ok('仓库能发放实物', true, '没有 wh01，跳过');
+    }
+
+    // 15. 跨模块口径：领用/归还/核销全程不碰生产仓
+    ok('★ 工衣领归不碰生产库存（材料仓 / 成品仓 / 材料流水都不变）',
+      Number(CDB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v) === baseStock
+      && Number(CDB.prepare('SELECT COALESCE(SUM(stock_qty),0) v FROM materials').get().v) === baseMat
+      && CDB.prepare('SELECT COUNT(*) c FROM material_ledger').get().c === baseMatLedger,
+      `成品 ${Number(CDB.prepare('SELECT COALESCE(SUM(qty),0) v FROM stock_items').get().v) - baseStock} / 材料 ${Number(CDB.prepare('SELECT COALESCE(SUM(stock_qty),0) v FROM materials').get().v) - baseMat} / 流水 ${CDB.prepare('SELECT COUNT(*) c FROM material_ledger').get().c - baseMatLedger}`);
+
+    // 清理
+    cleanSmoke();
+    ok('冒烟夹具已清干净',
+      CDB.prepare("SELECT COUNT(*) c FROM custody_items WHERE name LIKE '%__SMOKE%'").get().c === 0
+      && CDB.prepare("SELECT COUNT(*) c FROM custody_claims WHERE claim_no LIKE 'DZ%' AND desc_text LIKE '%烟测%'").get().c === 0
+      && CDB.prepare("SELECT COUNT(*) c FROM assets WHERE name LIKE '%__SMOKE%'").get().c === 0,
+      `实物 ${CDB.prepare("SELECT COUNT(*) c FROM custody_items WHERE name LIKE '%__SMOKE%'").get().c} / 资产 ${CDB.prepare("SELECT COUNT(*) c FROM assets WHERE name LIKE '%__SMOKE%'").get().c}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

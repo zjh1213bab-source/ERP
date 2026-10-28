@@ -253,6 +253,28 @@
 | crm | POST | `/targets` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | GET | `/targets/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | crm | POST | `/targets/:id/approve` | ✅ | — | — | — | — | — | ✅ | — |
+| custody | GET | `/board` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | GET | `/claims` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | POST | `/claims` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| custody | GET | `/clearances` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | POST | `/clearances` | ✅ | — | — | — | — | — | — | ✅ |
+| custody | POST | `/clearances/:id/close` | ✅ | — | — | — | — | — | — | ✅ |
+| custody | POST | `/finance/:id` | ✅ | — | — | — | — | — | ✅ | — |
+| custody | GET | `/items` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | POST | `/items` | ✅ | — | — | — | — | — | — | ✅ |
+| custody | GET | `/items/:id/timeline` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | GET | `/meta` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | GET | `/overdue` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | GET | `/person/:employeeId` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | GET | `/records` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | POST | `/records` | ✅ | — | — | — | — | ✅ | — | ✅ |
+| custody | GET | `/records/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| custody | POST | `/records/:id/publish` | ✅ | — | — | — | — | ✅ | — | ✅ |
+| custody | POST | `/records/:id/return` | ✅ | — | — | — | — | ✅ | — | ✅ |
+| custody | POST | `/records/:id/transfer` | ✅ | — | — | — | — | ✅ | — | ✅ |
+| custody | POST | `/restore/:id` | ✅ | — | — | — | — | — | — | ✅ |
+| custody | POST | `/review/:id` | ✅ | — | — | — | — | — | ✅ | ✅ |
+| custody | POST | `/scrap/:id` | ✅ | — | — | — | — | — | — | ✅ |
 | customerProgress | GET | `/meta` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
 | customerProgress | GET | `/orders` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
 | customerProgress | GET | `/orders/:id/history` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
@@ -1137,6 +1159,11 @@
 | `office.apply` | 系统管理员、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
 | `office.manage` | 系统管理员、人事行政、财务会计 |
 | `statementfile.publish` | 系统管理员、财务会计 |
+| `custody.read` | 系统管理员、总经理、销售跟单、技术打版、生产车间、仓库采购、财务会计、人事行政 |
+| `custody.issue` | 系统管理员、人事行政、仓库采购 |
+| `custody.manage` | 系统管理员、人事行政 |
+| `custody.claim` | 系统管理员、人事行政、财务会计 |
+| `custody.finance` | 系统管理员、财务会计 |
 | `hr.pii` | 人事行政 |
 | `crm.pii` | 销售跟单、财务会计 |
 | `supplier.pii` | 仓库采购、财务会计 |

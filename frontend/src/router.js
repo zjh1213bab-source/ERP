@@ -97,6 +97,7 @@ import SelfService from './views/SelfService.vue';
 import CustomerProgress from './views/CustomerProgress.vue';
 import AfterSales from './views/AfterSales.vue';
 import OfficeSupply from './views/OfficeSupply.vue';
+import Custody from './views/Custody.vue';
 import PrintBatch from './views/PrintBatch.vue';
 import ScanGo from './views/ScanGo.vue';
 import MobileHome from './views/MobileHome.vue';
@@ -142,6 +143,7 @@ const routes = [
       { path: 'customer-progress', component: CustomerProgress, meta: { title: '客户进度发布' } },
       { path: 'after-sales', component: AfterSales, meta: { title: '售后与对账资料' } },
       { path: 'office-supply', component: OfficeSupply, meta: { title: '办公耗材与服务采购' } },
+      { path: 'custody', component: Custody, meta: { title: '资产工衣与领归' } },
       { path: 'scan', component: Scan, meta: { title: '扫码查询' } },
       { path: 'approvals', component: Approvals, meta: { title: '审批中心' } },
       { path: 'assistant', component: Assistant, meta: { title: '智能助手' } },

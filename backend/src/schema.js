@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 723 个对象
- * （339 张表 + 384 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 745 个对象
+ * （344 张表 + 401 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -728,5 +728,27 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_office_po_items ON office_purchase_items(purchase_id);",
   "CREATE TABLE IF NOT EXISTS office_purchase_sources (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  purchase_id INTEGER NOT NULL,\n  request_id INTEGER NOT NULL,\n  req_no TEXT\n);",
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_office_po_src ON office_purchase_sources(request_id, purchase_id);",
-  "CREATE INDEX IF NOT EXISTS idx_office_po_src_po ON office_purchase_sources(purchase_id);"
+  "CREATE INDEX IF NOT EXISTS idx_office_po_src_po ON office_purchase_sources(purchase_id);",
+  "CREATE TABLE IF NOT EXISTS custody_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  item_no TEXT NOT NULL,                          -- 实物编号 WW+YYYYMMDD+序号（一物一码）\n  item_code TEXT,                                 -- 外来编号（工衣胸标 / 钥匙牌号 / 资产编号）\n  company_id INTEGER NOT NULL DEFAULT 1,\n  kind TEXT NOT NULL DEFAULT 'uniform',           -- uniform 工衣 / tool 工具 / key 钥匙 / card 门禁卡 / ppe 劳保 / other 其他\n  name TEXT NOT NULL,\n  spec TEXT,\n  size TEXT,                                      -- 尺码（工衣）\n  color TEXT,\n  durable INTEGER NOT NULL DEFAULT 1,             -- 1 一物一码，同一时间只能一个人在用\n  qty_total REAL NOT NULL DEFAULT 1,              -- 在册数量（消耗品按批次数量）\n  qty_out REAL NOT NULL DEFAULT 0,                -- 已领出未还数量\n  unit TEXT NOT NULL DEFAULT '件',\n  require_return INTEGER NOT NULL DEFAULT 1,      -- 1 必须归还（钥匙/工具/门禁卡）/ 0 不强制（工衣）\n  max_per_person REAL NOT NULL DEFAULT 0,         -- 个人同时在手上限（工衣 2 套/季），0 = 不限\n  life_months INTEGER NOT NULL DEFAULT 0,         -- 建议更换周期（只提示，不生成任务）\n  asset_id INTEGER,                               -- 关联固定资产卡（TS-N12-12 一物一码）\n  location TEXT,                                  -- 存放位置（钥匙柜 A-03 等）\n  status TEXT NOT NULL DEFAULT 'active',          -- active 在册 / scrapped 已处置\n  scrap_no TEXT,                                  -- 处置单号 / 财务回执号\n  scrap_mode TEXT,                                -- dispose 报废变卖 / transfer 转出 / write_off 盘亏核销\n  note TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL,\n  demo_tag TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_custody_item_no ON custody_items(item_no);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_item_kind ON custody_items(kind, status);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_item_asset ON custody_items(asset_id);",
+  "CREATE TABLE IF NOT EXISTS custody_records (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  rec_no TEXT NOT NULL,                           -- LY+YYYYMMDD+序号\n  item_id INTEGER NOT NULL,\n  item_kind TEXT,                                 -- 冗余：档案改了类别，历史记录仍按当时口径统计\n  durable INTEGER NOT NULL DEFAULT 1,             -- 冗余：同上，且唯一索引要用\n  employee_id INTEGER,\n  employee_name TEXT NOT NULL,                    -- 冗余：员工离职删除档案后仍要能追责\n  dept_id INTEGER,\n  dept_name TEXT,\n  qty REAL NOT NULL DEFAULT 1,\n  status TEXT NOT NULL DEFAULT 'issued',          -- draft 草稿 / issued 使用中 / awaiting 待归还 / returned 已归还 / lost 遗失 / written_off 已核销\n  issued_at TEXT,\n  issued_by TEXT,\n  handover_by TEXT,                               -- 领用人签收\n  expected_return_at TEXT,                        -- 空 = 不设期限（工衣不强制）\n  returned_at TEXT,\n  returned_qty REAL NOT NULL DEFAULT 0,\n  received_by TEXT,                               -- 收回人\n  condition TEXT,                                 -- good 完好 / worn 磨损 / damaged 损坏 / lost 遗失\n  prev_record_id INTEGER,                         -- 转交来源（原记录）\n  clearance_id INTEGER,                           -- 由哪次离职清退生成\n  attachment TEXT,                                -- 签收单/照片路径\n  note TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL,\n  demo_tag TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_custody_open_item ON custody_records(item_id)\n  WHERE durable = 1 AND returned_at IS NULL AND status IN ('issued','awaiting');",
+  "CREATE INDEX IF NOT EXISTS idx_custody_rec_item ON custody_records(item_id);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_rec_emp ON custody_records(employee_id, status);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_rec_status ON custody_records(status);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_rec_due ON custody_records(expected_return_at);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_rec_clear ON custody_records(clearance_id);",
+  "CREATE TABLE IF NOT EXISTS custody_clearances (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  clearance_no TEXT NOT NULL,\n  employee_id INTEGER NOT NULL,\n  employee_name TEXT NOT NULL,\n  dept_id INTEGER,\n  dept_name TEXT,\n  leave_date TEXT,\n  reason TEXT,\n  status TEXT NOT NULL DEFAULT 'open',            -- open 清退中 / closed 已清完\n  must_total INTEGER NOT NULL DEFAULT 0,          -- 必须归还件数（钥匙/工具/门禁卡）\n  must_done INTEGER NOT NULL DEFAULT 0,\n  optional_total INTEGER NOT NULL DEFAULT 0,      -- 可选（工衣）：不退回也允许结案\n  optional_done INTEGER NOT NULL DEFAULT 0,\n  created_by TEXT,\n  closed_at TEXT,\n  closed_by TEXT,\n  note TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL,\n  demo_tag TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_custody_clr_no ON custody_clearances(clearance_no);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_clr_emp ON custody_clearances(employee_id, status);",
+  "CREATE TABLE IF NOT EXISTS custody_claims (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  claim_no TEXT NOT NULL,                         -- DZ+YYYYMMDD+序号\n  record_id INTEGER,\n  item_id INTEGER,\n  employee_id INTEGER,\n  employee_name TEXT,\n  damage_type TEXT NOT NULL DEFAULT 'damaged',    -- damaged 损坏 / lost 遗失\n  qty REAL NOT NULL DEFAULT 1,\n  found_at TEXT,\n  desc_text TEXT,\n  claim_amount REAL NOT NULL DEFAULT 0,           -- 申报损失（采购价/重置价）\n  review_status TEXT NOT NULL DEFAULT 'pending',  -- pending 待复核 / cleared 无责 / partial 部分责任 / liable 全责 / closed 已结案\n  liable_pct REAL,                                -- 责任比例 0~100\n  liable_amount REAL,                             -- 定责金额 = claim_amount × pct\n  reviewer_note TEXT,\n  reviewed_by TEXT,\n  reviewed_at TEXT,\n  -- 财务确认独立一步：没有回执号，定责金额只是「建议」，不进任何账\n  finance_confirm_no TEXT,\n  finance_confirmed_by TEXT,\n  finance_confirmed_at TEXT,\n  finance_note TEXT,\n  status TEXT NOT NULL DEFAULT 'open',            -- open / closed\n  note TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL,\n  demo_tag TEXT\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_custody_claim_no ON custody_claims(claim_no);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_claim_status ON custody_claims(review_status);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_claim_rec ON custody_claims(record_id);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_claim_emp ON custody_claims(employee_id);",
+  "CREATE TABLE IF NOT EXISTS custody_actions (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,                      -- item / record / claim / clearance\n  target_id INTEGER NOT NULL,\n  action TEXT NOT NULL,                           -- create/issue/return/transfer/claim/review/finance/scrap/write_off\n  detail TEXT,\n  qty REAL,\n  actor TEXT,\n  created_at TEXT NOT NULL,\n  demo_tag TEXT\n);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_act_target ON custody_actions(target_type, target_id);",
+  "CREATE INDEX IF NOT EXISTS idx_custody_act_action ON custody_actions(action, created_at);"
 ];

@@ -19,37 +19,8 @@ const { authRequired, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const WRITE = ['admin', 'hr', 'finance'];
-const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
-
-const STATUS_LABELS = { in_use: '在用', idle: '闲置', scrapped: '已报废' };
-
-function monthsSince(dateStr, until) {
-  if (!dateStr) return 0;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 0;
-  const end = until ? new Date(until) : new Date();
-  let m = (end.getFullYear() - d.getFullYear()) * 12 + (end.getMonth() - d.getMonth());
-  if (end.getDate() < d.getDate()) m -= 1;
-  return Math.max(0, m);
-}
-
-function withDepreciation(row) {
-  const original = Number(row.original_value) || 0;
-  const salvageRate = Number(row.salvage_rate) || 0;
-  const years = Number(row.useful_years) || 0;
-  const months = monthsSince(row.purchase_date);
-  const depreciable = round2(original * (1 - salvageRate));
-  const monthly = years > 0 ? round2(depreciable / (years * 12)) : 0;
-  const accumulated = Math.min(round2(monthly * months), depreciable);
-  return {
-    ...row,
-    status_label: STATUS_LABELS[row.status] || row.status,
-    months_used: months,
-    monthly_depreciation: monthly,
-    accumulated_depreciation: accumulated,
-    net_value: round2(original - accumulated)
-  };
-}
+// 折旧口径只维护一份：行政的「工衣与领归」页面要读净值，不能各算一遍
+const { round2, STATUS_LABELS, withDepreciation } = require('../services/assetDep');
 
 router.get('/', authRequired, wrap(async (req, res) => {
   const { category = '', status = '', q = '' } = req.query;
