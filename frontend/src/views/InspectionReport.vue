@@ -7,6 +7,7 @@
       <span class="ir-bar-no">{{ snap.order ? snap.order.order_no : '' }}</span>
       <span class="ir-spacer"></span>
       <select v-if="history.length" v-model.number="curId" class="inp sm" @change="openVersion">
+        <option v-if="isPreview" :value="null" disabled>历史版本（{{ history.length }}）</option>
         <option v-for="h in history" :key="h.id" :value="h.id">
           v{{ h.version }} · {{ h.report_no }} · {{ fmt(h.generated_at) }}
         </option>
