@@ -15,6 +15,21 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { faGate, PRE_NODES } = require('./firstArticles');
 const SKILL = require('../services/skillMatrix');
+const scope = require('../access/companyScope');
+
+/**
+ * 报工没有自己的 `company_id` —— 它挂在订单上。
+ * 所以范围一律通过订单判：读不到的订单，它的报工也不存在。
+ */
+function orderOr404(user, orderId) {
+  const r = scope.assertOrder(user, orderId);
+  if (!r.ok) {
+    const e = new Error(r.reason);
+    e.status = r.status;
+    throw e;
+  }
+  return r.row;
+}
 
 const router = express.Router();
 const WRITE = ['admin', 'production'];
@@ -26,13 +41,23 @@ router.get('/', authRequired, wrap(async (req, res) => {
   if (node_id) { where.push('node_id = ?'); params.push(node_id); }
   if (order_id) { where.push('order_id = ?'); params.push(order_id); }
   if (!where.length) return fail(res, 400, '缺少 node_id 或 order_id');
-  const sql = 'SELECT * FROM production_reports WHERE ' + where.join(' AND ') + ' ORDER BY id DESC';
+  // 按工序查时不带订单：先由工序反查订单再判归属（别家的工序 = 不存在）
+  if (node_id) {
+    const node = db.prepare('SELECT order_id FROM order_nodes WHERE id = ?').get(node_id);
+    if (!node) return fail(res, 404, '生产工序不存在');
+    orderOr404(req.user, node.order_id);
+  } else {
+    orderOr404(req.user, order_id);
+  }
+  const sc = scope.orderOwnedSql(scope.filterCompanyId(req.user), 'order_id');
+  const sql = 'SELECT * FROM production_reports WHERE ' + where.join(' AND ') + sc.sql + ' ORDER BY id DESC';
   return ok(res, db.prepare(sql).all(...params));
 }));
 
 router.get('/summary', authRequired, wrap(async (req, res) => {
   const { order_id } = req.query;
   if (!order_id) return fail(res, 400, '缺少 order_id');
+  orderOr404(req.user, order_id);
   const rows = db.prepare(
     `SELECT node_id, SUM(qty_ok) AS ok, SUM(qty_defect) AS defect, SUM(hours) AS hours, COUNT(*) AS cnt
      FROM production_reports WHERE order_id = ? GROUP BY node_id`
@@ -47,7 +72,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   if (!node) return fail(res, 404, '生产工序不存在');
   const orderId = b.order_id ? Number(b.order_id) : Number(node.order_id);
   if (orderId !== Number(node.order_id)) return fail(res, 400, '所选工序不属于该订单，报工未保存');
-  const order = db.prepare('SELECT id, status FROM orders WHERE id = ?').get(orderId);
+  const order = orderOr404(req.user, orderId);   // 别家的订单在这里就是 404
   if (!order) return fail(res, 404, '订单不存在');
   if (order.status !== 'production') return fail(res, 400, `订单当前为「${order.status}」，只有生产中的订单可以报工`);
 
@@ -156,6 +181,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = db.prepare('SELECT * FROM production_reports WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '报工记录不存在');
+  orderOr404(req.user, row.order_id);   // 别家的报工不能删
   const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(row.order_id);
   if (!order || order.status !== 'production') return fail(res, 400, '订单离开生产状态后，报工记录不可删除');
 

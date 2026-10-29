@@ -12064,6 +12064,123 @@ async function req(path, { method = 'GET', body, token } = {}) {
       left === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(wname), '已删');
   }
 
+  // ================= 数据范围：报工与工序（挂在订单上，按订单判） =================
+  {
+    console.log('\n[数据范围：报工与工序]');
+    const { db: MDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const ts = '2026-10-20 09:00:00';
+    const CO2 = 2;
+
+    // 单号不带横线（扫码解析按 '-' 分段）
+    MDB.prepare("DELETE FROM orders WHERE order_no IN ('SCOPEPR1','SCOPEPR2')").run();
+    const mkProdOrder = (no, companyId) => {
+      const info = MDB.prepare(
+        `INSERT INTO orders (order_no, type, status, rate, total_usd, total_amount, currency, style_name,
+           order_date, delivery_date, created_at, updated_at, company_id, node_template_id)
+         VALUES (?, 'custom', 'production', 7.1, 100, 710, 'USD', ?, '2026-10-20', '2026-11-20', ?, ?, ?, ?)`
+      ).run(no, `范围报工 ${no}`, ts, ts, companyId, null);
+      const oid = Number(info.lastInsertRowid);
+      MDB.prepare('INSERT INTO order_items (order_id, product_name, style_no, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?)')
+        .run(oid, `范围报工 ${no}`, `${no}A`, 100, 100, 710);
+      return oid;
+    };
+    const ordOther = mkProdOrder('SCOPEPR1', 1);   // 总部
+    const ordOwn = mkProdOrder('SCOPEPR2', CO2);   // 分部
+
+    const pname = 'scope_prod';
+    const ppwd = 'ScopeProd123456';
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(pname);
+    MDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(pname, hashPassword(ppwd), '范围测试生产', 'production', CO2, ts);
+    require('../src/services/access').clearCache();
+
+    const pl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: pname, password: ppwd })
+    }).then((r) => r.json());
+    const pTok = pl.data && pl.data.token;
+    ok('分公司生产账号可登录', !!pTok, pl.message || 'ok');
+
+    // 两边各自初始化工序（走真实接口，顺带验证守卫放行自己、拦住别家）
+    const initOwn = await req('/api/order-nodes/init', { method: 'POST', token: pTok, body: { order_id: ordOwn } });
+    const initOther = await req('/api/order-nodes/init', { method: 'POST', token: pTok, body: { order_id: ordOther } });
+    ok('★ 分厂账号能给自己订单初始化工序，对别家订单返回 404',
+      initOwn.status === 200 && Array.isArray(initOwn.json.data) && initOther.status === 404,
+      `自己 ${initOwn.status} / 别家 ${initOther.status}`);
+
+    // 总部那张单由管理员初始化工序（分部那次被拦住了，所以要另建一份才能测后续跨主体读）
+    await req('/api/order-nodes/init', { method: 'POST', token, body: { order_id: ordOther } });
+    const otherNode = MDB.prepare('SELECT id FROM order_nodes WHERE order_id = ? ORDER BY seq LIMIT 1').get(ordOther);
+    const ownNode = MDB.prepare('SELECT id FROM order_nodes WHERE order_id = ? ORDER BY seq LIMIT 1').get(ordOwn);
+
+    // ---- 1. 工序节点：列表 / 弹窗 / 改状态 ----
+    const nodesOther = await req(`/api/order-nodes?order_id=${ordOther}`, { token: pTok });
+    ok('★ 跨主体读工序节点返回 404', nodesOther.status === 404, `HTTP ${nodesOther.status}`);
+
+    const panelOther = await req(`/api/order-nodes/${otherNode.id}/panel`, { token: pTok });
+    ok('★ 跨主体点开工序弹窗返回 404（面板里有备注、凭证、时间线）',
+      panelOther.status === 404, `HTTP ${panelOther.status}`);
+
+    const patchOther = await req(`/api/order-nodes/${otherNode.id}`, {
+      method: 'PATCH', token: pTok, body: { status: 'done' }
+    });
+    ok('★ 跨主体不能推进别家的工序状态', patchOther.status === 404, `HTTP ${patchOther.status}`);
+
+    const patchOwn = await req(`/api/order-nodes/${ownNode.id}`, {
+      method: 'PATCH', token: pTok, body: { status: 'doing' }
+    });
+    ok('自己订单的工序可以正常推进', patchOwn.status === 200, `HTTP ${patchOwn.status}`);
+
+    // ---- 2. 报工：读与写都要拦 ----
+    const repListOther = await req(`/api/reports?order_id=${ordOther}`, { token: pTok });
+    ok('★ 跨主体读报工明细返回 404', repListOther.status === 404, `HTTP ${repListOther.status}`);
+
+    const repPostOther = await req('/api/reports', {
+      method: 'POST', token: pTok, body: { node_id: otherNode.id, qty_ok: 10 }
+    });
+    ok('★ 跨主体不能给别家的工序报工（报工直接乘计件工资）',
+      repPostOther.status === 404, `HTTP ${repPostOther.status}`);
+
+    // ---- 3. 订单跟踪看板：卡片与明细同一口径 ----
+    const nf = await req('/api/node-flow/board?limit=200', { token: pTok });
+    const nfRows = (nf.json.data && nf.json.data.rows) || [];
+    const nfNos = nfRows.map((r) => r.order_no);
+    const nfTotal = Number((nf.json.data && nf.json.data.stats && nf.json.data.stats.total) || 0);
+    ok('★ 分厂的订单跟踪看板不含总部订单，且卡片数与明细条数一致',
+      nf.status === 200 && nfNos.includes('SCOPEPR2') && !nfNos.includes('SCOPEPR1') && nfTotal === nfRows.length,
+      `卡片 ${nfTotal} / 明细 ${nfRows.length} / 含总部单=${nfNos.includes('SCOPEPR1')}`);
+
+    // ---- 4. 生产看板 ----
+    const pb = await req('/api/production/board', { token: pTok });
+    const pbNos = (pb.json.data || []).map((r) => r.order_no);
+    ok('★ 分厂的生产看板不含总部在产单',
+      pb.status === 200 && pbNos.includes('SCOPEPR2') && !pbNos.includes('SCOPEPR1'),
+      `看到 ${pbNos.length} 张`);
+
+    // ---- 5. 集团管理员仍看得到两边 ----
+    const adminRepOther = await req(`/api/reports?order_id=${ordOther}`, { token });
+    const adminNf = await req('/api/node-flow/board?limit=200', { token });
+    const adminNfNos = ((adminNf.json.data && adminNf.json.data.rows) || []).map((r) => r.order_no);
+    ok('★ 集团管理员仍能读到两个主体的报工与看板',
+      adminRepOther.status === 200 && adminNfNos.includes('SCOPEPR1') && adminNfNos.includes('SCOPEPR2'),
+      `报工 ${adminRepOther.status} / 看板 ${adminNfNos.length} 张`);
+
+    // ---- 清理 ----
+    [ordOther, ordOwn].forEach((id) => {
+      MDB.prepare('DELETE FROM order_node_logs WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
+      MDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM orders WHERE id = ?').run(id);
+    });
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(pname);
+    require('../src/services/access').clearCache();
+    const leftPr = Number(MDB.prepare("SELECT COUNT(*) c FROM orders WHERE order_no IN ('SCOPEPR1','SCOPEPR2')").get().c);
+    ok('报工与工序范围夹具已清干净',
+      leftPr === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(pname), '已删');
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');

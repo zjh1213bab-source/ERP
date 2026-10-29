@@ -6,6 +6,7 @@ const express = require('express');
 const { db } = require('../db');
 const { ok, wrap } = require('../utils/http');
 const { authRequired } = require('../middleware/auth');
+const scope = require('../access/companyScope');
 
 const router = express.Router();
 
@@ -13,6 +14,9 @@ router.get('/board', authRequired, wrap(async (req, res) => {
   const { status = '' } = req.query;
   const where = ["o.status IN ('assigned','production','instock')"];
   const params = [];
+  // 主体在最前：后面的参数位置跟着它走（分部的看板不该出现总部的在产单）
+  const cid = scope.filterCompanyId(req.user);
+  if (cid) { where.push('o.company_id = ?'); params.push(cid); }
   if (status) { where.push('o.status = ?'); params.push(status); }
 
   const sql = `

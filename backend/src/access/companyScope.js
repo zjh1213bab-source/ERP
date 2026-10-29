@@ -35,13 +35,17 @@
  *      注意这里的边界：**实物存量不分主体**（`materials` / `stock_items` /
  *      `stock_ledger` 没有 `company_id`，一个仓里有多少是物理事实），
  *      只有**单据**按主体 —— 详见 `services/matflow.js` 顶部说明。
- *   4. 写入侧：开票（订单发货开应收、采购入库开应付）、手工开票、登记收付款、
- *      付款申请执行付款、领料单 / 退料单 / 盘点单，都按主体落 `company_id`。
+ *   4. 生产执行域：报工明细与汇总（读/写/删）、工序节点（列表 / 弹窗 / 推进 / 初始化 /
+ *      删除 / 从看板分配）、生产看板、订单跟踪看板（含统计卡片）。
+ *      这些表同样没有 `company_id`，全部**按 `order_id` 判归属**（见 `orderOwnedSql`）。
+ *   5. 写入侧：开票（订单发货开应收、采购入库开应付）、手工开票、登记收付款、
+ *      付款申请执行付款、领料单 / 退料单 / 盘点单、报工，都按主体落 `company_id`。
  *
- * **未接入**：生产报工 / 采购 / 人事薪酬 / 集团报表 / 资金计划 / 对账单 /
- * 数据导出。也就是说这套东西对"分部看不到总部单据"这件事做到了
- * **订单、账款、库房单据三层**；要全站隔离，按 `docs/DB-SCHEMA.md` 顶部「数据库边界」
- * 的清单逐域接入，每接一个域就在冒烟里加一条"跨公司读不到"的用例。
+ * **未接入**：生产报表（准交/效率/质量/在制龄/计划偏差）、采购、人事薪酬、
+ * 集团报表、资金计划、对账单、数据导出。也就是说这套东西对"分部看不到总部单据"
+ * 这件事做到了**订单、账款、库房单据、生产执行四层**；要全站隔离，按
+ * `docs/DB-SCHEMA.md` 顶部「数据库边界」的清单逐域接入，
+ * 每接一个域就在冒烟里加一条"跨公司读不到"的用例。
  *
  * 判断某个接口该不该接的口径：**它返回的是不是"某个法人主体的账"**。
  * 是 → 接入；天生跨主体的合并报表 → 不接，但要显式收 `company_id` 参数。
@@ -152,7 +156,43 @@ function filterCompanyId(user) {
   return s.companyId || null;
 }
 
+/**
+ * 「挂在订单上的表」的范围条件（`order_nodes` / `production_reports` /
+ * `cut_orders` / `commitments` … 都只有 `order_id`，没有 `company_id`）
+ *
+ * 用法：`... WHERE 1=1 ${orderOwnedSql(cid, 'r.order_id').sql}`
+ *
+ * ## 为什么这里内联整数，而不是绑参数
+ *
+ * 主体 id 来自库里的 `users.company_id`，经 `Number()` 取值 —— 没有注入面。
+ * 而这些生产/报工查询动辄七八个条件、参数按顺序绑，加一个条件就得数
+ * 「第几个 ?」，错位一次就是「条件静默失效但查询不报错」——最坏的一种。
+ * 内联没有参数位次问题。**只用于整数**，其他值一律绑参数。
+ *
+ * 传空（集团角色）返回空串，查询保持原样。
+ */
+function orderOwnedSql(companyId, expr = 'order_id') {
+  // 空值 = 集团口径，不过滤
+  if (companyId === null || companyId === undefined || companyId === '') {
+    return { sql: '', params: [], scoped: false };
+  }
+  const cid = Number(companyId);
+  /**
+   * 非法值**必须炸**，不能"返回空条件" ——
+   * 那等于悄悄退化成"看全部"，而这种泄漏在页面上看不出来。
+   * 主体 id 只可能来自 `filterCompanyId()`，出错就是代码问题，早报早改。
+   */
+  if (!Number.isInteger(cid) || cid <= 0) {
+    throw new Error(`orderOwnedSql 收到非法主体 id：${String(companyId)}`);
+  }
+  return {
+    sql: ` AND EXISTS (SELECT 1 FROM orders o_scope WHERE o_scope.id = ${expr} AND o_scope.company_id = ${cid})`,
+    params: [],
+    scoped: true
+  };
+}
+
 module.exports = {
   GROUP_ROLES, of, clause, where, canSee,
-  assertOrder, assertRow, writeCompanyOf, filterCompanyId
+  assertOrder, assertRow, writeCompanyOf, filterCompanyId, orderOwnedSql
 };

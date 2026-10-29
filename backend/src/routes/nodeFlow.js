@@ -79,6 +79,8 @@ router.post('/templates/:id/apply', authRequired, requireRole(WRITE), wrap(async
 
 /* ---------------- 看板 ---------------- */
 router.get('/board', authRequired, wrap(async (req, res) => ok(res, svc.board({
+    // 分部的看板只列自己主体的单（集团角色传 null = 全集团）
+    companyId: require('../access/companyScope').filterCompanyId(req.user),
   templateId: req.query.template_id || null,
   status: req.query.status || '',
   q: req.query.q || '',

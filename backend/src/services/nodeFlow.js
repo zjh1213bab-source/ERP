@@ -573,7 +573,8 @@ function board({
   templateId = null, status = '', q = '', limit = 200,
   customerId = null, manager = '', dueFrom = '', dueTo = '', orderFrom = '', orderTo = '',
   overdue = false, noDue = false, dueSoon = false,
-  nodeCode = '', nodeStatus = '', sort = 'due'
+  nodeCode = '', nodeStatus = '', sort = 'due',
+  companyId = null
 } = {}) {
   const tpl = templateId
     ? db.prepare('SELECT * FROM node_templates WHERE id = ?').get(templateId)
@@ -603,6 +604,12 @@ function board({
      否则点「超期 3」之后数字变 1，人以为筛错了。 */
   const baseWhere = ['o.node_template_id = ?'];
   const baseArgs = [tpl.id];
+  /**
+   * 主体条件放这里，而不是只加在明细查询上：baseWhere 同时给「上面的统计卡片」
+   * 和「下面的明细列表」用。只改一处 → 卡片显示 12 张、点进去 3 条，
+   * 这种不一致没人会去查原因，只会不信这个数。
+   */
+  if (companyId) { baseWhere.push('o.company_id = ?'); baseArgs.push(Number(companyId)); }
   if (status) { baseWhere.push('o.status = ?'); baseArgs.push(status); }
   else baseWhere.push("o.status IN ('assigned','production','instock')");
 

@@ -10,7 +10,7 @@
 
 - **前后端分离**：`frontend` 打包成 `dist`，开发时用 Vite 代理 `/api`。
 - **单库 SQLite（本期就是它）**：零安装、单文件、单实例。359 张表 / 4655 处 SQL 都写着 SQLite 方言，**不是换驱动就能迁 MySQL**；数据库边界与迁移代价见 `deploy/DEPLOY.md` §9。
-- **数据范围**：默认按 `users.company_id` 过滤（集团角色 admin/boss 跨主体），当前**已接入订单、应收应付、库房单据三个域**；库存存量层（`materials`/`stock_items`）没有主体维度，是集团共用一个仓 —— 见 `docs/DB-SCHEMA.md` 顶部。
+- **数据范围**：默认按 `users.company_id` 过滤（集团角色 admin/boss 跨主体），当前**已接入订单、应收应付、库房单据、生产执行四个域**；库存存量层（`materials`/`stock_items`）没有主体维度，是集团共用一个仓 —— 见 `docs/DB-SCHEMA.md` 顶部。
 - **鉴权**：JWT（请求头 `Authorization: Bearer <token>`）+ 角色 RBAC（`middleware/auth.js`）。
 
 ## 2. 目录与职责
