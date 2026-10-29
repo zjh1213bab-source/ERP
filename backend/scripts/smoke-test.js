@@ -11688,6 +11688,115 @@ async function req(path, { method = 'GET', body, token } = {}) {
       !MDB.prepare("SELECT 1 x FROM orders WHERE order_no LIKE 'MASG-TEST-%'").get(), '已删');
   }
 
+  // ================= 数据范围（公司 company_id） =================
+  {
+    console.log('\n[数据范围：公司]');
+    const { db: MDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const ts = '2026-10-20 09:00:00';
+    const OTHER_CO = 2;   // 义乌分公司（演示库里存在）
+
+    const mkOrder = (no, companyId) => {
+      const info = MDB.prepare(
+        `INSERT INTO orders (order_no, type, status, rate, total_usd, total_amount, currency, style_name,
+           order_date, delivery_date, created_at, updated_at, company_id)
+         VALUES (?, 'custom', 'assigned', 7.1, 950, 6745, 'USD', ?, '2026-10-20', '2026-11-20', ?, ?, ?)`
+      ).run(no, `范围测试 ${no}`, ts, ts, companyId);
+      const oid = Number(info.lastInsertRowid);
+      MDB.prepare('INSERT INTO order_items (order_id, product_name, style_no, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?)')
+        .run(oid, `范围测试 ${no}`, `${no}-A`, 100, 950, 6745);
+      return oid;
+    };
+
+    const ownOrder = mkOrder('SCOPE-TEST-1', 1);        // 总部单
+    const otherOrder = mkOrder('SCOPE-TEST-2', OTHER_CO); // 分公司单
+    const uname = 'scope_smoke';
+    const pwd = 'ScopeTest123456';
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(uname);
+    MDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(uname, hashPassword(pwd), '范围测试业务员', 'sales', OTHER_CO, ts);
+
+    /** 分公司业务员登录（走真实登录接口，验证 token/中间件链路） */
+    const subLogin = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: uname, password: pwd })
+    }).then((r) => r.json());
+    const subToken = subLogin.data && subLogin.data.token;
+    ok('分公司账号可以登录（范围过滤不靠"不给登录"实现）', !!subToken, subLogin.message || 'ok');
+
+    // ---- 1. 列表：只看得到自己主体的单 ----
+    const subList = await req('/api/orders', { token: subToken });
+    const subRows = (subList.json.data && (subList.json.data.rows || subList.json.data)) || [];
+    const subNos = subRows.map((r) => r.order_no);
+    ok('★ 分公司账号的订单列表不含总部订单',
+      subList.status === 200 && subNos.includes('SCOPE-TEST-2') && !subNos.includes('SCOPE-TEST-1'),
+      `看到 ${subRows.length} 张：${subNos.slice(0, 5).join(',')}`);
+
+    // ---- 2. 详情 / 单据页 / 改号预览：别家的单当不存在 ----
+    const peekOther = await req(`/api/orders/${ownOrder}`, { token: subToken });
+    ok('★ 跨主体读订单详情返回 404（不是 403，避免被探测存在性）',
+      peekOther.status === 404, `HTTP ${peekOther.status} ${peekOther.json.message || ''}`);
+
+    const peekOwn = await req(`/api/orders/${otherOrder}`, { token: subToken });
+    ok('本主体的订单详情正常可读', peekOwn.status === 200, `HTTP ${peekOwn.status}`);
+
+    const sheetOther = await req(`/api/orders/${ownOrder}/sheet`, { token: subToken });
+    ok('跨主体读单据页同样 404', sheetOther.status === 404, `HTTP ${sheetOther.status}`);
+
+    const renamePreview = await req(`/api/orders/order-no/${ownOrder}/preview?no=HACK-1`, { token: subToken });
+    ok('★ 跨主体连"改号预览"都进不去（写操作的前置读取也拦）', renamePreview.status === 404, `HTTP ${renamePreview.status}`);
+
+    // ---- 3. 写操作：流转也被拦 ----
+    const transOther = await req(`/api/orders/${ownOrder}/transition`, {
+      method: 'POST', token: subToken, body: { to: 'production' }
+    });
+    ok('★ 跨主体不能推进订单状态', transOther.status === 404, `HTTP ${transOther.status}`);
+
+    const batchMix = await req('/api/orders/batch/transition', {
+      method: 'POST', token: subToken, body: { ids: [ownOrder, otherOrder], to: 'production', dry_run: true }
+    });
+    ok('★ 批量流转里混进别家的单 → 整批拒绝（不悄悄只转一半）',
+      batchMix.status === 404 && /不属于你的主体/.test(batchMix.json.message || ''),
+      `HTTP ${batchMix.status} ${(batchMix.json.message || '').slice(0, 30)}`);
+
+    // ---- 4. 统计：分母也必须是本公司 ----
+    const subStats = await req('/api/orders/stats/summary', { token: subToken });
+    const subOrdersCount = Number(MDB.prepare('SELECT COUNT(*) c FROM orders WHERE company_id = ?').get(OTHER_CO).c);
+    ok('★ 工作台统计按本公司算（订单数与库里该主体行数一致）',
+      subStats.status === 200 && Number(subStats.json.data.orders) === subOrdersCount && subStats.json.data.scope === 'company',
+      `接口 ${subStats.json.data && subStats.json.data.orders} / 库里 ${subOrdersCount} / scope=${subStats.json.data && subStats.json.data.scope}`);
+
+    // ---- 5. 导出：与列表同一条规则 ----
+    const subExport = await fetch(BASE + '/api/orders/export', { headers: { Authorization: 'Bearer ' + subToken } });
+    const csv = await subExport.text();
+    ok('★ 导出的 CSV 不含别家订单号（导出是数据出系统的最后一米）',
+      subExport.status === 200 && csv.includes('SCOPE-TEST-2') && !csv.includes('SCOPE-TEST-1'),
+      `${Math.round(csv.length / 1024)}KB`);
+
+    // ---- 6. 集团角色仍然跨主体可见 ----
+    const adminList = await req('/api/orders', { token });
+    const adminNos = ((adminList.json.data && (adminList.json.data.rows || adminList.json.data)) || []).map((r) => r.order_no);
+    ok('★ 集团管理员仍能看到两个主体的单（合并报表不能被范围拦死）',
+      adminNos.includes('SCOPE-TEST-1') && adminNos.includes('SCOPE-TEST-2'),
+      `管理员看到 ${adminNos.length} 张`);
+    const adminStats = await req('/api/orders/stats/summary', { token });
+    ok('管理员统计标记为全集团口径', adminStats.status === 200 && adminStats.json.data.scope === 'group',
+      `scope=${adminStats.json.data && adminStats.json.data.scope}`);
+
+    // ---- 清理 ----
+    [ownOrder, otherOrder].forEach((id) => {
+      MDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
+      MDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM orders WHERE id = ?').run(id);
+    });
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(uname);
+    require('../src/services/access').clearCache();
+    ok('范围测试夹具已清干净',
+      !MDB.prepare("SELECT 1 x FROM orders WHERE order_no LIKE 'SCOPE-TEST-%'").get()
+      && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(uname), '已删');
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');

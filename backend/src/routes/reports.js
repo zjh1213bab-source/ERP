@@ -158,16 +158,31 @@ router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) =>
   if (!row) return fail(res, 404, '报工记录不存在');
   const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(row.order_id);
   if (!order || order.status !== 'production') return fail(res, 400, '订单离开生产状态后，报工记录不可删除');
-  db.prepare('DELETE FROM production_reports WHERE id = ?').run(req.params.id);
-  if (row.node_id) {
-    const totalQty = Number(db.prepare('SELECT COALESCE(SUM(qty),0) AS qty FROM order_items WHERE order_id = ?').get(row.order_id).qty) || 0;
-    const reported = Number(db.prepare(
-      'SELECT COALESCE(SUM(qty_ok + qty_defect),0) AS qty FROM production_reports WHERE order_id = ? AND node_id = ?'
-    ).get(row.order_id, row.node_id).qty) || 0;
-    if (reported + 0.0001 < totalQty) {
-      db.prepare("UPDATE order_nodes SET status='pending', actual_date=NULL WHERE id=? AND order_id=? AND status='done'")
-        .run(row.node_id, row.order_id);
+
+  /**
+   * 删除 + 回写工序状态必须同一个事务
+   *
+   * 原来两步分开：先删记录，再按剩余量决定要不要把工序退回「待开始」。
+   * 第二步失败（锁超时、进程被 kill）就留下「报工没了、工序还绿着」——
+   * 看板上这一步显示已完成，实际一件都没做，而且没有任何地方会报错。
+   */
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('DELETE FROM production_reports WHERE id = ?').run(req.params.id);
+    if (row.node_id) {
+      const totalQty = Number(db.prepare('SELECT COALESCE(SUM(qty),0) AS qty FROM order_items WHERE order_id = ?').get(row.order_id).qty) || 0;
+      const reported = Number(db.prepare(
+        'SELECT COALESCE(SUM(qty_ok + qty_defect),0) AS qty FROM production_reports WHERE order_id = ? AND node_id = ?'
+      ).get(row.order_id, row.node_id).qty) || 0;
+      if (reported + 0.0001 < totalQty) {
+        db.prepare("UPDATE order_nodes SET status='pending', actual_date=NULL WHERE id=? AND order_id=? AND status='done'")
+          .run(row.node_id, row.order_id);
+      }
     }
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch (e2) { /* 已自动回滚 */ }
+    throw e;
   }
   return ok(res, { id: Number(req.params.id) });
 }));

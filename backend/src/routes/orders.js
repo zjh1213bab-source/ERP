@@ -20,6 +20,7 @@ const orderFlow = require('../services/orderFlow');
 // 订单号由业务手填（必填、唯一、可改但要级联同步下游）—— 规则统一在服务层，
 // 这里只调用，不在这里重写一遍判断
 const orderNoSvc = require('../services/orderNo');
+const scope = require('../access/companyScope');
 const { STATUS_LABELS, FLOW, CHAIN, TRANSITION_ROLES } = orderFlow;
 
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
@@ -66,6 +67,22 @@ function getOrderFull(id) {
   return order;
 }
 
+/**
+ * 单据级数据范围：不属于本主体一律当作不存在
+ *
+ * 返回 404 而不是 403 —— 403 等于告诉对方「这个 id 存在，只是你没权限」，
+ * 挨个试 id 就能数出别家有多少张单。
+ */
+function orderInScope(req, id) {
+  const r = scope.assertOrder(req.user, id);
+  if (!r.ok) {
+    const e = new Error(r.reason);
+    e.status = r.status;
+    throw e;
+  }
+  return r.row;
+}
+
 // ---------- 列表 ----------
 router.get('/', authRequired, wrap(async (req, res) => {
   const { q = '', status = '', type = '' } = req.query;
@@ -74,6 +91,9 @@ router.get('/', authRequired, wrap(async (req, res) => {
   if (q) { where.push('(o.order_no LIKE ? OR c.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
   if (status) { where.push('o.status = ?'); params.push(status); }
   if (type) { where.push('o.type = ?'); params.push(type); }
+  // 数据范围：默认只看自己主体（admin / boss 跨主体可见）
+  const sc = scope.clause(req.user, 'o.company_id');
+  if (sc.sql) { where.push(sc.sql.replace(/^\s*AND\s+/, '')); params.push(...sc.params); }
   const sql = `SELECT o.*, c.name AS customer_name FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id ` +
     (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY o.id DESC';
@@ -87,13 +107,25 @@ router.get('/meta', authRequired, wrap(async (req, res) => {
 
 // ---------- 工作台统计 ----------
 router.get('/stats/summary', authRequired, wrap(async (req, res) => {
-  const customers = Number(db.prepare('SELECT COUNT(*) AS c FROM customers').get().c);
+  /**
+   * 统计也必须按主体算：分母是"我能看到的单"，
+   * 否则分部打开工作台，看到的是全集团的订单数与金额 —— 数字本身就成了泄露。
+   */
+  const cw = scope.where(req.user, 'company_id');
+  const owhere = cw.sql ? ` WHERE ${cw.sql}` : '';
+  const customers = Number(db.prepare(`SELECT COUNT(*) AS c FROM customers${owhere}`).get(...cw.params).c);
+  // products 是共享主数据（没有 company_id），全集团一份，不参与范围过滤
   const products = Number(db.prepare('SELECT COUNT(*) AS c FROM products').get().c);
-  const orders = Number(db.prepare('SELECT COUNT(*) AS c FROM orders').get().c);
-  const byStatus = db.prepare('SELECT status, COUNT(*) AS c FROM orders GROUP BY status').all();
-  const amount = db.prepare('SELECT COALESCE(SUM(total_amount),0) AS s FROM orders').get().s;
-  const usd = db.prepare('SELECT COALESCE(SUM(total_usd),0) AS s FROM orders').get().s;
-  return ok(res, { customers, products, orders, byStatus, totalAmount: Number(amount), totalUsd: Number(usd) });
+  const orders = Number(db.prepare(`SELECT COUNT(*) AS c FROM orders${owhere}`).get(...cw.params).c);
+  const byStatus = db.prepare(`SELECT status, COUNT(*) AS c FROM orders${owhere} GROUP BY status`).all(...cw.params);
+  const amount = db.prepare(`SELECT COALESCE(SUM(total_amount),0) AS s FROM orders${owhere}`).get(...cw.params).s;
+  const usd = db.prepare(`SELECT COALESCE(SUM(total_usd),0) AS s FROM orders${owhere}`).get(...cw.params).s;
+  return ok(res, {
+    customers, products, orders, byStatus,
+    totalAmount: Number(amount), totalUsd: Number(usd),
+    /** 前端据此决定要不要显示"全集团"字样；跨主体只看得到自己的数就不该声称是全集团 */
+    scope: cw.scoped ? 'company' : 'group'
+  });
 }));
 
 // ---------- 导出 CSV（Excel 可直接打开） ----------
@@ -109,6 +141,9 @@ router.get('/export', authRequired, wrap(async (req, res) => {
   if (q) { where.push('(o.order_no LIKE ? OR c.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
   if (status) { where.push('o.status = ?'); params.push(status); }
   if (type) { where.push('o.type = ?'); params.push(type); }
+  // 导出是"数据出系统的最后一米"，范围必须与列表同一条规则 —— 列表看不到的单，导出来更不该有
+  const scEx = scope.clause(req.user, 'o.company_id');
+  if (scEx.sql) { where.push(scEx.sql.replace(/^\s*AND\s+/, '')); params.push(...scEx.params); }
   const sql = `SELECT o.*, c.name AS customer_name FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id ` +
     (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY o.id DESC';
@@ -159,6 +194,8 @@ router.get('/find', authRequired, wrap(async (req, res) => {
     }
   }
   if (!order) return fail(res, 404, '未找到对应订单：' + raw);
+  // 扫码也要按主体：扫到别家的单同样回答"没找到"，否则试号就能探出别家有几张单
+  if (!scope.canSee(req.user, order)) return fail(res, 404, '未找到对应订单：' + raw);
   return ok(res, { ...order, matched_by: matchedBy });
 }));
 
@@ -176,12 +213,16 @@ router.get('/order-no/trace', authRequired, wrap(async (req, res) =>
   ok(res, orderNoSvc.trace(req.query.no))));
 
 // 改号预览：先看清会连带改哪些表多少行，再决定按不按确认
-router.get('/order-no/:id/preview', authRequired, wrap(async (req, res) =>
-  ok(res, orderNoSvc.previewRename(req.params.id, req.query.no))));
+router.get('/order-no/:id/preview', authRequired, wrap(async (req, res) => {
+  orderInScope(req, req.params.id);
+  return ok(res, orderNoSvc.previewRename(req.params.id, req.query.no));
+}));
 
 // 改号历史
-router.get('/order-no/:id/logs', authRequired, wrap(async (req, res) =>
-  ok(res, orderNoSvc.renameLogs(req.params.id))));
+router.get('/order-no/:id/logs', authRequired, wrap(async (req, res) => {
+  orderInScope(req, req.params.id);
+  return ok(res, orderNoSvc.renameLogs(req.params.id));
+}));
 
 /**
  * 改订单号
@@ -192,8 +233,7 @@ router.get('/order-no/:id/logs', authRequired, wrap(async (req, res) =>
  * 已取消的号还留着改会让历史里出现一个从没存在过的编号。
  */
 router.post('/order-no/:id', authRequired, requireRole(['admin', 'sales']), wrap(async (req, res) => {
-  const order = db.prepare('SELECT id, order_no, status FROM orders WHERE id = ?').get(req.params.id);
-  if (!order) return fail(res, 404, '订单不存在');
+  const order = orderInScope(req, req.params.id);   // 别家的单在这里就是 404
   const LOCKED = ['shipped', 'closed', 'cancelled'];
   if (LOCKED.includes(order.status)) {
     return fail(res, 400, `订单${STATUS_LABELS[order.status] || order.status}，订单号不能再改`
@@ -218,10 +258,13 @@ router.post('/order-no/:id', authRequired, requireRole(['admin', 'sales']), wrap
 router.get('/sheet-fields', authRequired, wrap(async (req, res) =>
   ok(res, orderSheet.printableFields())));
 
-router.get('/:id/sheet', authRequired, wrap(async (req, res) =>
-  ok(res, orderSheet.sheet(req.params.id))));
+router.get('/:id/sheet', authRequired, wrap(async (req, res) => {
+  orderInScope(req, req.params.id);
+  return ok(res, orderSheet.sheet(req.params.id));
+}));
 
 router.get('/:id', authRequired, wrap(async (req, res) => {
+  orderInScope(req, req.params.id);
   const order = getOrderFull(req.params.id);
   if (!order) return fail(res, 404, '订单不存在');
   return ok(res, order);
@@ -335,8 +378,7 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
 
 // ---------- 完善草稿订单的颜色尺码矩阵 ----------
 router.put('/:id/items', authRequired, requireRole(['admin', 'sales']), wrap(async (req, res) => {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
-  if (!order) return fail(res, 404, '订单不存在');
+  const order = orderInScope(req, req.params.id);
   if (order.status !== 'draft') return fail(res, 400, '订单进入技术确认后不可修改颜色尺码明细');
   if (db.prepare('SELECT 1 AS x FROM dispatch_orders WHERE order_id = ? LIMIT 1').get(order.id)) {
     return fail(res, 400, '订单已有分单记录，不可修改明细');
@@ -421,8 +463,7 @@ router.put('/:id/items', authRequired, requireRole(['admin', 'sales']), wrap(asy
 // ---------- 设置款图 ----------
 router.post('/:id/image', authRequired, requireRole(['admin', 'sales', 'tech']), wrap(async (req, res) => {
   const { image_url } = req.body || {};
-  const exists = db.prepare('SELECT 1 AS x FROM orders WHERE id = ?').get(req.params.id);
-  if (!exists) return fail(res, 404, '订单不存在');
+  orderInScope(req, req.params.id);
   db.prepare('UPDATE orders SET image_url = ?, updated_at = ? WHERE id = ?').run(image_url || null, now(), req.params.id);
   return ok(res, { id: Number(req.params.id), image_url: image_url || null });
 }));
@@ -450,6 +491,17 @@ router.post(
   requireRole(['admin', 'sales', 'tech', 'finance', 'production', 'warehouse']),
   wrap(async (req, res) => {
     const b = req.body || {};
+    /**
+     * 批量流转也要过数据范围：ids 是前端传的，直接送别家的单进来
+     * 就会"越过权限批量改状态"。这里整批拒绝 —— 只转一半比直接拒绝更难查。
+     */
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map((x) => Number(x)).filter(Boolean);
+    const outside = ids.filter((id) => !scope.canSee(req.user, db.prepare('SELECT company_id FROM orders WHERE id = ?').get(id)));
+    if (outside.length) {
+      const e = new Error(`有 ${outside.length} 张订单不存在或不属于你的主体（已整批拒绝，避免只转一半）`);
+      e.status = 404;
+      throw e;
+    }
     const r = orderFlow.batchTransition({
       ids: b.ids,
       to: b.to,
@@ -466,6 +518,7 @@ router.post(
 // ---------- 状态流转（单张） ----------
 router.post('/:id/transition', authRequired, wrap(async (req, res) => {
   const { to, note, force } = req.body || {};
+  orderInScope(req, req.params.id);
   const r = orderFlow.transition({ orderId: req.params.id, to, note, force, user: req.user });
   return ok(res, getOrderFull(r.id));
 }));
@@ -483,8 +536,7 @@ router.post('/:id/transition', authRequired, wrap(async (req, res) => {
 router.post('/:id/rollback', authRequired, wrap(async (req, res) => {
   const id = req.params.id;
   const { to, reason } = req.body || {};
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-  if (!order) return fail(res, 404, '订单不存在');
+  const order = orderInScope(req, id);
 
   const cur = order.status;
   if (!CHAIN.includes(cur) || !CHAIN.includes(to)) return fail(res, 400, '非法的状态');

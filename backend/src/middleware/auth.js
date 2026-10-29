@@ -30,6 +30,12 @@ function authRequired(req, res, next) {
     const eff = access.effective(payload.sub, payload.role);
     req.user.roles = eff.roles;
     req.user.permDeny = eff.deny;
+    /**
+     * 主体归属：从库里取（20s 缓存），不信 token ——
+     * token 里没有 company_id，而就算加进去，人换了主体也要等 12 小时才生效。
+     * 各路由用它做数据范围过滤（见 access/companyScope）。
+     */
+    req.user.company_id = access.companyOf(payload.sub);
 
     // 高危动作被收回 → 直接拒绝（只覆盖改钱/改库存/改人事/改权限）
     const hit = access.matchDeny(req);

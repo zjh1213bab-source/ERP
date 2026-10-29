@@ -100,7 +100,7 @@
 |---|---|
 | 前端 | Vue 3 + Vite 5 + d3 v7（业务蓝图） |
 | 后端 | Node.js 18+ / Express 4 |
-| 数据库 | SQLite（better-sqlite3，失败自动回退 node:sqlite），可平滑迁 MySQL |
+| 数据库 | SQLite（better-sqlite3，失败自动回退 node:sqlite）· **本期部署边界**：单文件单实例，迁 MySQL 需单独改造（见 `deploy/DEPLOY.md` §9） |
 | 鉴权 | JWT + scrypt 密码哈希 + RBAC |
 | 部署 | `deploy/install.sh` 一键部署、Nginx（HTTP/HTTPS）、PM2 开机自启、局域网脚本、上线检查清单 |
 
@@ -112,7 +112,7 @@
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 架构、目录职责、模块边界、**新增模块步骤**、约定 |
 | [`docs/API.md`](docs/API.md) | 全量接口清单（改接口先改这里） |
-| [`docs/DB-SCHEMA.md`](docs/DB-SCHEMA.md) | 表结构、计算口径、迁移 MySQL 步骤 |
+| [`docs/DB-SCHEMA.md`](docs/DB-SCHEMA.md) | 表结构、计算口径、数据库边界（含迁 MySQL 的真实代价） |
 | [`docs/ORDER-TO-PRODUCTION-REQUIREMENTS.md`](docs/ORDER-TO-PRODUCTION-REQUIREMENTS.md) | 下单到车间生产的源码审查、缺口与验收需求 |
 | [`docs/TEAM-PLAN.md`](docs/TEAM-PLAN.md) | 模块分工（owner）、分支策略、迭代计划、发布回归清单 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | 上手、提交规范、代码规范、PR 自查 |
@@ -300,7 +300,8 @@ cd backend && node scripts/seed-piecewage-demo.js --reset
 
 ## 七、已知限制 / 后续
 
-- SQLite 单机；多实例请迁 MySQL（步骤见 `docs/DB-SCHEMA.md`）。
+- SQLite 单机：**不要多实例共用一个库文件**；要横向扩展得先做 MySQL 兼容改造（代价与步骤见 `deploy/DEPLOY.md` §9.3）。
+- 数据范围：默认按公司（`company_id`）过滤，目前**只接入订单域**；应收应付、库存、生产、人事等域仍可跨主体读，多主体上线前需逐域接入。
 - 附件仅图片（款图）；PDF/工艺图待接入。
 - 审核为单级状态机，多级审批流待做。
 - 后续：供应商/工厂主数据、外协对账、附件、单据 Logo、人事行政、AI 助手（见 `docs/TEAM-PLAN.md`）。

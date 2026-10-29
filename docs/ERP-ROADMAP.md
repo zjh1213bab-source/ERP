@@ -73,7 +73,7 @@ app_config  (key, value, updated_at)      -- 业务蓝图（原脑图）
 - P5 人事行政：`employees`、`attendance`、`payroll`、`assets`、`admin_expense`
 - 贯穿：`audit_log(user_id, action, target, detail, created_at)`
 
-> 迁移 MySQL：所有访问集中在 `backend/src/db.js` 与 `routes/*`，替换驱动/改 SQL 方言即可，业务逻辑不变。
+> 数据库：**本期就是 SQLite（单文件单实例）**。迁移 MySQL 不是"换驱动"——359 张表、4655 处 SQL、204 处事务都按 SQLite 写的，工作量与分阶段方案见 `deploy/DEPLOY.md` §9.3。
 
 ---
 
@@ -114,7 +114,7 @@ draft 草稿
 ## 六、部署
 
 沿用 `deploy/`：Nginx（`try_files` + `/api` 反代）+ PM2 守护 + 宝塔步骤，详见 `deploy/DEPLOY.md`。
-数据库默认 SQLite（`backend/data/erp-mindmap.db`），后续可平滑迁 MySQL。
+数据库默认 SQLite（`backend/data/erp-mindmap.db`），本期部署边界就是它；迁 MySQL 需要单独的兼容改造与迁移验证（见 `deploy/DEPLOY.md` §9.3）。
 
 ---
 

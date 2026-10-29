@@ -301,10 +301,26 @@ function listReviews() {
   return db.prepare('SELECT * FROM access_reviews ORDER BY id DESC').all();
 }
 
+/**
+ * 某用户属于哪个法人主体（`company_id`）
+ *
+ * 走 20 秒缓存：每个请求都要用，但主体几乎不变；
+ * 改了归属最多 20 秒生效，比"重启才生效"好，也比"每请求一次查询"省。
+ */
+function companyOf(userId) {
+  const key = 'c' + userId;
+  return cached(key, () => {
+    try {
+      const r = db.prepare('SELECT company_id FROM users WHERE id = ?').get(userId);
+      return r && r.company_id ? Number(r.company_id) : null;
+    } catch (e) { return null; }
+  });
+}
+
 module.exports = {
   ROLES, ROLE_LABELS, PERMS, SOD_RULES, GUARDED, WRITE_METHODS,
   allPerms, rolesWithPerm,
-  rolesOf, effective, hasPerm, matchDeny,
+  rolesOf, effective, hasPerm, matchDeny, companyOf,
   setException, removeException, setExtraRoles,
   sodConflicts, reviewMatrix, signOff, listReviews,
   clearCache

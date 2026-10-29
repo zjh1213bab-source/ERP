@@ -13,8 +13,12 @@
   `/api/health` 会带出 `schema.version` 与规模。同一个库被哪份快照打开过，有据可查。
 - **结构不完整就不启动**：建表、补列、建索引任一失败，进程直接退出并列出失败语句（不再"警告后继续跑"）——
   带着缺表缺列的库对外服务，比起不来更危险。
-- **`company_id` 不是租户隔离**：72 张表带这个字段，口径是"集团内哪个法人主体"，用于合并报表与分部对比；
+- **`company_id` 不是租户隔离键**：72 张表带这个字段，口径是"集团内哪个法人主体"，用于合并报表与分部对比；
   登录不按公司限制。一个实例服务一家集团（可含多个法人主体），不能当 SaaS 给多家客户共用。
+- **数据范围已接入范围（截至 v1.58）**：`access/companyScope.js` 定规则（默认只看 `users.company_id`，集团角色 admin/boss 跨主体），
+  **已接入订单域**（列表 / 导出 / 工作台统计 / 详情 / 单据页 / 扫码 / 改号 / 图片 / 流转 / 批量流转 / 回退）；
+  **其余业务域未接入**（应收应付、库存、生产、人事、采购…），这些页面仍能跨主体读。
+  多主体上线前要逐域接入，每接一个域在冒烟里加一条"跨公司读不到"的用例 —— 冒烟现有 13 条覆盖订单域。
 
 
 ## 组织与账号
@@ -774,10 +778,19 @@
 - **头程不改库存**：段与箱只登记运输事实，真实收货上架走 `wh_receipts` / `wh_putaways`。
 
 ## 迁移 MySQL
-1. 建库并用等价 DDL 建表（字段名保持不变）。
-2. 替换 `db.js` 中 better-sqlite3 连接为 mysql2 连接池；`prepare().get/all/run` 改写为 async 查询。
-3. 路由层把 `db.prepare(...).get(...)` 改为 `await query(...)`（其余业务逻辑不变）。
-4. `VACUUM INTO` 备份改为 `mysqldump`。
+
+**不是"换驱动 + 改 SQL 方言"这么简单**，按这一节的简化版直接上手会踩空。真正的代价清单与分阶段方案在
+`deploy/DEPLOY.md` §9.3（359 张表 / 4655 处 `db.prepare` / 204 处显式事务 / 5 类 SQLite 专有语法）。
+
+真要迁，最短的正确路径是：
+
+1. 先把散落在 122 个路由文件里的 SQL 收进 `services/`（现在没有统一的数据访问层，双写无从下手）；
+2. 建 MySQL 结构 + 双写对影子读，同一批业务场景比对两边结果；
+3. 逐类替换方言：`AUTOINCREMENT`→`AUTO_INCREMENT`、`ON CONFLICT…DO UPDATE`→`ON DUPLICATE KEY UPDATE`、
+   `julianday/strftime/date('now')`→`DATEDIFF/DATE_FORMAT/NOW()`、`VACUUM INTO`→`mysqldump`、
+   `PRAGMA table_info`→`information_schema`、`BEGIN IMMEDIATE`→`SELECT … FOR UPDATE`；
+4. 全量迁移后对四本账（订单金额 / 库存 / 借贷平衡 / 应收应付）逐一核对；
+5. 灰度切换并保留 SQLite 回退窗口。
 
 ## 有限产能排程（M06）
 

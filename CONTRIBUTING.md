@@ -28,7 +28,7 @@ cd backend && npm run smoke
 |---|---|
 | `docs/ARCHITECTURE.md` | 架构、目录职责、新增模块步骤、约定 |
 | `docs/API.md` | 接口清单（改接口先改这里） |
-| `docs/DB-SCHEMA.md` | 表与字段、计算口径、迁移 MySQL |
+| `docs/DB-SCHEMA.md` | 表与字段、计算口径、数据库边界（SQLite 单实例 / 迁 MySQL 代价） |
 | `docs/TEAM-PLAN.md` | 模块归属、分支策略、迭代计划、发布回归 |
 
 ## 3. 分支与提交
