@@ -30,6 +30,24 @@
 const { db } = require('../db');
 const { localDate } = require('./sla');
 const gl = require('./gl');
+const scope = require('../access/companyScope');
+
+/**
+ * 生产报表的主体范围
+ *
+ * 这些报表的主表（commitments / production_reports / rework_orders / qc_inspections /
+ * order_nodes / cut_orders）**都没有 company_id**，全挂在订单上 ——
+ * 所以统一按 order_id（或已 JOIN 进来的 o.company_id）过滤。
+ *
+ * 两个容易写错的地方：
+ *   1. **过滤必须加在"取原始行"的那条查询上**。这些报表都是"先把行捞出来、
+ *      再在 JS 里算比率"，如果在算完之后再过滤，分母已经是全集团的了 ——
+ *      分部的准交率会变成既不是自己、也不是集团的第三个数。
+ *   2. **内联整数不绑参数**：一条报表查询动辄七八个条件，多绑一个就要数
+ *      「第几个 ?」，错位一次条件就静默失效（见 access/companyScope.js）。
+ */
+const byOrder = (cid, expr) => scope.orderOwnedSql(cid, expr).sql;
+const bySelf = (cid, col) => scope.companyClauseSql(cid, col).sql;
 
 const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const r1 = (v) => Math.round((Number(v) || 0) * 10) / 10;
@@ -88,7 +106,7 @@ function onTime(q = {}) {
               o.type AS order_type
          FROM commitments c
          LEFT JOIN orders o ON o.id = c.order_id
-        WHERE IFNULL(c.promised_date,'') <> ''`
+        WHERE IFNULL(c.promised_date,'') <> ''${byOrder(q.companyId, 'c.order_id')}`
     )
     .all();
 
@@ -194,7 +212,7 @@ function routeSegments(q = {}) {
     .prepare(
       `SELECT id, order_no, promised_date, actual_ship_date, t0_at, planned_date, forecast_date
          FROM commitments
-        WHERE IFNULL(promised_date,'') <> '' AND promised_date BETWEEN ? AND ?`
+        WHERE IFNULL(promised_date,'') <> '' AND promised_date BETWEEN ? AND ?${byOrder(q.companyId, 'order_id')}`
     )
     .all(start, end);
 
@@ -290,7 +308,7 @@ function efficiency(q = {}) {
     .prepare(
       `SELECT r.node_name, r.qty_ok, r.qty_defect, r.hours, r.operator, r.order_id
          FROM production_reports r
-        WHERE r.report_date BETWEEN ? AND ?`
+        WHERE r.report_date BETWEEN ? AND ?${byOrder(q.companyId, 'r.order_id')}`
     )
     .all(start, end);
 
@@ -378,7 +396,7 @@ function quality(q = {}) {
       `SELECT id, rw_no, order_id, order_no, node_name, type, responsibility, reason, qty,
               qty_ok, qty_scrap, status, reinspect_result, created_at
          FROM rework_orders
-        WHERE substr(IFNULL(created_at,''),1,7) = ?`
+        WHERE substr(IFNULL(created_at,''),1,7) = ?${byOrder(q.companyId, 'order_id')}`
     )
     .all(period);
 
@@ -386,20 +404,20 @@ function quality(q = {}) {
   const insp = db
     .prepare(
       `SELECT node_name, SUM(qty_ok) ok, SUM(qty_defect) dft
-         FROM production_reports WHERE report_date BETWEEN ? AND ? GROUP BY node_name`
+         FROM production_reports WHERE report_date BETWEEN ? AND ?${byOrder(q.companyId, 'order_id')} GROUP BY node_name`
     )
     .all(start, end);
 
   const inspected = db
     .prepare(
       `SELECT COUNT(*) n, SUM(pass_qty) p, SUM(fail_qty) f, SUM(aql_result='fail') failed
-         FROM qc_inspections WHERE inspect_date BETWEEN ? AND ?`
+         FROM qc_inspections WHERE inspect_date BETWEEN ? AND ?${byOrder(q.companyId, 'order_id')}`
     )
     .get(start, end);
 
   // 投产件数：本期有报工的订单（订单件数）
   const orderIds = db
-    .prepare(`SELECT DISTINCT order_id FROM production_reports WHERE report_date BETWEEN ? AND ?`)
+    .prepare(`SELECT DISTINCT order_id FROM production_reports WHERE report_date BETWEEN ? AND ?${byOrder(q.companyId, 'order_id')}`)
     .all(start, end)
     .map((x) => x.order_id);
   let inputQty = 0;
@@ -490,7 +508,7 @@ function wipAge(q = {}) {
                 WHERE n.order_id = o.id AND IFNULL(n.actual_date,'') <> '') AS first_actual,
               (SELECT c.t0_at FROM commitments c WHERE c.order_id = o.id ORDER BY c.id DESC LIMIT 1) AS t0_at
          FROM orders o
-        WHERE o.status IN ('assigned','production','instock')
+        WHERE o.status IN ('assigned','production','instock')${bySelf(q.companyId, 'o.company_id')}
         ORDER BY o.created_at ASC`
     )
     .all();
@@ -550,7 +568,7 @@ function planVsActual(q = {}) {
     .prepare(
       `SELECT n.name, n.order_id, n.status, n.plan_date, n.actual_date, o.order_no
          FROM order_nodes n JOIN orders o ON o.id = n.order_id
-        WHERE IFNULL(n.actual_date,'') <> '' AND n.actual_date BETWEEN ? AND ?`
+        WHERE IFNULL(n.actual_date,'') <> '' AND n.actual_date BETWEEN ? AND ?${bySelf(q.companyId, 'o.company_id')}`
     )
     .all(start, end);
 
@@ -607,7 +625,7 @@ function material(q = {}) {
       `SELECT cut_no, order_no, style_no, plan_qty, total_cut_qty, qualified_qty, reject_qty,
               leftover_m, diff_qty, diff_reason, lot_count, total_layers, cut_at, status
          FROM cut_orders
-        WHERE substr(IFNULL(cut_at, created_at),1,7) = ?`
+        WHERE substr(IFNULL(cut_at, created_at),1,7) = ?${byOrder(q.companyId, 'order_id')}`
     )
     .all(period);
 
@@ -672,7 +690,7 @@ function leadTimeBreakdown(q = {}) {
     .prepare(
       `SELECT id, order_id, order_no, t0_at, promised_date, actual_ship_date
          FROM commitments
-        WHERE IFNULL(promised_date,'') <> '' AND promised_date BETWEEN ? AND ?`
+        WHERE IFNULL(promised_date,'') <> '' AND promised_date BETWEEN ? AND ?${byOrder(q.companyId, 'order_id')}`
     )
     .all(start, end);
 

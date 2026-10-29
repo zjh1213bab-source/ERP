@@ -12181,6 +12181,140 @@ async function req(path, { method = 'GET', body, token } = {}) {
       leftPr === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(pname), '已删');
   }
 
+  // ================= 数据范围：生产报表（分母不能是全集团的） =================
+  {
+    console.log('\n[数据范围：生产报表]');
+    const { db: MDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    // 期间必须用报表自己那一份 localDate：utils/time 的 localDate() 不传参返回空串，
+    // 用它算 period 会得到 '' → 夹具日期变成 '-15'，报表一张都匹配不上（踩过）
+    const { localDate } = require('../src/services/sla');
+    const ts = '2026-10-20 09:00:00';
+    const CO2 = 2;
+    const period = localDate().slice(0, 7);   // sla.localDate(d = new Date())，传字符串会炸
+    const day = `${period}-15`;
+
+    MDB.prepare("DELETE FROM orders WHERE order_no IN ('SCOPERP1','SCOPERP2')").run();
+    const mkOrder = (no, companyId) => {
+      const info = MDB.prepare(
+        `INSERT INTO orders (order_no, type, status, rate, total_usd, total_amount, currency, style_name,
+           order_date, delivery_date, created_at, updated_at, company_id)
+         VALUES (?, 'custom', 'production', 7.1, 100, 710, 'USD', ?, '2026-10-01', '2026-11-20', ?, ?, ?)`
+      ).run(no, `范围报表 ${no}`, ts, ts, companyId);
+      const oid = Number(info.lastInsertRowid);
+      MDB.prepare('INSERT INTO order_items (order_id, product_name, style_no, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?)')
+        .run(oid, `范围报表 ${no}`, `${no}A`, 100, 100, 710);
+      // 承诺 + 返工 + 裁床 + 报工各一条，覆盖五个报表
+      MDB.prepare('INSERT INTO commitments (order_id, order_no, qty, promised_date, actual_ship_date, created_at) VALUES (?,?,?,?,?,?)')
+        .run(oid, no, 100, day, null, ts);
+      MDB.prepare(`INSERT INTO rework_orders (rw_no, order_id, order_no, node_name, type, reason, qty, qty_scrap, created_at, updated_at)
+                   VALUES (?,?,?,'缝制','rework','范围测试',5,0,?,?)`).run(`RW-${no}`, oid, no, `${day} 09:00:00`, `${day} 09:00:00`);
+      MDB.prepare('INSERT INTO cut_orders (cut_no, order_id, order_no, plan_qty, total_cut_qty, qualified_qty, reject_qty, cut_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(`CUT-${no}`, oid, no, 100, 100, 98, 2, day);
+      MDB.prepare('INSERT INTO production_reports (order_id, node_name, report_date, qty_ok, qty_defect, hours, operator, created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(oid, '缝制', day, 90, 10, 8, '范围测试', `${day} 10:00:00`);
+      return oid;
+    };
+    const oOther = mkOrder('SCOPERP1', 1);
+    const oOwn = mkOrder('SCOPERP2', CO2);
+
+    const uname = 'scope_rep';
+    const pwd = 'ScopeRep123456';
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(uname);
+    MDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(uname, hashPassword(pwd), '范围测试生产主管', 'production', CO2, ts);
+    require('../src/services/access').clearCache();
+    const rl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: uname, password: pwd })
+    }).then((r) => r.json());
+    const rTok = rl.data && rl.data.token;
+    ok('分公司生产主管账号可登录', !!rTok, rl.message || 'ok');
+
+    // ---- 1. 准交率：分母只含本主体 ----
+    const ot = await req(`/api/prod-report/on-time?period=${period}`, { token: rTok });
+    /**
+     * 断言用「按承诺日到期」这一口径：主口径会在有发运样本时切到「按实际发运」，
+     * 而夹具的承诺都还没发运 —— 拿主口径断言会时对时错。
+     */
+    const otNos = (((ot.json.data && ot.json.data.by_due) || {}).rows || []).map((r) => r.order_no);
+    ok('★ 分厂的准交率分母不含总部订单（否则算出来的是两个主体的混合值）',
+      ot.status === 200 && otNos.includes('SCOPERP2') && !otNos.includes('SCOPERP1'),
+      `样本 ${otNos.length} 张：${otNos.slice(0, 4).join(',')}`);
+
+    // ---- 2. 效率：报工条数用库里该主体的数核对 ----
+    const expReports = Number(MDB.prepare(
+      `SELECT COUNT(*) c FROM production_reports r JOIN orders o ON o.id = r.order_id
+        WHERE o.company_id = ? AND r.report_date BETWEEN ? AND ?`
+    ).get(CO2, `${period}-01`, `${period}-31`).c);
+    const eff = await req(`/api/prod-report/efficiency?period=${period}`, { token: rTok });
+    ok('★ 分厂的工序效率只取自己主体的报工（条数与库里一致）',
+      eff.status === 200 && Number(eff.json.data.total_reports) === expReports,
+      `接口 ${eff.json.data && eff.json.data.total_reports} / 库里 ${expReports}`);
+
+    // ---- 3. 质量：返工明细不含别家单号 ----
+    const ql = await req(`/api/prod-report/quality?period=${period}`, { token: rTok });
+    const qlNos = ((ql.json.data && ql.json.data.rows) || []).map((r) => r.order_no);
+    ok('★ 分厂的质量报表只含自己主体的返工单',
+      ql.status === 200 && qlNos.includes('SCOPERP2') && !qlNos.includes('SCOPERP1'),
+      `返工 ${qlNos.length} 条`);
+
+    // ---- 4. 在制龄 ----
+    const wip = await req('/api/prod-report/wip', { token: rTok });
+    const wipNos = ((wip.json.data && wip.json.data.rows) || []).map((r) => r.order_no);
+    ok('★ 分厂的在制龄只含自己主体的在产单',
+      wip.status === 200 && wipNos.includes('SCOPERP2') && !wipNos.includes('SCOPERP1'),
+      `在制 ${wipNos.length} 张`);
+
+    // ---- 5. 裁床 ----
+    const expCut = Number(MDB.prepare(
+      `SELECT COUNT(*) c FROM cut_orders t JOIN orders o ON o.id = t.order_id
+        WHERE o.company_id = ? AND substr(IFNULL(t.cut_at, t.created_at),1,7) = ?`
+    ).get(CO2, period).c);
+    const mat = await req(`/api/prod-report/material?period=${period}`, { token: rTok });
+    ok('★ 分厂的裁床报表单数与库里该主体一致',
+      mat.status === 200 && Number(mat.json.data.orders) === expCut,
+      `接口 ${mat.json.data && mat.json.data.orders} / 库里 ${expCut}`);
+
+    // ---- 6. 总览与单项同一口径（不许一个收、一个不收） ----
+    const ov = await req(`/api/prod-report/overview?period=${period}`, { token: rTok });
+    ok('★ 总览的样本量与单项报表一致（口径不能一处收一处不收）',
+      ov.status === 200 && ov.json.data.on_time && ov.json.data.on_time.sample === ot.json.data.sample,
+      `总览 ${ov.json.data && ov.json.data.on_time && ov.json.data.on_time.sample} / 单项 ${ot.json.data && ot.json.data.sample}`);
+
+    // ---- 7. 导出：与页面同一条规则 ----
+    const exp = await fetch(`${BASE}/api/prod-report/export?kind=on_time&period=${period}`, {
+      headers: { Authorization: 'Bearer ' + rTok }
+    });
+    const csv = await exp.text();
+    ok('★ 导出的准交 CSV 不含别家订单号（导出是数据出系统的最后一米）',
+      exp.status === 200 && csv.includes('SCOPERP2') && !csv.includes('SCOPERP1'),
+      `${Math.round(csv.length / 1024)}KB`);
+
+    // ---- 8. 集团管理员看到两边 ----
+    const adminOt = await req(`/api/prod-report/on-time?period=${period}`, { token });
+    const adminOtNos = (((adminOt.json.data && adminOt.json.data.by_due) || {}).rows || []).map((r) => r.order_no);
+    ok('★ 集团管理员的报表仍含两个主体（合并口径不能被拦死）',
+      adminOt.status === 200 && adminOtNos.includes('SCOPERP1') && adminOtNos.includes('SCOPERP2'),
+      `管理员样本 ${adminOtNos.length} 张`);
+
+    // ---- 清理 ----
+    [oOther, oOwn].forEach((id) => {
+      MDB.prepare('DELETE FROM commitments WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM rework_orders WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM cut_orders WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM production_reports WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM orders WHERE id = ?').run(id);
+    });
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(uname);
+    require('../src/services/access').clearCache();
+    const left = Number(MDB.prepare("SELECT COUNT(*) c FROM orders WHERE order_no IN ('SCOPERP1','SCOPERP2')").get().c);
+    ok('生产报表范围夹具已清干净',
+      left === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(uname), '已删');
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');

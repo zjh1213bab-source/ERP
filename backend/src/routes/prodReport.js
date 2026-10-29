@@ -19,21 +19,31 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { toCsv } = require('../utils/csv');
 const R = require('../services/prodReport');
+const scope = require('../access/companyScope');
+
+/**
+ * 当前用户能看的主体（null = 集团角色，全集团口径）
+ *
+ * 生产报表全是"捞原始行再算比率"，所以主体必须传进服务层、加在取行的那条查询上。
+ * 在路由上算完再过滤是不行的：分母已经变成全集团了。
+ */
+const cidOf = (req) => scope.filterCompanyId(req.user);
+const Q = (req) => ({ ...(req.query || {}), companyId: cidOf(req) });
 
 const router = express.Router();
 
 // 生产主管 / PMC / 成本会计 / 技术（关心制版时长）/ 销售（关心准交）/ 老板
 const READ = ['admin', 'boss', 'production', 'finance', 'tech', 'sales'];
 
-router.get('/overview', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.overview(req.query))));
-router.get('/on-time', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.onTime(req.query))));
-router.get('/segments', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.routeSegments(req.query))));
-router.get('/efficiency', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.efficiency(req.query))));
-router.get('/quality', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.quality(req.query))));
-router.get('/wip', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.wipAge(req.query))));
-router.get('/plan-vs-actual', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.planVsActual(req.query))));
-router.get('/material', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.material(req.query))));
-router.get('/lead-time', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.leadTimeBreakdown(req.query))));
+router.get('/overview', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.overview(Q(req)))));
+router.get('/on-time', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.onTime(Q(req)))));
+router.get('/segments', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.routeSegments(Q(req)))));
+router.get('/efficiency', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.efficiency(Q(req)))));
+router.get('/quality', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.quality(Q(req)))));
+router.get('/wip', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.wipAge(Q(req)))));
+router.get('/plan-vs-actual', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.planVsActual(Q(req)))));
+router.get('/material', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.material(Q(req)))));
+router.get('/lead-time', authRequired, requireRole(READ), wrap(async (req, res) => ok(res, R.leadTimeBreakdown(Q(req)))));
 
 /**
  * CSV 导出
@@ -44,12 +54,14 @@ router.get('/lead-time', authRequired, requireRole(READ), wrap(async (req, res) 
 router.get('/export', authRequired, requireRole(READ), wrap(async (req, res) => {
   const kind = String(req.query.kind || 'on_time');
   const period = req.query.period;
+  // 导出与页面必须是同一个口径 —— 导出是数据出系统的最后一米
+  const cid = cidOf(req);
   let head;
   let rows;
   let name;
 
   if (kind === 'on_time') {
-    const d = R.onTime({ period });
+    const d = R.onTime({ period, companyId: cid });
     name = `准交率-${d.period}`;
     head = ['订单号', '客户', '款号', '件数', '订单类型', '原承诺日', '实际发运日', '状态', '延期天数', '延期原因'];
     rows = d.rows.map((r) => [r.order_no, r.customer_name, r.style_no, r.qty, r.order_type,
@@ -57,7 +69,7 @@ router.get('/export', authRequired, requireRole(READ), wrap(async (req, res) => 
     rows.push([]);
     rows.push(['合计', `${d.on_time_count}/${d.sample} 准时`, '', '', '', '', '', d.rate === null ? '样本不足不计算' : `${d.rate}%`, '', '']);
   } else if (kind === 'efficiency') {
-    const d = R.efficiency({ period });
+    const d = R.efficiency({ period, companyId: cid });
     name = `工序效率-${d.period}`;
     head = ['工序', '报工条数', '其中填工时', '合格件', '不良件', '工序合格率%', '标准单件分钟', '标准工时', '实际工时', '效率%', '说明'];
     rows = d.rows.map((r) => [r.process, r.reports, r.reports_with_hours, r.qty_ok, r.qty_defect,
@@ -66,7 +78,7 @@ router.get('/export', authRequired, requireRole(READ), wrap(async (req, res) => 
     rows.push([]);
     rows.push(['工时覆盖率%', d.hour_coverage ?? '', '', '', '', '', '', '', '', '', d.calc_basis]);
   } else if (kind === 'quality') {
-    const d = R.quality({ period });
+    const d = R.quality({ period, companyId: cid });
     name = `质量-${d.period}`;
     head = ['返工单号', '订单号', '工序', '类型', '责任', '原因', '数量', '复验合格', '报废', '状态', '复验结论', '创建时间'];
     rows = d.rows.map((r) => [r.rw_no, r.order_no, r.node_name, r.type, r.responsibility || '（未填）',
@@ -82,7 +94,7 @@ router.get('/export', authRequired, requireRole(READ), wrap(async (req, res) => 
     rows.push([]);
     rows.push(['合计', `${d.total} 单在制`, '', '', '', '', `平均 ${d.avg_age ?? '—'} 天`, '', '']);
   } else if (kind === 'plan') {
-    const d = R.planVsActual({ period });
+    const d = R.planVsActual({ period, companyId: cid });
     name = `计划与实际-${d.period}`;
     head = ['工序', '完成条数', '有计划日', '平均偏差天数', '延期数', '提前数'];
     rows = d.rows.map((r) => [r.process, r.done, r.with_plan, r.avg_dev ?? '—', r.late, r.early]);

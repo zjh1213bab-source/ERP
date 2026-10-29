@@ -36,14 +36,15 @@
  *      `stock_ledger` 没有 `company_id`，一个仓里有多少是物理事实），
  *      只有**单据**按主体 —— 详见 `services/matflow.js` 顶部说明。
  *   4. 生产执行域：报工明细与汇总（读/写/删）、工序节点（列表 / 弹窗 / 推进 / 初始化 /
- *      删除 / 从看板分配）、生产看板、订单跟踪看板（含统计卡片）。
+ *      删除 / 从看板分配）、生产看板、订单跟踪看板（含统计卡片）、**生产交付报表**
+ *      （准交 / 工厂段达成 / 效率 / 质量 / 在制龄 / 计划偏差 / 裁床 / 交期分解 / 总览 / 导出）。
  *      这些表同样没有 `company_id`，全部**按 `order_id` 判归属**（见 `orderOwnedSql`）。
  *   5. 写入侧：开票（订单发货开应收、采购入库开应付）、手工开票、登记收付款、
  *      付款申请执行付款、领料单 / 退料单 / 盘点单、报工，都按主体落 `company_id`。
  *
- * **未接入**：生产报表（准交/效率/质量/在制龄/计划偏差）、采购、人事薪酬、
- * 集团报表、资金计划、对账单、数据导出。也就是说这套东西对"分部看不到总部单据"
- * 这件事做到了**订单、账款、库房单据、生产执行四层**；要全站隔离，按
+ * **未接入**：采购、人事薪酬、集团报表、资金计划、对账单、数据导出。
+ * 也就是说这套东西对"分部看不到总部单据"这件事做到了
+ * **订单、账款、库房单据、生产（执行 + 报表）四层**；要全站隔离，按
  * `docs/DB-SCHEMA.md` 顶部「数据库边界」的清单逐域接入，
  * 每接一个域就在冒烟里加一条"跨公司读不到"的用例。
  *
@@ -192,7 +193,25 @@ function orderOwnedSql(companyId, expr = 'order_id') {
   };
 }
 
+/**
+ * 直接带 `company_id` 列的表的范围条件（内联整数，同样会校验）
+ *
+ * 与 `orderOwnedSql` 的区别：那个是"表没有 company_id、靠订单推"，
+ * 这个是"表自己就有 company_id"（`orders` / `ar_invoices`…）。
+ * 两者都内联整数：报表类查询条件多，绑参数极易错位。
+ */
+function companyClauseSql(companyId, col = 'company_id') {
+  if (companyId === null || companyId === undefined || companyId === '') {
+    return { sql: '', scoped: false };
+  }
+  const cid = Number(companyId);
+  if (!Number.isInteger(cid) || cid <= 0) {
+    throw new Error(`companyClauseSql 收到非法主体 id：${String(companyId)}`);
+  }
+  return { sql: ` AND ${col} = ${cid}`, scoped: true };
+}
+
 module.exports = {
   GROUP_ROLES, of, clause, where, canSee,
-  assertOrder, assertRow, writeCompanyOf, filterCompanyId, orderOwnedSql
+  assertOrder, assertRow, writeCompanyOf, filterCompanyId, orderOwnedSql, companyClauseSql
 };
