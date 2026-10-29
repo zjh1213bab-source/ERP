@@ -168,6 +168,13 @@ const importOpsRoutes = require('./routes/importops');   // 上线准备：真�
 
 const app = express();
 app.disable('x-powered-by');
+/**
+ * 反向代理信任级别
+ *
+ * 不配这个，Nginx 反代后 `req.ip` 恒为 127.0.0.1 —— 登录限流会把全公司
+ * 当成同一个人，额度一满所有人一起被锁（详见 config.trustProxy 的注释）。
+ */
+app.set('trust proxy', config.trustProxy);
 app.use(express.json({ limit: '8mb' }));
 
 // ---------- CORS ----------
@@ -360,8 +367,39 @@ app.use('/api/backup', backupRoutes);   // 备份与恢复
 app.use('/api/access', accessRoutes);   // 岗位权限复核
 app.use('/api/importops', importOpsRoutes);   // 真实数据导入   // 供方信息协同与技术再次审核   // 研发立项 + SKU 配码主档   // 裁片外发与外协验货交接   // 长期投资抵消   // 价格快照 + 费用池分摊   // 备料领退与盘点差异   // 分公司经营对比
 
-// 上传文件静态访问
-app.use('/uploads', express.static(uploadRoutes.UPLOAD_DIR));
+/**
+ * 上传文件静态访问（加固版）
+ *
+ * 原来这里就是一行 `app.use('/uploads', express.static(UPLOAD_DIR))`：**整个目录公开、
+ * 无需登录、不限制类型**。配合"上传时允许未知类型并按文件名猜扩展名"，
+ * 就等于给了一个**同源任意 HTML 托管**：传一个 `evil.html`，
+ * 在 ERP 主域下打开就能读 localStorage 里的 token、以当前用户身份调接口。
+ *
+ * 现在三道：
+ *   1. **扩展名白名单** —— 不在白名单里的文件连 404 都拿不到（历史遗留文件同样拦，
+ *      反正业务只用到图片/PDF/Office/zip/txt）；
+ *   2. **`X-Content-Type-Options: nosniff`** —— 浏览器不许"猜"类型，
+ *      一个 .txt 里写了 HTML 也不会被当成网页执行；
+ *   3. **`Content-Security-Policy: default-src 'none'; sandbox`** —— 就算真有文件
+ *      被当成文档打开，脚本、外链、表单全部禁掉；
+ *   4. 非图片（PDF/Office/zip/txt）一律 `Content-Disposition: attachment`，
+ *      下载而不是在站点内联渲染。
+ *
+ * 为什么不改成"全部走鉴权下载"：款图、色卡、单据附件在 `<img>` 里直接用 URL 引用
+ * （上百处），改成带 token 的下载链接要么全站改造、要么把 token 放进 URL（更糟）。
+ * 图片本身不执行脚本，加 nosniff 之后风险边界是清楚的；真正敏感的文件
+ * 走的是 `services/` 里的签名下载（`/api/integration/files/:name`）。
+ */
+const UPLOAD_SAFE = uploadRoutes.SAFE_EXTS;
+const UPLOAD_INLINE = uploadRoutes.INLINE_EXTS;
+app.use('/uploads', (req, res, next) => {
+  const ext = path.extname(String(req.path || '')).slice(1).toLowerCase();
+  if (!UPLOAD_SAFE.has(ext)) return res.status(404).end();
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  if (!UPLOAD_INLINE.has(ext)) res.setHeader('Content-Disposition', 'attachment');
+  next();
+}, express.static(uploadRoutes.UPLOAD_DIR, { index: false, dotfiles: 'deny', fallthrough: true }));
 
 // ---------- 前端 dist 托管（单机部署 / 局域网预览） ----------
 const distDir = path.resolve(__dirname, '../../frontend/dist');

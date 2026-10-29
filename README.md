@@ -307,6 +307,9 @@ cd backend && node scripts/seed-piecewage-demo.js --reset
   `.env` 写 `SINGLE_COMPANY=0` 重启即切回多主体，不用迁数据。详见 `deploy/DEPLOY.md` §9.4。
 - 附件仅图片（款图）；PDF/工艺图待接入。
 - 审核为单级状态机，多级审批流待做。
+- **安全基线（v1.68）**：账号必须绑公司主体、会话可撤销（停用/降权/改密即时生效）、
+  上传只收白名单类型并验文件头、登录三道限流、外部接入密钥只存哈希。
+  部署时**必须配 `TRUST_PROXY`**（否则限流锁错人），见 `deploy/DEPLOY.md` §10。
 - 后续：供应商/工厂主数据、外协对账、附件、单据 Logo、人事行政、AI 助手（见 `docs/TEAM-PLAN.md`）。
 
 ---

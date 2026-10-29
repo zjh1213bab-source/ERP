@@ -68,6 +68,50 @@ const cfg = {
    *    「无 company_id 列的表按归属表达式推主体」。
    */
   singleCompany: process.env.SINGLE_COMPANY !== '0',
+
+  /**
+   * 反向代理信任级别（决定 `req.ip` 到底是谁）
+   *
+   * 为什么必须显式配：登录限流是**按 IP 分桶**的。Nginx 反代后，
+   * 不配 trust proxy 时 `req.ip` 恒为 `127.0.0.1` —— 全公司所有人共用一个桶，
+   * 20 次/分钟一满，连正常登录的人都会被锁在门外（而且限流看起来"生效了"，
+   * 只是锁错了人）。配过头（`true`）则相反：请求头里的 X-Forwarded-For
+   * 由客户端自己填，攻击者每次换个假 IP 就能绕开限流。
+   *
+   * 默认 `loopback`：只信任本机反代（本项目推荐的同机 Nginx 部署形态），
+   * 此时取 X-Forwarded-For 里最右侧的"非可信"地址 —— 也就是 Nginx 追加的真实客户端 IP。
+   * 前后端不同机 / 走了云负载均衡时，按实际网段配（如 `10.0.0.0/8`）。
+   * 完全直连（不反代）时写 `0` 关掉。
+   */
+  trustProxy: (() => {
+    const raw = String(process.env.TRUST_PROXY ?? 'loopback').trim();
+    if (!raw || raw === '0' || raw.toLowerCase() === 'false') return false;
+    if (raw === '1' || raw.toLowerCase() === 'true') return 1;
+    if (/^\d+$/.test(raw)) return Number(raw);
+    if (raw.includes(',')) return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    return raw; // loopback / linklocal / uniquelocal / 具体网段
+  })(),
+
+  /**
+   * 登录限流参数（按 IP 与按账号两道）
+   *
+   * 放在 config 里而不是硬编码在中间件：上线后如果发现"早高峰前台登录被锁"，
+   * 改环境变量重启即可，不用改代码重新打包。
+   *
+   * 三个阈值分别对应三件事（详见 `middleware/loginLimit.js` 文件头）：
+   *   attemptMax —— 防 CPU 洪水，给得松（正常办公远达不到）
+   *   failIpMax  —— 防单机撞库，按「失败」计数，成功登录不占额度
+   *   failMax    —— 同账号连续失败几次开始锁，之后逐次翻倍
+   */
+  loginLimit: {
+    attemptMax: Number(process.env.LOGIN_ATTEMPT_MAX) || 120,   // 每 IP 每窗口总尝试上限
+    failIpMax: Number(process.env.LOGIN_FAIL_IP_MAX) || 20,     // 每 IP 每窗口失败上限
+    windowMs: (Number(process.env.LOGIN_WINDOW_SEC) || 60) * 1000,
+    failMax: Number(process.env.LOGIN_FAIL_MAX) || 5,           // 同账号连续失败几次开始锁
+    lockMs: (Number(process.env.LOGIN_LOCK_SEC) || 300) * 1000,
+    lockMaxMs: (Number(process.env.LOGIN_LOCK_MAX_SEC) || 1800) * 1000
+  },
+
   DEFAULT_JWT_SECRET,
   DEFAULT_ADMIN_PASSWORD
 };

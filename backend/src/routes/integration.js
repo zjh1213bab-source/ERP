@@ -72,6 +72,50 @@ function maskKey(k) {
   return s.length <= 6 ? '*'.repeat(s.length) : s.slice(0, 3) + '****' + s.slice(-3);
 }
 
+/**
+ * 接入密钥的存储与校验（v1.68 改）
+ * ============================================================
+ * 原来 `integration_endpoints.api_key` 存**明文**，并且：
+ *   - 列表接口 `GET /endpoints` 直接把它吐给前端（`...r` 展开）；
+ *   - 校验写成 `key !== ep.api_key`（普通字符串比较，理论上可被计时侧信道逐步逼近）；
+ *   - ingress 还允许从**请求体** `body.api_key` 读 Key —— 于是 Key 会跟着 payload
+ *     一起被写进 `integration_events.payload`，等于把密钥存了两份，还进了备份包。
+ *
+ * 现在：
+ *   - 只存 `sha256(Key)`（`api_key_hash`）+ 一段掩码（`api_key_hint`，用于界面展示）；
+ *   - 只从 `X-Api-Key` 请求头读，请求体里的一律不看；
+ *   - 比对用 `timingSafeEqual`（先比长度再比内容，长度差直接返回 false）；
+ *   - 落库前把 payload 里的凭证类字段抹掉，备份包与事件表里都不再出现密钥。
+ *
+ * 为什么用 sha256 而不是 scrypt：API Key 是 32 字节随机串（不是人记的密码），
+ * 没有字典可撞，sha256 足够；而入口每来一次请求都要校验，scrypt 的 30-60ms
+ * 会直接变成吞吐上限。
+ */
+const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+
+function verifyKey(plain, ep) {
+  const stored = String(ep.api_key_hash || '');
+  if (!stored) return false;
+  const calc = Buffer.from(sha256(plain), 'hex');
+  const want = Buffer.from(stored, 'hex');
+  if (calc.length !== want.length) return false;
+  return crypto.timingSafeEqual(calc, want);
+}
+
+/** 凭证类字段：落库前一律抹掉（大小写与命名风格都覆盖） */
+const SECRET_FIELD = /^(api[-_]?key|apikey|access[-_]?key|secret|client[-_]?secret|password|passwd|pwd|token|access[-_]?token|refresh[-_]?token|authorization|sign|signature|cookie)$/i;
+
+/** 递归脱敏：返回新对象，不改原对象（原对象还要给业务用） */
+function redact(value, depth = 0) {
+  if (depth > 8 || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1));
+  const out = {};
+  Object.keys(value).forEach((k) => {
+    out[k] = SECRET_FIELD.test(k) ? '***' : redact(value[k], depth + 1);
+  });
+  return out;
+}
+
 // ============================================================
 // 外部入口：带 API Key + 限流 + 幂等
 // ============================================================
@@ -87,8 +131,18 @@ router.post('/ingest/:code', wrap(async (req, res) => {
     return fail(res, 403, '接入点已停用');
   }
   if (ep.auth_type === 'api_key') {
-    const key = req.headers['x-api-key'] || (req.body && req.body.api_key);
-    if (!key || key !== ep.api_key) {
+    /**
+     * **只认请求头**。原来还接受 `body.api_key`，后果有两层：
+     *   1. 密钥跟着业务报文一起被 `JSON.stringify` 存进 `integration_events.payload`；
+     *   2. 它会出现在死信列表、重试日志、备份包里 —— 一次排查就得把密钥发给一圈人。
+     * 请求头不落库，且网关/日志的常规脱敏规则都覆盖 `X-Api-Key`。
+     */
+    const key = req.headers['x-api-key'];
+    if (!key) {
+      logCall({ endpointId: ep.id, code: ep.code, method: 'POST', p: req.path, status: 401, ip: req.ip, note: '缺少 X-Api-Key 请求头' });
+      return fail(res, 401, '缺少 X-Api-Key 请求头');
+    }
+    if (!verifyKey(key, ep)) {
       logCall({ endpointId: ep.id, code: ep.code, method: 'POST', p: req.path, status: 401, ip: req.ip, note: 'API Key 不正确' });
       return fail(res, 401, 'API Key 不正确');
     }
@@ -125,10 +179,15 @@ router.post('/ingest/:code', wrap(async (req, res) => {
   }
 
   const t = now();
+  /**
+   * 落库前脱敏：`payload` 是外部系统推来的整包报文，里面可能带对方的 key/token/签名。
+   * 事件表会被列表页、死信重试、备份包三处读到 —— 不该成为密钥的第二份副本。
+   */
+  const safePayload = JSON.stringify(redact(b.payload || b));
   const r = db.prepare(
     `INSERT INTO integration_events (event_id, direction, endpoint_id, topic, payload, status, attempts, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?)`
-  ).run(String(eventId), 'in', ep.id, topic, JSON.stringify(b.payload || b), 'pending', 0, t, t);
+  ).run(String(eventId), 'in', ep.id, topic, safePayload, 'pending', 0, t, t);
   db.prepare('UPDATE integration_endpoints SET last_call_at=? WHERE id=?').run(t, ep.id);
   logCall({ endpointId: ep.id, code: ep.code, method: 'POST', p: req.path, status: 202, ip: req.ip, ms: Date.now() - started });
 
@@ -363,13 +422,35 @@ router.get('/stats', authRequired, wrap(async (req, res) => {
   });
 }));
 
+/**
+ * 接入点对外视图
+ *
+ * **显式列字段，不再 `...r` 展开**：展开的写法会把后来新增的敏感列
+ * （`api_key` / `api_key_hash`）自动带出去 —— 这正是原来列表能读到明文的路径。
+ * 以后再加列，这里是"想加才加"，不会默认泄露。
+ */
 function epView(r) {
   return {
-    ...r,
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    type: r.type,
     type_label: EP_TYPE[r.type] || r.type,
+    base_url: r.base_url,
+    auth_type: r.auth_type,
+    rate_limit_per_min: r.rate_limit_per_min,
+    status: r.status,
     status_label: r.status === 'active' ? '启用' : '停用',
-    api_key_masked: maskKey(r.api_key),
-    shop_name: r.shop_id ? (db.prepare('SELECT shop_name FROM channel_shops WHERE id = ?').get(r.shop_id) || {}).shop_name : null
+    shop_id: r.shop_id,
+    shop_name: r.shop_id ? (db.prepare('SELECT shop_name FROM channel_shops WHERE id = ?').get(r.shop_id) || {}).shop_name : null,
+    last_call_at: r.last_call_at,
+    remark: r.remark,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+    /** 掩码：让人能认出"这是哪一把"，但认出来也拿不去用 */
+    api_key_masked: r.api_key_hint || (r.api_key ? maskKey(r.api_key) : ''),
+    /** 是否已设置密钥（没设的接入点在出口是不可用的，列表上要看得出来） */
+    api_key_set: !!(r.api_key_hash || r.api_key)
   };
 }
 
@@ -390,15 +471,24 @@ router.post('/endpoints', authRequired, requireRole(WRITE), wrap(async (req, res
   if (!b.name) return fail(res, 400, '请填写接入点名称');
   if (!/^[a-z0-9_-]{2,32}$/i.test(b.code)) return fail(res, 400, '编码只能包含字母、数字、下划线、短横线（2-32 位）');
   const t = now();
-  const apiKey = b.api_key || 'ik_' + crypto.randomBytes(12).toString('hex');
+  const apiKey = String(b.api_key || '').trim() || 'ik_' + crypto.randomBytes(12).toString('hex');
+  if (apiKey.length < 16) return fail(res, 400, 'API Key 至少 16 位（太短的密钥可以被穷举）');
   try {
     const r = db.prepare(
-      `INSERT INTO integration_endpoints (code, name, type, base_url, auth_type, api_key, rate_limit_per_min, status, shop_id, remark, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(b.code, b.name, b.type || 'shop', b.base_url || null, b.auth_type || 'api_key', apiKey,
+      `INSERT INTO integration_endpoints (code, name, type, base_url, auth_type, api_key_hash, api_key_hint, rate_limit_per_min, status, shop_id, remark, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(b.code, b.name, b.type || 'shop', b.base_url || null, b.auth_type || 'api_key',
+      sha256(apiKey), maskKey(apiKey),
       Number(b.rate_limit_per_min) || 60, b.status || 'active', b.shop_id || null, b.remark || null, t, t);
-    // 新建时返回一次明文 Key，之后列表只显示掩码
-    return ok(res, { ...epView(db.prepare('SELECT * FROM integration_endpoints WHERE id = ?').get(r.lastInsertRowid)), api_key_plain: apiKey });
+    /**
+     * 明文只在这里出现一次 —— 之后任何接口都拿不到（库里只有哈希）。
+     * 这是哈希存储的必然代价：丢了只能重置，不能"再查一次"。
+     */
+    return ok(res, {
+      ...epView(db.prepare('SELECT * FROM integration_endpoints WHERE id = ?').get(r.lastInsertRowid)),
+      api_key_plain: apiKey,
+      warning: '这是唯一一次显示明文 Key，请立刻复制给对方；之后只能重置，无法再查看'
+    });
   } catch (e) {
     return fail(res, 400, /UNIQUE/.test(e.message) ? '接入点编码已存在' : e.message);
   }
@@ -422,8 +512,14 @@ router.post('/endpoints/:id/rotate-key', authRequired, requireRole(WRITE), wrap(
   const row = db.prepare('SELECT * FROM integration_endpoints WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '接入点不存在');
   const key = 'ik_' + crypto.randomBytes(12).toString('hex');
-  db.prepare('UPDATE integration_endpoints SET api_key=?, updated_at=? WHERE id=?').run(key, now(), row.id);
-  return ok(res, { api_key_plain: key, message: '旧 Key 已失效，请同步更新对方系统' });
+  // 只写哈希与掩码；顺手把可能残留的明文列清空（老库用 UPDATE 才能保证清掉）
+  db.prepare('UPDATE integration_endpoints SET api_key_hash=?, api_key_hint=?, api_key=NULL, updated_at=? WHERE id=?')
+    .run(sha256(key), maskKey(key), now(), row.id);
+  return ok(res, {
+    api_key_plain: key,
+    api_key_masked: maskKey(key),
+    message: '旧 Key 已失效，请同步更新对方系统。这是唯一一次显示明文，之后只能再次重置'
+  });
 }));
 
 router.get('/events', authRequired, wrap(async (req, res) => {

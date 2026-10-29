@@ -30,6 +30,7 @@ const { db, now, getSettings } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { verifyPassword } = require('../auth/password');
 const { signCustomerToken, customerRequired } = require('../middleware/customerAuth');
+const loginLimit = require('../middleware/loginLimit');
 const { PERMS, ROLE_LABEL, resolvePerms, resolveLimit, hasPerm, withinLimit, permRequired, audit } = require('../services/customerPerms');
 const { hashPassword } = require('../auth/password');
 const crypto = require('crypto');
@@ -66,17 +67,37 @@ function stripMoney(obj, perm) {
 }
 
 // ---------------- 登录 ----------------
-router.post('/auth/login', wrap(async (req, res) => {
+/**
+ * 客户登录限流
+ *
+ * 与员工登录**分开两个桶**（`name: 'mall'`）：前台客户被人撞库时，
+ * 不该把后台员工一起锁在门外 —— 这是两个完全不同的人群，共用一个桶只会互相伤害。
+ *
+ * 客户账号比员工账号更值得防：账号名就是客户邮箱/手机号，字典来源更多（客户名单、
+ * 发货单据上都有），而客户侧只做只读查询，锁错了影响面也小。
+ */
+const mallLimit = loginLimit.create({ name: 'mall' });
+
+router.post('/auth/login', mallLimit.middleware, wrap(async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) return fail(res, 400, '请输入账号和密码');
 
   const acc = db.prepare('SELECT * FROM customer_accounts WHERE username = ?').get(String(username).trim());
-  if (!acc) return fail(res, 401, '账号不存在');
-  if (acc.status !== 'active') return fail(res, 401, '账号已停用，请联系业务员');
-  if (!verifyPassword(password, acc.password_hash)) return fail(res, 401, '账号或密码错误');
+  /**
+   * 四种失败回同一句提示：账号不存在 / 已停用 / 密码错 / 未绑客户。
+   * 分开说等于给撞库脚本一个"这个账号存在"的指示灯。
+   */
+  if (!acc || acc.status !== 'active' || !verifyPassword(password, acc.password_hash)) {
+    mallLimit.recordFail(req, username);
+    return fail(res, 401, '账号或密码错误');
+  }
 
   const customer = db.prepare('SELECT id, name, code FROM customers WHERE id = ?').get(acc.customer_id);
-  if (!customer) return fail(res, 401, '账号未绑定客户，请联系业务员');
+  if (!customer) {
+    mallLimit.recordFail(req, username);
+    return fail(res, 401, '账号或密码错误');
+  }
+  mallLimit.recordSuccess(req, username);
 
   db.prepare('UPDATE customer_accounts SET last_login_at = ? WHERE id = ?').run(now(), acc.id);
   return ok(res, {

@@ -139,14 +139,34 @@ function of(user) {
    */
   if (SINGLE) {
     const role = String((user && user.role) || '');
-    return { role, companyId: Number(header().id) || 1, cross: true, single: true };
+    return { role, companyId: Number(header().id) || 1, cross: true, single: true, unbound: false };
   }
   const role = String((user && user.role) || '');
   const companyId = user && user.company_id !== undefined && user.company_id !== null
     ? Number(user.company_id) || null
     : null;
   const cross = GROUP_ROLES.has(role);
-  return { role, companyId, cross };
+  /**
+   * `unbound` = 既不是集团角色、又没绑主体。
+   *
+   * 这种账号在范围上**无解**：往紧里判它看不到任何数据（页面全空，人会以为是系统坏了），
+   * 往松里判它能看到所有主体（就是越权）。所以不在这里猜，而是标出来让
+   * 鉴权中间件直接拒绝访问（见 `scopeProblem`）—— 报错说清楚，比两种静默行为都好。
+   */
+  return { role, companyId, cross, unbound: !cross && !companyId };
+}
+
+/**
+ * 该账号的数据范围是否有问题；没问题返回 null，有问题返回一句能直接给用户看的话
+ *
+ * 调用点只有 `middleware/auth.js` 一处（每个请求一次），在那里统一拒绝，
+ * 而不是让 8 个域的每个查询各自处理"没绑主体怎么办" —— 那必然出现
+ * 有的域拦、有的域放，最后等于没拦。
+ */
+function scopeProblem(user) {
+  const s = of(user);
+  if (!s.unbound) return null;
+  return '该账号未绑定公司主体，无法确定能看到哪些数据。请联系管理员在「用户与角色」里指定所属公司后重新登录';
 }
 
 /**
@@ -156,12 +176,22 @@ function of(user) {
  *   const sc = clause(req.user, 'o.company_id');
  *   const rows = db.prepare(`SELECT ... WHERE 1=1 ${sc.sql}`).all(...sc.params);
  *
- * 没绑定公司的账号（历史数据 / 脚本建的号）返回空条件并**不改动查询** ——
- * 这类账号能不能用是权限问题（`access`），不该在这里悄悄变成"什么都看不到"，
- * 那样表现成"页面空白"，比报错更难查。上线清单里 `users_bound` 会盯住这类账号。
+ * ## 没绑主体的账号为什么在这里"炸"而不是返回空条件
+ *
+ * v1.67 及以前这里返回空条件（不过滤）—— 理由是"表现成页面空白比报错更难查"。
+ * 但那个选择的实际后果是：**新建的业务账号能看到所有主体的数据**，
+ * 而且页面上看不出任何异常（列表有数、金额有数，只是多了别人的）。
+ * 越权不该靠人去发现。
+ *
+ * 现在口径改了：`unbound` 是数据错误，早报早改（与 `orderOwnedSql` 对非法 id 抛错一致）。
+ * 正常请求根本走不到这里 —— `middleware/auth.js` 已经在入口把这些账号 403 掉，
+ * 所以这行抛错是**兜底**：真被触发说明有代码绕过了鉴权中间件，那更该炸。
  */
 function clause(user, col = 'company_id') {
   const s = of(user);
+  if (s.unbound) {
+    throw new Error(`数据范围未确定：账号未绑定公司主体（${col} 无法过滤）`);
+  }
   if (s.cross || !s.companyId) return { sql: '', params: [], scoped: false };
   return { sql: ` AND ${col} = ?`, params: [s.companyId], scoped: true };
 }
@@ -169,6 +199,9 @@ function clause(user, col = 'company_id') {
 /** WHERE 版本（查询还没有 AND 时用） */
 function where(user, col = 'company_id') {
   const s = of(user);
+  if (s.unbound) {
+    throw new Error(`数据范围未确定：账号未绑定公司主体（${col} 无法过滤）`);
+  }
   if (s.cross || !s.companyId) return { sql: '', params: [], scoped: false };
   return { sql: `${col} = ?`, params: [s.companyId], scoped: true };
 }
@@ -177,7 +210,8 @@ function where(user, col = 'company_id') {
 function canSee(user, row) {
   const s = of(user);
   if (s.cross) return true;
-  if (!s.companyId) return true;
+  // 没绑主体 = 范围未确定 → 不放行（入口已 403，这里是兜底）
+  if (!s.companyId) return false;
   if (!row) return false;
   return Number(row.company_id) === s.companyId;
 }
@@ -245,6 +279,9 @@ function writeCompanyOf(user, explicit) {
  */
 function filterCompanyId(user) {
   const s = of(user);
+  if (s.unbound) {
+    throw new Error('数据范围未确定：账号未绑定公司主体（filterCompanyId 无法取值）');
+  }
   if (s.cross) return null;
   return s.companyId || null;
 }
@@ -332,5 +369,7 @@ module.exports = {
   assertOrder, assertRow, writeCompanyOf, filterCompanyId,
   orderOwnedSql, companyClauseSql, parentClauseSql,
   // 单公司模式：开关状态 + 唯一抬头 + 下拉取值
-  isSingle, header, listForPicker
+  isSingle, header, listForPicker,
+  // v1.68：未绑定主体的账号判定（鉴权中间件据此拒绝）
+  scopeProblem
 };

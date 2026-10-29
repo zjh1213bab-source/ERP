@@ -32,6 +32,15 @@
   损坏定责与财务确认、看板）。
   写入侧同步落主体（`writeCompanyOf`），
   并强制「一笔收付款只结一个主体的账」；**挂在订单上的表一律按 `order_id` 判归属**（`orderOwnedSql`）。
+- **会话可撤销（v1.68）**：`users.token_version` 写进 JWT（`tv`），每个请求与库里的值比一次。
+  停用 / 改角色 / 改密码 / 换主体 → 值 +1 → 该账号已签发的令牌下一个请求就 401。
+  JWT 本身没有"撤回"，靠这一列补上；老令牌没有 `tv`，按 0 与老账号的默认值相等，**升级不踢人**。
+- **没绑主体的账号会被拒绝（v1.68）**：`users.company_id` 为空 = 范围无法判定
+  （松了就全看得见、紧了就全看不见，两种都是静默错误），所以多主体模式下直接 403 并提示找管理员；
+  升级时会把历史空归属账号**补成默认主体**并在启动日志里打名单（兜底归属，不是权限判断）。
+- **外部接入密钥只有哈希（v1.68）**：`integration_endpoints` 存 `api_key_hash`（sha256）+
+  `api_key_hint`（掩码），明文只在新建/重置时返回一次；入口只认 `X-Api-Key` 请求头，
+  事件报文落库前把 `api_key / password / token / secret / signature` 等字段脱敏成 `***`。
 - **库存要分两层看**：`materials` / `stock_items` / `stock_ledger` / `office_stock` **没有** `company_id` ——
   一个仓库里真实有多少是物理事实，一桶染料不会因为换个法人主体就变成两桶，所以**存量层不分主体是刻意的**；
   `material_issues` / `material_returns` / `stocktakes` 有这一列，**单据层按主体**。
@@ -72,7 +81,7 @@
 |---|---|
 | companies | id, code, name |
 | departments | id, company_id, name |
-| users | id, username, password_hash(scrypt), name, role, company_id, department_id, active |
+| users | id, username, password_hash(scrypt), name, role, company_id, department_id, active, **token_version**(会话版本，停用/改角色/改密码/换主体时 +1 → 旧 JWT 立即失效) |
 
 角色：`admin / sales / tech / finance / production / warehouse / viewer`
 
@@ -164,7 +173,7 @@
 ## 外部接口
 | 表 | 关键字段 |
 |---|---|
-| integration_endpoints | id, code(唯一), name, type(shop/logistics/payment/other), base_url, auth_type, api_key, rate_limit_per_min, status(active/disabled), shop_id, last_call_at |
+| integration_endpoints | id, code(唯一), name, type(shop/logistics/payment/other), base_url, auth_type, **api_key_hash**(sha256，v1.68 起只存哈希), **api_key_hint**(掩码 ik_****abc，仅展示), rate_limit_per_min, status(active/disabled), shop_id, last_call_at。原 `api_key` 列已废弃（历史明文迁移后清空，不再写入） |
 | integration_events | id, **event_id(唯一，幂等键)**, direction(in/out), endpoint_id, topic, payload, status(pending/processing/success/failed/dead), attempts, max_attempts, next_retry_at, last_error, result_ref, processed_at |
 | integration_calls | id, endpoint_id, endpoint_code, method, path, status_code, ip, duration_ms, note |
 

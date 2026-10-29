@@ -17,18 +17,21 @@ const { hashPassword } = require('../src/auth/password');
 const A = require('../src/services/access');
 
 const RESET = process.argv.includes('--reset');
+/** 演示账号也要落公司主体：不落的话会被上线检查 users_scoped 标成"范围未定" */
+const CS = require('../src/access/companyScope');
+const COMPANY_ID = Number(CS.header().id) || 1;
 const PWD = 'admin123456';   // 与 admin 默认密码一致，避免演示时记不住
 
 function ensureUser({ username, name, role, department_id }) {
   const hit = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   if (hit) {
-    db.prepare('UPDATE users SET name=?, role=?, department_id=?, active=1, password_hash=? WHERE id=?')
-      .run(name, role, department_id, hashPassword(PWD), hit.id);
+    db.prepare('UPDATE users SET name=?, role=?, department_id=?, company_id=COALESCE(company_id, ?), active=1, password_hash=? WHERE id=?')
+      .run(name, role, department_id, COMPANY_ID, hashPassword(PWD), hit.id);
     return { id: hit.id, created: false };
   }
   const info = db.prepare(
-    'INSERT INTO users (username, password_hash, name, role, department_id, active, created_at) VALUES (?,?,?,?,?,1,?)'
-  ).run(username, hashPassword(PWD), name, role, department_id, now());
+    'INSERT INTO users (username, password_hash, name, role, department_id, company_id, active, created_at) VALUES (?,?,?,?,?,?,1,?)'
+  ).run(username, hashPassword(PWD), name, role, department_id, COMPANY_ID, now());
   return { id: Number(info.lastInsertRowid), created: true };
 }
 

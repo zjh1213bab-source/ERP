@@ -222,8 +222,9 @@ function migrate() {
     } catch (e) { return ''; }
   })();
   if (pwConf && !pwConf.includes('company_id')) {
-    db.exec('DROP INDEX idx_piece_run_confirmed');
-    db.exec("CREATE UNIQUE INDEX idx_piece_run_confirmed ON piece_wage_runs(period, company_id) WHERE status = 'confirmed'");
+    exec('重建索引 idx_piece_run_confirmed', 'DROP INDEX idx_piece_run_confirmed');
+    exec('重建索引 idx_piece_run_confirmed',
+      "CREATE UNIQUE INDEX idx_piece_run_confirmed ON piece_wage_runs(period, company_id) WHERE status = 'confirmed'");
   }
 
   // 领料明细挂到「款 × 颜色」（按色发料；老数据 item_id=0 / colorway='' 按总量核）
@@ -264,6 +265,96 @@ function migrate() {
     }
     if (!pc.includes('rate')) add('payments', 'rate', 'REAL NOT NULL DEFAULT 1');
   }
+  /**
+   * 会话版本号（v1.68）
+   *
+   * JWT 是无状态的：签出去之后 12 小时内一直有效。停用账号、降权、改密码
+   * 只会让下一次登录变，**已经签发的令牌照样能用到过期** —— 这是审计里
+   * 最容易被问住的一条（"人都离职了，为什么日志里还有他的操作"）。
+   *
+   * 所以加这个版本号：
+   *   - 签发时写进 payload（`tv`），每次请求比对库里的值；
+   *   - 停用 / 改角色 / 改密码 / 换主体 时 +1 → 旧令牌全废；
+   *   - 老令牌没有 `tv` 字段，按 0 处理，与老账号的 0 相等，升级不踢人。
+   */
+  add('users', 'token_version', 'INTEGER NOT NULL DEFAULT 0');
+
+  /**
+   * 历史账号补公司主体（v1.68）
+   *
+   * 为什么必须补、而不是留空让上线清单去催：
+   *   v1.68 起"没绑主体"的账号在多主体模式下会被**直接拒绝访问**（范围无法判定，
+   *   松了就全看得见、紧了就全看不见，两种都是静默错误）。如果历史账号原样留着，
+   *   切到多主体那天全公司一起登进去什么都点不了 —— 那是事故，不是提醒。
+   *
+   * 补成谁：集团默认主体（总部优先，其次 id 最小），与单公司模式的"唯一抬头"同一口径。
+   *   **这不是权限判断，是兜底归属**：原来这些账号是"不过滤 = 看全部"，
+   *   补成总部只会让范围变窄，不会变宽。
+   *
+   * 补了要说得出来：启动时打印名单，让管理员去「用户与角色」核对
+   *   （谁其实属于分部，手工改过去即可；改归属的接口会顺手作废他的旧令牌）。
+   */
+  (() => {
+    const c = cols('users');
+    if (!c.includes('company_id')) return;
+    let rows = [];
+    try {
+      rows = db.prepare('SELECT id, username FROM users WHERE company_id IS NULL OR company_id = 0').all();
+    } catch (e) { return; }
+    if (!rows.length) return;
+    let hq = null;
+    try {
+      hq = db.prepare("SELECT id FROM companies WHERE type='headquarters' ORDER BY id LIMIT 1").get()
+        || db.prepare('SELECT id FROM companies ORDER BY id LIMIT 1').get();
+    } catch (e) { hq = null; }
+    if (!hq) return;  // 全新库还没播种公司，等 seed() 建好后再下次启动补
+    try {
+      db.prepare('UPDATE users SET company_id = ? WHERE company_id IS NULL OR company_id = 0').run(Number(hq.id));
+      const names = rows.slice(0, 6).map((r) => r.username).join('、') + (rows.length > 6 ? ` 等 ${rows.length} 个` : '');
+      console.log(`[db] 已给 ${rows.length} 个没有公司主体的历史账号补上默认主体 #${hq.id}：${names}`
+        + ' —— 请到「用户与角色」核对归属（分部的账号要改到对应主体）');
+    } catch (e) {
+      schemaFailures.push({ kind: '补主体', sql: 'users.company_id 兜底', msg: e.message });
+    }
+  })();
+
+  /**
+   * 外部接入密钥改为哈希存储（v1.68）
+   *
+   * 原来 `integration_endpoints.api_key` 存明文：库文件、备份包、`/api/integration/endpoints`
+   * 的列表响应里都能直接读到对方的密钥。现在只存 `sha256(Key)` 与一段掩码，
+   * 校验时按哈希比对（`timingSafeEqual`）。明文列保留但**不再写入**，回填后清空。
+   */
+  add('integration_endpoints', 'api_key_hash', 'TEXT');
+  add('integration_endpoints', 'api_key_hint', 'TEXT');
+  (() => {
+    const c = cols('integration_endpoints');
+    if (!c.includes('api_key') || !c.includes('api_key_hash')) return;
+    let legacy = [];
+    try {
+      legacy = db.prepare(
+        "SELECT id, api_key FROM integration_endpoints WHERE api_key IS NOT NULL AND api_key <> '' AND (api_key_hash IS NULL OR api_key_hash = '')"
+      ).all();
+    } catch (e) { return; }
+    if (!legacy.length) return;
+    const crypto = require('crypto');
+    const h = (k) => crypto.createHash('sha256').update(String(k)).digest('hex');
+    try {
+      db.exec('BEGIN');
+      const upd = db.prepare('UPDATE integration_endpoints SET api_key_hash=?, api_key_hint=?, api_key=NULL WHERE id=?');
+      legacy.forEach((r) => {
+        const k = String(r.api_key);
+        const hint = k.length <= 6 ? '*'.repeat(k.length) : k.slice(0, 3) + '****' + k.slice(-3);
+        upd.run(h(k), hint, r.id);
+      });
+      db.exec('COMMIT');
+      console.log(`[db] 已把 ${legacy.length} 个接入点密钥转为哈希存储（明文列已清空）`);
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch (e2) { /* ignore */ }
+      schemaFailures.push({ kind: '密钥哈希化', sql: 'integration_endpoints.api_key → api_key_hash', msg: e.message });
+    }
+  })();
+
   return added;
 }
 

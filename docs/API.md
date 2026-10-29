@@ -2,12 +2,17 @@
 
 > 基础：所有 `/api/*` 除登录外均需请求头 `Authorization: Bearer <token>`。
 > 返回：`{ ok: true, data: ... }` 或 `{ ok: false, message }`；分页接口直接用数组。
+>
+> 令牌里带 `tv`（会话版本）。**停用账号 / 改角色 / 改密码 / 换公司主体**后，
+> 该账号已签发的令牌会在下一个请求返回 401（`users.token_version` +1）。
+> 登录失败有 IP 与账号两个维度的限流，超限返回 **429** 并带 `Retry-After`。
 
 ## 认证
 | 方法 | 路径 | 角色 | 说明 |
 |---|---|---|---|
-| POST | /api/auth/login | - | `{username,password}` → `{token,user}` |
-| GET | /api/auth/me | 登录 | 当前用户 |
+| POST | /api/auth/login | - | `{username,password}` → `{token,user}`；失败限流见上 |
+| GET | /api/auth/me | 登录 | 当前用户（含 `company_id` / `company_name`） |
+| POST | /api/auth/logout | 登录 | 撤销该账号**全部设备**的令牌（JWT 无会话 id，做不到只踢一台） |
 
 ## 客户 / 产品
 | 方法 | 路径 | 角色 | 说明 |
@@ -274,8 +279,8 @@
 | POST | /api/sample-archives/changes/:id/review | admin,tech | 审核（通过则解锁开发单回打版流程，提交人不能自审） |
 | GET/POST | /api/size-templates | 读:登录 / 写:admin,tech,sales | 尺码模板 |
 | DELETE | /api/size-templates/:id | 同上 | 删除 |
-| GET/POST | /api/users | admin | 用户列表/新增 |
-| PUT | /api/users/:id | admin | 改姓名/角色/状态/密码 |
+| GET/POST | /api/users | admin | 用户列表/新增（**必须落公司主体**；单公司模式恒落唯一抬头，多主体模式不指定则落操作人主体） |
+| PUT | /api/users/:id | admin | 改姓名/角色/状态/密码/主体。**角色/状态/密码/主体任一变更 → 该账号旧令牌立即失效**；不能停用自己或取消自己的管理员角色 |
 | POST | /api/upload | 登录 | 图片 base64 上传 → `/uploads/xxx` |
 | GET | /api/admin/backup | admin | 下载数据库快照 |
 | POST | /api/admin/restore | admin | 上传 .db 备份（校验后暂存，**重启后端生效**） |

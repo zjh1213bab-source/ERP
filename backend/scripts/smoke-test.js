@@ -97,8 +97,8 @@ function ok(name, cond, extra) {
   }
 }
 
-async function req(path, { method = 'GET', body, token } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(extra || {}) };
   if (token) headers.Authorization = 'Bearer ' + token;
   const res = await fetch(BASE + path, {
     method,
@@ -13025,6 +13025,244 @@ async function req(path, { method = 'GET', body, token } = {}) {
     require('../src/services/access').clearCache();
     ok('资产领归范围夹具已清干净', leftIt === 0 && leftRec === 0 && leftClm === 0,
       `实物 ${leftIt} / 领用 ${leftRec} / 定责 ${leftClm}`);
+  }
+
+  // ================= 安全加固（v1.68：账号归属 / 会话撤销 / 集团权限 / 上传 / 密钥 / 限流） =================
+  {
+    console.log('\n[安全加固]');
+    const { db: HDB } = require('../src/db');
+    const STAMP = String(Date.now()).slice(-7);
+    const U_SCOPE = 'smk_sec_' + STAMP;      // 账号归属 + 会话撤销
+    const U_LOCK = 'smk_lock_' + STAMP;      // 登录限流（这个账号故意永远登不上）
+    const EP_CODE = 'smk_ep_' + STAMP;       // 接入密钥
+    let scopeUid = null;
+    let epId = null;
+
+    /**
+     * ---- 1. 新建账号必须落公司主体 ----
+     *
+     * 原来 POST /api/users 的 INSERT 不带 company_id（列默认 NULL），而范围层对
+     * "没绑主体"的账号原本是「不过滤」—— 于是从管理页面上建的账号能看到所有主体。
+     * 这条断言盯的就是"建完必须带上归属"，不是"页面看着有值"。
+     */
+    const mkScope = await req('/api/users', {
+      method: 'POST', token,
+      body: { username: U_SCOPE, password: 'Smk#2026', name: '冒烟安全账号', role: 'sales' }
+    });
+    const scopeRow = mkScope.status === 200 ? mkScope.json.data : {};
+    scopeUid = scopeRow.id || null;
+    ok('★ 新建账号自动落公司主体（不再是 NULL）',
+      mkScope.status === 200 && Number(scopeRow.company_id) > 0,
+      `HTTP ${mkScope.status} company_id=${scopeRow.company_id}`);
+    ok('账号列表带公司名与「缺归属」标记', !!scopeRow.company_name && scopeRow.company_missing === false,
+      `${scopeRow.company_name} / missing=${scopeRow.company_missing}`);
+
+    /**
+     * ---- 2. 停用 / 改角色必须让旧令牌立刻失效 ----
+     *
+     * JWT 签出去就是 12 小时，服务端原本没有"撤回"。停用一个人之后旧令牌还能改钱、
+     * 还能导出 —— 这是审计里最容易被问住的一条。现在靠 users.token_version +1 撤回。
+     */
+    const l1 = await req('/api/auth/login', { method: 'POST', body: { username: U_SCOPE, password: 'Smk#2026' } });
+    const scopeTok = l1.status === 200 ? l1.json.data.token : null;
+    const beforeOff = await req('/api/orders', { token: scopeTok });
+    ok('新账号登录后旧令牌可用（作为对照）', beforeOff.status === 200, `HTTP ${beforeOff.status}`);
+
+    const offIt = await req(`/api/users/${scopeUid}`, { method: 'PUT', token, body: { active: 0 } });
+    ok('停用账号时接口明确回报"已作废令牌"',
+      offIt.status === 200 && offIt.json.data.token_revoked === true,
+      `revoked=${offIt.json.data ? offIt.json.data.token_revoked : '?'}`);
+    const afterOff = await req('/api/orders', { token: scopeTok });
+    ok('★ 停用后旧令牌立刻 401（不是等 12 小时过期）', afterOff.status === 401,
+      `HTTP ${afterOff.status} ${afterOff.json.message || ''}`);
+
+    // 重新启用 → 再登录 → 改角色 → 旧令牌再次失效
+    await req(`/api/users/${scopeUid}`, { method: 'PUT', token, body: { active: 1 } });
+    const l2 = await req('/api/auth/login', { method: 'POST', body: { username: U_SCOPE, password: 'Smk#2026' } });
+    const scopeTok2 = l2.status === 200 ? l2.json.data.token : null;
+    const roleIt = await req(`/api/users/${scopeUid}`, { method: 'PUT', token, body: { role: 'warehouse' } });
+    const afterRole = await req('/api/orders', { token: scopeTok2 });
+    ok('★ 改角色后旧令牌立刻 401（降权对已登录的人同样生效）',
+      roleIt.status === 200 && afterRole.status === 401,
+      `revoked=${roleIt.json.data ? roleIt.json.data.token_revoked : '?'} / HTTP ${afterRole.status}`);
+
+    /**
+     * 管理员不能把自己停用 / 降权 —— 只有他一个管理员时，这两个操作会把系统锁死，
+     * 之后只能改库。守卫必须在写库之前，否则"提示失败但已经写进去了"。
+     */
+    const meId = (await req('/api/auth/me', { token })).json.data.id;
+    const killSelf = await req(`/api/users/${meId}`, { method: 'PUT', token, body: { active: 0 } });
+    ok('★ 管理员不能停用自己（防自锁）', killSelf.status === 400, `HTTP ${killSelf.status}`);
+
+    /**
+     * ---- 3. 集团报表与公司详情不再对所有业务角色开放 ----
+     *
+     * 原来 READ 白名单里有 sales/tech/production/warehouse：业务员在订单页看不到
+     * 别家的单，却能在集团页看到别家每月的利润和在职人员名单。
+     */
+    const l3 = await req('/api/auth/login', { method: 'POST', body: { username: U_SCOPE, password: 'Smk#2026' } });
+    const salesTok = l3.status === 200 ? l3.json.data.token : null;
+    const gOv = await req('/api/group/overview', { token: salesTok });
+    const gCo = await req('/api/group/companies', { token: salesTok });
+    ok('★ 普通业务角色读集团总览被拒（403）', gOv.status === 403, `HTTP ${gOv.status}`);
+    ok('★ 普通业务角色读主体列表被拒（403）', gCo.status === 403, `HTTP ${gCo.status}`);
+    const gOk = await req('/api/group/companies', { token });
+    ok('管理员仍可读集团主体（不是把入口一起关掉）', gOk.status === 200, `HTTP ${gOk.status}`);
+
+    /**
+     * ---- 4. 上传：只收明确类型，且验文件头 ----
+     *
+     * 原来未知 MIME 会从客户端文件名抠扩展名 → 传 evil.html 就落成 .html，
+     * 配合 /uploads 同源静态托管 = 在 ERP 域下执行脚本（能读走 localStorage 里的 token）。
+     */
+    const HTML_B64 = Buffer.from('<html><script>alert(document.cookie)</script></html>').toString('base64');
+    const upHtml = await req('/api/upload/file', {
+      method: 'POST', token, body: { dataUrl: 'data:text/html;base64,' + HTML_B64, filename: 'x.html' }
+    });
+    ok('★ 拒绝上传 HTML（活动内容不进上传目录）', upHtml.status === 400, `HTTP ${upHtml.status}`);
+
+    const upFake = await req('/api/upload/file', {
+      method: 'POST', token, body: { dataUrl: 'data:image/png;base64,' + HTML_B64, filename: 'x.png' }
+    });
+    ok('★ 声明成 png 的 HTML 被拒（验的是文件头，不是 MIME 字符串）', upFake.status === 400, `HTTP ${upFake.status}`);
+
+    const upGuess = await req('/api/upload/file', {
+      method: 'POST', token, body: { dataUrl: 'data:application/octet-stream;base64,' + HTML_B64, filename: 'evil.html' }
+    });
+    ok('★ 未知类型不再按文件名猜扩展名', upGuess.status === 400, `HTTP ${upGuess.status}`);
+
+    // 真图片要能过（否则这条加固会挡住正常的款图上传）
+    const PNG_HEX = '89504e470d0a1a0a0000000d494844520000000100000001080600000'
+      + '01f15c4890000000a49444154789c6300010000050001';
+    const upOk = await req('/api/upload/file', {
+      method: 'POST', token,
+      body: { dataUrl: 'data:image/png;base64,' + Buffer.from(PNG_HEX, 'hex').toString('base64'), filename: 'ok.png' }
+    });
+    ok('正常 png 仍可上传（加固没把业务挡死）',
+      upOk.status === 200 && /^\/uploads\/[0-9a-f]+\.png$/.test((upOk.json.data || {}).url || ''),
+      `HTTP ${upOk.status} ${(upOk.json.data || {}).url || ''}`);
+    if (upOk.status === 200) {
+      const raw = await fetch(BASE + upOk.json.data.url);
+      ok('★ 上传目录带 nosniff + CSP sandbox（就算被打开也不执行脚本）',
+        raw.headers.get('x-content-type-options') === 'nosniff'
+        && /sandbox/.test(String(raw.headers.get('content-security-policy') || '')),
+        `nosniff=${raw.headers.get('x-content-type-options')} csp=${raw.headers.get('content-security-policy')}`);
+    }
+    const htmlStat = await fetch(BASE + '/uploads/any.html');
+    ok('★ /uploads 下非白名单扩展名直接 404', htmlStat.status === 404, `HTTP ${htmlStat.status}`);
+
+    /**
+     * ---- 5. 外部接入密钥：只存哈希、只认请求头、载荷不留凭证 ----
+     */
+    const mkEp = await req('/api/integration/endpoints', {
+      method: 'POST', token, body: { code: EP_CODE, name: '冒烟接入点' }
+    });
+    const ep = mkEp.status === 200 ? mkEp.json.data : {};
+    epId = ep.id || null;
+    const plainKey = ep.api_key_plain || '';
+    ok('新建接入点只回一次明文 Key', mkEp.status === 200 && !!plainKey, `HTTP ${mkEp.status}`);
+    ok('★ 接入点响应体里没有明文 api_key 字段', ep.api_key === undefined,
+      Object.keys(ep).filter((k) => k.indexOf('api_key') === 0).join(','));
+    const epList = await req('/api/integration/endpoints', { token });
+    const epOne = (epList.json.data || []).find((x) => x.code === EP_CODE) || {};
+    ok('★ 接入点列表只给掩码（原来 ...r 展开把明文一起吐出去）',
+      epOne.api_key === undefined && /[*]/.test(String(epOne.api_key_masked || '')),
+      `masked=${epOne.api_key_masked}`);
+
+    const bodyKey = await req(`/api/integration/ingest/${EP_CODE}`, {
+      method: 'POST',
+      body: { event_id: 'SMKSEC-BODY-' + STAMP, topic: 'notification', api_key: plainKey }
+    });
+    ok('★ 请求体里的 api_key 不再被接受（只认 X-Api-Key 请求头）', bodyKey.status === 401,
+      `HTTP ${bodyKey.status}`);
+
+    const hdrKey = await req(`/api/integration/ingest/${EP_CODE}`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': plainKey },
+      body: {
+        event_id: 'SMKSEC-HDR-' + STAMP, topic: 'notification', title: '冒烟',
+        payload: { password: 'p@ss', token: 'tok-abc', keep: 1 }
+      }
+    });
+    ok('请求头带正确 Key 可通过', hdrKey.status === 200, `HTTP ${hdrKey.status}`);
+    const evRow = HDB.prepare('SELECT payload FROM integration_events WHERE event_id = ?')
+      .get('SMKSEC-HDR-' + STAMP) || {};
+    ok('★ 事件报文里的凭证字段已脱敏（备份包里不会出现密钥）',
+      /\*\*\*/.test(String(evRow.payload || '')) && !/p@ss|tok-abc/.test(String(evRow.payload || '')),
+      String(evRow.payload || '').slice(0, 60));
+
+    const rot = await req(`/api/integration/endpoints/${epId}/rotate-key`, { method: 'POST', token });
+    const newKey = rot.status === 200 ? rot.json.data.api_key_plain : '';
+    const oldTry = await req(`/api/integration/ingest/${EP_CODE}`, {
+      method: 'POST', headers: { 'X-Api-Key': plainKey },
+      body: { event_id: 'SMKSEC-OLD-' + STAMP, topic: 'notification' }
+    });
+    ok('★ 轮换后旧 Key 立即失效', !!newKey && newKey !== plainKey && oldTry.status === 401,
+      `HTTP ${oldTry.status}`);
+    const stored = HDB.prepare('SELECT api_key, api_key_hash FROM integration_endpoints WHERE id = ?').get(epId) || {};
+    ok('★ 库里存的是哈希，明文列为空',
+      !stored.api_key && /^[0-9a-f]{64}$/.test(String(stored.api_key_hash || '')),
+      `明文=${stored.api_key ? '有' : '无'} 哈希长度=${String(stored.api_key_hash || '').length}`);
+
+    /**
+     * ---- 6. 登录限流 ----
+     *
+     * 锁的是"账号"而不是"IP"：同办公室共用一个出口 IP 很常见，锁 IP 会连坐，
+     * 而攻击者换个代理就绕过。这里用一个永远登不上的账号验证。
+     */
+    let lastStatus = 0;
+    for (let i = 0; i < 7; i += 1) {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: U_LOCK, password: 'wrong-' + i } });
+      lastStatus = r.status;
+    }
+    ok('★ 同账号连续失败后被限流（429）', lastStatus === 429, `最后一次 HTTP ${lastStatus}`);
+    const adminStillOk = await req('/api/auth/login', { method: 'POST', body: { username: 'admin', password: 'admin123456' } });
+    ok('限流只锁该账号，不影响其他人登录', adminStillOk.status === 200, `HTTP ${adminStillOk.status}`);
+
+    /**
+     * ---- 7. 上线清单要盯住"账号没主体" ----
+     *
+     * 造一个空归属账号再查清单：单公司模式下应是 warn（不影响使用但要提示），
+     * 多主体模式下应是 fail（这种账号会被直接拒绝访问）。
+     *
+     * ⚠️ 断言写「不是 pass」而不是写死 fail/warn：`CHECKS` 是在**冒烟进程**里跑的，
+     * 读的是冒烟进程的环境变量，不是被测服务的（`BASE` 可以指向另一台机器）。
+     * 上一版就因为写死 `fail`，在 `SINGLE_COMPANY=0` 的实例上跑单公司模式的脚本时
+     * 误报了一条 —— 这与 v1.67 踩过的「冒烟模式读本地 env」是同一个坑。
+     */
+    const GL2 = require('../src/services/goLive');
+    HDB.prepare(
+      'INSERT INTO users (username, password_hash, name, role, active, created_at, token_version) VALUES (?,?,?,?,1,?,0)'
+    ).run(U_LOCK, 'x', '缺归属账号', 'sales', new Date().toISOString());
+    require('../src/services/access').clearCache();
+    const scoped = GL2.CHECKS.users_scoped();
+    ok('★ 上线清单能查出「账号没有公司主体」', scoped.status !== 'pass',
+      `${scoped.status}：${String(scoped.result).slice(0, 60)}`);
+
+    /**
+     * ---- 清理：只删自己造的东西 ----
+     *
+     * 顺序「先子后父」：这个库零外键，漏一步就是孤儿行。
+     */
+    if (epId) {
+      HDB.prepare('DELETE FROM integration_calls WHERE endpoint_id = ?').run(epId);
+      HDB.prepare('DELETE FROM integration_events WHERE endpoint_id = ?').run(epId);
+      HDB.prepare('DELETE FROM integration_endpoints WHERE id = ?').run(epId);
+    }
+    HDB.prepare("DELETE FROM integration_events WHERE event_id LIKE 'SMKSEC-%'").run();
+    if (scopeUid) {
+      HDB.prepare('DELETE FROM user_roles WHERE user_id = ?').run(scopeUid);
+      HDB.prepare('DELETE FROM access_exceptions WHERE user_id = ?').run(scopeUid);
+      HDB.prepare('DELETE FROM users WHERE id = ?').run(scopeUid);
+    }
+    HDB.prepare('DELETE FROM users WHERE username = ?').run(U_LOCK);
+    require('../src/services/access').clearCache();
+
+    const leftU = Number(HDB.prepare("SELECT COUNT(*) c FROM users WHERE username LIKE 'smk_sec_%' OR username LIKE 'smk_lock_%'").get().c);
+    const leftE = Number(HDB.prepare("SELECT COUNT(*) c FROM integration_endpoints WHERE code LIKE 'smk_ep_%'").get().c);
+    const leftEv = Number(HDB.prepare("SELECT COUNT(*) c FROM integration_events WHERE event_id LIKE 'SMKSEC-%'").get().c);
+    ok('安全加固夹具已清干净', leftU === 0 && leftE === 0 && leftEv === 0,
+      `账号 ${leftU} / 接入点 ${leftE} / 事件 ${leftEv}`);
   }
 
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================

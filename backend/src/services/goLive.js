@@ -157,6 +157,14 @@ const ITEMS = [
     how: '检查 `active=1` 的账号 `employee_id` 是否为空；管理员账号可例外但需在备注说明。'
   },
   {
+    key: 'users_scoped', section: 'access', kind: 'auto', check: 'users_scoped', severity: 'required',
+    title: '在用账号都有公司主体归属',
+    detail: '没绑主体的业务账号，数据范围无法判定。多主体模式下这类账号会被直接拒绝访问（见 v1.68），'
+      + '单公司模式下虽然不报错，但一旦切回多主体就全部被挡在门外 —— 上线前一次补齐，比事后逐个找人说方便。',
+    how: '查 `active=1` 且 `company_id` 为空/0 的账号（管理员也一起算，因为管理员同样要落主体）；'
+      + '在「用户与角色」里编辑该账号并指定公司。'
+  },
+  {
     key: 'perm_orphan', section: 'access', kind: 'auto', check: 'perm_orphan', severity: 'nice',
     title: '权限点没有悬空引用',
     detail: '拦截规则里写了某个权限点、但权限表里没有它，结果是这条规则永远不生效 —— 看起来有保护，实际没有。',
@@ -429,6 +437,36 @@ CHECKS.users_bound = () => {
   const names = others.map((r) => `${r.username}(${r.role})`);
   const brief = names.slice(0, 3).join('、') + (names.length > 3 ? ` 等 ${names.length} 个` : '');
   return { status: 'fail', result: `${others.length} / ${total} 个业务账号未绑员工：${brief}` };
+};
+
+/**
+ * 在用账号的公司主体归属
+ *
+ * 与 `users_bound`（绑员工）分开查：这两件事坏在不同的地方 ——
+ * 不绑员工导致"工资/考勤归不到人"，不绑主体导致"范围判不出来"（越权或全拒）。
+ * 合成一条会互相掩盖（"都绑了员工"却全都没主体，一眼看不出）。
+ *
+ * 单公司模式下**降级为 warn**：这时范围隔离整个关闭，空主体不影响使用，
+ * 只是一颗定时炸弹（切回多主体那天集体失效）。上线清单是为了"能上"，
+ * 不能因为一个当前不生效的隐患把发布卡死 —— 但必须让它出现在清单里。
+ */
+CHECKS.users_scoped = () => {
+  const total = db.prepare('SELECT COUNT(*) c FROM users WHERE COALESCE(active,1)=1').get().c;
+  const rows = db.prepare(
+    'SELECT username, role FROM users WHERE COALESCE(active,1)=1 AND (company_id IS NULL OR company_id = 0) ORDER BY id'
+  ).all();
+  const single = !!require('../config').singleCompany;
+  if (!rows.length) return { status: 'pass', result: `${total} 个在用账号都有公司主体归属` };
+  const names = rows.map((r) => `${r.username}(${r.role})`);
+  const brief = names.slice(0, 4).join('、') + (names.length > 4 ? ` 等 ${names.length} 个` : '');
+  if (single) {
+    return {
+      status: 'warn',
+      result: `${rows.length} / ${total} 个在用账号没有公司主体：${brief}。当前是单公司模式（不影响使用），`
+        + '但切回多主体（SINGLE_COMPANY=0）时这些账号会被直接拒绝访问，建议现在就补齐'
+    };
+  }
+  return { status: 'fail', result: `${rows.length} / ${total} 个在用账号没有公司主体：${brief} —— 这类账号的数据范围无法判定，会被拒绝访问` };
 };
 
 CHECKS.perm_orphan = () => {

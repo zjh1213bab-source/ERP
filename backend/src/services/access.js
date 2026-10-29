@@ -31,8 +31,17 @@ function cached(key, fn) {
 
 function clearCache(userId) {
   if (!userId) return _cache.clear();
-  // 一个用户可能有多条缓存键（u1 角色、e1:sales 生效权限），按前缀清
-  ['u' + userId, 'e' + userId + ':'].forEach((k) => {
+  /**
+   * 一个用户可能有多条缓存键，按前缀一起清：
+   *   u{id}        —— 主岗 + 附加岗
+   *   e{id}:{role} —— 生效权限
+   *   c{id}        —— 所属公司主体（companyOf）
+   *   s{id}        —— 会话状态（是否启用 / 当前角色 / 会话版本号）
+   *
+   * `s` 与 `c` 必须一起清：改了归属或停了账号却只清权限缓存，
+   * 会出现「权限已收回、范围还是老主体」「已停用但会话照样通过」这种半截状态。
+   */
+  ['u' + userId, 'c' + userId, 's' + userId, 'e' + userId + ':'].forEach((k) => {
     _cache.delete(k);
     [..._cache.keys()].filter((x) => k.endsWith(':') && x.startsWith(k)).forEach((x) => _cache.delete(x));
   });
@@ -302,6 +311,36 @@ function listReviews() {
 }
 
 /**
+ * 某用户的会话状态（是否启用 / 当前角色 / 会话版本号）
+ *
+ * ## 为什么每个请求都要读一次
+ *
+ * JWT 是无状态的，签发时把角色写进了 payload。如果只信 payload：
+ *   - 停用账号 → 旧令牌照样能用到 12 小时过期（离职人员的操作留在日志里）
+ *   - 降权 / 调岗 → 旧令牌带着老角色，等于降权对已登录的人不生效
+ *   - 改密码 → 别人手上的旧令牌仍然有效（改密码的通常原因就是令牌泄露）
+ *
+ * 所以 `authRequired` 每个请求比对一次 `token_version`。走 20 秒缓存：
+ * 每请求一次查询没必要，而 20 秒的窗口在「停用 → 生效」这个场景里够用
+ * （真要立即生效，`clearCache()` 会在同一进程内同步清掉）。
+ *
+ * 返回 null 表示账号已被删除 —— 调用方按 401 处理。
+ */
+function sessionOf(userId) {
+  const key = 's' + userId;
+  return cached(key, () => {
+    try {
+      const r = db.prepare(
+        'SELECT id, username, name, role, active, token_version FROM users WHERE id = ?'
+      ).get(Number(userId));
+      return r || null;
+    } catch (e) {
+      return null;
+    }
+  });
+}
+
+/**
  * 某用户属于哪个法人主体（`company_id`）
  *
  * 走 20 秒缓存：每个请求都要用，但主体几乎不变；
@@ -320,7 +359,7 @@ function companyOf(userId) {
 module.exports = {
   ROLES, ROLE_LABELS, PERMS, SOD_RULES, GUARDED, WRITE_METHODS,
   allPerms, rolesWithPerm,
-  rolesOf, effective, hasPerm, matchDeny, companyOf,
+  rolesOf, effective, hasPerm, matchDeny, companyOf, sessionOf,
   setException, removeException, setExtraRoles,
   sodConflicts, reviewMatrix, signOff, listReviews,
   clearCache

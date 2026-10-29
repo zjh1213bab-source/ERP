@@ -1,18 +1,34 @@
 /**
  * 鉴权中间件
- * - authRequired：校验 JWT + 装配生效岗位/权限 + 高危动作收回拦截
+ * - authRequired：校验 JWT + **每次核对库里的账号状态/角色/会话版本** + 装配生效岗位/权限
+ *   + 未绑定公司主体的账号拒绝 + 高危动作收回拦截
  * - requireRole：角色校验（admin 视为超级管理员，一人多岗取并集）
  * 兼容旧用法：module.exports 默认即 authRequired
  *
- * 为什么 authRequired 里要多做两件事：
+ * 为什么 authRequired 里要多做这几件事：
  *   1. 装 roles：一人多岗后，主岗 users.role 不足以判断，必须把附加岗并进来
- *   2. 拦收回：岗位复核会把某些权限从某人身上收掉（access_exceptions.deny）。
+ *   2. 核会话：JWT 只证明「这个令牌是我们签的」，不证明「这个人现在还能用」。
+ *      停用、降权、改密码之后旧令牌还能用满 12 小时 —— 离职人员照样能操作、
+ *      被降权的人照样能改钱。所以每个请求都拿 `users.token_version` 与令牌里的 `tv` 比一次。
+ *   3. 拦收回：岗位复核会把某些权限从某人身上收掉（access_exceptions.deny）。
  *      前端藏按钮只是体验，直接调接口还能过就没意义，所以在这里按高危路由表拦。
+ *   4. 拦未绑定主体：没有 `company_id` 的普通账号，数据范围无解（要么全看不到、
+ *      要么全看得到），一律拒绝并给出可执行的提示，而不是让它悄悄看全公司。
  */
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const { fail } = require('../utils/http');
 const access = require('../services/access');
+const companyScope = require('../access/companyScope');
+
+/**
+ * 未绑定主体时仍然放行的路径
+ *
+ * 只放登录态自检与健康检查：用户需要先能读到「我是谁」，前端才能弹出
+ * 「请联系管理员绑定公司」的提示；把 /api/auth/me 也拦掉，页面会表现成
+ * 「登录成功但白屏」，比直接告诉他原因难查得多。
+ */
+const UNBOUND_ALLOW = /^\/api\/(auth\/|health$)/;
 
 function authRequired(req, res, next) {
   const header = req.headers.authorization || '';
@@ -25,9 +41,24 @@ function authRequired(req, res, next) {
     if (payload.scope === 'customer') {
       return fail(res, 401, '该账号为商城客户账号，不能访问 ERP 接口');
     }
-    req.user = payload;
+
+    /**
+     * 会话核对（20 秒缓存，跨进程最多延迟 20 秒）
+     *
+     * 老令牌没有 `tv`：按 0 比，老账号的 `token_version` 默认也是 0，升级不踢人。
+     * 角色一律以库里的为准 —— 令牌里的 role 是签发那一刻的快照，
+     * 拿它做判断等于「降权之前签的令牌永远有老权限」。
+     */
+    const sess = access.sessionOf(payload.sub);
+    if (!sess) return fail(res, 401, '账号不存在，请重新登录');
+    if (!Number(sess.active)) return fail(res, 401, '账号已停用，请联系管理员');
+    if ((Number(payload.tv) || 0) !== (Number(sess.token_version) || 0)) {
+      return fail(res, 401, '登录状态已失效（账号权限或密码已变更），请重新登录');
+    }
+
+    req.user = { ...payload, role: sess.role, name: sess.name || payload.name };
     // 附加岗 + 生效权限（带 20s 缓存，避免每个请求都读库）
-    const eff = access.effective(payload.sub, payload.role);
+    const eff = access.effective(payload.sub, sess.role);
     req.user.roles = eff.roles;
     req.user.permDeny = eff.deny;
     /**
@@ -36,6 +67,17 @@ function authRequired(req, res, next) {
      * 各路由用它做数据范围过滤（见 access/companyScope）。
      */
     req.user.company_id = access.companyOf(payload.sub);
+
+    /**
+     * 未绑定公司主体 → 直接拒绝（多主体模式下才可能发生；单公司模式恒 cross）
+     *
+     * 放在权限判断之前：这类账号连"能看到哪些数据"都确定不了，
+     * 谈权限没有意义。提示里给了明确的下一步动作（找管理员指定公司）。
+     */
+    const scopeErr = companyScope.scopeProblem(req.user);
+    if (scopeErr && !UNBOUND_ALLOW.test(String(req.originalUrl || req.url || '').split('?')[0])) {
+      return fail(res, 403, scopeErr);
+    }
 
     // 高危动作被收回 → 直接拒绝（只覆盖改钱/改库存/改人事/改权限）
     const hit = access.matchDeny(req);

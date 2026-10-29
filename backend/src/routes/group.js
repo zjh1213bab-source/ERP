@@ -2,19 +2,37 @@
  * 多主体核算与集团合并
  * 原型 M02「多公司主体」+ M12「分公司总账与关账」
  *
- * 权限：登录可读；建/改主体、内部往来、合并限 admin / finance；删除与注销仅 admin。
- * 口径见 services/group.js 文件头。
+ * ## 权限口径（v1.68 收窄，之前是错的）
+ *
+ * 原来 `READ = admin / sales / tech / finance / production / warehouse`，
+ * 也就是**所有业务角色都能读集团合并报表和"某主体的利润期间 + 部门 + 在职人员名单"**。
+ * 这与 `access/companyScope.js` 的规则（普通用户默认只能看自己主体）直接矛盾：
+ * 业务员在订单页看不到别家的单，却能在集团页看到别家每个月的利润和花名册。
+ *
+ * 现在的口径：
+ *   读 → `admin / boss / finance`（集团职能：老板看全局、财务做合并）
+ *   写 → `admin / finance`
+ *   删 → `admin`
+ *
+ * 另外即使是这三个角色，**主体明细**（`/companies/:id` 的利润期间、部门、在职人员）
+ * 还要过一遍公司范围校验：finance 在自己主体做账，没有理由读别家的花名册。
+ * 集团层面的汇总走 `/overview` 与 `/consolidations`，那两个本来就是合并口径。
+ *
+ * 单公司模式下这些入口在前端是隐藏的（`ErpLayout` 按 `single_company` 过滤），
+ * 但接口按上面的口径保留 —— 直接调接口的人和点页面的人应该看到同一套规则。
  */
 const express = require('express');
 const { db } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { localDate } = require('../services/sla');
+const CS = require('../access/companyScope');
 const GR = require('../services/group');
 const G = require('../services/gl');
 
 const router = express.Router();
-const READ = ['admin', 'sales', 'tech', 'finance', 'production', 'warehouse'];
+/** 集团级只读：老板 / 管理员 / 财务。销售、技术、生产、仓库不再在列 */
+const READ = ['admin', 'boss', 'finance'];
 const WRITE = ['admin', 'finance'];
 const ADMIN = ['admin'];
 
@@ -26,12 +44,27 @@ router.get('/overview', authRequired, requireRole(...READ), (req, res) => {
 });
 
 router.get('/companies', authRequired, requireRole(...READ), (req, res) => {
-  ok(res, GR.listCompanies({ status: req.query.status || 'all' }));
+  /**
+   * 列表也要按范围过滤（不只是详情）
+   *
+   * 只挡详情不挡列表是常见的半截做法：列表会告诉你"集团里还有哪几家、叫什么、
+   * 什么状态"，而这三条信息本身就是别家的经营信息。
+   * 集团角色（admin/boss）范围是 cross，看得到全部；finance 只看到自己主体。
+   */
+  const rows = GR.listCompanies({ status: req.query.status || 'all' });
+  ok(res, rows.filter((c) => CS.canSee(req.user, { company_id: c.id })));
 });
 
 router.get('/companies/:id', authRequired, requireRole(...READ), (req, res) => {
   const c = GR.getCompany(req.params.id);
   if (!c) return fail(res, 404, '主体不存在');
+  /**
+   * 归属不符 → 404（不是 403）
+   *
+   * 与订单域同一条铁律：403 等于承认"这个主体存在、只是你没权限"，
+   * 逐个 id 试就能数出集团有几家、都是谁。
+   */
+  if (!CS.canSee(req.user, { company_id: c.id })) return fail(res, 404, '主体不存在');
   // 顺带给出该主体的账套概况，省一次请求
   const periods = db.prepare(
     'SELECT period, status, voucher_count, profit FROM gl_periods WHERE company_id=? ORDER BY period DESC LIMIT 12'

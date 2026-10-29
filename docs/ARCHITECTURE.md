@@ -14,6 +14,15 @@
   总闸只有一处（`access/companyScope.js` 的 `of()`）—— 切回多主体不用改各域代码、不用迁数据。
   见 `deploy/DEPLOY.md` §9.4 与 `docs/DB-SCHEMA.md` 顶部。
 - **鉴权**：JWT（请求头 `Authorization: Bearer <token>`）+ 角色 RBAC（`middleware/auth.js`）。
+  每个请求除了验签，还要核一次库里的**账号是否启用 / 当前角色 / 会话版本号**
+  （`users.token_version` 与令牌里的 `tv` 比对）—— JWT 本身没有"撤回"，
+  停用、降权、改密码要能立刻生效只能靠这一次比对。登录有三道限流
+  （`middleware/loginLimit.js`）：按 IP 的总尝试与失败数、按账号的连续失败。
+- **上传与静态托管**：`/api/upload/*` 只收白名单类型并**验文件头**，扩展名只由 MIME 决定；
+  `/uploads` 只放行白名单扩展名，并带 `nosniff` + `CSP sandbox`，非图片强制下载。
+  详见 `deploy/DEPLOY.md` §10.3 —— 这条防的是"同源任意 HTML 托管"导致的令牌窃取。
+- **外部接入**：`/api/integration/ingest/:code` 用 `X-Api-Key`（只存 sha256），
+  幂等键 `event_id`，报文落库前脱敏（`api_key/password/token/...` → `***`）。
 
 ## 2. 目录与职责
 
@@ -25,7 +34,8 @@ erp-mindmap/
 │   │   ├── config.js          # 环境变量（端口/JWT/汇率/DB 路径）
 │   │   ├── db.js              # 驱动兜底 + 建表 + 播种 + 轻量迁移 + 设置读写
 │   │   ├── auth/password.js   # scrypt 密码
-│   │   ├── middleware/auth.js # authRequired / requireRole
+│   │   ├── middleware/auth.js # authRequired / requireRole（含会话版本核对）
+│   │   ├── middleware/loginLimit.js # 登录限流（IP 与账号两个维度）
 │   │   ├── utils/http.js      # ok/fail/wrap/genNo
 │   │   ├── services/          # 跨模块业务（production.js：默认工序/ensureNodes）
 │   │   ├── routes/            # 按模块拆分（见下表）
