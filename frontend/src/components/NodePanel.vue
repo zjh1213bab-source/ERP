@@ -22,6 +22,72 @@
           <span v-if="p.node.skip_reason" class="np-skip">不适用：{{ p.node.skip_reason }}</span>
         </div>
 
+        <!-- ============ 生产分配（仅分配节点） ============ -->
+        <template v-if="p.assign">
+          <div class="np-sec np-assign">
+            <div class="np-sec-h">
+              <b>生产分配</b>
+              <span class="np-tiny">分配本厂还是发外协，在这里定，不用再跑到订单页分单</span>
+            </div>
+
+            <div class="np-astrip">
+              <span class="np-abadge" :class="'m-' + p.assign.mode">{{ p.assign.mode_label }}</span>
+              <span>订单 <b>{{ fmtQty(p.assign.order_qty) }}</b> 件</span>
+              <span>已分配 <b>{{ fmtQty(p.assign.allocated) }}</b> 件</span>
+              <span :class="{ 'np-gap': p.assign.pending_qty > 0 }">
+                未分配 <b>{{ fmtQty(p.assign.pending_qty) }}</b> 件
+              </span>
+            </div>
+
+            <div v-if="p.assign.dispatches.length" class="np-dlist">
+              <div v-for="d in p.assign.dispatches" :key="d.id" class="np-drow">
+                <span class="tag" :class="d.type === 'own' ? 'blue' : 'purple'">{{ d.type_label }}</span>
+                <span class="np-dfac">{{ d.factory_name || '未指定承做方' }}</span>
+                <span class="np-dqty">{{ fmtQty(d.qty) }} 件</span>
+                <span class="tag" :class="d.status === 'settled' ? 'green' : 'gray'">{{ d.status_label }}</span>
+              </div>
+            </div>
+            <div v-else class="np-empty np-empty-s">还没有分单记录：这张单还没定自己做还是发外协</div>
+
+            <div v-if="!p.assign.can_assign" class="np-warn">{{ p.assign.block_reason }}</div>
+            <div v-else-if="p.assign.full" class="np-warn">
+              整单已分完（{{ fmtQty(p.assign.allocated) }} 件）。要改分配方式，请到「订单 → 分单」删掉原分单再分 ——
+              这里不提供"改分配"，因为改完和已经发生的领料、裁床对不上。
+            </div>
+            <div v-else-if="!canWrite" class="np-empty np-empty-s">你没有分配权限（需要生产或管理员角色）</div>
+            <template v-else>
+              <div class="np-aform">
+                <label>
+                  <span>分配数量</span>
+                  <input class="input" type="number" min="0" step="1" v-model.number="assignForm.qty" />
+                </label>
+                <label>
+                  <span>外协厂（整单外发时必选）</span>
+                  <select class="input" v-model="assignForm.factory_id">
+                    <option value="">请选择</option>
+                    <option v-for="f in outFactories" :key="f.id" :value="f.id">{{ f.name }}</option>
+                  </select>
+                </label>
+                <label class="wide">
+                  <span>说明（选填）</span>
+                  <input class="input" v-model="assignForm.note" placeholder="例如：本厂车缝排满，转外协 B 做 320 件" />
+                </label>
+              </div>
+              <div class="np-actions">
+                <button class="btn btn-primary btn-sm" :disabled="assigning" @click="doAssign('own')">
+                  {{ assigning ? '提交中…' : '分配本厂生产' }}
+                </button>
+                <button class="btn btn-sm" :disabled="assigning" @click="doAssign('outsource')">整单外发</button>
+                <button class="btn btn-ghost btn-sm" :disabled="assigning" @click="doAssign('cut')">裁片外发</button>
+                <span class="np-tiny">
+                  本厂 {{ p.assign.own_factory ? p.assign.own_factory.name : '档案缺失' }} ·
+                  外协 {{ outFactories.length }} 家可选
+                </span>
+              </div>
+            </template>
+          </div>
+        </template>
+
         <!-- ============ 采购明细（仅采购类节点） ============ -->
         <template v-if="p.purchase">
           <div class="np-sec">
@@ -143,9 +209,16 @@
       <div v-if="p" class="modal-foot np-foot">
         <template v-if="canWrite">
           <div class="np-set">
-            <span>状态</span>
-            <button v-for="s in ['pending', 'doing', 'done', 'skipped']" :key="s" class="np-chip"
-              :class="{ on: form.status === s }" @click="form.status = s">{{ stLabel(s) }}</button>
+            <!-- 分配节点的状态由「分配」动作决定：手工点绿会出现「已完成但未分配」 -->
+            <template v-if="p.assign">
+              <span>状态</span>
+              <span class="np-tiny">由分配动作决定（本厂 / 外发），不能手点</span>
+            </template>
+            <template v-else>
+              <span>状态</span>
+              <button v-for="s in ['pending', 'doing', 'done', 'skipped']" :key="s" class="np-chip"
+                :class="{ on: form.status === s }" @click="form.status = s">{{ stLabel(s) }}</button>
+            </template>
             <span class="np-set-l">计划</span>
             <input class="input np-date" type="date" v-model="form.plan_date" />
             <span class="np-set-l">责任人</span>
@@ -183,12 +256,44 @@ const canWrite = computed(() => can('node.flow'));
 
 const form = reactive({ status: 'pending', plan_date: '', operator: '', remark: '', skip_reason: '' });
 
+/* ---------------- 生产分配 ---------------- */
+const assigning = ref(false);
+const assignForm = reactive({ qty: 0, factory_id: '', note: '' });
+/** 只有外协厂能选：分给"本厂"却点外发，标签就假了 */
+const outFactories = computed(() => ((p.value && p.value.assign && p.value.assign.factories) || []).filter((f) => f.type !== 'own'));
+
+async function doAssign(mode) {
+  if (!p.value || !p.value.assign) return;
+  const a = p.value.assign;
+  const qty = Number(assignForm.qty);
+  if (!(qty > 0)) return alert('分配数量要大于 0');
+  if (qty > a.pending_qty + 0.0001) return alert(`还有 ${a.pending_qty} 件没分配，填的 ${qty} 件超了`);
+  if (mode === 'outsource' && !assignForm.factory_id) return alert('整单外发要先选外协厂：不选厂，后面排产、验货、对账都找不到人');
+  const tip = mode === 'own'
+    ? `确认把 ${qty} 件分给本厂？分完这一步就标完成。`
+    : mode === 'outsource'
+      ? `确认把 ${qty} 件发给「${(outFactories.value.find((f) => f.id === Number(assignForm.factory_id)) || {}).name}」？`
+      : `裁片外发：订单整体仍按本厂入账，只是裁片那一环节发出去。确认继续？`;
+  if (!confirm(tip)) return;
+  assigning.value = true;
+  try {
+    const r = await api.assignNode(props.nodeId, {
+      mode, qty, note: String(assignForm.note || '').trim() || undefined,
+      factory_id: mode === 'outsource' ? Number(assignForm.factory_id) : undefined
+    });
+    emit('changed');
+    await load();
+    if (r && r.hint) alert(r.hint);
+  } catch (e) { alert(e.message); } finally { assigning.value = false; }
+}
+
 const ST = { pending: '待开始', doing: '进行中', done: '已完成', skipped: '不适用' };
 const stLabel = (s) => ST[s] || s;
 const stTag = (s) => ({ pending: 'gray', doing: 'blue', done: 'green', skipped: 'orange' }[s] || 'gray');
 
 const ACTION = {
-  status: '状态', plan: '计划', operator: '责任人', remark: '备注', skip: '不适用', photo: '凭证', report: '报工'
+  status: '状态', plan: '计划', operator: '责任人', remark: '备注', skip: '不适用', photo: '凭证', report: '报工',
+  assign: '分配'
 };
 const actionLabel = (a) => ACTION[a] || a;
 
@@ -209,6 +314,12 @@ async function load() {
     form.operator = d.node.operator || '';
     form.skip_reason = d.node.skip_reason || '';
     form.remark = '';
+    // 分配表单默认按「还剩多少没分配」预填：绝大多数单是一次分完的
+    if (d.assign) {
+      assignForm.qty = d.assign.pending_qty || 0;
+      assignForm.factory_id = '';
+      assignForm.note = '';
+    }
   } catch (e) {
     alert(e.message);
     emit('update:open', false);
@@ -321,6 +432,24 @@ async function onPick(e) {
 
 .np-ta { width: 100%; font-family: inherit; line-height: 1.6; }
 .np-up { cursor: pointer; }
+
+/* ---------- 生产分配 ---------- */
+.np-astrip { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: #4a5568; padding: 8px 10px; background: #f7f9fc; border-radius: 6px; }
+.np-astrip b { color: #16233b; font-size: 15px; }
+.np-abadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: #eef1f6; color: #6b7688; }
+.np-abadge.m-own { background: #e8f0ff; color: #2563eb; }
+.np-abadge.m-outsource { background: #f0eaff; color: #7c3aed; }
+.np-abadge.m-mixed { background: #fff2e0; color: #d97706; }
+.np-dlist { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.np-drow { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 5px 8px; border: 1px solid #eef2f7; border-radius: 5px; }
+.np-dfac { flex: 1; color: #33425c; }
+.np-dqty { font-family: ui-monospace, Menlo, monospace; color: #16233b; font-weight: 700; }
+.np-warn { margin-top: 8px; padding: 8px 10px; background: #fff8ec; border: 1px solid #f7e2bd; color: #a35f00; border-radius: 5px; font-size: 12px; line-height: 1.6; }
+.np-aform { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.np-aform label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: #8a94a6; }
+.np-aform label.wide { flex: 1; min-width: 200px; }
+.np-aform input, .np-aform select { min-width: 110px; }
+.np-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
 .np-photos { display: flex; gap: 8px; flex-wrap: wrap; }
 .np-photo { width: 96px; cursor: pointer; }

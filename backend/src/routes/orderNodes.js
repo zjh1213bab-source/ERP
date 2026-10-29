@@ -13,6 +13,7 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const { ensureNodes } = require('../services/production');
 const nodeFlow = require('../services/nodeFlow');
 const nodePanel = require('../services/nodePanel');
+const assignSvc = require('../services/orderAssign');
 
 const router = express.Router();
 const WRITE = ['admin', 'production'];
@@ -32,6 +33,17 @@ router.get('/', authRequired, wrap(async (req, res) => {
  */
 router.get('/:id/panel', authRequired, wrap(async (req, res) =>
   ok(res, nodePanel.panel(req.params.id))));
+
+/**
+ * 从看板上执行分配（本厂 / 整单外发 / 裁片外发）
+ *
+ * 分配在这套系统里的事实只有一个：`dispatch_orders`（分单表）。
+ * 这里不新造字段，只把「点按钮」翻译成一条分单，然后把节点标完成。
+ * 校验（财务审核、超量、必须选厂、覆盖整单才推进）全在 services/orderAssign，
+ * 与分单页共用同一份实现。
+ */
+router.post('/:id/assign', authRequired, requireRole(WRITE), wrap(async (req, res) =>
+  ok(res, assignSvc.assign(req.params.id, req.body || {}, (req.user && req.user.username) || 'system'))));
 
 router.post('/init', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const { order_id } = req.body || {};

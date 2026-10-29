@@ -25,6 +25,7 @@
  * 查不了任何事。
  */
 const { db } = require('../db');
+const assignSvc = require('./orderAssign');
 const bad = (msg, status = 400) => {
   const e = new Error(msg);
   e.status = status;
@@ -33,15 +34,7 @@ const bad = (msg, status = 400) => {
 
 const STATUS_LABEL = { pending: '待开始', doing: '进行中', done: '已完成', skipped: '不适用' };
 
-const PANEL_LABEL = {
-  generic: '节点信息',
-  purchase_fabric: '面料采购明细',
-  purchase_accessory: '辅料采购明细',
-  purchase_all: '面辅料采购明细'
-};
-
-/** 只允许这几种：面板类型是配置项，不能由前端传什么就渲染什么 */
-const PANELS = Object.keys(PANEL_LABEL);
+const { PANEL_LABEL, PANELS } = require('../utils/nodePanels');
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -195,6 +188,18 @@ function panel(nodeId) {
 
   const kind = (item && PANELS.includes(String(item.panel))) ? String(item.panel) : 'generic';
 
+  /**
+   * 分配节点要带上「现在分给谁了、还能不能分」
+   *
+   * 这些数字全部从 `dispatch_orders` 反算（`orderAssign.snapshot`），
+   * 面板显示的和分单页、转生产门槛用的是同一个来源 —— 否则看板说"已外发"、
+   * 转生产说"尚未完成整单分单"，两个页面各有一套说法。
+   */
+  let assign = null;
+  if (kind === 'assign') {
+    try { assign = assignSvc.snapshot(node.order_id); } catch (e) { assign = null; }
+  }
+
   const photos = db.prepare(
     `SELECT id, filename, url, note, uploader, created_at FROM attachments
       WHERE node_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 40`
@@ -212,7 +217,9 @@ function panel(nodeId) {
     panel_label: PANEL_LABEL[kind] || PANEL_LABEL.generic,
     /** 模板里这个节点的配置（必经与否、是否仅扫码），前端据此决定「能不能标不适用」 */
     item: item || null,
-    purchase: kind === 'generic' ? null : purchaseRows(node.order_id, kind),
+    /** 分配面板：当前分给谁、还剩多少、能不能分（没有就不返回，前端不必判空） */
+    assign,
+    purchase: kind === 'assign' || kind === 'generic' ? null : purchaseRows(node.order_id, kind),
     traces: traces(node.order_id),
     photos: photos.map((p) => ({ id: p.id, url: p.url, note: p.note || '', uploader: p.uploader || '', at: p.created_at })),
     timeline: timeline(node)

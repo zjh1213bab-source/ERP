@@ -109,6 +109,7 @@
                   <select class="nf-panel" :value="it.panel || 'generic'" :disabled="!canWrite"
                     @change="setPanel(it, $event.target.value)">
                     <option value="generic">通用</option>
+                    <option value="assign">生产分配</option>
                     <option value="purchase_fabric">面料采购明细</option>
                     <option value="purchase_accessory">辅料采购明细</option>
                     <option value="purchase_all">面辅料明细</option>

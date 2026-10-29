@@ -5,19 +5,16 @@
  * DELETE /api/dispatch/:id
  *
  * 规则：财务审核通过(成本单 approved)后才能分单；
- *       首次分单会把订单从 finance 推进到 assigned，之后可继续拆分（多次分单）。
+ *       分单可分次录入，只有有效分配数量覆盖整张订单后才从 finance 推进到 assigned。
  */
 const express = require('express');
-const { db, now } = require('../db');
+const { db } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const assignSvc = require('../services/orderAssign');
 
 const router = express.Router();
 const WRITE = ['admin', 'sales', 'production'];
-
-function totalQty(orderId) {
-  return Number(db.prepare('SELECT COALESCE(SUM(qty),0) AS s FROM order_items WHERE order_id = ?').get(orderId).s) || 0;
-}
 
 router.get('/', authRequired, wrap(async (req, res) => {
   const { order_id, factory_id, status } = req.query;
@@ -56,48 +53,27 @@ router.post('/:id/settle', authRequired, requireRole(['admin', 'finance']), wrap
 
 router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const b = req.body || {};
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(b.order_id);
-  if (!order) return fail(res, 404, '订单不存在');
-  if (!['finance', 'assigned'].includes(order.status)) {
-    return fail(res, 400, `订单当前为「${order.status}」，只有财务审核/已分单状态可分单`);
-  }
-  const cost = db.prepare("SELECT 1 AS x FROM cost_sheets WHERE order_id = ? AND status = 'approved' LIMIT 1").get(b.order_id);
-  if (!cost) return fail(res, 400, '财务尚未审核通过，不能分单');
-
-  const factory = b.factory_id ? db.prepare('SELECT * FROM factories WHERE id = ?').get(b.factory_id) : null;
-  if (b.factory_id && !factory) return fail(res, 400, '工厂不存在');
-  const type = b.type === 'outsource' || (factory && factory.type === 'outsource') ? 'outsource' : 'own';
-  const qty = b.qty !== undefined && b.qty !== null && b.qty !== '' ? Number(b.qty) : totalQty(b.order_id);
-  if (!(qty > 0)) return fail(res, 400, '分单数量必须大于 0');
-
-  const t = now();
-  let dispatchId;
-  db.exec('BEGIN');
-  try {
-    const info = db.prepare(
-      'INSERT INTO dispatch_orders (order_id, factory_id, factory_name, type, qty, price, status, remark, created_at) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run(b.order_id, b.factory_id || null, factory ? factory.name : (b.factory_name || '未指定'), type, qty, Number(b.price) || 0, 'dispatched', b.remark || null, t);
-    dispatchId = Number(info.lastInsertRowid);
-
-    if (order.status === 'finance') {
-      db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run('assigned', t, b.order_id);
-      db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
-        .run(b.order_id, 'finance', 'assigned', req.user.username, `分单：${factory ? factory.name : '未指定'}（${type === 'own' ? '本厂' : '外协'}）× ${qty}`, t);
-    }
-    db.exec('COMMIT');
-  } catch (e) {
-    db.exec('ROLLBACK');
-    throw e;
-  }
-  return ok(res, {
-    id: dispatchId,
-    dispatches: db.prepare('SELECT * FROM dispatch_orders WHERE order_id = ? ORDER BY id').all(b.order_id)
-  });
+  // 校验与写入都在 services/orderAssign.addDispatch()：看板「待分配订单」里点
+  // 「分配本厂 / 整单外发」走的是同一个函数。各写一遍的失败方式很具体 ——
+  // 面板能分超量、分单页拦住；面板不看财务审核，于是没审核的单已经在车间做了。
+  const out = assignSvc.addDispatch({
+    orderId: b.order_id,
+    factory_id: b.factory_id || null,
+    factory_name: b.factory_name || '',
+    type: b.type || '',
+    qty: b.qty,
+    price: b.price,
+    remark: b.remark || ''
+  }, (req.user && req.user.username) || 'system');
+  return ok(res, { id: out.id, dispatches: out.dispatches });
 }));
 
+
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT 1 AS x FROM dispatch_orders WHERE id = ?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM dispatch_orders WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '分单记录不存在');
+  const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(row.order_id);
+  if (!order || !['finance', 'assigned'].includes(order.status)) return fail(res, 400, '订单已进入生产或后续环节，不能删除分单记录');
   db.prepare('DELETE FROM dispatch_orders WHERE id = ?').run(req.params.id);
   return ok(res, { id: Number(req.params.id) });
 }));

@@ -227,6 +227,8 @@ function nextCustomCode(templateId) {
 function saveItem(templateId, b) {
   const tpl = db.prepare('SELECT * FROM node_templates WHERE id = ?').get(templateId);
   if (!tpl) throw bad('流程模板不存在', 404);
+  // 面板类型清单只有一份（utils/nodePanels）：改/新建两个分支都要用，放在函数作用域
+  const { PANELS, PANEL_LABEL } = require('../utils/nodePanels');
 
   /**
    * 名称**只在传了的时候才校验**。
@@ -288,9 +290,8 @@ function saveItem(templateId, b) {
      * 做成属性而不是按 code 判断，因为「面料采购」在真实数据里往往是业务
      * 自己加的自定义节点（code 是 c_new_2 这种自动编号）。
      */
-    const PANELS = ['generic', 'purchase_fabric', 'purchase_accessory', 'purchase_all'];
     const panel = b.panel !== undefined ? String(b.panel) : String(row.panel || 'generic');
-    if (!PANELS.includes(panel)) throw bad('弹窗类型只能是：通用 / 面料采购明细 / 辅料采购明细 / 面辅料采购明细');
+    if (!PANELS.includes(panel)) throw bad('弹窗类型只能是：' + PANELS.map((k) => PANEL_LABEL[k]).join(' / '));
 
     db.prepare(
       `UPDATE node_template_items
@@ -337,7 +338,7 @@ function saveItem(templateId, b) {
     b.note || null,
     // 新建的默认占列；要「仅扫码」显式传 visible:0
     b.visible !== undefined ? (b.visible ? 1 : 0) : 1,
-    ['generic', 'purchase_fabric', 'purchase_accessory', 'purchase_all'].includes(String(b.panel))
+    PANELS.includes(String(b.panel))
       ? String(b.panel) : 'generic',
     t,
     t
@@ -636,9 +637,6 @@ function board({
   // 下单时间区间：和货期区间分开两个筛选（车间关心货期，业务关心下单日）
   if (orderFrom) { where.push("IFNULL(o.order_date,'') <> '' AND date(o.order_date) >= date(?)"); args.push(orderFrom); }
   if (orderTo) { where.push("IFNULL(o.order_date,'') <> '' AND date(o.order_date) <= date(?)"); args.push(orderTo); }
-  // 下单时间区间：和货期区间分开两个筛选（车间关心货期，业务关心下单日）
-  if (orderFrom) { where.push("IFNULL(o.order_date,'') <> '' AND date(o.order_date) >= date(?)"); args.push(orderFrom); }
-  if (orderTo) { where.push("IFNULL(o.order_date,'') <> '' AND date(o.order_date) <= date(?)"); args.push(orderTo); }
   if (dueFrom) { where.push("IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) >= date(?)"); args.push(dueFrom); }
   if (dueTo) { where.push("IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) <= date(?)"); args.push(dueTo); }
   if (noDue) where.push("IFNULL(o.delivery_date,'') = ''");
@@ -676,6 +674,23 @@ function board({
              WHERE tp.order_id = o.id AND IFNULL(tp.image_url, '') <> ''
              ORDER BY tp.id DESC LIMIT 1) AS tech_image_url,
            ${OVERDUE} AS is_overdue,
+           /* 分配情况直接从分单表反算：看板页签（本厂 / 整单外发 / 裁片外发）
+              和弹窗里的"还剩多少没分配"必须是同一个数。
+              「未指定」的分单不算分配 —— 那是没选厂留下的脏数据。 */
+           (SELECT COALESCE(SUM(d.qty),0) FROM dispatch_orders d
+             WHERE d.order_id = o.id AND IFNULL(d.status,'') != 'cancelled' AND d.type = 'own'
+               AND ((d.factory_id IS NOT NULL AND d.factory_id > 0)
+                    OR TRIM(IFNULL(d.factory_name,'')) NOT IN ('','未指定'))) AS alloc_own,
+           (SELECT COALESCE(SUM(d.qty),0) FROM dispatch_orders d
+             WHERE d.order_id = o.id AND IFNULL(d.status,'') != 'cancelled' AND d.type = 'outsource'
+               AND ((d.factory_id IS NOT NULL AND d.factory_id > 0)
+                    OR TRIM(IFNULL(d.factory_name,'')) NOT IN ('','未指定'))) AS alloc_out,
+           (SELECT COUNT(*) FROM cut_dispatches c
+             WHERE c.order_id = o.id AND IFNULL(c.status,'') != 'cancelled') AS cut_cnt,
+           (SELECT GROUP_CONCAT(DISTINCT d.factory_name) FROM dispatch_orders d
+             WHERE d.order_id = o.id AND IFNULL(d.status,'') != 'cancelled'
+               AND ((d.factory_id IS NOT NULL AND d.factory_id > 0)
+                    OR TRIM(IFNULL(d.factory_name,'')) NOT IN ('','未指定'))) AS assign_names,
            CASE WHEN IFNULL(o.delivery_date,'') = '' THEN NULL
                 ELSE CAST(julianday(date('${TODAY}')) - julianday(date(o.delivery_date)) AS INTEGER) END AS days_late,
            c.name AS customer_name
@@ -756,6 +771,23 @@ function board({
       ...o,
       cells,
       extra,
+      /**
+       * 分配情况（本厂 / 外协各分了多少件 + 有没有裁片外发）
+       *
+       * `assign_mode` 是给看板页签用的标签：既分本厂又分外协时是 `mixed`，
+       * 不能硬归到哪一边 —— 拆单在这行当里太常见了。
+       */
+      alloc_own: Number(o.alloc_own) || 0,
+      alloc_out: Number(o.alloc_out) || 0,
+      cut_dispatches: Number(o.cut_cnt) || 0,
+      assign_names: o.assign_names || '',
+      assign_mode: (() => {
+        const own = Number(o.alloc_own) || 0;
+        const out = Number(o.alloc_out) || 0;
+        if (own <= 0 && out <= 0) return 'none';
+        if (own > 0 && out > 0) return 'mixed';
+        return out > 0 ? 'outsource' : 'own';
+      })(),
       /** 看板缩略图：订单图优先，没有再取打版图；都没有就是空（前端出占位） */
       thumb: o.image_url || o.tech_image_url || '',
       /** 超期标记由后端算好，前端不再自己比日期（两套判断必然对不上） */
@@ -827,6 +859,25 @@ function setNode(nodeId, b) {
     }
   }
 
+  /**
+   * 分配节点不许手工标完成
+   *
+   * 手工点绿之后，看板上这一步是 ✓，但分单表里一条记录都没有 ——
+   * 于是「工厂」列还写着未分配、转生产又提示"尚未完成整单分单"。
+   * 三个地方三个说法，而每个都"有据可查"。
+   * 这个节点的完成**只能由分配动作带来**（`orderAssign.assign` 里写分单 + 标完成）。
+   */
+  if (status === 'done' && status !== row.status) {
+    const tplItem = db.prepare('SELECT panel FROM node_template_items WHERE template_id = ? AND code = ?')
+      .get(row.template_id, row.code);
+    if (tplItem && String(tplItem.panel) === 'assign') {
+      const { snapshot } = require('./orderAssign');
+      if (snapshot(row.order_id).mode === 'none') {
+        throw bad(`「${row.name}」要先点「分配本厂 / 整单外发」，分配完才会自动完成；直接标完成会让看板显示"已完成但没分配"`);
+      }
+    }
+  }
+
   const t = now();
   let actual = b.actual_date !== undefined ? b.actual_date : row.actual_date;
   if (status === 'done' && !actual) actual = new Date().toISOString().slice(0, 10);
@@ -871,6 +922,8 @@ function setNode(nodeId, b) {
 module.exports = {
   BUILTIN_CODES,
   BUILTIN_ORDER,
+  STATUS_LABEL,
+  logNode,
   defaultTemplate,
   listTemplates,
   getTemplate,

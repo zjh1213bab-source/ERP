@@ -11482,6 +11482,193 @@ async function req(path, { method = 'GET', body, token } = {}) {
       && !MDB.prepare("SELECT 1 x FROM materials WHERE code LIKE 'SMK-IC-%'").get(), '已删');
   }
 
+  // ================= 生产分配（待分配订单 → 本厂 / 整单外发） =================
+  {
+    console.log('\n[生产分配]');
+    const { db: MDB } = require('../src/db');
+    const NF = require('../src/services/nodeFlow');
+    const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v) || 0);
+    const ts = '2026-10-20 09:00:00';
+
+    const mkOrder = (no, qty, status, costApproved, costStatus) => {
+      const info = MDB.prepare(
+        `INSERT INTO orders (order_no, type, status, rate, total_usd, total_amount, currency, style_name,
+           order_date, delivery_date, created_at, updated_at, company_id)
+         VALUES (?, 'custom', ?, 7.1, ?, ?, 'USD', ?, '2026-10-20', '2026-11-20', ?, ?, 1)`
+      ).run(no, status, qty * 9.5, qty * 9.5 * 7.1, `冒烟分配 ${no}`, ts, ts);
+      const oid = Number(info.lastInsertRowid);
+      const it = MDB.prepare(
+        'INSERT INTO order_items (order_id, product_name, style_no, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?)'
+      ).run(oid, '冒烟分配款', `${no}-A`, qty, qty * 9.5, qty * 9.5 * 7.1);
+      MDB.prepare(
+        `INSERT INTO order_item_sizes (item_id, color, size, qty, usd_price, cny_price, amount_usd, amount_cny)
+         VALUES (?,?,?,?,?,?,?,?)`
+      ).run(Number(it.lastInsertRowid), '本白', '均码', qty, 9.5, 67.45, qty * 9.5, qty * 9.5 * 7.1);
+      if (costApproved !== null) {
+        MDB.prepare(
+          `INSERT INTO cost_sheets (order_id, material_cost, total_cost, profit_rate, factory_price, status, reviewed_by, reviewed_at, created_at, updated_at)
+           VALUES (?, 90, 90, 30, 117, ?, 'admin', ?, ?, ?)`
+        ).run(oid, costStatus || (costApproved ? 'approved' : 'draft'), ts, ts, ts);
+      }
+      NF.ensureNodes(oid);
+      return oid;
+    };
+    const assignNode = (oid) => MDB.prepare("SELECT * FROM order_nodes WHERE order_id = ? AND code = 'c_new_1'").get(oid);
+
+    const ownFac = MDB.prepare("SELECT * FROM factories WHERE type='own' ORDER BY id LIMIT 1").get();
+    const outFac = MDB.prepare("SELECT * FROM factories WHERE type='outsource' ORDER BY id LIMIT 1").get();
+    const oA = mkOrder('MASG-TEST-1', 600, 'assigned', true);
+    const oB = mkOrder('MASG-TEST-2', 300, 'assigned', false);
+    const oC = mkOrder('MASG-TEST-3', 500, 'assigned', true);
+    const nA = assignNode(oA);
+
+    // ---------- 1. 面板：能分、剩多少 ----------
+    const pnl = await req(`/api/order-nodes/${nA.id}/panel`, { token });
+    const asg = pnl.json.data && pnl.json.data.assign;
+    ok('★ 待分配订单节点用的是「生产分配」面板（不是通用备注面板）',
+      pnl.status === 200 && pnl.json.data.kind === 'assign' && !!asg,
+      `HTTP ${pnl.status} / kind=${pnl.json.data && pnl.json.data.kind}`);
+    ok('★ 面板给出的未分配量 = 订单件数', !!asg && num(asg.order_qty) === 600 && num(asg.pending_qty) === 600,
+      `订单 ${asg && asg.order_qty} / 未分配 ${asg && asg.pending_qty}`);
+    ok('面板列出了可选工厂（本厂 1 家 + 外协若干）', !!asg && asg.factories.length >= 2
+      && asg.factories.some((f) => f.type === 'own') && asg.factories.some((f) => f.type === 'outsource'),
+      `${asg && asg.factories.map((f) => f.type_label + ':' + f.name).join(' / ')}`);
+
+    // ---------- 2. 校验类 ----------
+    const noFac = await req(`/api/order-nodes/${nA.id}/assign`, { method: 'POST', token, body: { mode: 'outsource' } });
+    ok('★ 整单外发不选厂被拒（不选厂排产/验货/对账都找不到人）',
+      noFac.status === 400 && /外协厂/.test(noFac.json.message || ''), `HTTP ${noFac.status}`);
+
+    const toOwnFac = await req(`/api/order-nodes/${nA.id}/assign`, {
+      method: 'POST', token, body: { mode: 'outsource', factory_id: ownFac.id }
+    });
+    ok('★ 把「本厂」当外协分被拒（分给自有车间却叫外发，标签就假了）',
+      toOwnFac.status === 400, `HTTP ${toOwnFac.status} ${(toOwnFac.json.message || '').slice(0, 40)}`);
+
+    const overQty = await req(`/api/order-nodes/${nA.id}/assign`, { method: 'POST', token, body: { mode: 'own', qty: 700 } });
+    ok('★ 分配数量超过未分配量被拒', overQty.status === 400 && /没分配/.test(overQty.json.message || ''), `HTTP ${overQty.status}`);
+
+    const badMode = await req(`/api/order-nodes/${nA.id}/assign`, { method: 'POST', token, body: { mode: 'whatever' } });
+    ok('非法分配方式被拒', badMode.status === 400, `HTTP ${badMode.status}`);
+
+    // ---------- 3. 分配本厂：真的写分单 + 节点完成 ----------
+    const doOwn = await req(`/api/order-nodes/${nA.id}/assign`, {
+      method: 'POST', token, body: { mode: 'own', qty: 600, note: '冒烟：本厂车缝有空' }
+    });
+    const dA = doOwn.json.data;
+    ok('★ 分配本厂：写入一条 own 分单，600 件', doOwn.status === 200
+      && dA.dispatches.length === 1 && dA.dispatches[0].type === 'own' && num(dA.dispatches[0].qty) === 600
+      && dA.dispatches[0].factory_id === ownFac.id,
+      `HTTP ${doOwn.status} / ${dA.dispatches && dA.dispatches.map((x) => x.type + ':' + x.qty).join(',')}`);
+
+    const nA2 = MDB.prepare('SELECT * FROM order_nodes WHERE id = ?').get(nA.id);
+    ok('★ 分配后这个节点自动标完成，并记下完成日与责任人',
+      nA2.status === 'done' && !!nA2.actual_date && nA2.operator === 'admin',
+      `${nA2.status} / ${nA2.actual_date} / ${nA2.operator}`);
+
+    const logs = MDB.prepare("SELECT action, detail FROM order_node_logs WHERE node_id = ? AND action = 'assign'").all(nA.id);
+    ok('★ 时间线里写明分给谁、多少件', logs.length === 1 && /本厂/.test(logs[0].detail) && /600/.test(logs[0].detail),
+      logs.length ? logs[0].detail : '没有 assign 记录');
+
+    // ---------- 4. 看板：工厂列与页签口径 ----------
+    const bd = await req('/api/node-flow/board?limit=500', { token });
+    const rowA = ((bd.json.data && bd.json.data.rows) || []).find((r) => r.id === oA);
+    ok('★ 看板行带分配结果（本厂 600、无外协，工厂名给到）', !!rowA
+      && num(rowA.alloc_own) === 600 && num(rowA.alloc_out) === 0 && rowA.assign_mode === 'own'
+      && /本厂|自有/.test(String(rowA.assign_names)),
+      rowA ? `${rowA.assign_mode} / own=${rowA.alloc_own} / ${rowA.assign_names}` : '看板没有这张单');
+
+    // ---------- 5. 幂等与「改分配」 ----------
+    const again = await req(`/api/order-nodes/${nA.id}/assign`, { method: 'POST', token, body: { mode: 'own', qty: 600 } });
+    const cntA = MDB.prepare('SELECT COUNT(*) c FROM dispatch_orders WHERE order_id = ?').get(oA).c;
+    ok('★ 同一方式再点一次是幂等（不重复写分单）',
+      again.status === 200 && again.json.data.changed === false && Number(cntA) === 1, `分单条数 ${cntA}`);
+
+    const changeTo = await req(`/api/order-nodes/${nA.id}/assign`, {
+      method: 'POST', token, body: { mode: 'outsource', factory_id: outFac.id }
+    });
+    ok('★ 已分完再改分配方式被拒（让人先去删原分单，而不是悄悄多分一笔）',
+      changeTo.status === 400 && /已经分配完/.test(changeTo.json.message || ''), `HTTP ${changeTo.status}`);
+
+    // ---------- 6. 手工标完成要被拦住 ----------
+    const nB = assignNode(oB);
+    const manualDone = await req(`/api/order-nodes/${nB.id}`, { method: 'PATCH', token, body: { status: 'done' } });
+    ok('★ 分配节点不许手工标完成（否则「已完成但未分配」）',
+      manualDone.status === 400 && /分配本厂/.test(manualDone.json.message || ''),
+      `HTTP ${manualDone.status} ${(manualDone.json.message || '').slice(0, 40)}`);
+
+    const pnlB = await req(`/api/order-nodes/${nB.id}/panel`, { token });
+    ok('成本单没审核时面板明确说清缺什么', pnlB.status === 200
+      && pnlB.json.data.assign.can_assign === false && /成本单/.test(pnlB.json.data.assign.block_reason || ''),
+      (pnlB.json.data.assign && pnlB.json.data.assign.block_reason || '').slice(0, 40));
+
+    const assignB = await req(`/api/order-nodes/${nB.id}/assign`, { method: 'POST', token, body: { mode: 'own' } });
+    ok('成本未审的单直接调分配接口也被拒', assignB.status === 400, `HTTP ${assignB.status}`);
+
+    // ---------- 7. 拆单：本厂 + 外协 ----------
+    const nC = assignNode(oC);
+    const first = await req(`/api/order-nodes/${nC.id}/assign`, { method: 'POST', token, body: { mode: 'own', qty: 300 } });
+    ok('拆单第一步：先分 300 件给本厂', first.status === 200 && num(first.json.data.pending_qty) === 200,
+      `余 ${first.json.data && first.json.data.pending_qty}`);
+
+    const second = await req(`/api/order-nodes/${nC.id}/assign`, {
+      method: 'POST', token, body: { mode: 'outsource', factory_id: outFac.id, qty: 200 }
+    });
+    ok('★ 拆单第二步：剩 200 件转外协，合计覆盖整单',
+      second.status === 200 && num(second.json.data.allocated) === 500 && second.json.data.full === true,
+      `已分 ${second.json.data && second.json.data.allocated}`);
+
+    const bd2 = await req('/api/node-flow/board?limit=500', { token });
+    const rowC = ((bd2.json.data && bd2.json.data.rows) || []).find((r) => r.id === oC);
+    ok('★ 拆单在看板上标成 mixed，不被硬归成一边', !!rowC && rowC.assign_mode === 'mixed'
+      && num(rowC.alloc_own) === 300 && num(rowC.alloc_out) === 200,
+      rowC ? `${rowC.assign_mode} / ${rowC.alloc_own} + ${rowC.alloc_out}` : '看板没有这张单');
+
+    // ---------- 8. 「未指定」的分单不算分配 ----------
+    MDB.prepare(
+      `INSERT INTO dispatch_orders (order_id, factory_id, factory_name, type, qty, price, status, created_at)
+       VALUES (?, NULL, '未指定', 'own', 10, 0, 'dispatched', ?)`
+    ).run(oC, ts);
+    const allocAfter = MDB.prepare(
+      `SELECT COALESCE(SUM(qty),0) q FROM dispatch_orders WHERE order_id = ? AND IFNULL(status,'') != 'cancelled'
+        AND ((factory_id IS NOT NULL AND factory_id > 0) OR TRIM(IFNULL(factory_name,'')) NOT IN ('','未指定'))`
+    ).get(oC).q;
+    ok('★ 承做方为「未指定」的分单不计入已分配（脏数据不能冒充分配）', num(allocAfter) === 500,
+      `有效已分 ${allocAfter}（另有 10 件未指定）`);
+
+    // ---------- 9. 分单页（/api/dispatch）与看板共用同一份校验 ----------
+    const oD = mkOrder('MASG-TEST-4', 200, 'assigned', true);
+    const dispNoFac = await req('/api/dispatch', { method: 'POST', token, body: { order_id: oD } });
+    ok('★ 分单页不选承做方也被拒（与看板分配同一条规则）',
+      dispNoFac.status === 400 && /承做的工厂/.test(dispNoFac.json.message || ''), `HTTP ${dispNoFac.status}`);
+
+    const dispOk = await req('/api/dispatch', {
+      method: 'POST', token, body: { order_id: oD, factory_id: outFac.id, qty: 200, price: 26 }
+    });
+    ok('分单页仍可正常分单（重构后行为不变）', dispOk.status === 200
+      && (dispOk.json.data.dispatch_orders || dispOk.json.data.dispatches || []).length >= 1,
+      `HTTP ${dispOk.status}`);
+
+    const dispOver = await req('/api/dispatch', {
+      method: 'POST', token, body: { order_id: oD, factory_id: outFac.id, qty: 10 }
+    });
+    ok('★ 分单页超量也被同一条规则拦住', dispOver.status === 400 && /超出订单总量/.test(dispOver.json.message || ''),
+      `HTTP ${dispOver.status} ${(dispOver.json.message || '').slice(0, 30)}`);
+
+    // ---------- 清理 ----------
+    [oA, oB, oC, oD].forEach((id) => {
+      MDB.prepare('DELETE FROM dispatch_orders WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM cost_sheets WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM order_node_logs WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
+      MDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+      MDB.prepare('DELETE FROM orders WHERE id = ?').run(id);
+    });
+    ok('生产分配夹具已清干净',
+      !MDB.prepare("SELECT 1 x FROM orders WHERE order_no LIKE 'MASG-TEST-%'").get(), '已删');
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

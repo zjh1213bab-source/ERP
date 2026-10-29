@@ -692,6 +692,7 @@
 | orderMaterials | PUT | `/:id/colors` | ✅ | — | — | ✅ | — | — | ✅ | — |
 | orderNodes | PATCH | `/:id` | ✅ | — | — | — | ✅ | — | — | — |
 | orderNodes | DELETE | `/:id` | ✅ | — | — | — | ✅ | — | — | — |
+| orderNodes | POST | `/:id/assign` | ✅ | — | — | — | ✅ | — | — | — |
 | orderNodes | POST | `/init` | ✅ | — | — | — | ✅ | — | — | — |
 | orders | POST | `/` | ✅ | — | ✅ | — | — | — | — | — |
 | orders | POST | `/:id/image` | ✅ | — | ✅ | ✅ | — | — | — | — |

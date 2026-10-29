@@ -178,11 +178,17 @@
               <div class="po-row clickable" @click="openPeek(r.id)">PO号：{{ r.order_no }}</div>
               <div class="po-row">客户：{{ r.customer_name || '—' }}</div>
               <div class="po-row">跟单员：{{ r.manager || '—' }}</div>
-              <div class="po-row">工厂：本厂</div>
+              <div class="po-row">
+                工厂：<b :class="{ 'po-unassigned': r.assign_mode === 'none' }">{{ assignText(r) }}</b>
+              </div>
               <div class="po-row">创建时间：{{ r.order_date ? String(r.order_date).slice(0, 10) : '—' }}</div>
               <div class="po-row">业务员：{{ r.manager || '—' }}</div>
               <div class="po-tags">
                 <span class="po-tag">{{ r.type === 'stock' ? '现货' : '定制' }}</span>
+                <span v-if="isUnassigned(r)" class="po-tag warn">待分配</span>
+                <span v-else-if="r.assign_mode === 'none'" class="po-tag gray">未记录分单</span>
+                <span v-else-if="r.assign_mode === 'outsource'" class="po-tag out">外发</span>
+                <span v-if="r.cut_dispatches > 0" class="po-tag">裁片外发</span>
                 <span v-if="r.overdue" class="po-tag danger">超期</span>
                 <span v-if="r.no_nodes" class="po-tag warn">无工序</span>
               </div>
@@ -328,7 +334,20 @@ const stLabel = (s) => ({ pending: '待开始', doing: '进行中', done: '已�
  * （灰 待开始 / 蓝 进行中 / 绿 已完成 / 橙 不适用）。
  * 不用四种不同形状：看板上 13 个节点 × 20 行，形状多了反而看不出进度到哪。
  */
-const ico = (s) => (s === 'skipped' ? '⊘' : '✓');
+/**
+ * 节点图标
+ *
+ * 原来不管什么状态都返回 ✓，只靠颜色区分 —— 于是「还没开始」的格子在截图里
+ * 看起来也是打勾的。加了「分配」这类真动作之后这很要命：待分配的单看起来
+ * 像已经分过了，而实际上一件都没分。没做的就是空心圈，做过的才打勾。
+ */
+const ico = (s) => ({
+  done: '✓',
+  skipped: '⊘',
+  doing: '▶',
+  pending: '○',
+  none: '–'
+}[s] || '○');
 
 /** 节点下那行小字：完成就给日期，在办给「进行中」，其余给「-」（参考系统也是这么留的） */
 function subOf(cell) {
@@ -348,6 +367,36 @@ function phText(r) {
   return String(r.order_no || '?').trim().slice(0, 1);
 }
 
+/**
+ * 「工厂」这一行显示什么
+ *
+ * 全部从分单事实来：没分单就是「未分配」，不许默认为「本厂」——
+ * 原来这行是写死的「本厂」，于是还没定谁做的单也显示"本厂生产"，
+ * 谁也没法从看板上看出哪些单还悬着。
+ *
+ * 已经投产（production/instock）却没分单记录的，是**老数据缺口**，
+ * 不能标成「待分配」——那会让每一张老单都跳出来喊"还没分配"，
+ * 反而淹掉真正等着分配的新单。
+ */
+function assignText(r) {
+  const names = String(r.assign_names || '').split(',').filter(Boolean);
+  if (r.assign_mode === 'none') {
+    return ['finance', 'assigned'].includes(r.status) ? '未分配' : '未记录分单';
+  }
+  if (r.assign_mode === 'outsource') return names.length ? `外协 · ${names.join(' / ')}` : '整单外发';
+  if (r.assign_mode === 'mixed') {
+    const ownName = names.find((n) => /本厂|自有/.test(n));
+    const others = names.filter((n) => n !== ownName);
+    return `本厂${others.length ? ' + ' + others.join(' / ') : ' + 外协'}`;
+  }
+  return names.length && !/本厂|自有/.test(names[0]) ? names[0] : '本厂';
+}
+
+/** 真正「等着分配」的单：还没定归属，且还没投产 */
+function isUnassigned(r) {
+  return r.assign_mode === 'none' && ['finance', 'assigned'].includes(r.status);
+}
+
 function daysLeft(r) {
   if (!r.delivery_date) return '';
   const d = new Date(String(r.delivery_date).slice(0, 10) + 'T00:00:00');
@@ -360,8 +409,10 @@ const tabs = computed(() => {
   const rows = board.value.rows || [];
   return [
     { key: 'all', label: '全部', count: rows.length },
-    { key: 'todo', label: '待分配订单', count: rows.filter((r) => isTodo(r)).length },
-    { key: 'producing', label: '本厂生产', count: rows.filter((r) => r.status === 'production').length },
+    { key: 'todo', label: '待分配订单', count: rows.filter((r) => isUnassigned(r)).length },
+    { key: 'own', label: '本厂生产', count: rows.filter((r) => r.alloc_own > 0).length },
+    { key: 'outsource', label: '整单外发', count: rows.filter((r) => r.assign_mode === 'outsource').length },
+    { key: 'cutout', label: '裁片外发', count: rows.filter((r) => r.cut_dispatches > 0).length },
     { key: 'instock', label: '已入库', count: rows.filter((r) => r.status === 'instock').length },
     { key: 'overdue', label: '超期订单', count: rows.filter((r) => r.overdue).length, danger: true },
     { key: 'odd', label: '订单异常', count: rows.filter((r) => !r.delivery_date || r.no_nodes).length, danger: true },
@@ -369,22 +420,22 @@ const tabs = computed(() => {
   ];
 });
 /**
- * 「待分配订单」= 流程第一个节点还没动
+ * 「待分配订单」= 还没定自己做还是发外协（**看分单事实，不看节点状态**）
  *
- * 不能用「一个节点都没完成」判：流程第一个节点就叫「待分配订单」，
- * 它一旦被标记完成，这张单就不该再出现在这个 Tab 里了。
+ * 原来按「流程第一个节点还没动」判。加了分配动作之后这就不准了：
+ * 节点可以被标「不适用」、也可以被人手工点绿，但"这单给了谁做"只有分单表知道。
+ * 而且节点判定把「在产但没分单记录」的老单也一并算成待分配，
+ * 于是真正的待分配单被埋在一堆老数据里。
  */
-function isTodo(r) {
-  const first = (r.cells || [])[0];
-  return !!first && first.status !== 'done' && first.status !== 'skipped';
-}
 function setTab(k) { tab.value = k; page.value = 1; }
 
 const filteredRows = computed(() => {
   const rows = board.value.rows || [];
   switch (tab.value) {
-    case 'todo': return rows.filter((r) => isTodo(r));
-    case 'producing': return rows.filter((r) => r.status === 'production');
+    case 'todo': return rows.filter((r) => isUnassigned(r));
+    case 'own': return rows.filter((r) => r.alloc_own > 0);
+    case 'outsource': return rows.filter((r) => r.assign_mode === 'outsource');
+    case 'cutout': return rows.filter((r) => r.cut_dispatches > 0);
     case 'instock': return rows.filter((r) => r.status === 'instock');
     case 'overdue': return rows.filter((r) => r.overdue);
     case 'odd': return rows.filter((r) => !r.delivery_date || r.no_nodes);
@@ -625,6 +676,9 @@ onMounted(load);
 .po-tag { font-size: 10.5px; line-height: 15px; padding: 0 5px; border-radius: 2px; background: #f0f9eb; color: #67c23a; border: 1px solid #e1f3d8; }
 .po-tag.danger { background: #fef0f0; color: #f56c6c; border-color: #fde2e2; }
 .po-tag.warn { background: #fdf6ec; color: #e6a23c; border-color: #faecd8; }
+.po-tag.out { background: #f4f0ff; color: #7c3aed; border-color: #e6dbff; }
+.po-tag.gray { background: #f4f6f9; color: #8a94a6; border-color: #e9edf3; }
+.po-unassigned { color: #e6a23c !important; font-weight: 400; }
 
 /* 中：工序 */
 .po-flow { flex: 1; min-width: 0; display: flex; }
