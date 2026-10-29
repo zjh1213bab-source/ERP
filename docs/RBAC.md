@@ -620,6 +620,14 @@
 | mkt | POST | `/tasks/:id/status` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | mkt | POST | `/tasks/:id/steps` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | mkt | POST | `/tasks/:id/steps/:sid` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| nodeFlow | PUT | `/items/:id` | ✅ | — | — | — | ✅ | — | — | — |
+| nodeFlow | POST | `/items/:id/status` | ✅ | — | — | — | ✅ | — | — | — |
+| nodeFlow | POST | `/templates` | ✅ | — | — | — | ✅ | — | — | — |
+| nodeFlow | PUT | `/templates/:id` | ✅ | — | — | — | ✅ | — | — | — |
+| nodeFlow | POST | `/templates/:id/apply` | ✅ | — | — | — | ✅ | — | — | — |
+| nodeFlow | POST | `/templates/:id/default` | ✅ | — | — | — | ✅ | — | — | — |
+| nodeFlow | POST | `/templates/:id/items` | ✅ | — | — | — | ✅ | — | — | — |
+| nodeFlow | POST | `/templates/:id/reorder` | ✅ | — | — | — | ✅ | — | — | — |
 | notify | GET | `/alerts` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | notify | POST | `/alerts` | ✅ | — | ✅ | — | — | — | — | — |
 | notify | POST | `/alerts/:id/cancel` | ✅ | — | ✅ | — | — | — | — | — |
@@ -1108,6 +1116,7 @@
 | `photo.write` | 生产车间、仓库采购、技术打版、销售跟单 |
 | `inspection.write` | 销售跟单、生产车间、技术打版、财务会计 |
 | `production.write` | 生产车间、技术打版 |
+| `node.flow` | 生产车间 |
 | `equipment.write` | 生产车间、仓库采购 |
 | `confirm.write` | 销售跟单、技术打版、生产车间 |
 | `channel.write` | 销售跟单、财务会计 |

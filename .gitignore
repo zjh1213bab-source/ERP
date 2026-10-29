@@ -12,6 +12,8 @@ dist/
 backend/data/*.db
 backend/data/*.db-wal
 backend/data/*.db-shm
+# 迁移前手工备份的库快照（一份 70MB+，绝不能进版本库）
+backend/data/*.db.bak-*
 # 上传文件与现场照片（运行时数据，体积大，不入库）
 backend/data/uploads/
 

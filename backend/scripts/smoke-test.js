@@ -10637,6 +10637,165 @@ async function req(path, { method = 'GET', body, token } = {}) {
       `删除 ${removed} 轮，孤儿项 ${GDB.prepare('SELECT COUNT(*) c FROM golive_items WHERE round_id NOT IN (SELECT id FROM golive_rounds)').get().c}`);
   }
 
+  // ================= 工序流程可自定义（节点 code 是身份，name 只是标签）=================
+  {
+    console.log('\n[工序流程可自定义]');
+    const fs2 = require('fs');
+    const pathMod2 = require('path');
+    const { db: FDB } = require('../src/db');
+    const NFX = 'NF-TEST-';
+
+    const tpls = await req('/api/node-flow/templates', { token });
+    const tpl = (tpls.json.data || []).find((x) => x.is_default) || (tpls.json.data || [])[0];
+    ok('★ 有默认工序流程，且内置 13 道工序都在', tpls.status === 200 && tpl && tpl.item_count === 13,
+      tpls.json.data ? `${tpls.json.data.length} 套 / 默认 ${tpl && tpl.name} / ${tpl && tpl.item_count} 节点` : '无');
+
+    const detail = await req(`/api/node-flow/templates/${tpl.id}`, { token });
+    const cutItem = (detail.json.data.items || []).find((x) => x.code === 'cut');
+    ok('内置节点带稳定 code（裁剪 = cut）', !!cutItem && cutItem.builtin === 1, cutItem ? cutItem.code : '找不到');
+
+    // 1. 改名：这是业务最常做的事（我们厂叫「裁床」不叫「裁剪」）
+    const RENAMED = '裁床（烟测改名）';
+    const ren = await req(`/api/node-flow/items/${cutItem.id}`, {
+      method: 'PUT', token, body: { name: RENAMED }
+    });
+    ok('★ 内置节点可以改名（业务叫法不一样是常态）',
+      ren.status === 200 && ren.json.data.name === RENAMED && ren.json.data.code === 'cut',
+      `HTTP ${ren.status} ${ren.json.data ? ren.json.data.name + '/' + ren.json.data.code : ''}`);
+
+    // 2. code 不能通过接口改
+    await req(`/api/node-flow/items/${cutItem.id}`, {
+      method: 'PUT', token, body: { name: RENAMED, code: 'hacked' }
+    });
+    const after = await req(`/api/node-flow/templates/${tpl.id}`, { token });
+    const cutAfter = (after.json.data.items || []).find((x) => x.id === cutItem.id);
+    ok('★ code 不能通过接口改（改了历史记录就和以后失联）', cutAfter && cutAfter.code === 'cut',
+      cutAfter ? cutAfter.code : '?');
+
+    // 3. 建一张单，看新订单是否按改名后的流程铺节点
+    const items1 = [{ product_name: '烟测流程款', colors: [{ color: '黑', sizes: [{ size: 'M', qty: 2, usd_price: 3 }] }] }];
+    const mk = await req('/api/orders', {
+      method: 'POST', token, body: { order_no: `${NFX}001`, type: 'custom', items: items1 }
+    });
+    const noid = mk.json.data && mk.json.data.id;
+    await req('/api/order-nodes/init', { method: 'POST', token, body: { order_id: noid } });
+    const nds = await req('/api/order-nodes?order_id=' + noid, { token });
+    const cutNode = (nds.json.data || []).find((n) => n.code === 'cut');
+    ok('★ 新订单按改名后的流程铺节点（名字是新的，code 还是 cut）',
+      !!cutNode && cutNode.name === RENAMED && cutNode.code === 'cut',
+      cutNode ? `${cutNode.name}/${cutNode.code}` : '无 cut 节点');
+
+    // 4. 内置节点不能停用
+    const off = await req(`/api/node-flow/items/${cutItem.id}/status`, {
+      method: 'POST', token, body: { status: 'off' }
+    });
+    ok('★ 内置节点不能停用（裁床单完成、首件确认都要回写它）', off.status === 400,
+      `HTTP ${off.status} ${(off.json.message || '').slice(0, 40)}`);
+
+    // 5. 同流程内不能重名
+    const dupItem = await req(`/api/node-flow/templates/${tpl.id}/items`, {
+      method: 'POST', token, body: { name: RENAMED }
+    });
+    ok('同流程内节点不能重名（看板两列同名没人分得清）', dupItem.status === 400, `HTTP ${dupItem.status}`);
+
+    // 6. 新增自定义节点
+    const added = await req(`/api/node-flow/templates/${tpl.id}/items`, {
+      method: 'POST', token, body: { name: '烟测尾部', required: 0, role: 'production' }
+    });
+    const addedCode = added.json.data && added.json.data.code;
+    ok('★ 可以加自定义节点（如「票菲工艺单打印」「尾部」），自动分配不冲突的 code',
+      added.status === 200 && /^c_\d+$/.test(String(addedCode)), `HTTP ${added.status} code=${addedCode}`);
+
+    // 7. 应用预览不写库
+    const cntBefore = Number(FDB.prepare('SELECT COUNT(*) c FROM order_nodes').get().c);
+    const dry = await req(`/api/node-flow/templates/${tpl.id}/apply`, {
+      method: 'POST', token, body: { dry_run: true }
+    });
+    const cntAfter = Number(FDB.prepare('SELECT COUNT(*) c FROM order_nodes').get().c);
+    ok('★ 应用预览只算不写（先看影响面再按确认）',
+      dry.status === 200 && dry.json.data.dry_run === true && cntAfter === cntBefore,
+      `before ${cntBefore} / after ${cntAfter}`);
+
+    // 8. 只补在产订单
+    ok('★ 应用只作用于在产订单（给已结案的单补 13 个「待开始」会把历史搞脏）',
+      (dry.json.data.scope || []).join(',') === 'assigned,production,instock'
+      && dry.json.data.skipped_by_status > 0,
+      `范围 ${(dry.json.data.scope || []).join(',')} / 跳过 ${dry.json.data.skipped_by_status} 张`);
+
+    // 9. 联动确实按 code 找节点，而不是按名字
+    const files = [
+      'src/routes/cuts.js',
+      'src/routes/firstArticles.js',
+      'src/services/orderFlow.js'
+    ];
+    const byName = files.filter((f) => {
+      const src = fs2.readFileSync(pathMod2.join(__dirname, '..', f), 'utf8');
+      return /order_nodes WHERE order_id = \? AND name LIKE/.test(src);
+    });
+    ok('★ 联动全部按 code 找节点（没有一处还按名字匹配，否则改名就静默失效）',
+      byName.length === 0, byName.join(',') || '无');
+
+    // 10. 必经节点不能标不适用
+    if (cutNode) {
+      const skipMust = await req(`/api/order-nodes/${cutNode.id}`, {
+        method: 'PATCH', token, body: { status: 'skipped', skip_reason: '烟测：这一步不做' }
+      });
+      ok('★ 必经节点不能标「不适用」（真不做要改流程模板）', skipMust.status === 400, `HTTP ${skipMust.status}`);
+    }
+
+    // 11. 模板新增的节点**不会**自动跑到已铺过节点的订单上 —— 这是设计，不是漏做
+    const optNodeBefore = (nds.json.data || []).find((n) => n.code === addedCode);
+    ok('★ 模板新增节点不会自动加到已下单的订单上（否则业务不知道自己的单被改了）',
+      !optNodeBefore, optNodeBefore ? '竟然自动铺上了' : '没铺（符合预期）');
+
+    // 12. 显式 apply 才补上
+    const applied = await req(`/api/node-flow/templates/${tpl.id}/apply`, {
+      method: 'POST', token, body: { dry_run: false, order_ids: [noid] }
+    });
+    const nds2 = await req('/api/order-nodes?order_id=' + noid, { token });
+    const optNode = (nds2.json.data || []).find((n) => n.code === addedCode);
+    ok('★ 显式「应用到已有订单」才把新节点补上（补几个、补到哪张单，先看预览）',
+      applied.status === 200 && applied.json.data.total_rows === 1 && !!optNode,
+      `HTTP ${applied.status} 补 ${applied.json.data ? applied.json.data.total_rows : '?'} 个 / 节点 ${optNode ? '有' : '无'}`);
+
+    if (optNode) {
+      const noReason = await req(`/api/order-nodes/${optNode.id}`, {
+        method: 'PATCH', token, body: { status: 'skipped' }
+      });
+      ok('★ 标「不适用」必须写原因（否则等于把这一步悄悄抹掉）', noReason.status === 400, `HTTP ${noReason.status}`);
+      const withReason = await req(`/api/order-nodes/${optNode.id}`, {
+        method: 'PATCH', token, body: { status: 'skipped', skip_reason: '烟测：现货款不做尾部' }
+      });
+      ok('可选节点能标不适用（定制单没有水洗、外协单没有尾部，逼着点完成只会教人作假）',
+        withReason.status === 200 && withReason.json.data.status === 'skipped'
+        && /现货款/.test(withReason.json.data.skip_reason || ''),
+        `HTTP ${withReason.status}`);
+    }
+
+    // 12. 看板列 = 流程节点
+    const bd = await req('/api/node-flow/board', { token });
+    ok('★ 订单跟踪看板的列就是流程里的节点（改名后看板跟着变）',
+      bd.status === 200 && (bd.json.data.columns || []).some((c) => c.name === RENAMED),
+      bd.json.data ? (bd.json.data.columns || []).map((c) => c.name).join(',') : '?');
+
+    // ---- 清理：改回名字、删掉自定义节点与烟测订单 ----
+    await req(`/api/node-flow/items/${cutItem.id}`, { method: 'PUT', token, body: { name: '裁剪' } });
+    if (added.json.data) FDB.prepare('DELETE FROM node_template_items WHERE id = ?').run(added.json.data.id);
+    if (noid) {
+      FDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(noid);
+      FDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(noid);
+      FDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(noid);
+      FDB.prepare('DELETE FROM orders WHERE id = ?').run(noid);
+    }
+    const back = await req(`/api/node-flow/templates/${tpl.id}`, { token });
+    const okBack = (back.json.data.items || []).find((x) => x.id === cutItem.id);
+    ok('流程夹具已还原（节点名改回「裁剪」、自定义节点与烟测订单已删）',
+      okBack && okBack.name === '裁剪'
+      && !FDB.prepare("SELECT 1 x FROM node_template_items WHERE name = '烟测尾部'").get()
+      && !FDB.prepare("SELECT 1 x FROM orders WHERE order_no LIKE 'NF-TEST-%'").get(),
+      okBack ? okBack.name : '?');
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

@@ -138,6 +138,23 @@ export const api = {  // 登录
   initNodes: (orderId) => req('/api/order-nodes/init', { method: 'POST', body: { order_id: orderId } }),
   updateNode: (id, d) => req(`/api/order-nodes/${id}`, { method: 'PATCH', body: d }),
 
+  // 工序流程模板（节点可自定义）
+  // 模板 = 新订单的「配方」；改模板不影响已下单，要让存量跟上得显式 apply
+  nodeFlowTemplates: () => req('/api/node-flow/templates'),
+  nodeFlowTemplate: (id) => req(`/api/node-flow/templates/${id}`),
+  saveNodeFlowTemplate: (d) => (d.id
+    ? req(`/api/node-flow/templates/${d.id}`, { method: 'PUT', body: d })
+    : req('/api/node-flow/templates', { method: 'POST', body: d })),
+  setDefaultNodeFlow: (id) => req(`/api/node-flow/templates/${id}/default`, { method: 'POST' }),
+  addNodeFlowItem: (tplId, d) => req(`/api/node-flow/templates/${tplId}/items`, { method: 'POST', body: d }),
+  updateNodeFlowItem: (id, d) => req(`/api/node-flow/items/${id}`, { method: 'PUT', body: d }),
+  setNodeFlowItemStatus: (id, status) => req(`/api/node-flow/items/${id}/status`, { method: 'POST', body: { status } }),
+  reorderNodeFlow: (tplId, ids) => req(`/api/node-flow/templates/${tplId}/reorder`, { method: 'POST', body: { ids } }),
+  /** dry_run 默认 true：先看会往哪些单补哪些节点，再按确认 */
+  applyNodeFlow: (tplId, d) => req(`/api/node-flow/templates/${tplId}/apply`, { method: 'POST', body: d }),
+  nodeFlowBoard: (params) => req('/api/node-flow/board' + qs(params)),
+  nodeFlowBuiltin: () => req('/api/node-flow/builtin'),
+
   // 库存
   stock: (params) => req('/api/stock' + qs(params)),
   stockSummary: () => req('/api/stock/summary'),

@@ -25,7 +25,7 @@ const PAGES = [
   '/mall-admin', '/suppliers', '/customers', '/reports', '/assess', '/users', '/notify', '/budget',
   '/bank', '/group-books', '/cockpit', '/credit', '/payable', '/cashflow', '/payment-requests', '/collections', '/approval-flows', '/access-review', '/import-data',
   '/development', '/sample-archive', '/pattern-board', '/cuts', '/bundle-progress', '/piece-wage', '/first-article',
-  '/production', '/approvals', '/costing', '/leads', '/spot-analysis', '/labels/5', '/print/production/5'
+  '/production', '/order-tracking', '/node-flow', '/approvals', '/costing', '/leads', '/spot-analysis', '/labels/5', '/print/production/5'
 ];
 
 /** 需要真实 id 的页面（工资条要取最新一份已确认核算单） */

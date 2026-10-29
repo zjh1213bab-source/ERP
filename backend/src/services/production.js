@@ -1,34 +1,18 @@
 /**
- * 生产工序服务：默认 13 道工序 + 初始化
+ * 生产工序服务
+ *
+ * 原先是「默认 13 道工序硬编码在这个文件里」。节点改成可自定义之后，
+ * 节点的来源是**流程模板**（`node_templates` / `node_template_items`），
+ * 所以这里的 `ensureNodes` 只是一个转发 —— 逻辑只有一份，在 `services/nodeFlow.js`。
+ *
+ * 保留这个文件是因为 `routes/orderNodes.js` 和 `services/orderFlow.js` 都从这里取，
+ * 而且 `DEFAULT_NODES` 这个常量在老脚本里被引用过。改成 re-export 而不是删掉，
+ * 是为了让调用方一行都不用改，同时避免出现两套「默认节点」定义
+ * （两套定义的下场是：改了一处，另一处还在用旧的那份，且没人会发现）。
  */
-const { db, now } = require('../db');
+const { ensureNodes, BUILTIN_CODES } = require('./nodeFlow');
 
-const DEFAULT_NODES = [
-  '备料',
-  '排版算料',
-  '裁剪',
-  '车缝',
-  '锁眼钉扣',
-  '整烫',
-  '水洗',
-  '印花',
-  '绣花',
-  '检验',
-  '包装',
-  '成品入库',
-  '出库发运'
-];
-
-/** 若订单还没有工序，则按默认工序初始化；返回是否新建 */
-function ensureNodes(orderId) {
-  const c = Number(db.prepare('SELECT COUNT(*) AS c FROM order_nodes WHERE order_id = ?').get(orderId).c);
-  if (c > 0) return false;
-  const t = now();
-  const ins = db.prepare(
-    'INSERT INTO order_nodes (order_id, name, seq, status, created_at) VALUES (?,?,?,?,?)'
-  );
-  DEFAULT_NODES.forEach((name, i) => ins.run(orderId, name, i + 1, 'pending', t));
-  return true;
-}
+/** 老调用方还在用这个名字：数组形式的内置工序名 */
+const DEFAULT_NODES = Object.values(BUILTIN_CODES);
 
 module.exports = { DEFAULT_NODES, ensureNodes };

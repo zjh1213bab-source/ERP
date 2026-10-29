@@ -30,6 +30,7 @@ const craftRoutes = require('./routes/crafts');
 const orderMaterialRoutes = require('./routes/orderMaterials');
 const sizeTemplateRoutes = require('./routes/sizeTemplates');
 const orderNodeRoutes = require('./routes/orderNodes');
+const nodeFlowRoutes = require('./routes/nodeFlow');
 const productionBoardRoutes = require('./routes/productionBoard');
 const stockRoutes = require('./routes/stock');
 const statsRoutes = require('./routes/stats');
@@ -204,6 +205,7 @@ app.use('/api/crafts', craftRoutes);
 app.use('/api/order-materials', orderMaterialRoutes);
 app.use('/api/size-templates', sizeTemplateRoutes);
 app.use('/api/order-nodes', orderNodeRoutes);
+app.use('/api/node-flow', nodeFlowRoutes);   // 工序流程模板：节点可自定义
 app.use('/api/production', productionBoardRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/stats', statsRoutes);

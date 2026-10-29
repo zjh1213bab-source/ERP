@@ -135,13 +135,15 @@ const navModel = [
       { label: '扎级完工进度', to: '/bundle-progress' },
       { label: '裁片外发与外协验货', to: '/cut-dispatch' },
       { label: '首件确认', to: '/first-article' },
+      { label: '订单跟踪', to: '/order-tracking' },
       { label: '生产管理', to: '/production' },
       { label: '质量与合规', to: '/quality' },
       { label: '现场照片', to: '/photos' },
       { label: '返工报废与结单', to: '/production-close' },
       { label: '设备与产能', to: '/equipment' },
       { label: '生产交付与质量', to: '/prod-report' },
-      { label: '外协对账', to: '/outsource-recon' }
+      { label: '外协对账', to: '/outsource-recon' },
+      { label: '工序流程配置', to: '/node-flow' }
     ]
   },
   {

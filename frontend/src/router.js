@@ -61,6 +61,8 @@ const CraftTypes = () => import('./views/CraftTypes.vue');
 const PatternBoard = () => import('./views/PatternBoard.vue');
 const SampleArchive = () => import('./views/SampleArchive.vue');
 const Production = () => import('./views/Production.vue');
+const OrderTracking = () => import('./views/OrderTracking.vue');
+const NodeFlow = () => import('./views/NodeFlow.vue');
 const Factories = () => import('./views/Factories.vue');
 const OutsourceRecon = () => import('./views/OutsourceRecon.vue');
 const Inventory = () => import('./views/Inventory.vue');
@@ -231,7 +233,9 @@ const routes = [
       { path: 'materials/:id', component: MaterialEdit, meta: { title: '编辑物料档案' } },
       { path: 'suppliers', component: Suppliers, meta: { title: '供应商档案' } },
       { path: 'craft-types', component: CraftTypes, meta: { title: '工序类别' } },
+      { path: 'order-tracking', component: OrderTracking, meta: { title: '订单跟踪' } },
       { path: 'production', component: Production, meta: { title: '生产管理' } },
+      { path: 'node-flow', component: NodeFlow, meta: { title: '工序流程配置' } },
       { path: 'quality', component: Quality, meta: { title: '质量与合规' } },
       { path: 'factories', component: Factories, meta: { title: '工厂管理' } },
       { path: 'outsource-recon', component: OutsourceRecon, meta: { title: '外协对账' } },

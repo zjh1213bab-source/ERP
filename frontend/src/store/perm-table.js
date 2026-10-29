@@ -28,6 +28,7 @@ export const PERM_TABLE = {
   'photo.write': ["production","warehouse","tech","sales"],
   'inspection.write': ["sales","production","tech","finance"],
   'production.write': ["production","tech"],
+  'node.flow': ["production"],
   'equipment.write': ["production","warehouse"],
   'confirm.write': ["sales","tech","production"],
   'channel.write': ["sales","finance"],

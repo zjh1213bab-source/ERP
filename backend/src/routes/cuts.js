@@ -15,6 +15,7 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const { findByCode } = require('../services/nodeFlow');
 
 const router = express.Router();
 const WRITE = ['admin', 'production', 'warehouse'];
@@ -401,8 +402,10 @@ router.post('/:id/finish', authRequired, requireRole(WRITE), wrap(async (req, re
         checked_by = ?, checked_at = ?, updated_at = ? WHERE id = ?`
     ).run(qualified, reject, diff, reason || null, b.checked_by || req.user.username, t, t, c.id);
 
-    // 同步 13 道工序里的「裁剪」节点
-    const node = db.prepare("SELECT * FROM order_nodes WHERE order_id = ? AND name LIKE '%裁剪%' ORDER BY id LIMIT 1").get(c.order_id);
+    // 同步工序里的「裁剪」节点。
+    // **按 code 找，不按名字**：业务把「裁剪」改成「裁床」「开裁」都常见，
+    // 按名字 LIKE '%裁剪%' 会在改名那一刻静默失效 —— 裁床单做完了、节点还停在待开始。
+    const node = findByCode(c.order_id, 'cut');
     if (node && node.status !== 'done') {
       db.prepare("UPDATE order_nodes SET status = 'done', actual_date = ?, operator = ?, remark = COALESCE(remark,'') || ? WHERE id = ?")
         .run(t.slice(0, 10), req.user.username, ` [裁床 ${c.cut_no} 完成，合格 ${qualified} 件]`, node.id);

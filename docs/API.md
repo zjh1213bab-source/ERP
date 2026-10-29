@@ -3594,3 +3594,74 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 | POST | /api/purchases | 可带 `order_id` 或 `order_no`；填了必须存在且未取消 |
 | POST | /api/purchases/:id/link-order | 补挂 / 改挂 / 解除（`order_id=0` 表示解除）；已收货/已结案不许改 |
 | GET | /api/purchases?order_no=&order_id=&unlinked=1 | 按订单筛采购；`unlinked=1` 看没挂订单的 |
+
+## 工序流程与订单跟踪
+
+> 订单跟踪看板上那一排节点（排版算料、票菲工艺单打印、领料、裁床、车缝、尾部…）由**流程模板**决定，
+> 业务可以自己增删、改名、调顺序。
+>
+> **关键约定：`code` 是身份，`name` 只是标签。**
+> 系统内 5 处联动（裁床单完成→`cut`、首件放行/退回→`sew`、成品入库闸门→`inspect`/`pack`）
+> 全部按 `code` 找节点。所以**改名字在结构上不可能影响联动**，因为联动不读 `name`。
+
+### 接口
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/node-flow/templates | 登录 | 流程列表（含节点数、停用数、在用订单数） |
+| GET | /api/node-flow/templates/:id | 登录 | 流程详情 + 全部节点（含已停用） |
+| POST | /api/node-flow/templates | node.flow | 新建流程：`{name, note, is_default}` |
+| PUT | /api/node-flow/templates/:id | node.flow | 改流程：`{name, note, status}` |
+| POST | /api/node-flow/templates/:id/default | node.flow | 设为默认（全局只一个；已归档的不能设） |
+| POST | /api/node-flow/templates/:id/items | node.flow | 新增节点：`{name, required, role, color}`；`code` 自动分配 `c_N` |
+| PUT | /api/node-flow/items/:id | node.flow | 改节点：`{name, required, role, color, status, note}`；**`code` 传了也忽略** |
+| POST | /api/node-flow/items/:id/status | node.flow | 停用 / 恢复：`{status: 'active'|'off'}` |
+| POST | /api/node-flow/templates/:id/reorder | node.flow | 排序：`{ids: [...]}`，按数组顺序重写 seq 为 1..n |
+| POST | /api/node-flow/templates/:id/apply | node.flow | 应用到已有订单：`{dry_run, order_ids, include_status}` |
+| GET | /api/node-flow/board | 登录 | 看板：`?template_id=&status=&q=&limit=` |
+| GET | /api/node-flow/builtin | 登录 | 内置 13 个节点的 code 清单 |
+| PATCH | /api/order-nodes/:id | production | 推进节点：`{status, plan_date, operator, remark, skip_reason, actual_date}` |
+
+### 规则
+
+| 规则 | 说明 |
+|---|---|
+| `code` 不可改 | 改 code 会让历史记录与「以后这个节点」失联；接口层面忽略传入值 |
+| 停用 ≠ 删除 | 停用只影响新订单；已下单的节点记录原样保留 |
+| 内置节点不能停用 | `builtin=1` 的节点有联动逻辑挂在 code 上，停掉就断；**可以改名、可以调序** |
+| 同流程内不能重名 | 看板两列同名没人分得清 |
+| 改模板不影响已下单 | 要让存量跟上必须走 `apply`，且只追加、不删、不改名 |
+| `apply` 默认只补在产订单 | `assigned` / `production` / `instock`；给已结案的单补「待开始」节点会把历史搞脏 |
+| `apply` 默认 `dry_run=true` | 先看「会往哪些单补哪些节点」再按确认 |
+| 必经节点不能标不适用 | `required=1` 时 `status='skipped'` → 400；真的不做要改模板 |
+| 标不适用必须写原因 | `skip_reason` 至少 1 字；否则等于把这一步悄悄抹掉 |
+
+### 看板返回结构
+
+```json
+{
+  "template": { "id": 1, "name": "本厂标准工序", "is_default": 1 },
+  "columns": [{ "code": "cut", "name": "裁床", "seq": 3, "required": 1, "builtin": 1 }],
+  "rows": [{
+    "order_no": "SCHDEMO001", "status": "production", "progress": 8,
+    "no_nodes": false, "done_count": 1, "total_count": 13, "skipped_count": 0,
+    "current": "排版算料",
+    "cells": [{ "node_id": 12, "code": "cut", "status": "pending", "missing": false }],
+    "extra": []
+  }],
+  "summary": { "orders": 22, "avg_progress": 5, "not_started": 20, "finished": 1 }
+}
+```
+
+| 字段 | 含义 |
+|---|---|
+| `cells[].missing` | 这张单没有该 code 的节点记录（一般是新加的模板节点还没 apply） |
+| `extra[]` | 模板之外的节点（单据级自定义，或模板已停用的）—— 追加在列尾，不能让它从看板上消失 |
+| `no_nodes` | 这张单完全没生成过工序（还没转到「生产中」） |
+| `current` | 第一个「进行中」，没有则第一个「待开始」 |
+
+### 节点状态
+
+`pending` 待开始 → `doing` 进行中 → `done` 已完成；`skipped` 不适用（需 `skip_reason`，且不能是必经节点）。
+
+已完成与不适用在界面上**不响应点击**：误触要回订单详情才能改回来，而现场多是戴手套操作。

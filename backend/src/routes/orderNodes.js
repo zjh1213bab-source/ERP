@@ -10,10 +10,10 @@ const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { ensureNodes } = require('../services/production');
+const nodeFlow = require('../services/nodeFlow');
 
 const router = express.Router();
 const WRITE = ['admin', 'production'];
-const STATUS = ['pending', 'doing', 'done'];
 
 router.get('/', authRequired, wrap(async (req, res) => {
   const { order_id } = req.query;
@@ -29,28 +29,18 @@ router.post('/init', authRequired, requireRole(WRITE), wrap(async (req, res) => 
   return ok(res, db.prepare('SELECT * FROM order_nodes WHERE order_id = ? ORDER BY seq, id').all(order_id));
 }));
 
-router.patch('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM order_nodes WHERE id = ?').get(req.params.id);
-  if (!row) return fail(res, 404, '工序不存在');
-  const b = req.body || {};
-  const status = b.status !== undefined ? b.status : row.status;
-  if (!STATUS.includes(status)) return fail(res, 400, '非法状态');
-
-  let actual = b.actual_date !== undefined ? b.actual_date : row.actual_date;
-  if (status === 'done' && !actual) actual = new Date().toISOString().slice(0, 10);
-
-  db.prepare(
-    'UPDATE order_nodes SET status=?, plan_date=?, actual_date=?, operator=?, remark=? WHERE id=?'
-  ).run(
-    status,
-    b.plan_date ?? row.plan_date,
-    actual,
-    b.operator ?? row.operator,
-    b.remark ?? row.remark,
-    req.params.id
-  );
-  return ok(res, db.prepare('SELECT * FROM order_nodes WHERE id = ?').get(req.params.id));
-}));
+/**
+ * 推进 / 编辑一个工序节点
+ *
+ * 逻辑放在 `services/nodeFlow.setNode`，这里只做转发 —— 因为「哪些状态能走、
+ * 必经节点能不能标不适用」这类判断如果在这里再写一份，必然出现
+ * 「看板能标、订单详情不能标」这种两套行为。
+ *
+ * 顺带修掉一个真问题：原来这里的状态白名单是 `['pending','doing','done']`，
+ * 没有 `skipped`，于是「这单不做水洗」只能被标成「已完成」—— 等于教人作假。
+ */
+router.patch('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) =>
+  ok(res, nodeFlow.setNode(req.params.id, req.body || {}))));
 
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = db.prepare('SELECT 1 AS x FROM order_nodes WHERE id = ?').get(req.params.id);

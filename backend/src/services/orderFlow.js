@@ -20,6 +20,7 @@
  */
 const { db, now } = require('../db');
 const { ensureNodes } = require('./production');
+const { findByCode } = require('./nodeFlow');
 const { notifyOrderStatus } = require('./mall');
 const { sealGate } = require('../routes/confirm');
 const { STAGE_LABELS } = require('../routes/patternFlows');
@@ -43,8 +44,66 @@ const CHAIN = ['draft', 'tech', 'finance', 'assigned', 'production', 'instock', 
 const TRANSITION_ROLES = {
   tech: ['admin', 'sales', 'tech'], finance: ['admin', 'sales', 'tech'], assigned: ['admin', 'finance'],
   production: ['admin', 'sales', 'production'], instock: ['admin', 'production', 'warehouse'],
-  shipped: ['admin', 'warehouse'], closed: ['admin', 'sales'], cancelled: ['admin', 'sales']
+  shipped: ['admin', 'warehouse', 'finance'], closed: ['admin', 'sales'], cancelled: ['admin', 'sales']
 };
+
+const QTY_EPSILON = 0.0001;
+
+function orderQty(orderId) {
+  return Number(db.prepare('SELECT COALESCE(SUM(qty),0) AS qty FROM order_items WHERE order_id = ?').get(orderId).qty) || 0;
+}
+
+function dispatchedQty(orderId) {
+  return Number(db.prepare(
+    `SELECT COALESCE(SUM(qty),0) AS qty FROM dispatch_orders
+      WHERE order_id = ? AND IFNULL(status,'') != 'cancelled'
+        AND ((factory_id IS NOT NULL AND factory_id > 0) OR TRIM(IFNULL(factory_name,'')) NOT IN ('','未指定'))`
+  ).get(orderId).qty) || 0;
+}
+
+function checkOrderMatrix(orderId) {
+  const items = db.prepare('SELECT id, product_name, qty FROM order_items WHERE order_id = ?').all(orderId);
+  if (!items.length) throw bad('订单没有款式明细，不能进入技术确认');
+  const sizes = db.prepare('SELECT color, size, qty FROM order_item_sizes WHERE item_id = ?');
+  const placeholderColors = new Set(['', '待定', '待分色', '未定']);
+  const placeholderSizes = new Set(['', '待定', '待定尺码', '待补尺码']);
+  for (const item of items) {
+    const rows = sizes.all(item.id);
+    if (!rows.length) throw bad(`款「${item.product_name}」没有颜色尺码明细，请先完善订单明细`);
+    const qty = rows.reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
+    if (Math.abs(qty - Number(item.qty || 0)) > QTY_EPSILON) {
+      throw bad(`款「${item.product_name}」颜色尺码数量合计与款式总数不一致，请先修正订单明细`);
+    }
+    if (rows.some((row) => placeholderColors.has(String(row.color || '').trim()) || placeholderSizes.has(String(row.size || '').trim()) || !(Number(row.qty) > 0))) {
+      throw bad(`款「${item.product_name}」仍有待定颜色、空尺码或无效数量，请先完善订单明细`);
+    }
+  }
+}
+
+function checkProductionReadyForStock(orderId) {
+  const qty = orderQty(orderId);
+  if (!(qty > 0)) throw bad('订单数量为 0，不能办理成品入库');
+  // 按 code 找，不按名字：业务把「检验」改成「质检 / 尾检 / 全检」都不能让这道闸失效
+  const node = findByCode(orderId, 'inspect');
+  if (!node || node.status !== 'done') throw bad('生产检验工序尚未完成，不能办理成品入库');
+  const report = db.prepare(
+    'SELECT COALESCE(SUM(qty_ok),0) AS qty_ok FROM production_reports WHERE order_id = ? AND node_id = ?'
+  ).get(orderId, node.id);
+  if (Number(report.qty_ok) + QTY_EPSILON < qty) throw bad(`检验工序合格报工不足：订单 ${qty} 件，已报合格 ${Number(report.qty_ok) || 0} 件`);
+  const packing = findByCode(orderId, 'pack');
+  if (!packing || packing.status !== 'done') throw bad('包装工序尚未完成，不能办理成品入库');
+  const packingReport = db.prepare(
+    'SELECT COALESCE(SUM(qty_ok),0) AS qty_ok FROM production_reports WHERE order_id = ? AND node_id = ?'
+  ).get(orderId, packing.id);
+  if (Number(packingReport.qty_ok) + QTY_EPSILON < qty) {
+    throw bad(`包装工序合格报工不足：订单 ${qty} 件，已报合格 ${Number(packingReport.qty_ok) || 0} 件`);
+  }
+  const qc = db.prepare(
+    `SELECT aql_result FROM qc_inspections WHERE order_id = ? AND type = 'final' AND status = 'done'
+      ORDER BY IFNULL(inspect_date, '') DESC, id DESC LIMIT 1`
+  ).get(orderId);
+  if (!qc || !['pass', 'conditional'].includes(qc.aql_result)) throw bad('订单尚无已完成且放行的尾期验货记录，不能办理成品入库');
+}
 
 function bad(msg, status = 400) {
   const e = new Error(msg);
@@ -57,7 +116,7 @@ function bad(msg, status = 400) {
  * @returns {object} order 行
  * @throws 400/403/404 带人话原因
  */
-function check(orderId, { to, force, user, write = true } = {}) {
+function check(orderId, { to, force, user, write = true, source } = {}) {
   const id = Number(orderId);
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
   if (!order) throw bad('订单不存在', 404);
@@ -76,6 +135,10 @@ function check(orderId, { to, force, user, write = true } = {}) {
   if (!(role === 'admin' || allowedRoles.includes(role))) {
     throw bad('你的角色无权执行该状态变更', 403);
   }
+
+  // 库存状态必须和真实库存流水同事务产生，不能通过通用状态接口或批量流转伪造。
+  if (to === 'instock' && source !== 'stock') throw bad('请通过「成品入库」办理入库并生成库存流水');
+  if (to === 'shipped' && source !== 'stock') throw bad('请通过「发货出库」办理发货并生成库存流水');
 
   // ---------- 门槛 1：进入技术确认 ----------
   if (to === 'tech') {
@@ -107,15 +170,34 @@ function check(orderId, { to, force, user, write = true } = {}) {
     // 走过样衣封样的订单：最新版本必须「客户已确认 + 总部技术已批准」双确认
     const gate = sealGate(id);
     if (!gate.ok) throw bad(gate.message);
+    // 业务评审与技术资料门禁都完成后，再检查转生产所需的颜色尺码矩阵；
+    // 这样提示用户先处理当前最靠前的业务缺项，而不是被后续明细校验遮住。
+    checkOrderMatrix(id);
   }
 
   // ---------- 门槛 2：进入已分单 ----------
   if (to === 'assigned') {
     const cs = db.prepare("SELECT 1 AS x FROM cost_sheets WHERE order_id = ? AND status = 'approved' LIMIT 1").get(id);
     if (!cs) throw bad('财务尚未审核通过，无法「分单」；请先录入成本并完成财务审核');
+    const qty = orderQty(id);
+    const dispatched = dispatchedQty(id);
+    if (!(qty > 0) || dispatched + QTY_EPSILON < qty) throw bad(`分单数量未覆盖整张订单：订单 ${qty} 件，已分单 ${dispatched} 件`);
   }
 
-  // ---------- 门槛 3：结案前应收要清 ----------
+  // ---------- 门槛 3：进入生产前必须完成整单分配 ----------
+  if (to === 'production') {
+    const qty = orderQty(id);
+    const dispatched = dispatchedQty(id);
+    if (!(qty > 0) || dispatched + QTY_EPSILON < qty) throw bad(`尚未完成整单分单：订单 ${qty} 件，已分单 ${dispatched} 件`);
+  }
+
+  // ---------- 门槛 4：成品入库前必须有完整生产检验与尾期验货 ----------
+  if (to === 'instock') {
+    if (source !== 'stock') throw bad('请通过「成品入库」办理入库并生成库存流水');
+    checkProductionReadyForStock(id);
+  }
+
+  // ---------- 门槛 5：结案前应收要清 ----------
   if (to === 'closed' && !force) {
     const ar = db.prepare('SELECT * FROM ar_invoices WHERE order_id = ? AND status != ?').get(id, 'void');
     if (ar) {
@@ -148,22 +230,25 @@ function apply(order, { to, note, batchNo, user } = {}) {
   // 进入生产：自动初始化 13 道工序
   if (to === 'production') ensureNodes(id);
 
-  // 发货：开应收 + 成本对象归集（都幂等；失败不影响发货本身）
+  db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
+    .run(id, cur, to, who, finalNote, t);
+  afterTransition(order, { to, note: finalNote, user });
+
+  return { id, from: cur, to };
+}
+
+/** 在业务事务提交后执行通知及发货财务副作用；库存路由也复用此方法。 */
+function afterTransition(order, { to, note, user } = {}) {
+  const id = order.id;
+  const who = (user && user.username) || 'system';
   if (to === 'shipped') {
-    try { openARForOrder(id, who); } catch (e) { /* 开票失败不影响发货 */ }
+    try { openARForOrder(id, who); } catch (e) { /* 开票失败不影响已完成的实物发货 */ }
     try {
       const obj = ensureCostObject(id);
       if (obj) { collectAuto(obj); syncSold(obj.id, who); }
-    } catch (e) { /* 成本归集失败不影响发货 */ }
+    } catch (e) { /* 成本归集失败不影响已完成的实物发货 */ }
   }
-
-  db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
-    .run(id, cur, to, who, finalNote, t);
-
-  // 客户商城站内消息（客户有账号才推）
-  try { notifyOrderStatus(id, to, finalNote); } catch (e) { /* 消息失败不影响主流程 */ }
-
-  return { id, from: cur, to };
+  try { notifyOrderStatus(id, to, note || null); } catch (e) { /* 消息失败不影响主流程 */ }
 }
 
 /** 单张流转 = check + apply */
@@ -290,6 +375,7 @@ module.exports = {
   TRANSITION_ROLES,
   check,
   apply,
+  afterTransition,
   transition,
   batchTransition,
   batchNo

@@ -55,6 +55,9 @@ const PERMS = {
   // 验货报告是对外文件（带客户信息与不良照片），人事/仓库不出这份东西
   'inspection.write': ['sales', 'production', 'tech', 'finance'],
   'production.write': ['production', 'tech'],        // 返工报废与生产结单
+  // 工序流程模板（节点可自定义）：改一次会影响后续**所有**新订单的工序结构，
+  // 而且单据级联动挂在节点 code 上，所以只给生产与管理员，不散给销售财务。
+  'node.flow': ['production'],
   'equipment.write': ['production', 'warehouse'],    // 设备停机与产能
 
   // ===== 客户订单与资料确认（样衣/变更/交期）=====
@@ -489,6 +492,12 @@ const GUARDED = [
   { perm: 'order.export', method: 'GET', prefix: '/api/orders/export' },
   // 改号单独锁：路径做成独立段 /order-no/:id，才能被前缀精确挂上
   { perm: 'order.rename', method: 'POST', prefix: '/api/orders/order-no' },
+  // 改工序流程模板 = 改后续所有订单的骨架。GET 不拦（看板、模板阅读销售也要看），
+  // 只锁写动作；前缀到 /api/node-flow/templates 与 /api/node-flow/items 就够精确。
+  { perm: 'node.flow', method: 'POST', prefix: '/api/node-flow/templates' },
+  { perm: 'node.flow', method: 'PUT', prefix: '/api/node-flow/templates' },
+  { perm: 'node.flow', method: 'POST', prefix: '/api/node-flow/items' },
+  { perm: 'node.flow', method: 'PUT', prefix: '/api/node-flow/items' },
   { perm: 'customer.write', method: '*', prefix: '/api/customers' },
   { perm: 'supplier.write', method: '*', prefix: '/api/supplier-evals' },
   { perm: 'qc.write', method: '*', prefix: '/api/qc' },

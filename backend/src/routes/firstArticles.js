@@ -18,6 +18,7 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const { findByCode } = require('../services/nodeFlow');
 
 const router = express.Router();
 const WRITE = ['admin', 'production', 'tech', 'sales'];   // 登记首件 / 填测量
@@ -656,7 +657,8 @@ router.post('/:id/release', authRequired, requireRole(RELEASE), wrap(async (req,
     );
 
     // 数据流转：首件放行 → 生产工序节点写备注，生产页/报工可见
-    const node = db.prepare("SELECT * FROM order_nodes WHERE order_id = ? AND name LIKE '%车缝%' ORDER BY id LIMIT 1").get(fa.order_id);
+    // 按 code 找「车缝」节点：业务把它改名叫「缝制」「车工」都不影响这里回写
+    const node = findByCode(fa.order_id, 'sew');
     if (node) {
       db.prepare("UPDATE order_nodes SET remark = COALESCE(remark,'') || ? WHERE id = ?")
         .run(` [首件 ${fa.fa_no} ${result === 'passed' ? '合格放行' : '限定放行'} ${qty} 件，按 ${fa.tech_pack_version} 版]`, node.id);
@@ -685,7 +687,7 @@ router.post('/:id/reject', authRequired, requireRole(RELEASE), wrap(async (req, 
   ).run(to, reason, req.user.username, t, t, fa.id);
 
   // 数据流转：首件退回 → 订单节点留痕，技术/销售在开发单侧看到
-  const node = db.prepare("SELECT * FROM order_nodes WHERE order_id = ? AND name LIKE '%车缝%' ORDER BY id LIMIT 1").get(fa.order_id);
+  const node = findByCode(fa.order_id, 'sew');
   if (node) {
     db.prepare("UPDATE order_nodes SET remark = COALESCE(remark,'') || ? WHERE id = ?")
       .run(` [首件 ${fa.fa_no} ${RETURN_TO[to]}：${reason}]`, node.id);
