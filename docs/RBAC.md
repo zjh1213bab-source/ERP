@@ -689,6 +689,7 @@
 | orderMaterials | POST | `/` | ✅ | — | — | ✅ | — | — | ✅ | — |
 | orderMaterials | PUT | `/:id` | ✅ | — | — | ✅ | — | — | ✅ | — |
 | orderMaterials | DELETE | `/:id` | ✅ | — | — | ✅ | — | — | ✅ | — |
+| orderMaterials | PUT | `/:id/colors` | ✅ | — | — | ✅ | — | — | ✅ | — |
 | orderNodes | PATCH | `/:id` | ✅ | — | — | — | ✅ | — | — | — |
 | orderNodes | DELETE | `/:id` | ✅ | — | — | — | ✅ | — | — | — |
 | orderNodes | POST | `/init` | ✅ | — | — | — | ✅ | — | — | — |

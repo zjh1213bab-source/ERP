@@ -131,6 +131,11 @@ export const api = {  // 登录
   // 面辅料用量
   orderMaterials: (orderId) => req(`/api/order-materials?order_id=${orderId}`),
   createOrderMaterial: (d) => req('/api/order-materials', { method: 'POST', body: d }),
+  updateOrderMaterial: (id, d) => req(`/api/order-materials/${id}`, { method: 'PUT', body: d }),
+  /** 某物料配了哪些颜色（含该款可选颜色） */
+  orderMaterialColors: (id) => req(`/api/order-materials/${id}/colors`),
+  /** 只改颜色：所有颜色通用 / 按色指定色号与单件用量 */
+  setOrderMaterialColors: (id, d) => req(`/api/order-materials/${id}/colors`, { method: 'PUT', body: d }),
   deleteOrderMaterial: (id) => req(`/api/order-materials/${id}`, { method: 'DELETE' }),
 
   // 生产看板

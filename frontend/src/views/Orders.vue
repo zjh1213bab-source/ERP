@@ -558,18 +558,30 @@
 
           <!-- 面辅料用量 -->
           <h3 style="margin: 16px 0 8px; font-size: 14px">面辅料用量</h3>
-          <table v-if="orderMats.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
-            <thead><tr><th>类型</th><th>名称</th><th>单位</th><th>单件用量</th><th>损耗%</th><th>总用量</th><th>单价</th><th>金额</th><th>供应商</th><th>操作</th></tr></thead>
+          <!-- 12 列（多了「款」「适用颜色」）在详情弹窗里放不下：给最小宽度并允许横向滚，
+               否则名称与款会被压成两行，一屏只能看清四五行 -->
+          <div v-if="orderMats.length" style="overflow-x: auto; margin-bottom: 8px">
+          <table class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; min-width: 1000px">
+            <thead><tr><th>类型</th><th>名称</th><th>款</th><th>适用颜色</th><th>单位</th><th>单件用量</th><th>损耗%</th><th>总用量</th><th>单价</th><th>金额</th><th>供应商</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="m in orderMats" :key="m.id">
                 <td><span class="tag" :class="m.type === 'fabric' ? 'blue' : 'purple'">{{ m.type === 'fabric' ? '面料' : '辅料' }}</span></td>
                 <td><strong>{{ m.name }}</strong><div v-if="m.spec" style="font-size: 11px; color: #8a94a6">{{ m.spec }}</div></td>
+                <td>
+                  <span v-if="m.item">{{ m.item.style_no || m.item.product_name }}</span>
+                  <span v-else class="tag gray" style="font-size: 10px">订单通用</span>
+                </td>
+                <td style="font-size: 12px">
+                  {{ m.color_summary }}
+                  <button v-if="canMatWrite && m.item" class="link-btn" style="margin-left: 4px" @click="openColorDlg(m)">配颜色</button>
+                </td>
                 <td>{{ m.unit || '-' }}</td><td>{{ m.one_use }}</td><td>{{ m.loss }}</td><td>{{ money(m.total_use) }}</td>
                 <td>¥{{ money(m.price) }}</td><td>¥{{ money(m.amount) }}</td><td>{{ m.supplier || '-' }}</td>
                 <td><button class="link-btn danger" @click="delMat(m.id)">删</button></td>
               </tr>
             </tbody>
           </table>
+          </div>
           <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无面辅料用量</div>
           <div v-if="orderMats.length" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px">
             <div>面料成本 <strong>¥{{ money(fabricCost) }}</strong> · 辅料成本 <strong>¥{{ money(accessoryCost) }}</strong></div>
@@ -586,6 +598,29 @@
                     <option v-for="m in allMats" :key="m.id" :value="m.id">{{ m.type === 'fabric' ? '面料' : '辅料' }} · {{ m.name }}</option>
                   </select>
                 </div>
+                <div class="fitem">
+                  <label>这个料用在哪一款</label>
+                  <select class="select" v-model.number="matForm.item_id" @change="matForm.colors = []; matForm.all_colors = false">
+                    <option :value="null">订单通用（不分款）</option>
+                    <option v-for="it in (detail.items || [])" :key="it.id" :value="it.id">
+                      {{ it.style_no || it.product_name }}（{{ it.qty }} 件）
+                    </option>
+                  </select>
+                </div>
+                <div v-if="matForm.item_id" class="fitem full">
+                  <label>适用颜色（不勾 = 未指定，用量按整款件数算）</label>
+                  <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center">
+                    <label style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
+                      <input type="checkbox" v-model="matForm.all_colors" /> 该款所有颜色
+                    </label>
+                    <template v-if="!matForm.all_colors">
+                      <label v-for="c in matItemColors" :key="c.color" style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
+                        <input type="checkbox" :value="c.color" v-model="matForm.colors" /> {{ c.color }}（{{ c.qty }} 件）
+                      </label>
+                      <span v-if="!matItemColors.length" style="font-size: 12px; color: #8a94a6">这个款还没录颜色</span>
+                    </template>
+                  </div>
+                </div>
                 <div class="fitem"><label>类型</label><select class="select" v-model="matForm.type"><option value="fabric">面料</option><option value="accessory">辅料</option></select></div>
                 <div class="fitem"><label>名称 *</label><input class="input" v-model="matForm.name" /></div>
                 <div class="fitem"><label>单位</label><input class="input" v-model="matForm.unit" placeholder="米/个/码" /></div>
@@ -600,7 +635,10 @@
                 <button class="btn btn-primary btn-sm" :disabled="matBusy" @click="addMat">提交</button>
                 <button class="btn btn-ghost btn-sm" @click="matAdding = false">取消</button>
               </div>
-              <p style="font-size: 11.5px; color: #8a94a6; margin: 8px 0 0">总用量 / 金额按订单总件数自动计算（含损耗）。</p>
+              <p style="font-size: 11.5px; color: #8a94a6; margin: 8px 0 0">
+                总用量按「所选款的件数」算（不打勾颜色时）；勾了颜色则按各色件数分别累加，都含损耗。
+                订单通用物料按整单件数算。
+              </p>
             </div>
           </div>
 
@@ -899,6 +937,71 @@
       </div>
     </div>
   </div>
+  <!-- ================= 物料配颜色（款 × 颜色） ================= -->
+  <div v-if="colorDlg.open" class="modal-mask" @click.self="colorDlg.open = false">
+    <div class="modal" style="width: 720px">
+      <div class="modal-head">
+        <h3>{{ colorDlg.name }}<span style="font-size: 12px; color: #8a94a6; margin-left: 8px">{{ colorDlg.styleNo }}</span></h3>
+        <button class="x" @click="colorDlg.open = false">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="tiny" style="margin: 0 0 10px">
+          选了「该款所有颜色」，这条物料就跟着该款每个颜色走；要按色区分色号或用量，就逐个勾选并在右侧填写。
+        </p>
+
+        <div style="display: flex; gap: 18px; align-items: center; margin-bottom: 12px">
+          <label style="font-size: 13px; display: flex; gap: 6px; align-items: center">
+            <input type="radio" :value="true" v-model="colorDlg.all" /> 该款所有颜色通用
+          </label>
+          <label style="font-size: 13px; display: flex; gap: 6px; align-items: center">
+            <input type="radio" :value="false" v-model="colorDlg.all" /> 按颜色分别指定
+          </label>
+        </div>
+
+        <div v-if="colorDlg.all" class="ok-box" style="font-size: 12.5px">
+          该款现用 {{ colorDlg.avail.length }} 个颜色，全部使用这条物料。以后该款加颜色，也会自动跟着用。
+        </div>
+
+        <table v-else class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden">
+          <thead>
+            <tr>
+              <th style="width: 40px"></th>
+              <th>颜色</th>
+              <th style="width: 90px">件数</th>
+              <th style="width: 130px">该色色号</th>
+              <th style="width: 130px">该色单件用量</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in colorDlg.rows" :key="r.colorway">
+              <td><input type="checkbox" v-model="r.checked" /></td>
+              <td><b>{{ r.colorway }}</b></td>
+              <td class="tiny">{{ r.pcs }}</td>
+              <td><input class="input" v-model="r.color_no" :disabled="!r.checked" placeholder="如 79" /></td>
+              <td>
+                <input class="input" type="number" step="0.01" v-model="r.qty" :disabled="!r.checked"
+                  :placeholder="'空 = 沿用单件用量'" />
+              </td>
+            </tr>
+            <tr v-if="!colorDlg.rows.length">
+              <td colspan="5" class="empty-cell">这个款还没有录入颜色，先到「款式明细」里加颜色</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="tiny" style="margin: 8px 0 0">
+          总用量按勾中的颜色分别累计：Σ(该色单件用量 × 该色件数) ×(1+损耗)。不填「该色单件用量」时用物料行的单件用量。
+        </p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" @click="colorDlg.open = false">取消</button>
+        <button class="btn btn-primary" :disabled="colorDlg.saving" @click="saveColorDlg">
+          {{ colorDlg.saving ? '保存中…' : '保存' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
   <CreditBlockModal
     v-if="blockCheck"
     :model-value="!!blockCheck"
@@ -976,7 +1079,80 @@ const craftForm = ref({ name: '', qty: 0, price: 0, rate: 0, fob_price: 0, is_ou
 const orderMats = ref([]);
 const matAdding = ref(false);
 const matBusy = ref(false);
-const matForm = ref({ material_id: null, type: 'fabric', name: '', unit: '', one_use: 0, loss: 0, price: 0, spec: '', ingredient: '', supplier: '', mat_color: '' });
+const matForm = ref({
+  material_id: null, type: 'fabric', name: '', unit: '', one_use: 0, loss: 0, price: 0,
+  spec: '', ingredient: '', supplier: '', mat_color: '',
+  /* 挂到哪个款、该款哪些颜色用这个料 */
+  item_id: null, all_colors: false, colors: []
+});
+
+/** 当前所选款有哪些颜色（选款后才出现勾选项） */
+const matItemColors = computed(() => {
+  const items = (detail.value && detail.value.items) || [];
+  const it = items.find((x) => Number(x.id) === Number(matForm.value.item_id));
+  if (!it) return [];
+  const seen = new Map();
+  (it.colors || []).forEach((c) => {
+    if (!c.color) return;
+    seen.set(c.color, (seen.get(c.color) || 0) + (Number(c.qty) || 0));
+  });
+  return [...seen.entries()].map(([color, qty]) => ({ color, qty }));
+});
+
+/**
+ * 配颜色弹窗
+ *
+ * 两种模式：该款所有颜色通用 / 按色指定。后者每色可填色号与该色单件用量 —— 
+ * 同一块底布在不同印花色上色号不同、用量也常常不同（花回长度不一样）。
+ */
+const colorDlg = reactive({ open: false, id: null, name: '', styleNo: '', all: false, rows: [], avail: [], saving: false });
+
+async function openColorDlg(m) {
+  try {
+    const d = await api.orderMaterialColors(m.id);
+    colorDlg.id = m.id;
+    colorDlg.name = m.name;
+    colorDlg.styleNo = (m.item && (m.item.style_no || m.item.product_name)) || '';
+    colorDlg.all = Number(d.all_colors) === 1;
+    colorDlg.avail = d.item_colors || [];
+    colorDlg.rows = colorDlg.avail.map((c) => {
+      // 服务端返回的字段是 colorway（不是 color）—— 写错会得到一排空白的颜色
+      const cw = c.colorway || c.color;
+      const hit = (d.colors || []).find((x) => x.colorway === cw);
+      return {
+        colorway: cw,
+        pcs: c.qty,
+        checked: !!hit,
+        color_no: hit ? (hit.color_no || '') : '',
+        qty: hit && hit.qty !== null && hit.qty !== undefined ? hit.qty : ''
+      };
+    });
+    colorDlg.open = true;
+  } catch (e) { alert(e.message); }
+}
+
+async function saveColorDlg() {
+  if (!colorDlg.all && !colorDlg.rows.some((r) => r.checked)) {
+    // 一个色都不勾、又不是「全部通用」，等于这条物料没有颜色信息 —— 用量口径会退回整款件数
+    if (!confirm('一个颜色都没勾，这条物料会变成「未指定颜色」，用量按整款件数算。确定？')) return;
+  }
+  colorDlg.saving = true;
+  try {
+    const body = colorDlg.all
+      ? { all_colors: 1 }
+      : {
+        all_colors: 0,
+        colors: colorDlg.rows.filter((r) => r.checked).map((r) => ({
+          colorway: r.colorway,
+          color_no: r.color_no || null,
+          qty: r.qty === '' ? null : Number(r.qty)
+        }))
+      };
+    await api.setOrderMaterialColors(colorDlg.id, body);
+    colorDlg.open = false;
+    orderMats.value = await api.orderMaterials(detail.value.id);
+  } catch (e) { alert(e.message); } finally { colorDlg.saving = false; }
+}
 
 const nodes = ref([]);
 const nodeBusy = ref(false);
@@ -1525,8 +1701,30 @@ async function addMat() {
   if (!matForm.value.name) return alert('请填写料名');
   matBusy.value = true;
   try {
-    await api.createOrderMaterial({ order_id: detail.value.id, ...matForm.value });
-    matForm.value = { material_id: null, type: 'fabric', name: '', unit: '', one_use: 0, loss: 0, price: 0, spec: '', ingredient: '', supplier: '', mat_color: '' };
+    const f = matForm.value;
+    await api.createOrderMaterial({
+      order_id: detail.value.id,
+      material_id: f.material_id,
+      type: f.type,
+      name: f.name,
+      unit: f.unit,
+      one_use: f.one_use,
+      loss: f.loss,
+      price: f.price,
+      spec: f.spec,
+      ingredient: f.ingredient,
+      supplier: f.supplier,
+      item_id: f.item_id || null,
+      all_colors: f.all_colors ? 1 : 0,
+      // 勾了颜色就按色存；勾了「所有颜色」则不传 colors（后端会清空子表）
+      colors: (!f.all_colors && f.colors.length)
+        ? f.colors.map((c) => ({ colorway: c, color_no: null, qty: null }))
+        : undefined
+    });
+    matForm.value = {
+      material_id: null, type: 'fabric', name: '', unit: '', one_use: 0, loss: 0, price: 0,
+      spec: '', ingredient: '', supplier: '', mat_color: '', item_id: null, all_colors: false, colors: []
+    };
     matAdding.value = false;
     orderMats.value = await api.orderMaterials(detail.value.id);
   } catch (e) { alert(e.message); } finally { matBusy.value = false; }

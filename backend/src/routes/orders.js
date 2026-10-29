@@ -143,10 +143,19 @@ router.get('/find', authRequired, wrap(async (req, res) => {
   let order = db.prepare(sel).get(raw);
   let matchedBy = 'exact';
   if (!order) {
-    const head = raw.split('-')[0];
-    if (head && head !== raw) {
-      order = db.prepare(sel).get(head);
-      matchedBy = 'prefix';
+    /**
+     * 退化匹配：**从最长前缀往短试**，不是只取第一段。
+     *
+     * 单号从「业务手填」之后可以自己带横线（`MC-TEST-1`、客户给的 `ABC-2026-07`）。
+     * 只取第一段会把 `MC-TEST-1-WY-001-110` 切成 `MC`，扫出来 404 ——
+     * 而这条码本身是对的。逐段加长试，既认 `SO123-WY-001-110`，也认带横线的单号。
+     */
+    const parts = raw.split('-');
+    for (let n = parts.length - 1; n >= 1 && !order; n -= 1) {
+      const cand = parts.slice(0, n).join('-');
+      if (!cand) continue;
+      const hit = db.prepare(sel).get(cand);
+      if (hit) { order = hit; matchedBy = 'prefix'; }
     }
   }
   if (!order) return fail(res, 404, '未找到对应订单：' + raw);

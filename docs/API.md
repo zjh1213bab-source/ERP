@@ -3640,6 +3640,32 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 | 必经节点不能标不适用 | `required=1` 时 `status='skipped'` → 400；真的不做要改模板 |
 | 标不适用必须写原因 | `skip_reason` 至少 1 字；否则等于把这一步悄悄抹掉 |
 
+### 订单物料（对应到 款 × 颜色）
+
+物料可以挂在某个款上，并为该款的每个颜色指定色号与该色单件用量。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/order-materials?order_id= | 登录 | 每行带 `item`、`colors[]`、`item_colors[]`、`color_summary` |
+| GET | /api/order-materials/:id/colors | 登录 | 该物料配了哪些颜色 + 该款可选色与件数 |
+| POST | /api/order-materials | tech | `{item_id, all_colors, colors:[{colorway,color_no,qty}], ...}` |
+| PUT | /api/order-materials/:id | tech | 同上（改物料主字段可一并改颜色） |
+| PUT | /api/order-materials/:id/colors | tech | **只改颜色**：`{all_colors}` 或 `{colors:[...]}` |
+| DELETE | /api/order-materials/:id | tech | 连带删除该物料的颜色行 |
+
+| 口径 | 说明 |
+|---|---|
+| 件数 | 挂了款 → 按**该款**件数；没挂款 → 整单件数 |
+| 总用量（配了颜色） | `Σ(该色单件用量 × 该色件数) ×(1+损耗)` |
+| 总用量（没配颜色） | `单件用量 × 款件数（或整单件数） ×(1+损耗)` |
+| `colors[].qty` | 该色的单件用量，空 = 沿用物料行的 `one_use` |
+| `all_colors=1` | 该款所有颜色通用；此时**清空**按色行（两者不能并存） |
+| 颜色校验 | `colorway` 必须是该款 `order_item_sizes` 里存在的颜色，否则 400 |
+| `color_summary` | `印花001、印花002` / `全部 N 色` / `未指定` |
+
+`UNIQUE(order_material_id, colorway)`：同一物料同一颜色只允许一行，
+否则按色汇总用量会翻倍而界面看着正常。
+
 ### 节点弹窗（`GET /api/order-nodes/:id/panel`）
 
 点开一个格子弹什么，由节点在模板里的 `panel` 决定 —— 不是按 `code` 判断，

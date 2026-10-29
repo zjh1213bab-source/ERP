@@ -11169,6 +11169,111 @@ async function req(path, { method = 'GET', body, token } = {}) {
       !PDB2.prepare("SELECT 1 x FROM orders WHERE order_no = 'PNL-TEST-1'").get(), '已删');
   }
 
+  // ================= 订单多款多色 + 物料对应到 款×颜色 =================
+  {
+    console.log('\n[物料对应款与颜色]');
+    const { db: MDB } = require('../src/db');
+
+    // 造一张 2 款 4 色的单：款A 150+80，款B 200+120
+    const mk = await req('/api/orders', {
+      method: 'POST', token,
+      body: {
+        order_no: 'MCOL-TEST-1', type: 'custom',
+        items: [
+          { product_name: '多色T恤', style_no: 'MC-TZ-01', colors: [
+            { color: '印花001', sizes: [{ size: 'M', qty: 100, usd_price: 2 }, { size: 'L', qty: 50, usd_price: 2 }] },
+            { color: '印花002', sizes: [{ size: 'M', qty: 80, usd_price: 2 }] }
+          ] },
+          { product_name: '多色卫衣', style_no: 'MC-WY-01', colors: [
+            { color: '印花003', sizes: [{ size: 'M', qty: 200, usd_price: 3 }] },
+            { color: '印花004', sizes: [{ size: 'M', qty: 120, usd_price: 3 }] }
+          ] }
+        ]
+      }
+    });
+    const oid = mk.json.data && mk.json.data.id;
+    const items = (mk.json.data && mk.json.data.items) || [];
+    const itA = items.find((x) => x.style_no === 'MC-TZ-01');
+    const itB = items.find((x) => x.style_no === 'MC-WY-01');
+    ok('★ 一张单可以下多个款、每款多个颜色', items.length === 2
+      && (itA.colors || []).length === 2 && (itB.colors || []).length === 2,
+      items.map((x) => `${x.style_no}:${x.qty}件/${(x.colors || []).length}色`).join(' '));
+
+    // ---------- 1. 物料挂到款 + 按颜色指定 ----------
+    const m1 = await req('/api/order-materials', {
+      method: 'POST', token,
+      body: {
+        order_id: oid, item_id: itA.id, type: 'fabric', name: '32支精梳棉', unit: '米',
+        one_use: 1.2, loss: 5, price: 18,
+        colors: [{ colorway: '印花001', color_no: 'A1', qty: 1.2 }, { colorway: '印花002', color_no: 'A2', qty: 1.4 }]
+      }
+    });
+    const mat1 = m1.json.data;
+    // 期望 (1.2×150 + 1.4×80) × 1.05 = 292 × 1.05 = 306.6
+    ok('★ 总用量按「每色件数 × 该色单件用量」累加', m1.status === 200 && Math.abs(mat1.total_use - 306.6) < 0.01,
+      `total_use=${mat1 && mat1.total_use}（期望 306.6）`);
+    ok('★ 物料挂到款上，并记下每色的色号', mat1.item_id === itA.id
+      && mat1.colors.length === 2 && mat1.colors[0].color_no === 'A1',
+      `款=${mat1.item && mat1.item.style_no} 颜色=${mat1.color_summary}`);
+    ok('适用颜色摘要给的是颜色名，不是「未指定」', mat1.color_summary === '印花001、印花002', mat1.color_summary);
+
+    // ---------- 2. 用量必须按「这个款」的件数，不是整单件数 ----------
+    const m2 = await req('/api/order-materials', {
+      method: 'POST', token,
+      body: { order_id: oid, item_id: itA.id, type: 'fabric', name: '按款算的布', unit: '米', one_use: 1, loss: 0, price: 1, all_colors: 1 }
+    });
+    // 款A 230 件；整单 550 件 —— 按整单算会得到 550，多算一倍多
+    ok('★ 挂在款上的物料按该款件数算，不是整单件数', m2.status === 200 && Math.abs(m2.json.data.total_use - 230) < 0.01,
+      `total_use=${m2.json.data && m2.json.data.total_use}（期望 230，整单是 550）`);
+
+    // ---------- 3. 颜色必须属于这个款 ----------
+    const badColor = await req(`/api/order-materials/${mat1.id}/colors`, {
+      method: 'PUT', token, body: { colors: [{ colorway: '印花009', qty: 1 }] }
+    });
+    ok('★ 填该款没有的颜色会被拒（发料时才发现没这件货就晚了）',
+      badColor.status === 400 && /不属于这个款/.test(badColor.json.message || ''),
+      `HTTP ${badColor.status} ${(badColor.json.message || '').slice(0, 40)}`);
+
+    const crossColor = await req(`/api/order-materials/${mat1.id}/colors`, {
+      method: 'PUT', token, body: { colors: [{ colorway: '印花003', qty: 1 }] }
+    });
+    ok('★ 填别的款的颜色也会被拒（款与颜色必须同属一支）', crossColor.status === 400, `HTTP ${crossColor.status}`);
+
+    // ---------- 4. 全部颜色通用时清空按色行 ----------
+    const all = await req(`/api/order-materials/${mat1.id}/colors`, { method: 'PUT', token, body: { all_colors: 1 } });
+    const left = MDB.prepare('SELECT COUNT(*) c FROM order_material_colors WHERE order_material_id = ?').get(mat1.id).c;
+    ok('★ 切成「全部颜色」时清掉按色行（两者并存会解释不清是全部还是那几色）',
+      all.status === 200 && Number(left) === 0 && all.json.data.color_summary === '全部 2 色',
+      `残留颜色行 ${left} / ${all.json.data && all.json.data.color_summary}`);
+    ok('全部颜色时按整款件数算', Math.abs(all.json.data.total_use - (1.2 * 230 * 1.05)) < 0.01,
+      `total_use=${all.json.data.total_use}`);
+
+    // ---------- 5. 不选款却配颜色 → 拒绝 ----------
+    const noItem = await req('/api/order-materials', {
+      method: 'POST', token,
+      body: { order_id: oid, type: 'fabric', name: '无款布', one_use: 1, colors: [{ colorway: '印花001' }] }
+    });
+    ok('没选款就配颜色会被拒（颜色属于款，没有款就没有合法颜色集合）',
+      noItem.status === 400 && /还没选是哪个款/.test(noItem.json.message || ''), `HTTP ${noItem.status}`);
+
+    // ---------- 6. 删物料要连颜色行一起删 ----------
+    await req(`/api/order-materials/${mat1.id}/colors`, {
+      method: 'PUT', token, body: { all_colors: 0, colors: [{ colorway: '印花001', color_no: 'A1', qty: 1.2 }] }
+    });
+    await req(`/api/order-materials/${mat1.id}`, { method: 'DELETE', token });
+    const orphan = MDB.prepare('SELECT COUNT(*) c FROM order_material_colors WHERE order_material_id = ?').get(mat1.id).c;
+    ok('★ 删物料时连带删颜色行（否则按色汇总会把已删物料算进去）', Number(orphan) === 0, `残留 ${orphan} 行`);
+
+    // ---------- 清理 ----------
+    MDB.prepare('DELETE FROM order_material_colors WHERE order_material_id IN (SELECT id FROM order_materials WHERE order_id = ?)').run(oid);
+    MDB.prepare('DELETE FROM order_materials WHERE order_id = ?').run(oid);
+    MDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(oid);
+    MDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(oid);
+    MDB.prepare('DELETE FROM orders WHERE id = ?').run(oid);
+    ok('多款多色夹具已清干净',
+      !MDB.prepare("SELECT 1 x FROM orders WHERE order_no = 'MCOL-TEST-1'").get(), '已删');
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');
