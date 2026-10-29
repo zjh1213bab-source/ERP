@@ -41,6 +41,10 @@ function withDynamicPages(base) {
     // 对账单要真实客户 id：取第一个有发票的
     const c = db.prepare("SELECT customer_id AS id FROM ar_invoices WHERE status != 'void' AND customer_id IS NOT NULL LIMIT 1").get();
     if (c) out.push('/statement/' + c.id);
+
+    // 订单信息表（打印页）要真实订单 id：顺带验证「按勾选字段出纸」不会崩
+    const od = db.prepare("SELECT id FROM orders WHERE status IN ('assigned','production','instock') ORDER BY id LIMIT 1").get();
+    if (od) out.push('/print/order-sheet/' + od.id + '?fields=order_no,style_name,fabric_info');
   } catch (e) { /* 库还没建好就跳过 */ }
   return out;
 }

@@ -9,6 +9,7 @@ const { db, now, getSettings } = require('../db');
 const { applyStock, addLedger } = require('../services/stockOps');
 const { notifyOrderStatus } = require('../services/mall');
 const { ok, fail, wrap } = require('../utils/http');
+const orderSheet = require('../services/orderSheet');
 const { authRequired, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -199,6 +200,18 @@ router.post('/order-no/:id', authRequired, requireRole(['admin', 'sales']), wrap
 }));
 
 // ---------- 详情 ----------
+/**
+ * 订单信息收集看板 —— 下单信息 + 打版信息合成一份
+ *
+ * 屏幕上的速览与纸质打印都吃这一份，避免「屏幕有、纸上没有」这种谁也发现不了的偏差。
+ * `printable=1` 时额外返回可打印字段清单（打印勾选框用）。
+ */
+router.get('/sheet-fields', authRequired, wrap(async (req, res) =>
+  ok(res, orderSheet.printableFields())));
+
+router.get('/:id/sheet', authRequired, wrap(async (req, res) =>
+  ok(res, orderSheet.sheet(req.params.id))));
+
 router.get('/:id', authRequired, wrap(async (req, res) => {
   const order = getOrderFull(req.params.id);
   if (!order) return fail(res, 404, '订单不存在');

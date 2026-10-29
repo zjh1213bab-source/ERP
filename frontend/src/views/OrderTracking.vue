@@ -14,26 +14,35 @@
       </div>
     </div>
 
-    <div class="cards" style="grid-template-columns: repeat(4, 1fr)">
-      <div class="stat-card">
+    <!-- 四张卡都能点：点一下就是按这个口径筛，再点一下取消。
+         数字来自后端 stats（只受流程与状态范围影响），所以点进去的条数一定对得上。 -->
+    <div class="cards trk-cards">
+      <div class="stat-card is-click" :class="{ on: !flag }" title="清除所有口径筛选" @click="setFlag('')">
         <div class="label">在跟订单</div>
-        <div class="value">{{ summary.orders || 0 }}</div>
+        <div class="value">{{ stats.total || 0 }}</div>
+        <div class="trk-card-sub">平均进度 {{ summary.avg_progress || 0 }}% · 一步未动 {{ summary.not_started || 0 }}</div>
       </div>
-      <div class="stat-card">
-        <div class="label">平均进度</div>
-        <div class="value">{{ summary.avg_progress || 0 }}%</div>
+      <div class="stat-card is-click danger" :class="{ on: flag === 'overdue' }"
+        title="交期已过且还没发货/结案的单" @click="setFlag('overdue')">
+        <div class="label">超期订单</div>
+        <div class="value">{{ stats.overdue || 0 }}</div>
+        <div class="trk-card-sub">{{ flag === 'overdue' ? '已按超期筛选 · 再点取消' : '点这里只看超期' }}</div>
       </div>
-      <div class="stat-card">
-        <div class="label">一步未动</div>
-        <div class="value">{{ summary.not_started || 0 }}</div>
+      <div class="stat-card is-click warn" :class="{ on: flag === 'soon' }"
+        title="交期在 7 天内的单" @click="setFlag('soon')">
+        <div class="label">7 天内到期</div>
+        <div class="value">{{ stats.due_soon || 0 }}</div>
+        <div class="trk-card-sub">{{ flag === 'soon' ? '已按到期筛选 · 再点取消' : '点这里只看快到期' }}</div>
       </div>
-      <div class="stat-card accent">
-        <div class="label">工序已走完</div>
-        <div class="value">{{ summary.finished || 0 }}</div>
+      <div class="stat-card is-click" :class="{ on: flag === 'nodue' }"
+        title="没填交期的单 —— 不是超期，是资料不全" @click="setFlag('nodue')">
+        <div class="label">无交期</div>
+        <div class="value">{{ stats.no_due || 0 }}</div>
+        <div class="trk-card-sub">{{ flag === 'nodue' ? '已按无交期筛选 · 再点取消' : '点这里看资料不全' }}</div>
       </div>
     </div>
 
-    <div class="toolbar" style="margin-bottom: 12px">
+    <div class="toolbar trk-filters">
       <select class="select" v-model="tplId" @change="load">
         <option v-for="t in templates" :key="t.id" :value="t.id">
           {{ t.name }}{{ t.is_default ? '（默认）' : '' }} · {{ t.order_count }} 单
@@ -47,8 +56,39 @@
         <option value="shipped">已发货</option>
         <option value="closed">已结案</option>
       </select>
-      <input class="input" v-model="q" placeholder="订单号 / 款名 / 客户 PO" @keyup.enter="load" style="width: 220px" />
+      <input class="input" v-model="q" placeholder="订单号 / 款名 / 客户 PO / 客户名" @keyup.enter="load" style="width: 250px" />
+      <select class="select" v-model="customerId" @change="load">
+        <option :value="null">全部客户</option>
+        <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.name }}</option>
+      </select>
+      <input class="input" v-model="manager" placeholder="跟单员" @keyup.enter="load" style="width: 110px" />
       <button class="btn btn-ghost" @click="load">查询</button>
+      <button class="btn btn-ghost" @click="resetAll">清除筛选</button>
+    </div>
+
+    <div class="toolbar trk-filters" style="margin-top: -4px">
+      <span class="trk-fl">交期</span>
+      <input class="input" type="date" v-model="dueFrom" @change="load" style="width: 145px" />
+      <span class="trk-fl">至</span>
+      <input class="input" type="date" v-model="dueTo" @change="load" style="width: 145px" />
+      <span class="trk-fl" style="margin-left: 6px">工序</span>
+      <select class="select" v-model="nodeCode" @change="load">
+        <option value="">全部环节</option>
+        <option v-for="c in board.columns" :key="c.code" :value="c.code">{{ c.name }}</option>
+      </select>
+      <select class="select" v-model="nodeStatus" :disabled="!nodeCode" @change="load">
+        <option value="">该环节任意状态</option>
+        <option value="pending">未开始</option>
+        <option value="doing">进行中</option>
+        <option value="done">已完成</option>
+        <option value="skipped">不适用</option>
+      </select>
+      <span class="trk-fl" style="margin-left: 6px">排序</span>
+      <select class="select" v-model="sort" @change="load">
+        <option value="due">按交期（紧的在前）</option>
+        <option value="order">按下单日期（新的在前）</option>
+        <option value="no_due">无交期的排前面</option>
+      </select>
       <span class="spacer"></span>
       <span class="tiny muted">图例：○ 待开始 · ▶ 进行中 · ✓ 已完成 · ⊘ 不适用</span>
     </div>
@@ -92,9 +132,12 @@
                     <span class="tag" :class="statusTag(r.status)">{{ statusLabel(r.status) }}</span>
                   </div>
                   <div class="trk-style">{{ r.style_name || '—' }}</div>
-                  <div class="trk-cus">
-                    {{ r.customer_name || '—' }}
-                    <span v-if="r.delivery_date" :class="isLate(r) ? 'trk-late' : ''"> · 交期 {{ r.delivery_date }}</span>
+                  <div class="trk-cus">{{ r.customer_name || '—' }}</div>
+                  <!-- 交期与超期单独一行：挤在客户名后面会被 ellipsis 截掉，
+                       而「超了几天」恰恰是跟单排优先级时最先看的东西 -->
+                  <div v-if="r.delivery_date" class="trk-due">
+                    交期 <b :class="r.overdue ? 'trk-late' : ''">{{ r.delivery_date }}</b>
+                    <span v-if="r.overdue" class="trk-od">超期 {{ r.days_late }} 天</span>
                   </div>
                   <div class="trk-bar">
                     <div class="trk-bar-in" :style="{ width: r.progress + '%' }"></div>
@@ -205,12 +248,49 @@ import { openImage } from '../store/viewer';
 import OrderPeek from '../components/OrderPeek.vue';
 
 const templates = ref([]);
+const customers = ref([]);
 const tplId = ref(null);
 const status = ref('');
 const q = ref('');
+const customerId = ref(null);
+const manager = ref('');
+const dueFrom = ref('');
+const dueTo = ref('');
+const nodeCode = ref('');
+const nodeStatus = ref('');
+const sort = ref('due');
+/** 卡片口径：'' 全部 / overdue 超期 / soon 7天内到期 / nodue 无交期 —— 互斥 */
+const flag = ref('');
+
 const board = ref({ template: null, columns: [], rows: [], summary: {} });
 const summary = ref({});
+const stats = ref({});
 const canFlow = can('node.flow');
+
+/**
+ * 点卡片就是切换口径。
+ *
+ * 卡片数字来自后端 `stats`（只受流程与状态范围影响），列表条数来自 `rows`（叠加筛选）。
+ * 所以「超期 3」点进去一定是 3 条 —— 如果两者用不同的判断去算，会出现
+ * 「数字 3、列表 2 条」这种没人查得清的不一致。
+ */
+function setFlag(f) {
+  flag.value = flag.value === f ? '' : f;
+  load();
+}
+function resetAll() {
+  status.value = '';
+  q.value = '';
+  customerId.value = null;
+  manager.value = '';
+  dueFrom.value = '';
+  dueTo.value = '';
+  nodeCode.value = '';
+  nodeStatus.value = '';
+  sort.value = 'due';
+  flag.value = '';
+  load();
+}
 
 /* 订单速览：点订单号打开，看款图与打版时填的面料/辅料/工艺/客户要求 */
 const peekOpen = ref(false);
@@ -269,11 +349,6 @@ function phBg(id) {
   const palette = ['#eef2f8', '#f2eef8', '#eef7f2', '#fdf3ea', '#eef4fa', '#f7f0f0'];
   return palette[Math.abs(Number(id) || 0) % palette.length];
 }
-function isLate(r) {
-  if (!r.delivery_date) return false;
-  return String(r.delivery_date).slice(0, 10) < new Date().toISOString().slice(0, 10)
-    && r.progress < 100;
-}
 function cellTitle(r, cell) {
   if (cell.missing) return '这张单还没生成工序（订单还没转到「生产中」）';
   if (cell.status === 'done') return `已完成 ${cell.actual_date || ''}；如需回退请到订单详情`;
@@ -284,12 +359,28 @@ function cellTitle(r, cell) {
 async function load() {
   const [ts, b] = await Promise.all([
     api.nodeFlowTemplates(),
-    api.nodeFlowBoard({ template_id: tplId.value || '', status: status.value, q: q.value })
+    api.nodeFlowBoard({
+      template_id: tplId.value || '',
+      status: status.value,
+      q: q.value,
+      customer_id: customerId.value || '',
+      manager: manager.value,
+      due_from: dueFrom.value,
+      due_to: dueTo.value,
+      // 三个口径互斥：查询串只传当前选中的那个
+      overdue: flag.value === 'overdue' ? 1 : '',
+      due_soon: flag.value === 'soon' ? 1 : '',
+      no_due: flag.value === 'nodue' ? 1 : '',
+      node_code: nodeCode.value,
+      node_status: nodeStatus.value,
+      sort: sort.value
+    })
   ]);
   templates.value = ts || [];
   if (!tplId.value && b && b.template) tplId.value = b.template.id;
   board.value = b || { template: null, columns: [], rows: [], summary: {} };
   summary.value = (b && b.summary) || {};
+  stats.value = (b && b.stats) || {};
 }
 
 /**
@@ -346,7 +437,10 @@ async function saveNode() {
   } catch (e) { alert(e.message); } finally { dlg.saving = false; }
 }
 
-onMounted(load);
+onMounted(async () => {
+  api.customers().then((r) => { customers.value = r || []; }).catch(() => {});
+  await load();
+});
 </script>
 
 <style scoped>
@@ -394,6 +488,24 @@ onMounted(load);
 .trk-style { font-size: 12px; color: #33425c; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trk-cus { font-size: 11.5px; color: #8a94a6; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trk-late { color: #d92d45; font-weight: 700; }
+.trk-due { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
+.trk-due b { color: #5b6b80; font-weight: 600; }
+.trk-od {
+  display: inline-block; margin-left: 5px; padding: 0 5px;
+  background: #fdecee; color: #d92d45; border-radius: 4px;
+  font-size: 10.5px; font-weight: 700;
+}
+
+/* ---- 统计卡：四张都能点，点一下按该口径筛 ---- */
+.trk-cards { grid-template-columns: repeat(4, 1fr); }
+.stat-card.is-click { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.stat-card.is-click:hover { border-color: #b9cdf5; box-shadow: 0 2px 8px rgba(37, 99, 235, .08); }
+.stat-card.is-click.on { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, .12); }
+.stat-card.is-click.danger .value { color: #d92d45; }
+.stat-card.is-click.warn .value { color: #d97706; }
+.trk-card-sub { font-size: 10.5px; color: #98a2b3; margin-top: 3px; }
+.trk-fl { font-size: 12px; color: #8a94a6; white-space: nowrap; }
+.trk-filters { margin-bottom: 8px; }
 .trk-bar { height: 6px; background: #eef1f6; border-radius: 4px; overflow: hidden; margin: 7px 0 3px; }
 .trk-bar-in { height: 100%; background: #16a34a; transition: width .2s; }
 .trk-prog { font-size: 11px; color: #6b7688; }

@@ -82,7 +82,18 @@ router.get('/board', authRequired, wrap(async (req, res) => ok(res, svc.board({
   templateId: req.query.template_id || null,
   status: req.query.status || '',
   q: req.query.q || '',
-  limit: req.query.limit || 200
+  limit: req.query.limit || 200,
+  customerId: req.query.customer_id || null,
+  manager: req.query.manager || '',
+  dueFrom: req.query.due_from || '',
+  dueTo: req.query.due_to || '',
+  // 查询串里传 "1"/"0"：`!!'0'` 是 true，这里显式比字符串
+  overdue: String(req.query.overdue || '') === '1',
+  noDue: String(req.query.no_due || '') === '1',
+  dueSoon: String(req.query.due_soon || '') === '1',
+  nodeCode: req.query.node_code || '',
+  nodeStatus: req.query.node_status || '',
+  sort: req.query.sort || 'due'
 }))));
 
 router.get('/builtin', authRequired, wrap(async (req, res) => ok(res, {

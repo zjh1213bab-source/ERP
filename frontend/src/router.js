@@ -63,6 +63,7 @@ const SampleArchive = () => import('./views/SampleArchive.vue');
 const Production = () => import('./views/Production.vue');
 const OrderTracking = () => import('./views/OrderTracking.vue');
 const NodeFlow = () => import('./views/NodeFlow.vue');
+const OrderSheetPrint = () => import('./views/OrderSheetPrint.vue');
 const Factories = () => import('./views/Factories.vue');
 const OutsourceRecon = () => import('./views/OutsourceRecon.vue');
 const Inventory = () => import('./views/Inventory.vue');
@@ -260,6 +261,8 @@ const routes = [
   // 验货报告（独立 A4 排版，打印/另存 PDF）
   { path: '/inspection/:orderId', component: InspectionReport, meta: { title: '验货报告' } },
   { path: '/print/quote/:id', component: QuotePrint, meta: { title: '打印报价单' } },
+  // 订单信息表：按勾选的字段出纸（?fields=a,b,c），必须排在 /print/:type/:id 之前
+  { path: '/print/order-sheet/:id', component: OrderSheetPrint, meta: { title: '打印订单信息表' } },
   // 计件工资条 / 车间公示表（独立 A4 排版，打印后裁剪发放或贴墙）
   { path: '/payslip/:runId', component: Payslip, meta: { title: '计件工资条' } },
   // 客户对账单（对账函，A4 盖章用）

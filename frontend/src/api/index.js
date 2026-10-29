@@ -78,6 +78,9 @@ export const api = {  // 登录
   createOrder: (d) => req('/api/orders', { method: 'POST', body: d }),
   updateOrderItems: (id, items) => req(`/api/orders/${id}/items`, { method: 'PUT', body: { items } }),
   // 订单号反查 / 改号（改号会级联同步下游，所以先预览再确认）
+  /** 订单信息收集看板（下单信息 + 打版信息），屏幕与打印共用同一份 */
+  orderSheet: (id) => req(`/api/orders/${id}/sheet`),
+  orderSheetFields: () => req('/api/orders/sheet-fields'),
   orderNoTrace: (no) => req('/api/orders/order-no/trace' + qs({ no })),
   orderNoPreview: (id, no) => req(`/api/orders/order-no/${id}/preview` + qs({ no })),
   orderNoLogs: (id) => req(`/api/orders/order-no/${id}/logs`),

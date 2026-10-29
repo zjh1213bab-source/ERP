@@ -47,6 +47,7 @@
  *   `builtin = 1` 的节点拦住停用，但允许改名和调序。
  */
 const { db, now } = require('../db');
+const { localDate } = require('../utils/time');
 
 const bad = (msg, status = 400) => {
   const e = new Error(msg);
@@ -444,35 +445,112 @@ function applyToOrders(templateId, { orderIds = null, dryRun = true, includeStat
  * 不同流程的节点对不上。混排只有两种结果：列取并集（每张单挂着一堆用不到的空格子），
  * 或者各有各的列（那就不叫看板了）。
  */
-function board({ templateId = null, status = '', q = '', limit = 200 } = {}) {
+function board({
+  templateId = null, status = '', q = '', limit = 200,
+  customerId = null, manager = '', dueFrom = '', dueTo = '',
+  overdue = false, noDue = false, dueSoon = false,
+  nodeCode = '', nodeStatus = '', sort = 'due'
+} = {}) {
   const tpl = templateId
     ? db.prepare('SELECT * FROM node_templates WHERE id = ?').get(templateId)
     : defaultTemplate();
   if (!tpl) throw bad('流程模板不存在', 404);
 
-  const where = ['o.node_template_id = ?'];
-  const args = [tpl.id];
-  if (status) {
-    where.push('o.status = ?');
-    args.push(status);
-  } else {
-    where.push("o.status IN ('assigned','production','instock')");
+  const TODAY = localDate(new Date().toISOString());
+
+  /**
+   * 「超期」只有这一个定义，后端算、前端用。
+   *
+   * 三个条件缺一不可：
+   *   1. 填了交期（没填交期的单**不是超期**，是「资料不全」，另算一项）
+   *   2. 交期已过（按日期比，不比时间 —— 交期是「这一天之内」，当天不算超期）
+   *   3. 还没走完（已发货/已结案/已取消不算 —— 已经交付了就不叫超期）
+   *
+   * 前端自己再算一遍必然和筛选结果对不上：数字显示 3、点进去 2 条，
+   * 那种不一致没人会去查原因，只会不信这个数。
+   */
+  // 日期直接内联成字面量而不是绑参数：TODAY 由 localDate() 生成、格式固定 YYYY-MM-DD，
+  // 没有注入面；而 OVERDUE 这段要在 SELECT 和 WHERE 里各用一次，
+  // 用占位符就得数「第几个 ? 是它」，一改筛选条件就错位（第一版就是这么崩的）。
+  const OVERDUE = `(IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) < date('${TODAY}')`
+    + " AND o.status NOT IN ('shipped','closed','cancelled'))";
+
+  /* ---------- 1. 统计：只受模板与状态范围影响，不受其他筛选项影响 ----------
+     否则点「超期 3」之后数字变 1，人以为筛错了。 */
+  const baseWhere = ['o.node_template_id = ?'];
+  const baseArgs = [tpl.id];
+  if (status) { baseWhere.push('o.status = ?'); baseArgs.push(status); }
+  else baseWhere.push("o.status IN ('assigned','production','instock')");
+
+  const st = db.prepare(`
+    SELECT COUNT(*) total,
+           SUM(CASE WHEN ${OVERDUE} THEN 1 ELSE 0 END) overdue,
+           SUM(CASE WHEN IFNULL(o.delivery_date,'') = '' THEN 1 ELSE 0 END) no_due,
+           SUM(CASE WHEN IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) >= date('${TODAY}')
+                     AND date(o.delivery_date) <= date('${TODAY}', '+7 day')
+                     AND o.status NOT IN ('shipped','closed','cancelled')
+                    THEN 1 ELSE 0 END) due_soon
+      FROM orders o WHERE ${baseWhere.join(' AND ')}`).get(...baseArgs);
+
+  const stats = {
+    total: Number(st.total) || 0,
+    overdue: Number(st.overdue) || 0,
+    no_due: Number(st.no_due) || 0,
+    due_soon: Number(st.due_soon) || 0
+  };
+
+  /* ---------- 2. 明细：叠加用户选的筛选 ---------- */
+  const where = [...baseWhere];
+  const args = [...baseArgs];
+  if (q) {
+    where.push('(o.order_no LIKE ? OR o.style_name LIKE ? OR o.cus_order_no LIKE ? OR IFNULL(c.name,"") LIKE ?)');
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
-  if (q) { where.push('(o.order_no LIKE ? OR o.style_name LIKE ? OR o.cus_order_no LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+  if (customerId) { where.push('o.customer_id = ?'); args.push(Number(customerId)); }
+  if (manager) { where.push('o.manager LIKE ?'); args.push(`%${manager}%`); }
+  if (dueFrom) { where.push("IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) >= date(?)"); args.push(dueFrom); }
+  if (dueTo) { where.push("IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) <= date(?)"); args.push(dueTo); }
+  if (noDue) where.push("IFNULL(o.delivery_date,'') = ''");
+  if (overdue) where.push(OVERDUE);
+  // 7 天内到期：与 stats.due_soon 同一段条件，点了卡片数字与列表条数才对得上
+  if (dueSoon) {
+    where.push(`(IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) >= date('${TODAY}')
+      AND date(o.delivery_date) <= date('${TODAY}', '+7 day')
+      AND o.status NOT IN ('shipped','closed','cancelled'))`);
+  }
+  // 按节点筛：「这个工序还没做的单」是车间最常问的一句
+  if (nodeCode) {
+    if (nodeStatus) {
+      where.push('EXISTS (SELECT 1 FROM order_nodes n WHERE n.order_id = o.id AND n.code = ? AND n.status = ?)');
+      args.push(nodeCode, nodeStatus);
+    } else {
+      where.push('EXISTS (SELECT 1 FROM order_nodes n WHERE n.order_id = o.id AND n.code = ?)');
+      args.push(nodeCode);
+    }
+  }
+
+  const ORDER = {
+    due: 'o.delivery_date IS NULL, o.delivery_date, o.id DESC',
+    order: 'o.order_date IS NULL, o.order_date DESC, o.id DESC',
+    no_due: "IFNULL(o.delivery_date,'') <> '', o.delivery_date, o.id DESC"
+  }[sort] || 'o.delivery_date IS NULL, o.delivery_date, o.id DESC';
 
   const orders = db.prepare(`
     SELECT o.id, o.order_no, o.status, o.type, o.style_name, o.cus_order_no,
-           o.order_date, o.delivery_date, o.total_usd, o.image_url,
+           o.order_date, o.delivery_date, o.total_usd, o.image_url, o.manager, o.customer_id,
            /* 款图两处可放：订单自己的 image_url，或打版（技术资料）里的图。
               大多数单实际上只填了打版那张 —— 所以不能只看订单表，否则看板上
               十张有九张是空白占位。取最新一版有图的。 */
            (SELECT tp.image_url FROM tech_packs tp
              WHERE tp.order_id = o.id AND IFNULL(tp.image_url, '') <> ''
              ORDER BY tp.id DESC LIMIT 1) AS tech_image_url,
+           ${OVERDUE} AS is_overdue,
+           CASE WHEN IFNULL(o.delivery_date,'') = '' THEN NULL
+                ELSE CAST(julianday(date('${TODAY}')) - julianday(date(o.delivery_date)) AS INTEGER) END AS days_late,
            c.name AS customer_name
       FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
      WHERE ${where.join(' AND ')}
-     ORDER BY o.delivery_date IS NULL, o.delivery_date, o.id DESC
+     ORDER BY ${ORDER}
      LIMIT ?`).all(...args, Number(limit) || 200);
 
   const columns = templateItems(tpl.id).map((it) => ({
@@ -507,6 +585,9 @@ function board({ templateId = null, status = '', q = '', limit = 200 } = {}) {
       extra,
       /** 看板缩略图：订单图优先，没有再取打版图；都没有就是空（前端出占位） */
       thumb: o.image_url || o.tech_image_url || '',
+      /** 超期标记由后端算好，前端不再自己比日期（两套判断必然对不上） */
+      overdue: Number(o.is_overdue) === 1,
+      days_late: o.days_late === null || o.days_late === undefined ? null : Number(o.days_late),
       /** 这张单还没生成过工序（没走过「转生产中」）：看板要提示，不能显示成「全都没开始」 */
       no_nodes: nodes.length === 0,
       done_count: done,
@@ -522,6 +603,12 @@ function board({ templateId = null, status = '', q = '', limit = 200 } = {}) {
     template: { id: tpl.id, name: tpl.name, is_default: tpl.is_default },
     columns,
     rows,
+    stats,
+    filters: {
+      status, q, customer_id: customerId, manager, due_from: dueFrom, due_to: dueTo,
+      overdue: !!overdue, no_due: !!noDue, due_soon: !!dueSoon,
+      node_code: nodeCode, node_status: nodeStatus, sort
+    },
     summary: {
       orders: rows.length,
       avg_progress: rows.length ? Math.round(rows.reduce((a, r) => a + r.progress, 0) / rows.length) : 0,

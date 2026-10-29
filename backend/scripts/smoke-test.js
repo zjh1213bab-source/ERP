@@ -10872,6 +10872,99 @@ async function req(path, { method = 'GET', body, token } = {}) {
       '已删');
   }
 
+  // ================= 订单信息看板：统计口径与筛选联动 =================
+  {
+    console.log('\n[订单信息看板与筛选联动]');
+    const { db: SDB } = require('../src/db');
+
+    const bd = await req('/api/node-flow/board', { token });
+    const stats = bd.json.data && bd.json.data.stats;
+    ok('★ 看板返回统计口径（在跟 / 超期 / 7天内到期 / 无交期）',
+      bd.status === 200 && stats && ['total', 'overdue', 'due_soon', 'no_due'].every((k) => typeof stats[k] === 'number'),
+      stats ? JSON.stringify(stats) : '无');
+
+    // 关键：卡片上的数字与点进去的条数必须一致 —— 这是这一版最容易出错的地方
+    for (const [key, flag, label] of [['overdue', 'overdue', '超期'], ['due_soon', 'due_soon', '7天内到期'], ['no_due', 'no_due', '无交期']]) {
+      const f = await req(`/api/node-flow/board?${flag}=1`, { token });
+      const n = (f.json.data && f.json.data.rows || []).length;
+      ok(`★ 卡片数字与筛选结果一致：${label} ${stats[key]} 张 → 点进去 ${n} 条`,
+        f.status === 200 && n === stats[key] && n <= stats.total,
+        `${stats[key]} vs ${n}`);
+    }
+
+    // 超期口径：已发货/已结案不算超期（交付了就不叫超期）
+    const closedLate = SDB.prepare(
+      `SELECT COUNT(*) c FROM orders WHERE IFNULL(delivery_date,'') <> ''
+        AND date(delivery_date) < date('now') AND status IN ('shipped','closed','cancelled')`
+    ).get().c;
+    const allOverdue = SDB.prepare(
+      `SELECT COUNT(*) c FROM orders o WHERE o.node_template_id IS NOT NULL
+        AND IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) < date('now')
+        AND o.status IN ('assigned','production','instock')`
+    ).get().c;
+    ok('★ 已发货/已结案的单不算超期（已交付就不该再催）',
+      allOverdue === stats.overdue || closedLate === 0,
+      `在产超期 ${allOverdue} / stats ${stats.overdue} / 已结案超期 ${closedLate}`);
+
+    // 按节点筛：找一个存在的节点，筛「该节点未开始」
+    const col = (bd.json.data.columns || [])[0];
+    if (col) {
+      const byNode = await req(`/api/node-flow/board?node_code=${col.code}&node_status=pending`, { token });
+      const rowsN = (byNode.json.data && byNode.json.data.rows) || [];
+      const allMatch = rowsN.every((r) => (r.cells || []).some((c) => c.code === col.code && c.status === 'pending'));
+      ok('★ 按工序筛选：筛「某环节未开始」出来的每一行都真的没开始',
+        byNode.status === 200 && allMatch,
+        `${rowsN.length} 行 / ${col.name}`);
+    }
+
+    // 客户筛选
+    const withCus = (bd.json.data.rows || []).find((r) => r.customer_id);
+    if (withCus) {
+      const byCus = await req(`/api/node-flow/board?customer_id=${withCus.customer_id}`, { token });
+      const rowsC = (byCus.json.data && byCus.json.data.rows) || [];
+      ok('按客户筛选只出该客户的单',
+        byCus.status === 200 && rowsC.length > 0 && rowsC.every((r) => r.customer_id === withCus.customer_id),
+        `${rowsC.length} 行`);
+    }
+
+    // ---------- 订单信息看板（下单 + 打版合并） ----------
+    const anyOrder = (bd.json.data.rows || [])[0];
+    const sh = await req('/api/orders/' + anyOrder.id + '/sheet', { token });
+    const groups = (sh.json.data && sh.json.data.groups) || [];
+    ok('★ 信息看板把「下单信息」与「打版信息」分成两块返回',
+      sh.status === 200
+      && groups.some((g) => g.key === 'order')
+      && groups.some((g) => g.key === 'style')
+      && groups.some((g) => g.key === 'material'),
+      groups.map((g) => g.key + ':' + g.fields.length).join(','));
+
+    const orderFields = (groups.find((g) => g.key === 'order') || {}).fields || [];
+    ok('信息看板的字段带 label 与 value（屏幕与打印吃同一份）',
+      orderFields.length > 0 && orderFields.every((f) => f.key && f.label && typeof f.value === 'string'),
+      `${orderFields.length} 个字段`);
+
+    const ofs = await req('/api/orders/sheet-fields', { token });
+    ok('可打印字段清单可单独取（打印勾选框用）',
+      ofs.status === 200 && (ofs.json.data || []).length >= 4
+      && (ofs.json.data || []).every((g) => g.key && g.label && Array.isArray(g.fields)),
+      `${(ofs.json.data || []).length} 组`);
+
+    // 超期判定：信息看板与看板必须同口径
+    const rowOverdue = (bd.json.data.rows || []).find((r) => r.overdue);
+    if (rowOverdue) {
+      const sh2 = await req('/api/orders/' + rowOverdue.id + '/sheet', { token });
+      ok('★ 同一条单在「看板」与「信息看板」里的超期结论一致',
+        sh2.json.data && sh2.json.data.overdue === true,
+        `board=${rowOverdue.overdue} sheet=${sh2.json.data ? sh2.json.data.overdue : '?'}`);
+    } else {
+      ok('★ 同一条单在「看板」与「信息看板」里的超期结论一致', true, '当前没有超期单，跳过比对');
+    }
+
+    // 不存在的订单要 404，不能返回一个空壳
+    const nf = await req('/api/orders/99999999/sheet', { token });
+    ok('信息看板对不存在的订单返回 404（不返回空壳）', nf.status === 404, `HTTP ${nf.status}`);
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');
