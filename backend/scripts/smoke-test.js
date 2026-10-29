@@ -13284,6 +13284,153 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       `账号 ${leftU} / 接入点 ${leftE} / 事件 ${leftEv}`);
   }
 
+  // ================= 财务接口的主体范围 + 私有附件下载 =================
+  {
+    console.log('\n[财务主体与私有附件]');
+    const { db: FDB } = require('../src/db');
+    const FSF = require('fs');
+    const FPX = require('path');
+    const UP = require('../src/routes/upload');
+    const STAMP2 = String(Date.now()).slice(-7);
+    const FIN_U = 'smk_fin_' + STAMP2;
+    let finUid = null;
+
+    // 两个主体：第一个是自己那家，第二个用来验"跨主体被挡"
+    const cos = FDB.prepare("SELECT id, code, name FROM companies WHERE status='active' ORDER BY id").all();
+    const CO_A = cos.length ? cos[0].id : 1;
+    const CO_B = (cos.find((c) => Number(c.id) !== Number(CO_A)) || {}).id || null;
+
+    const mkFin = await req('/api/users', {
+      method: 'POST', token,
+      body: {
+        username: FIN_U, password: 'Smk#2026', name: '冒烟财务', role: 'finance',
+        company_id: isSingleMode() ? undefined : CO_A
+      }
+    });
+    finUid = mkFin.status === 200 ? mkFin.json.data.id : null;
+    ok('可建财务临时账号（绑到主体 A）', mkFin.status === 200 && !!finUid, `HTTP ${mkFin.status}`);
+
+    const finLogin = await req('/api/auth/login', { method: 'POST', body: { username: FIN_U, password: 'Smk#2026' } });
+    const finTok = finLogin.status === 200 ? finLogin.json.data.token : null;
+    ok('财务临时账号可登录', !!finTok, `HTTP ${finLogin.status}`);
+
+    /**
+     * 财务接口一律"服务端定主体"
+     *
+     * 这几条盯的是同一个病：路由把 `req.query.company_id` 直接交给服务层，
+     * 而服务层把"没有主体"当成不过滤 → 不传参看集团合并数、传别家看别家账。
+     */
+    if (finTok) {
+      const cfOwn = await req('/api/cashflow/plan?weeks=4', { token: finTok });
+      ok('资金计划：不传主体也能用（落到自己的主体）', cfOwn.status === 200, `HTTP ${cfOwn.status}`);
+
+      const ckOwn = await req('/api/cockpit/aging?kind=ar', { token: finTok });
+      const ckCo = ckOwn.json.data ? ckOwn.json.data.company_id : null;
+      ok('★ 驾驶舱不再默认算"集团合并数"',
+        ckOwn.status === 200 && (isSingleMode()
+          // 单公司模式：不传主体 = 不过滤（与应付台账等模块同一口径，避免两个页面两个数）
+          ? (ckCo === null || Number(ckCo) > 0)
+          : Number(ckCo) === Number(CO_A)),
+        `company_id=${ckCo} 期望 ${isSingleMode() ? 'null（不过滤）' : CO_A}`);
+
+      const glAll = await req('/api/gl/periods?company_id=all', { token: finTok });
+      const glRows = glAll.status === 200 ? glAll.json.data : [];
+      const foreignRows = (glRows || []).filter((r) => Number(r.company_id) !== Number(CO_A));
+      ok('★ 总账期间：普通角色传 all 也只回自己的主体',
+        glAll.status === 200 && (isSingleMode() || foreignRows.length === 0),
+        `共 ${glRows.length} 行，别家 ${foreignRows.length} 行`);
+
+      if (!isSingleMode() && CO_B) {
+        const cfOther = await req(`/api/cashflow/plan?weeks=4&company_id=${CO_B}`, { token: finTok });
+        ok('★ 资金计划：指定别家主体 → 404（不泄露存在性）', cfOther.status === 404, `HTTP ${cfOther.status}`);
+
+        const ckOther = await req(`/api/cockpit/overview?company_id=${CO_B}`, { token: finTok });
+        ok('★ 驾驶舱：指定别家主体 → 404', ckOther.status === 404, `HTTP ${ckOther.status}`);
+
+        const taxOther = await req(`/api/tax/preview?period=2026-09&company_id=${CO_B}`, { token: finTok });
+        ok('★ 税负测算：指定别家主体 → 404', taxOther.status === 404, `HTTP ${taxOther.status}`);
+
+        const glOther = await req(`/api/gl/vouchers?company_id=${CO_B}`, { token: finTok });
+        ok('★ 总账凭证：指定别家主体 → 404', glOther.status === 404, `HTTP ${glOther.status}`);
+
+        // 集团角色仍可跨主体（收紧了普通角色，不能把老板一起关掉）
+        const cfAdmin = await req(`/api/cashflow/plan?weeks=4&company_id=${CO_B}`, { token });
+        ok('集团角色（admin）仍可指定别的主体', cfAdmin.status === 200, `HTTP ${cfAdmin.status}`);
+      } else {
+        // 单公司模式：显式传的主体照用（历史多主体数据还在），但不存在的主体要报错而不是静默忽略
+        const cfBad = await req('/api/cashflow/plan?weeks=4&company_id=999999', { token: finTok });
+        ok('单公司模式：不存在的主体编号 → 404（不再静默当成抬头）', cfBad.status === 404, `HTTP ${cfBad.status}`);
+      }
+    }
+
+    /**
+     * 私有附件：**上传 → 鉴权下载 → 签名下载**，且公开区拿不到
+     *
+     * 这组断言是给"签名下载与上传目录不是同一个"那个 bug 上的锁：
+     * 原来上传写 `data/uploads`、签名读 `backend/uploads`，链接必然 404。
+     */
+    const PDF_B64 = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n').toString('base64');
+    const upPdf = await req('/api/upload/file', {
+      method: 'POST', token,
+      body: { dataUrl: 'data:application/pdf;base64,' + PDF_B64, filename: '冒烟附件.pdf' }
+    });
+    const att = upPdf.status === 200 ? upPdf.json.data : {};
+    ok('★ PDF 上传落到私有区（返回 /api/files/att/… 而不是 /uploads/…）',
+      upPdf.status === 200 && /^\/api\/files\/att\/[0-9a-f]+\.pdf$/.test(String(att.url || '')),
+      `HTTP ${upPdf.status} ${att.url || ''}`);
+
+    if (upPdf.status === 200) {
+      const pubTry = await fetch(BASE + '/uploads/' + att.name);
+      ok('★ 公开区访问同名附件 → 404（附件不在公网上）', pubTry.status === 404, `HTTP ${pubTry.status}`);
+
+      const anonTry = await fetch(BASE + att.url);
+      ok('★ 附件无 token 直接访问 → 401', anonTry.status === 401, `HTTP ${anonTry.status}`);
+
+      const withTok = await fetch(BASE + att.url, { headers: { Authorization: 'Bearer ' + token } });
+      ok('带 token 可下载附件（Content-Disposition 为 attachment）',
+        withTok.status === 200 && /attachment/.test(String(withTok.headers.get('content-disposition') || '')),
+        `HTTP ${withTok.status}`);
+
+      const signed = await req('/api/files/signed-url', { method: 'POST', token, body: { name: att.name, ttl: 600 } });
+      const sUrl = signed.status === 200 ? signed.json.data.url : '';
+      ok('可把附件换成带过期时间的签名链接', !!sUrl, `HTTP ${signed.status}`);
+      if (sUrl) {
+        const bySig = await fetch(BASE + sUrl);
+        ok('★ 签名链接免登录可下（发给外部客户用）', bySig.status === 200, `HTTP ${bySig.status}`);
+        const tampered = await fetch(BASE + sUrl.replace(/sig=[0-9a-f]+/, 'sig=' + 'a'.repeat(32)));
+        ok('★ 改签名后拒绝', tampered.status === 401 || tampered.status === 403, `HTTP ${tampered.status}`);
+      }
+
+      // 旧入口（文档里写过的 /api/integration/files/*）必须能找到同一批文件
+      const legacy = await req('/api/integration/files/signed-url', { method: 'POST', token, body: { name: att.name } });
+      const lUrl = legacy.status === 200 ? legacy.json.data.url : '';
+      ok('★ 旧的签名下载入口指向同一存储（目录已统一）', !!lUrl, `HTTP ${legacy.status}`);
+      if (lUrl) {
+        const lGet = await fetch(BASE + lUrl);
+        ok('旧签名链接可下载（对接方不用改）', lGet.status === 200, `HTTP ${lGet.status}`);
+      }
+
+      const privTry = await fetch(BASE + '/uploads/private/' + att.name);
+      ok('★ /uploads/private/** 被静态托管挡住', privTry.status === 404, `HTTP ${privTry.status}`);
+
+      // 清理：两区都删（文件名相同，可能在任一区）
+      [UP.UPLOAD_DIR, UP.PRIVATE_DIR].forEach((d) => {
+        try { FSF.unlinkSync(FPX.join(d, att.name)); } catch (e) { /* ignore */ }
+      });
+      ok('冒烟附件已从盘上删除', !FSF.existsSync(FPX.join(UP.PRIVATE_DIR, att.name)));
+    }
+
+    // 清理账号
+    if (finUid) {
+      FDB.prepare('DELETE FROM user_roles WHERE user_id = ?').run(finUid);
+      FDB.prepare('DELETE FROM access_exceptions WHERE user_id = ?').run(finUid);
+      FDB.prepare('DELETE FROM users WHERE id = ?').run(finUid);
+      require('../src/services/access').clearCache();
+    }
+    ok('财务主体与附件夹具已清干净',
+      Number(FDB.prepare("SELECT COUNT(*) c FROM users WHERE username LIKE 'smk_fin_%'").get().c) === 0);
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');

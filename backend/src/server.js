@@ -79,6 +79,7 @@ const purchaseRoutes = require('./routes/purchases');
 const dashboardRoutes = require('./routes/dashboard');
 const reportRoutes = require('./routes/reports');
 const uploadRoutes = require('./routes/upload');
+const fileRoutes = require('./routes/files');   // 私有附件下载（鉴权 / 短期签名）
 const importRoutes = require('./routes/imports');
 const priceTierRoutes = require('./routes/priceTiers');
 const quotationRoutes = require('./routes/quotations');
@@ -282,6 +283,7 @@ app.use('/api/purchases', purchaseRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/files', fileRoutes);   // 私有附件下载：登录态或带过期签名
 app.use('/api/import', importRoutes); // CSV 批量导入
 app.use('/api/price-tiers', priceTierRoutes); // 阶梯报价
 app.use('/api/quotations', quotationRoutes); // 报价单
@@ -368,32 +370,33 @@ app.use('/api/access', accessRoutes);   // 岗位权限复核
 app.use('/api/importops', importOpsRoutes);   // 真实数据导入   // 供方信息协同与技术再次审核   // 研发立项 + SKU 配码主档   // 裁片外发与外协验货交接   // 长期投资抵消   // 价格快照 + 费用池分摊   // 备料领退与盘点差异   // 分公司经营对比
 
 /**
- * 上传文件静态访问（加固版）
+ * 上传文件静态访问（v1.68 再收紧：公开区只放图片）
  *
  * 原来这里就是一行 `app.use('/uploads', express.static(UPLOAD_DIR))`：**整个目录公开、
  * 无需登录、不限制类型**。配合"上传时允许未知类型并按文件名猜扩展名"，
  * 就等于给了一个**同源任意 HTML 托管**：传一个 `evil.html`，
  * 在 ERP 主域下打开就能读 localStorage 里的 token、以当前用户身份调接口。
  *
- * 现在三道：
- *   1. **扩展名白名单** —— 不在白名单里的文件连 404 都拿不到（历史遗留文件同样拦，
- *      反正业务只用到图片/PDF/Office/zip/txt）；
- *   2. **`X-Content-Type-Options: nosniff`** —— 浏览器不许"猜"类型，
- *      一个 .txt 里写了 HTML 也不会被当成网页执行；
- *   3. **`Content-Security-Policy: default-src 'none'; sandbox`** —— 就算真有文件
- *      被当成文档打开，脚本、外链、表单全部禁掉；
- *   4. 非图片（PDF/Office/zip/txt）一律 `Content-Disposition: attachment`，
- *      下载而不是在站点内联渲染。
+ * 现在四道：
+ *   1. **`private/` 一律 404** —— 私有附件（PDF / Office / zip / txt）就存在这里，
+ *      唯一入口是 `/api/files/att/:name`（登录 + 归属校验，或短期签名）。
+ *      不挡这一条的话，"签名下载"只是个装饰：文件仍在公网上；
+ *   2. **扩展名白名单（只剩图片）** —— 公开区就是放图片的（款图 / 色卡 / 现场照片），
+ *      其余类型连 404 都拿不到；
+ *   3. **`X-Content-Type-Options: nosniff`** —— 浏览器不许"猜"类型；
+ *   4. **`Content-Security-Policy: default-src 'none'; sandbox`** —— 就算真有文件
+ *      被当成文档打开，脚本、外链、表单全部禁掉。
  *
- * 为什么不改成"全部走鉴权下载"：款图、色卡、单据附件在 `<img>` 里直接用 URL 引用
- * （上百处），改成带 token 的下载链接要么全站改造、要么把 token 放进 URL（更糟）。
- * 图片本身不执行脚本，加 nosniff 之后风险边界是清楚的；真正敏感的文件
- * 走的是 `services/` 里的签名下载（`/api/integration/files/:name`）。
+ * 为什么不把图片也改成鉴权下载：款图、色卡在 `<img>` 里直接用 URL 引用（全站上百处），
+ * 改成带 token 的链接要么全站改造、要么把 token 放进 URL（更糟）。
+ * 图片不执行脚本，加 nosniff + CSP 之后风险边界是清楚的；**敏感的是附件，附件已经不在这里了**。
  */
 const UPLOAD_SAFE = uploadRoutes.SAFE_EXTS;
 const UPLOAD_INLINE = uploadRoutes.INLINE_EXTS;
 app.use('/uploads', (req, res, next) => {
-  const ext = path.extname(String(req.path || '')).slice(1).toLowerCase();
+  const rel = String(req.path || '').replace(/^\/+/, '');
+  if (rel.toLowerCase().startsWith('private/')) return res.status(404).end();
+  const ext = path.extname(rel).slice(1).toLowerCase();
   if (!UPLOAD_SAFE.has(ext)) return res.status(404).end();
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");

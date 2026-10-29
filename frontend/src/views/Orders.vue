@@ -370,7 +370,7 @@
 
           <div v-if="fileAtts.length" style="margin-bottom: 8px">
             <div v-for="a in fileAtts" :key="a.id" style="display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed #eef2f7">
-              <a :href="a.url" target="_blank" rel="noopener" style="color: #2563eb">{{ a.filename }}</a>
+              <a href="#" @click.prevent="openAtt(a)" style="color: #2563eb">{{ a.filename }}</a>
               <span style="color: #8a94a6">{{ Math.round((a.size || 0) / 1024) }} KB</span>
               <button class="link-btn danger" @click="removeAttachment(a.id)">删</button>
             </div>
@@ -1877,6 +1877,24 @@ async function removeAttachment(id) {
   if (!confirm('删除该附件？')) return;
   try { await api.deleteAttachment(id); attachments.value = await api.attachments({ target_type: 'order', target_id: detail.value.id }); }
   catch (e) { alert(e.message); }
+}
+
+/**
+ * 打开附件
+ *
+ * 图片在公开区（`/uploads/…`）→ 直接开；
+ * PDF / Office / zip 在私有区（`/api/files/att/…`）→ 带 token 下载（`api.download`）。
+ */
+async function openAtt(a) {
+  const url = String((a && a.url) || '');
+  if (!url) return;
+  try {
+    if (url.startsWith('/uploads/')) {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+    await api.download(url, (a && a.filename) || 'attachment');
+  } catch (e) { alert(e.message); }
 }
 
 async function openReport(n) {  reportNode.value = n;

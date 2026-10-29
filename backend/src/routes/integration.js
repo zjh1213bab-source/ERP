@@ -15,18 +15,16 @@
  *   - 自动生成 OpenAPI 清单，便于交付与二次对接
  */
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const express = require('express');
 const { db, now } = require('../db');
-const config = require('../config');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const mall = require('../services/mall');
+/** 私有附件的签名与下载只有一份实现（routes/files.js），这里只做别名 */
+const { downloadHandler: DownloadHandler, signedUrlHandler: SignedUrlHandler } = require('./files');
 
 const router = express.Router();
 const WRITE = ['admin', 'hr'];
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
 const EP_TYPE = { shop: '电商店铺', logistics: '物流商', payment: '支付', other: '其他' };
@@ -201,40 +199,25 @@ router.post('/ingest/:code', wrap(async (req, res) => {
 }));
 
 // ---------- 签名下载（私有文件短期授权） ----------
-function sign(name, expires) {
-  return crypto.createHmac('sha256', config.jwtSecret).update(`${name}:${expires}`).digest('hex').slice(0, 32);
-}
-
+/**
+ * 这两个接口现在只是**别名**，真正实现在 `routes/files.js`
+ *
+ * 之前这里自己拼了一个目录：`path.join(__dirname,'..','..','uploads')` = `backend/uploads`，
+ * 而上传接口写的是 `backend/data/uploads` —— 两个目录根本不是同一个，
+ * 于是"给刚上传的附件换签名链接"必然 404（源码里也没有任何东西往 `backend/uploads` 写）。
+ *
+ * 现在统一：文件在 `data/uploads/private/`，签名与下载只有一份实现，
+ * 旧路径继续可用（对接方/文档里已经写了这两个地址），行为与 `/api/files/*` 完全一致。
+ */
 router.post('/files/signed-url', authRequired, wrap(async (req, res) => {
-  const name = String((req.body && req.body.name) || '').trim();
-  if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) {
-    return fail(res, 400, '文件名为空或包含非法路径');
-  }
-  const full = path.join(UPLOAD_DIR, name);
-  if (!fs.existsSync(full)) return fail(res, 404, '文件不存在');
-  const ttl = Math.min(Number((req.body && req.body.ttl) || 600), 86400);
-  const expires = Date.now() + ttl * 1000;
-  const sig = sign(name, expires);
-  return ok(res, {
-    url: `/api/integration/files/${encodeURIComponent(name)}?expires=${expires}&sig=${sig}`,
-    expires_at: new Date(expires).toISOString(),
-    ttl_seconds: ttl,
-    note: '链接到期后自动失效；重新获取需再次登录授权'
-  });
+  // 兼容两种入参：`{name}` 或完整的 `/api/files/att/xxx`（页面拿到的 url 直接丢进来即可）
+  const raw = String((req.body && req.body.name) || '').trim();
+  if (!raw) return fail(res, 400, '请提供文件名');
+  return SignedUrlHandler(req, res);
 }));
 
 /** 签名文件下载（无需登录，但必须持有效签名且未过期） */
-router.get('/files/:name', wrap(async (req, res) => {
-  const name = String(req.params.name || '');
-  const expires = Number(req.query.expires) || 0;
-  const sig = String(req.query.sig || '');
-  if (!expires || expires < Date.now()) return fail(res, 403, '链接已过期，请重新获取');
-  if (sig !== sign(name, expires)) return fail(res, 403, '签名无效');
-  if (name.includes('..') || name.includes('/') || name.includes('\\')) return fail(res, 400, '非法文件名');
-  const full = path.join(UPLOAD_DIR, name);
-  if (!fs.existsSync(full)) return fail(res, 404, '文件不存在');
-  return res.download(full, name);
-}));
+router.get('/files/:name', (req, res) => DownloadHandler(req, res));
 
 // ============================================================
 // 事件处理：把 payload 落到业务表

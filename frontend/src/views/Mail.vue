@@ -170,7 +170,11 @@
           <!-- 附件 -->
           <div v-if="cur.attachments.length" class="attach">
             <div class="a-title">附件 {{ cur.attachments.length }} 个（下载前会重新校验权限）</div>
-            <a v-for="(a, i) in cur.attachments" :key="i" class="a-row" :href="a.url" target="_blank" rel="noopener">
+            <!--
+              附件不再直接 <a href>：PDF/Office/zip 现在存私有区（/api/files/att/…），
+              浏览器打开链接不会带 Authorization 头 → 401。统一走 api.download（带 token fetch + blob）。
+            -->
+            <a v-for="(a, i) in cur.attachments" :key="i" class="a-row" href="#" @click.prevent="openAtt(a)">
               📎 {{ a.name }} <span class="muted">{{ fmtSize(a.size) }}</span>
             </a>
           </div>
@@ -530,6 +534,24 @@ const shortTime = (s) => {
     : `${d.getMonth() + 1}/${d.getDate()}`;
 };
 const timeText = (s) => (s ? fmtTime(s) : '-');
+/**
+ * 打开附件
+ *
+ * 图片在公开区（`/uploads/…`），直接开新窗口即可；
+ * PDF / Office / zip 在私有区（`/api/files/att/…`），必须带 token —— 走 `api.download`，
+ * 由它 fetch + blob 后触发保存。直接 `<a href>` 会 401（浏览器不会带 Authorization 头）。
+ */
+async function openAtt(a) {
+  const url = String((a && a.url) || '');
+  if (!url) return;
+  try {
+    if (url.startsWith('/uploads/')) {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+    await api.download(url, (a && a.name) || 'attachment');
+  } catch (e) { alert(e.message); }
+}
 const fmtSize = (n) => {
   const v = Number(n) || 0;
   if (!v) return '';

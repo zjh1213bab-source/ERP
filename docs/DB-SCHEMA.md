@@ -41,6 +41,11 @@
 - **外部接入密钥只有哈希（v1.68）**：`integration_endpoints` 存 `api_key_hash`（sha256）+
   `api_key_hint`（掩码），明文只在新建/重置时返回一次；入口只认 `X-Api-Key` 请求头，
   事件报文落库前把 `api_key / password / token / secret / signature` 等字段脱敏成 `***`。
+- **文件存储分两块（v1.68.1）**：`data/uploads/` 只放**图片**（款图 / 色卡 / 现场照片），
+  `/uploads/xxx.png` 匿名可看（要在 `<img>` 里直接引用）；
+  `data/uploads/private/` 放 **PDF / Office / zip / txt**，`/uploads/**` 访问一律 404，
+  唯一入口是 `GET /api/files/att/:name`（登录态或短期签名）。库里存的是文件名，
+  不带目录 —— 所以搬迁/备份要两个区一起带。
 - **库存要分两层看**：`materials` / `stock_items` / `stock_ledger` / `office_stock` **没有** `company_id` ——
   一个仓库里真实有多少是物理事实，一桶染料不会因为换个法人主体就变成两桶，所以**存量层不分主体是刻意的**；
   `material_issues` / `material_returns` / `stocktakes` 有这一列，**单据层按主体**。
@@ -107,7 +112,7 @@
 | production_reports | id, order_id, node_id, node_name, report_date, qty_ok, qty_defect, hours, operator |
 | factories | id, code, name, type(own/outsource), contact, phone, address, status |
 | dispatch_orders | id, order_id, factory_id, factory_name, type(own/outsource), qty, price, status(dispatched/settled), remark |
-| attachments | id, target_type(order/techpack), target_id, filename, url, size, mime, uploader |
+| attachments | id, target_type(order/techpack), target_id, filename, url, size, mime, uploader —— `url` 两种形态：图片 `/uploads/xxx.png`（公开区）、其余 `/api/files/att/xxx.pdf`（私有区，v1.68.1 起） |
 | employees | id, code, name, department_id, position, phone, hire_date, status(active/left), remark |
 | leave_requests | id, employee_id, employee_name, type(annual/sick/personal/other), start_date, end_date, days, reason, status(pending/approved/rejected), reviewed_by |
 | collection_tasks | task_no, customer_id, customer_name, owner_user_id/username/name, **owner_source**(profile/order/manual/none), **overdue_amount(生成时快照)**, **remaining(上次刷新值，读取时实时重算)**, invoice_count, max_overdue_days, oldest_due, promise_date/amount/at, **promise_count / promise_broken**, level(D1~D4), status(open/following/promised/escalated/closed), next_follow_at, follow_count, closed_reason/note/at/by | **一个客户一张任务**。`closed_reason=paid` 且未收为 0 时由 `syncPaidStatus` 自动结案。`promise_broken` 是事实标记，升级后仍保留 |

@@ -9,13 +9,24 @@ const { db } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { localDate } = require('../services/sla');
+const CS = require('../access/companyScope');
 const C = require('../services/cockpit');
 
 const router = express.Router();
-const READ = ['admin', 'sales', 'tech', 'finance', 'production', 'warehouse'];
+const READ = ['admin', 'boss', 'sales', 'tech', 'finance', 'production', 'warehouse'];
 const WRITE = ['admin', 'finance'];
 
 const operatorOf = (req) => req.user?.name || req.user?.username || 'system';
+
+/**
+ * 本次请求看哪个主体 —— 一律服务端判定
+ *
+ * 这里原来有 8 处 `req.query.company_id ? Number(...) : null`，而服务层把 null 当成
+ * 「不过滤」：不传参 = 看整个集团合并数，传别家的 id = 看别家的账。
+ * 驾驶舱是财务数据（账龄、现金缺口、毛利），这个口子必须堵在路由上，
+ * 因为服务层不知道自己被谁调用。
+ */
+const coOf = (req) => CS.resolveCompany(req.user, req.query.company_id, { action: '查看经营驾驶舱' });
 
 /** 期间格式校验 */
 function badPeriod(p) {
@@ -30,7 +41,7 @@ router.get('/overview', authRequired, requireRole(...READ), (req, res) => {
   if (period && badPeriod(period)) return fail(res, 400, '期间格式必须是 YYYY-MM');
   ok(res, C.overview({
     period: period || undefined,
-    company_id: req.query.company_id ? Number(req.query.company_id) : null
+    company_id: coOf(req)
   }));
 });
 
@@ -42,18 +53,29 @@ router.get('/aging', authRequired, requireRole(...READ), (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return fail(res, 400, '基准日格式必须是 YYYY-MM-DD');
   ok(res, C.aging(kind, {
     asOf,
-    company_id: req.query.company_id ? Number(req.query.company_id) : null
+    company_id: coOf(req)
   }));
 });
 
 /** ==================== 现金预测 ==================== */
+/**
+ * 批次列表 / 详情 / 回看：按批次自己的 `company_id` 判归属
+ *
+ * 这三条原来**完全不筛主体** —— 列表把所有主体的预测批次都列出来（含期末现金、
+ * 缺口金额），点进去还能看逐周明细。批次上的 `company_id` 为空的（早期合并口径跑的）
+ * 一律只给集团角色看：那些数本来就不属于任何单一主体。
+ */
 router.get('/forecasts', authRequired, requireRole(...READ), (req, res) => {
-  ok(res, C.listForecasts(req.query.limit || 20));
+  const rows = C.listForecasts(req.query.limit || 20)
+    .filter((f) => CS.canSee(req.user, { company_id: f.company_id }));
+  ok(res, rows);
 });
 
 router.get('/forecasts/:id', authRequired, requireRole(...READ), (req, res) => {
   const f = C.getForecast(req.params.id);
   if (!f) return fail(res, 404, '预测批次不存在');
+  // 归属不符同样回 404：403 等于告诉对方"这批存在、只是你没权限"
+  if (!CS.canSee(req.user, { company_id: f.company_id })) return fail(res, 404, '预测批次不存在');
   ok(res, f);
 });
 
@@ -69,7 +91,7 @@ router.post('/forecasts', authRequired, requireRole(...WRITE), wrap(async (req, 
     const f = C.buildForecast({
       base_date: baseDate,
       weeks: b.weeks,
-      company_id: b.company_id ? Number(b.company_id) : null,
+      company_id: CS.resolveCompany(req.user, b.company_id, { action: '跑现金预测' }),
       collect_rate: b.collect_rate,
       overdue_rates: b.overdue_rates,
       note: b.note
@@ -109,6 +131,11 @@ router.delete('/forecasts/:id', authRequired, requireRole('admin'), (req, res) =
 router.get('/forecasts/:id/variance', authRequired, requireRole(...READ), (req, res) => {
   const v = C.forecastVariance(req.params.id);
   if (!v) return fail(res, 404, '预测批次不存在');
+  // 回看里带「哪几笔实际收了」—— 同样是别家的账，归属要在这一层挡住
+  // 注意字段位置：forecastVariance 返回的是 { forecast, weeks, ... }，主体在 v.forecast 里
+  if (!CS.canSee(req.user, { company_id: v.forecast && v.forecast.company_id })) {
+    return fail(res, 404, '预测批次不存在');
+  }
   ok(res, v);
 });
 
@@ -116,17 +143,17 @@ router.get('/forecasts/:id/variance', authRequired, requireRole(...READ), (req, 
 router.get('/kpis', authRequired, requireRole(...READ), (req, res) => {
   const period = req.query.period || localDate().slice(0, 7);
   if (badPeriod(period)) return fail(res, 400, '期间格式必须是 YYYY-MM');
-  ok(res, C.kpis(period, req.query.company_id ? Number(req.query.company_id) : null));
+  ok(res, C.kpis(period, coOf(req)));
 });
 
 router.post('/kpis/snapshot', authRequired, requireRole(...WRITE), wrap(async (req, res) => {
   const period = req.body?.period || localDate().slice(0, 7);
   if (badPeriod(period)) return fail(res, 400, '期间格式必须是 YYYY-MM');
-  ok(res, C.snapshotKpis(period, req.body?.company_id ? Number(req.body.company_id) : null, operatorOf(req)));
+  ok(res, C.snapshotKpis(period, CS.resolveCompany(req.user, req.body?.company_id, { action: '落经营指标快照' }), operatorOf(req)));
 }));
 
 router.get('/trend', authRequired, requireRole(...READ), (req, res) => {
-  ok(res, C.kpiTrend(req.query.months || 12, req.query.company_id ? Number(req.query.company_id) : null));
+  ok(res, C.kpiTrend(req.query.months || 12, CS.resolveCompany(req.user, req.query.company_id, { action: '查看指标趋势' })));
 });
 
 /** ==================== 字典 ==================== */

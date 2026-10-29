@@ -14,19 +14,30 @@
 const express = require('express');
 const { ok, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const CS = require('../access/companyScope');
 const B = require('../services/badDebt');
 
 const router = express.Router();
 
 // 计提影响利润表和资产，只给财务和管理员看；老板只读
 const READ = ['admin', 'boss', 'finance'];
+
+/**
+ * 主体一律服务端判定
+ *
+ * ⚠️ 本模块目前**未挂载**（server.js 里挂载 `/api/bad-debt` 的那一行被注释掉了，
+ * 财务模块暂缓）。这里仍然改，是因为它是一颗地雷：一旦重新打开，
+ * 原来那套「req.query.company_id 直接进服务层」会让 finance 随手读别家的
+ * 计提比例、账龄明细与计提历史。重新上线时不用再回头查一遍。
+ */
+const coId = (req, raw, act) => CS.resolveCompany(req.user, raw, { action: act || '查看坏账计提', concrete: true });
 const WRITE = ['admin', 'finance'];
 
 router.get(
   '/policy',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, B.policy(req.query.company_id)))
+  wrap(async (req, res) => ok(res, B.policy(coId(req, req.query.company_id))))
 );
 
 router.put(
@@ -35,7 +46,7 @@ router.put(
   requireRole(WRITE),
   wrap(async (req, res) => {
     const b = req.body || {};
-    return ok(res, B.savePolicy(b.items || b.list, b.company_id));
+    return ok(res, B.savePolicy(b.items || b.list, coId(req, b.company_id, '保存坏账计提比例')));
   })
 );
 
@@ -50,7 +61,7 @@ router.get(
       e.status = 400;
       throw e;
     }
-    return ok(res, B.preview(period, req.query.company_id));
+    return ok(res, B.preview(period, coId(req, req.query.company_id)));
   })
 );
 
@@ -65,7 +76,7 @@ router.get(
     const asOf = /^\d{4}-\d{2}$/.test(period)
       ? gl.periodRange(period).end
       : new Date().toISOString().slice(0, 10);
-    return ok(res, B.aging(asOf, req.query.company_id));
+    return ok(res, B.aging(asOf, coId(req, req.query.company_id, '查看账龄明细')));
   })
 );
 
@@ -78,7 +89,7 @@ router.post(
     const r = B.post(String(b.period || '').slice(0, 7), {
       force: b.force === true || b.force === 1,
       operator: req.user.username,
-      company_id: b.company_id
+      company_id: coId(req, b.company_id, '过账坏账计提')
     });
     return ok(res, r);
   })
@@ -88,7 +99,7 @@ router.get(
   '/history',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, B.history(req.query.company_id, req.query.limit)))
+  wrap(async (req, res) => ok(res, B.history(coId(req, req.query.company_id, '查看计提历史'), req.query.limit)))
 );
 
 module.exports = router;

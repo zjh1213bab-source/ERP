@@ -581,11 +581,33 @@ CHECKS.env_mode = () => {
   return { status: 'pass', result: `production 模式；CORS 限定 ${cors}；环境变量密钥与口令均已替换` };
 };
 
-CHECKS.upload_writable = () => {  let dir = null;
-  try { dir = require('../routes/uploads').UPLOAD_DIR; } catch (e) { dir = path.resolve(__dirname, '../../data/uploads'); }
+CHECKS.upload_writable = () => {
+  /**
+   * 上传目录可写 —— **两个区都要查**
+   *
+   * v1.68 起存储分两块：公开区只放图片、`private/` 放附件。只查一个的话，
+   * 另一种上传会在真正用的时候才失败（用户看到的是"上传按钮一直转圈"）。
+   *
+   * 顺手修掉一个老 bug：这里原来 `require('../routes/uploads')`（多了个 s），
+   * 模块名根本不存在，于是永远走 catch 里的兜底路径 —— 看着"能用"，
+   * 其实从来没读过真正的配置（换了 `UPLOAD_DIR` 也不会跟着变）。
+   */
+  let dir = null;
+  let priv = null;
+  try {
+    const up = require('../routes/upload');
+    dir = up.UPLOAD_DIR;
+    priv = up.PRIVATE_DIR;
+  } catch (e) {
+    dir = path.resolve(__dirname, '../../data/uploads');
+    priv = path.join(dir, 'private');
+  }
   if (!fs.existsSync(dir)) return { status: 'fail', result: `上传目录不存在：${dir}` };
-  const writable = probeWritable(dir);
-  if (!writable) return { status: 'fail', result: `上传目录不可写：${dir} —— 上传按钮会一直转圈` };
+  if (!probeWritable(dir)) return { status: 'fail', result: `上传目录不可写：${dir} —— 上传按钮会一直转圈` };
+  if (priv) {
+    if (!fs.existsSync(priv)) return { status: 'fail', result: `私有附件目录不存在：${priv}（附件无法保存）` };
+    if (!probeWritable(priv)) return { status: 'fail', result: `私有附件目录不可写：${priv} —— 附件能选但传不上` };
+  }
   const walk = (p) => {
     let n = 0;
     try {
@@ -596,7 +618,7 @@ CHECKS.upload_writable = () => {  let dir = null;
     } catch (err) { /* 忽略不可读子目录 */ }
     return n;
   };
-  return { status: 'pass', result: `上传目录可写，现有 ${walk(dir)} 个文件（迁移时用来核对有没有漏拷）` };
+  return { status: 'pass', result: `上传目录可写，现有 ${walk(dir)} 个文件（含私有附件 ${priv ? walk(priv) : 0} 个；迁移时用来核对有没有漏拷）` };
 };
 
 // ============================================================

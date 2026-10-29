@@ -10,6 +10,7 @@ const { db } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { localNow, localDate } = require('../services/sla');
+const CS = require('../access/companyScope');
 const G = require('../services/gl');
 
 const router = express.Router();
@@ -20,13 +21,20 @@ const ADMIN = ['admin'];
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 /**
- * 取本次请求的主体：query / body / 默认总部
- * 传 'all' 只在期间列表用（跨主体看），其他接口一律落到具体主体。
+ * 取本次请求的主体：**服务端判定**（query / body 里的 company_id 只作为"想看的那个"）
+ *
+ * 原来是 `G.companyOf(raw)` —— 它只做 `Number(id) || defaultCompany()`，
+ * 也就是"客户端说哪家就是哪家，没传就落总部"。总账是财务数据里最全的一份
+ * （凭证、分录、报表），这条口子等于让任何能进这个页面的账号随便读别家账。
+ *
+ * 现在规则与全站一致：普通角色恒为自己主体，指定别家返回 404；
+ * `admin / boss` 可以显式选别的主体（合并口径要看）。
  */
-function coOf(req) {
-  const raw = req.query?.company_id ?? req.body?.company_id;
-  return G.companyOf(raw);
-}
+const coOf = (req, opts) => CS.resolveCompany(
+  req.user,
+  req.query?.company_id ?? req.body?.company_id,
+  { action: '查看总账', allowAll: !!(opts && opts.allowAll), concrete: true }
+);
 function coName(id) {
   return G.companyName(id);
 }
@@ -34,7 +42,13 @@ function coName(id) {
 /** ==================== 期间 ==================== */
 router.get('/periods', authRequired, requireRole(...READ), (req, res) => {
   const cur = localDate().slice(0, 7);
-  const all = String(req.query.company_id || '') === 'all';
+  /**
+   * `company_id=all` 只对集团角色生效（返回 null = 不过滤）。
+   * 其他角色传 all 会被 `resolveCompany` 悄悄退回自己那家 —— 不报错，
+   * 因为前端下拉本来就不该给他们这个选项，报错只会变成"页面打不开"。
+   */
+  const all = String(req.query.company_id || '').toLowerCase() === 'all'
+    && CS.resolveCompany(req.user, 'all', { allowAll: true }) === null;
 
   if (all) {
     const rows = db.prepare('SELECT * FROM gl_periods ORDER BY period DESC, company_id').all();
@@ -106,9 +120,25 @@ const SOURCE_LABEL = {
 };
 router.__sourceLabel = SOURCE_LABEL;
 
-router.get('/vouchers/:id', authRequired, requireRole(...READ), (req, res) => {
+/**
+ * 凭证归属：按 id 取到的行必须过一遍主体校验
+ *
+ * 这两处（详情 / 作废）原来只判"存在"，不判归属 —— 拿一个别家的凭证 id
+ * 就能看到整张分录，甚至把它作废（作废会 `assertOpen` 那家主体的期间，
+ * 但那只是"期间开着"的校验，不是权限）。
+ */
+function voucherOr404(req, res) {
   const v = db.prepare('SELECT * FROM gl_vouchers WHERE id=?').get(Number(req.params.id));
-  if (!v) return fail(res, 404, '凭证不存在');
+  if (!v || !CS.canSee(req.user, v)) {
+    fail(res, 404, '凭证不存在');
+    return null;
+  }
+  return v;
+}
+
+router.get('/vouchers/:id', authRequired, requireRole(...READ), (req, res) => {
+  const v = voucherOr404(req, res);
+  if (!v) return undefined;
   const entries = db.prepare('SELECT * FROM gl_entries WHERE voucher_id=? ORDER BY line_no').all(v.id);
   ok(res, {
     voucher: { ...v, company_name: coName(v.company_id), source_label: SOURCE_LABEL[v.source_type] || v.source_type },
@@ -154,8 +184,8 @@ router.post('/vouchers', authRequired, requireRole(...WRITE), wrap(async (req, r
 }));
 
 router.post('/vouchers/:id/void', authRequired, requireRole(...WRITE), (req, res) => {
-  const v = db.prepare('SELECT * FROM gl_vouchers WHERE id=?').get(Number(req.params.id));
-  if (!v) return fail(res, 404, '凭证不存在');
+  const v = voucherOr404(req, res);
+  if (!v) return undefined;
   if (v.status === 'void') return fail(res, 400, '这张凭证已经作废了');
   try { G.assertOpen(v.period, v.company_id); } catch (e) { return fail(res, 400, e.message); }
   const reason = String(req.body?.reason || '').trim();

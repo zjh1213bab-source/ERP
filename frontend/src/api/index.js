@@ -48,6 +48,46 @@ function qs(params = {}) {
   return s ? '?' + s : '';
 }
 
+/**
+ * 下载一个**需要登录**的文件（私有附件）
+ *
+ * 为什么不能直接用 `<a href="/api/files/att/xxx">`：浏览器直接打开链接时不会带
+ * `Authorization` 头，服务端只能看到"匿名请求" → 401。也不能把 token 拼进 URL
+ * （token 会进浏览器历史、Referer、服务器访问日志）。
+ *
+ * 所以走这条路：带 token fetch → 拿 blob → 用临时 `<a download>` 触发保存。
+ * 返回的 url 若是公开图片（`/uploads/...`），直接开新窗口即可，不必走这里。
+ */
+async function download(url, filename) {
+  const h = {};
+  if (auth.token) h.Authorization = `Bearer ${auth.token}`;
+  const res = await fetch(BASE + url, { headers: h });
+  if (res.status === 401) {
+    clearAuth();
+    if (location.pathname !== '/login') location.href = '/login';
+    throw new Error('登录已失效，请重新登录');
+  }
+  if (!res.ok) {
+    let msg = `下载失败（${res.status}）`;
+    try {
+      const j = await res.json();
+      if (j && j.message) msg = j.message;
+    } catch (e) { /* 非 JSON 响应，用默认提示 */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  // 服务端文件名是随机串，这里用调用方给的可读名（缺省也不影响下载）
+  a.download = filename || url.split('/').pop() || 'download';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // 立刻 revoke 在部分浏览器上会让下载中断，给它一点时间
+  setTimeout(() => URL.revokeObjectURL(href), 4000);
+}
+
 export const api = {  // 登录
   login: (username, password) => req('/api/auth/login', { method: 'POST', body: { username, password } }),
   me: () => req('/api/auth/me'),
@@ -186,6 +226,10 @@ export const api = {  // 登录
 
   // 上传 / 款图
   upload: (dataUrl) => req('/api/upload', { method: 'POST', body: { dataUrl } }),
+  /** 下载私有附件（带登录态，见上面 download 的说明） */
+  download,
+  /** 换一条带过期时间的签名链接（发给外部客户/供应商用） */
+  signedFileUrl: (name, ttl) => req('/api/files/signed-url', { method: 'POST', body: { name, ttl } }),
   setOrderImage: (id, url) => req(`/api/orders/${id}/image`, { method: 'POST', body: { image_url: url } }),
   restoreDb: (base64) => req('/api/admin/restore', { method: 'POST', body: { base64 } }),
 

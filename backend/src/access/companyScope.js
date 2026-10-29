@@ -287,6 +287,102 @@ function filterCompanyId(user) {
 }
 
 /**
+ * 本次请求该操作哪个主体 —— **服务端唯一取值口**
+ * ============================================================
+ * ## 为什么必须有这一个函数
+ *
+ * 财务那一类接口（资金计划 / 税务测算 / 坏账计提 / 驾驶舱 / 总账）的写法是
+ * 「把 `req.query.company_id` 直接交给服务层」，而服务层把 `null` 当成"不过滤"。
+ * 于是两个后果同时存在：
+ *   - 不传 `company_id` → 服务层算的是**整个集团合并数**（非集团角色也拿得到）；
+ *   - 传 `company_id=3` → 直接读别家的账。
+ * 这两条都不是"参数校验"，是数据范围问题，所以只能在这里一处判。
+ *
+ * ## 口径（与 `of()` 同一套规则，不另立标准）
+ *
+ *   - 集团角色（admin / boss）：可以显式指定任意已存在的主体；不指定就用自己那个；
+ *   - 其他角色：**只能用自己那个**。显式指定别家 → 404（不是 403，403 等于承认
+ *     "这个主体存在、只是你没权限"，逐个 id 试就能数出集团有几家）；
+ *   - 没绑主体：抛错（入口已 403，这里是兜底）。
+ *
+ * ## 单公司模式（默认）的两个细节
+ *
+ *   1. **不传主体时返回 `null`（= 不过滤），而不是抬头 id** —— 必须与
+ *      `filterCompanyId()` 的口径一致。否则会出现"资金计划的应付总额"
+ *      和"应付台账的已开票未付"对不上：前者被收窄到抬头、后者是全库，
+ *      两个页面说两个数，而这种不一致没人会去查原因，只会不信这个数。
+ *   2. **显式传了合法主体就照用** —— 单公司模式的意思是"不再按主体隔离"，
+ *      不是"禁止查某个主体"。历史库里那几家主体的数据仍然存在，
+ *      税务测算这类"按主体出表"的页面还要能选到它们，硬改会打断正常业务。
+ *      `opts.concrete` 就是给这类"必须要一个具体主体"的调用方用的
+ *      （税务、总账、坏账：它们要把 id 写进 SQL 或落进单据）。
+ *
+ * @param {object} user   `req.user`
+ * @param {*} requested   `req.query.company_id ?? req.body.company_id`
+ * @param {{allowAll?:boolean,concrete?:boolean,label?:string,action?:string}} [opts]
+ * @returns {number|null} 主体 id；null 表示"不过滤"
+ */
+function resolveCompany(user, requested, opts = {}) {
+  const label = opts.label || '公司主体';
+  const raw = requested === undefined || requested === null ? '' : String(requested).trim();
+  const isAll = raw.toLowerCase() === 'all';
+  const headId = Number(header().id) || 1;
+
+  if (SINGLE) {
+    if (isAll) return opts.allowAll ? null : headId;
+    if (!raw) return opts.concrete ? headId : null;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0) {
+      throw Object.assign(new Error(`${label}参数不合法：${raw}`), { status: 400 });
+    }
+    if (!db.prepare('SELECT id FROM companies WHERE id = ?').get(n)) {
+      throw Object.assign(new Error(`${label}不存在`), { status: 404 });
+    }
+    return n;
+  }
+
+  const s = of(user);
+  if (s.unbound) {
+    throw Object.assign(
+      new Error(`数据范围未确定：账号未绑定公司主体，无法${opts.action || '操作'}${label}`),
+      { status: 403 }
+    );
+  }
+  const own = s.companyId || null;
+
+  if (isAll) {
+    if (opts.allowAll && s.cross) return null;
+    // 集团角色即使没要求 all，也是"全集团口径"（与 filterCompanyId 一致）
+    if (s.cross) return opts.concrete ? (own || headId) : null;
+    return own || headId;
+  }
+  if (!raw) {
+    /**
+     * 不指定：
+     *   集团角色 → `null`（不过滤），与 `filterCompanyId()` 完全一致。
+     *     这里如果返回"自己那个主体"，资金计划就会只算总部，而应付台账算全集团 ——
+     *     两个页面的应付总额对不上，冒烟里那条跨模块口径断言就是为了抓这个。
+     *   普通角色 → 自己那个主体（这就是本次修复的核心：不再默认看全集团）。
+     *   `concrete` 的调用方（税务 / 总账 / 坏账）拿不到 null，退到抬头。
+     */
+    if (s.cross) return opts.concrete ? (own || headId) : null;
+    return own || headId;
+  }
+
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw Object.assign(new Error(`${label}参数不合法：${raw}`), { status: 400 });
+  }
+  const exists = db.prepare('SELECT id FROM companies WHERE id = ?').get(n);
+  if (!exists) throw Object.assign(new Error(`${label}不存在`), { status: 404 });
+  if (!s.cross && n !== own) {
+    // 跨主体一律 404：不泄露"哪些主体存在"
+    throw Object.assign(new Error(`${label}不存在`), { status: 404 });
+  }
+  return n;
+}
+
+/**
  * 「挂在订单上的表」的范围条件（`order_nodes` / `production_reports` /
  * `cut_orders` / `commitments` … 都只有 `order_id`，没有 `company_id`）
  *
@@ -370,6 +466,6 @@ module.exports = {
   orderOwnedSql, companyClauseSql, parentClauseSql,
   // 单公司模式：开关状态 + 唯一抬头 + 下拉取值
   isSingle, header, listForPicker,
-  // v1.68：未绑定主体的账号判定（鉴权中间件据此拒绝）
-  scopeProblem
+  // v1.68：未绑定主体的账号判定（鉴权中间件据此拒绝）+ 服务端统一主体取值口
+  scopeProblem, resolveCompany
 };

@@ -530,15 +530,22 @@ router.post('/send', authRequired, requireRole(ANY), wrap(async (req, res) => {
   }
 
   // 附件重新校验（EM14）：只接受本系统上传的地址
+  //
+  // 两种地址都要认：图片走公开区 `/uploads/...`，PDF/Office/zip 走私有附件
+  // `/api/files/att/...`（v1.68 起附件不再落在公开区）。只认 `/uploads/` 的话，
+  // 新上传的 pdf 会被静默丢掉 —— 用户以为发出去了，收件人那边没有附件。
   let attachments = [];
   if (Array.isArray(b.attachments)) {
-    attachments = b.attachments.filter((a) => a && a.url && String(a.url).startsWith('/uploads/')).slice(0, 10).map((a) => ({
-      name: String(a.name || 'attachment').slice(0, 120),
-      url: a.url,
-      size: Number(a.size) || 0,
-      ext: a.ext || String(a.name || '').split('.').pop(),
-      hash: a.hash || crypto.createHash('md5').update(String(a.url)).digest('hex').slice(0, 16)
-    }));
+    attachments = b.attachments
+      .filter((a) => a && a.url && /^\/(uploads\/|api\/files\/att\/)/.test(String(a.url)))
+      .slice(0, 10)
+      .map((a) => ({
+        name: String(a.name || 'attachment').slice(0, 120),
+        url: a.url,
+        size: Number(a.size) || 0,
+        ext: a.ext || String(a.name || '').split('.').pop(),
+        hash: a.hash || crypto.createHash('md5').update(String(a.url)).digest('hex').slice(0, 16)
+      }));
   }
 
   const t = now();

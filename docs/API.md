@@ -95,7 +95,9 @@
 ## 附件 / 审批 / 人事
 | 方法 | 路径 | 角色 | 说明 |
 |---|---|---|---|
-| POST | /api/upload/file | 登录 | 通用文件上传（PDF/图片/Office，≤10MB）→ `/uploads/xxx` |
+| POST | /api/upload/file | 登录 | 通用文件上传（PDF/图片/Office/zip/txt，≤10MB）。**图片** → `/uploads/xxx`（公开区）；**其余** → `/api/files/att/xxx`（私有区，需鉴权下载） |
+| GET | /api/files/att/:name | 登录 **或** 签名 | **私有附件的唯一入口**。带 `Authorization` 时校验账号状态，附件挂在订单上还要过订单归属；带 `?expires=&sig=` 时按签名放行（对外分享用）。`/uploads/` 下访问私有文件一律 404 |
+| POST | /api/files/signed-url | 登录 | 换一条带过期时间的下载链接 `{name, ttl}`（默认 600s，最长 86400s）。**等价于一次授权**，不要签给别人不该看的东西 |
 | GET | /api/attachments?target_type=&target_id= | 登录 | 附件列表（target_type: order/techpack） |
 | POST | /api/attachments | 登录 | 新增附件记录 |
 | DELETE | /api/attachments/:id | 登录 | 删除附件 |
@@ -290,7 +292,7 @@
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
 | POST | /api/integration/ingest/:code | 外部系统 | 事件入口。Header `X-Api-Key`；Body `{event_id, topic, payload}`；`event_id` 为**幂等键**（也可放 `X-Idempotency-Key`）。重复推送返回 `{duplicate:true}` 不重复处理；超限返回 429 |
-| GET | /api/integration/files/:name?expires=&sig= | 签名链接 | 私有文件下载，签名由 `signed-url` 签发，过期或篡改返回 403 |
+| GET | /api/integration/files/:name?expires=&sig= | 签名链接 | **别名**（保留给已对接方），行为同 `/api/files/att/:name` |
 | GET | /api/integration/stats | 登录 | 概览：接入点、事件状态分布、24h 调用与失败、校正待批；含 `warnings[]` |
 | GET/POST | /api/integration/endpoints | 读:登录 / 写:admin,sales | 接入点列表（Key 掩码）/ 新建（**返回一次明文 Key**） |
 | PUT | /api/integration/endpoints/:id | admin,sales | 修改名称、类型、限流、状态、关联店铺 |
@@ -305,7 +307,7 @@
 | POST | /api/integration/shipments/:id/correct/approve | admin,sales | 批准校正：应用新值、保留旧值到 `correct_from`、通知客户 |
 | POST | /api/integration/shipments/:id/correct/reject | admin,sales | 驳回校正 `{reason}` |
 | GET | /api/integration/openapi.json | 登录 | 自动生成 OpenAPI 3.0.3 接口清单 |
-| POST | /api/integration/files/signed-url | 登录 | 签发私有文件下载链接 `{name, ttl}`（默认 600s，最长 86400s） |
+| POST | /api/integration/files/signed-url | 登录 | **别名**，行为同 `/api/files/signed-url` |
 
 ### 支持的事件主题
 | topic | payload 关键字段 | 处理结果 |

@@ -18,9 +18,12 @@
   （`users.token_version` 与令牌里的 `tv` 比对）—— JWT 本身没有"撤回"，
   停用、降权、改密码要能立刻生效只能靠这一次比对。登录有三道限流
   （`middleware/loginLimit.js`）：按 IP 的总尝试与失败数、按账号的连续失败。
-- **上传与静态托管**：`/api/upload/*` 只收白名单类型并**验文件头**，扩展名只由 MIME 决定；
-  `/uploads` 只放行白名单扩展名，并带 `nosniff` + `CSP sandbox`，非图片强制下载。
+- **上传与静态托管（v1.68.1 分两区）**：`/api/upload/*` 只收白名单类型并**验文件头**，扩展名只由 MIME 决定。
+  图片进 `data/uploads/`（公开，`/uploads/xxx.png` 可匿名引用）；其余进 `data/uploads/private/`，
+  静态托管对 `private/**` 一律 404，唯一入口是 `GET /api/files/att/:name`（登录态或短期签名）。
   详见 `deploy/DEPLOY.md` §10.3 —— 这条防的是"同源任意 HTML 托管"导致的令牌窃取。
+- **财务接口的主体**：资金计划 / 税务 / 坏账 / 驾驶舱 / 总账一律走
+  `companyScope.resolveCompany()` 取主体（普通角色只能用自己那个，跨主体 404；集团角色可指定）。
 - **外部接入**：`/api/integration/ingest/:code` 用 `X-Api-Key`（只存 sha256），
   幂等键 `event_id`，报文落库前脱敏（`api_key/password/token/...` → `***`）。
 
