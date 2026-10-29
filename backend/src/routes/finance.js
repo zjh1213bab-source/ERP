@@ -20,11 +20,32 @@ const { payValidOf, PAY_VALID } = require('../services/paymentStatus');
 // 白名单会把 open/pending 这类别名静默漏掉，漏掉的都是真钱
 const S = require('../services/invoiceStatus');
 const T = require('../services/paymentTerms');
+// 主体范围：往来账是"某个法人主体的账"，必须按 company_id 过滤（集团角色跨主体）
+const scope = require('../access/companyScope');
 
 const router = express.Router();
 const WRITE = ['admin', 'finance'];
 const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * 范围条件拼进 SQL：`WHERE ${S.OPEN_SQL} ${sc.sql}` / `WHERE 1=1 ${sc.sql}`
+ *
+ * 集团角色与未绑定主体的账号返回空串，查询保持原样 —— 这两类账号的"能不能看"
+ * 是权限问题，不该在这里悄悄变成"什么都看不到"。
+ */
+const sc = (user, col = 'company_id') => scope.clause(user, col);
+
+/** 按 id 取一张账款并校验归属；不属于本公司按不存在处理 */
+function invoiceInScope(user, table, id, label) {
+  const r = scope.assertRow(user, table, id, label);
+  if (!r.ok) {
+    const e = new Error(r.reason);
+    e.status = r.status;
+    throw e;
+  }
+  return r.row;
+}
 
 const INVOICE = {
   ar: { table: 'ar_invoices', prefix: 'YS', label: '应收' },
@@ -113,9 +134,11 @@ function openARForOrder(orderId, userId) {
     ? db.prepare('SELECT name FROM customers WHERE id = ?').get(order.customer_id)
     : null;
   const t = now();
+  // 应收跟着订单走主体：订单属于哪个法人主体，应收就记哪个
+  // （不写这一列会用表默认值 1 → 分部的账全进总部，开完自己又看不见）
   const info = db.prepare(
-    `INSERT INTO ar_invoices (bill_no, order_id, customer_id, customer_name, currency, amount_orig, rate, amount, paid_amount, due_date, status, source, remark, created_by, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?)`
+    `INSERT INTO ar_invoices (bill_no, order_id, customer_id, customer_name, currency, amount_orig, rate, amount, paid_amount, due_date, status, source, remark, created_by, created_at, updated_at, company_id)
+     VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)`
   ).run(
     nextNo(INVOICE.ar.prefix, INVOICE.ar.table),
     orderId, order.customer_id || null, cust ? cust.name : null,
@@ -124,7 +147,7 @@ function openARForOrder(orderId, userId) {
     currency === 'USD'
       ? `订单 ${order.order_no} 发货自动开票（USD ${amountOrig} × ${rate}）`
       : `订单 ${order.order_no} 发货自动开票`,
-    userId || 'system', t, t
+    userId || 'system', t, t, Number(order.company_id) || 1
   );
   return db.prepare('SELECT * FROM ar_invoices WHERE id = ?').get(Number(info.lastInsertRowid));
 }
@@ -139,23 +162,27 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
   const monthStart = new Date();
   monthStart.setDate(1);
   const ms = monthStart.toISOString().slice(0, 10);
+  // 每一项都要带主体条件：总览数字是"分部的应收"，不是"集团的应收"
+  const a = sc(req.user);
 
-  const arTotal = sum(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL}`);
-  const apTotal = sum(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ap_invoices WHERE ${S.OPEN_SQL}`);
+  const arTotal = sum(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL}${a.sql}`, ...a.params);
+  const apTotal = sum(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ap_invoices WHERE ${S.OPEN_SQL}${a.sql}`, ...a.params);
   const overdueAr = sum(
-    `SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL} AND due_date IS NOT NULL AND due_date < ?`,
-    today()
+    `SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL} AND due_date IS NOT NULL AND due_date < ?${a.sql}`,
+    today(), ...a.params
   );
-  const paidIn = sum(`SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='in' AND ${PAY_VALID} AND pay_date >= ?`, ms);
-  const paidOut = sum(`SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='out' AND ${PAY_VALID} AND pay_date >= ?`, ms);
+  const paidIn = sum(`SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='in' AND ${PAY_VALID} AND pay_date >= ?${a.sql}`, ms, ...a.params);
+  const paidOut = sum(`SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE direction='out' AND ${PAY_VALID} AND pay_date >= ?${a.sql}`, ms, ...a.params);
 
   // 美金口径：外贸客户欠的是美金，本币数字受汇率波动影响，业务更需要看原币
   const usdOpen = sum(
-    `SELECT COALESCE(SUM((amount - COALESCE(paid_amount,0)) / CASE WHEN rate > 0 THEN rate ELSE 1 END),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL} AND currency = 'USD'`
+    `SELECT COALESCE(SUM((amount - COALESCE(paid_amount,0)) / CASE WHEN rate > 0 THEN rate ELSE 1 END),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL} AND currency = 'USD'${a.sql}`,
+    ...a.params
   );
-  const usdTotal = sum("SELECT COALESCE(SUM(amount_orig),0) AS s FROM ar_invoices WHERE status != 'void' AND currency = 'USD'");
+  const usdTotal = sum(`SELECT COALESCE(SUM(amount_orig),0) AS s FROM ar_invoices WHERE status != 'void' AND currency = 'USD'${a.sql}`, ...a.params);
   const usdPaid = sum(
-    "SELECT COALESCE(SUM(paid_amount / CASE WHEN rate > 0 THEN rate ELSE 1 END),0) AS s FROM ar_invoices WHERE status != 'void' AND currency = 'USD'"
+    `SELECT COALESCE(SUM(paid_amount / CASE WHEN rate > 0 THEN rate ELSE 1 END),0) AS s FROM ar_invoices WHERE status != 'void' AND currency = 'USD'${a.sql}`,
+    ...a.params
   );
 
   return ok(res, {
@@ -168,8 +195,10 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
     ar_open_usd: usdOpen,
     ar_total_usd: usdTotal,
     ar_paid_usd: usdPaid,
-    ar_count: db.prepare(`SELECT COUNT(*) AS c FROM ar_invoices WHERE ${S.OPEN_SQL}`).get().c,
-    ap_count: db.prepare(`SELECT COUNT(*) AS c FROM ap_invoices WHERE ${S.OPEN_SQL}`).get().c
+    ar_count: db.prepare(`SELECT COUNT(*) AS c FROM ar_invoices WHERE ${S.OPEN_SQL}${a.sql}`).get(...a.params).c,
+    ap_count: db.prepare(`SELECT COUNT(*) AS c FROM ap_invoices WHERE ${S.OPEN_SQL}${a.sql}`).get(...a.params).c,
+    // 让前端/排查能看出这份数字是"本公司"还是"全集团"
+    scope: a.scoped ? 'company' : 'group'
   });
 }));
 
@@ -178,7 +207,9 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
 router.get('/aging', authRequired, wrap(async (req, res) => {
   const kind = req.query.kind === 'ap' ? 'ap' : 'ar';
   const { table } = INVOICE[kind];
-  const rows = db.prepare(`SELECT * FROM ${table} WHERE ${S.OPEN_SQL} ORDER BY due_date`).all();
+  // 账龄桶是给"这家主体"看的催收/付款节奏，必须与列表同口径
+  const a = sc(req.user);
+  const rows = db.prepare(`SELECT * FROM ${table} WHERE ${S.OPEN_SQL}${a.sql} ORDER BY due_date`).all(...a.params);
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
   rows.forEach((inv) => {
     const open = openAmount(inv);
@@ -203,6 +234,9 @@ function listInvoices(kind) {
     const { status, q, partner_id } = req.query;
     const where = [];
     const args = [];
+    // 主体条件放最前：后面所有筛选都在"本公司"这个集合里做
+    const a = sc(req.user);
+    if (a.scoped) { where.push(`company_id = ?`); args.push(a.params[0]); }
     if (status) { where.push('status = ?'); args.push(status); }
     if (partner_id) { where.push(`${kind === 'ar' ? 'customer_id' : 'supplier_id'} = ?`); args.push(partner_id); }
     if (q) {
@@ -242,17 +276,25 @@ function createInvoice(kind) {
     const partnerName = b.partner_name || b.customer_name || b.supplier_name || null;
     if (!partnerName) return fail(res, 400, kind === 'ar' ? '请填写客户' : '请填写供应商');
 
+    // 挂订单的手工应收：订单必须是本主体的（否则等于把别家的单挂到自己账上）
+    if (kind === 'ar' && b.order_id) {
+      const ord = scope.assertOrder(req.user, b.order_id);
+      if (!ord.ok) return fail(res, 404, '订单不存在');
+    }
+    // 主体：分部开的单记分部，集团账号可显式指定（合并口径补录）
+    const companyId = scope.writeCompanyOf(req.user, b.company_id);
+
     const t = now();
     const info = db.prepare(
       `INSERT INTO ${table} (bill_no, ${kind === 'ar' ? 'order_id, customer_id, customer_name' : 'purchase_id, supplier_id, supplier_name'},
-        currency, amount_orig, rate, amount, paid_amount, due_date, status, source, remark, created_by, created_at, updated_at)
-       VALUES (?,?,?,?, ?,?,?,?,0, ?,?,?,?,?,?,?)`
+        currency, amount_orig, rate, amount, paid_amount, due_date, status, source, remark, created_by, created_at, updated_at, company_id)
+       VALUES (?,?,?,?, ?,?,?,?,0, ?,?,?,?,?,?,?,?)`
     ).run(
       nextNo(prefix, table),
       b.order_id || null, b.partner_id || null, partnerName,
       currency, amountOrig, rate, amount,
       b.due_date || null, 'unpaid', b.source || 'manual', b.remark || null,
-      req.user.username, t, t
+      req.user.username, t, t, companyId
     );
     return ok(res, withCurrency(db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(Number(info.lastInsertRowid))));
   });
@@ -264,8 +306,7 @@ router.post('/ap', authRequired, requireRole(WRITE), createInvoice('ap'));
 function voidInvoice(kind) {
   return wrap(async (req, res) => {
     const { table } = INVOICE[kind];
-    const inv = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
-    if (!inv) return fail(res, 404, '单据不存在');
+    const inv = invoiceInScope(req.user, table, req.params.id, '单据');
     if (inv.status === 'void') return fail(res, 400, '已经作废过');
     if (r2(inv.paid_amount) > 0) return fail(res, 400, '已有核销记录，请先红冲对应收付款再作废');
     const reason = (req.body && req.body.reason) || '';
@@ -285,6 +326,8 @@ router.get('/payments', authRequired, wrap(async (req, res) => {
   const { direction, partner_id } = req.query;
   const where = [];
   const args = [];
+  const a = sc(req.user);
+  if (a.scoped) { where.push('company_id = ?'); args.push(a.params[0]); }
   if (direction) { where.push('direction = ?'); args.push(direction); }
   if (partner_id) { where.push('partner_id = ?'); args.push(partner_id); }
   const rows = db.prepare(
@@ -335,22 +378,34 @@ router.post('/payments', authRequired, requireRole(WRITE), wrap(async (req, res)
   const payDate = b.pay_date || today();
   db.exec('BEGIN');
   try {
+    /**
+     * 一笔收付款只能结**同一主体**的账
+     *
+     * 这笔钱落在哪个主体的账上，取决于它核销了谁的发票。核销两家主体的发票时
+     * 这个钱在两边账上都不对：一边多收、一边少收，而合计刚好对得上 —— 最难查的那种。
+     * 所以遇到跨主体核销直接拒绝，让人分开登记。
+     */
+    const comps = new Set();
     for (const a of allocs) {
-      const inv = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(a.invoice_id);
-      if (!inv) throw new Error(`账款 #${a.invoice_id} 不存在`);
+      const r = scope.assertRow(req.user, table, a.invoice_id, '账款');
+      if (!r.ok) throw new Error(`账款 #${a.invoice_id} 不存在`);
+      const inv = r.row;
       if (inv.status === 'void') throw new Error(`${inv.bill_no} 已作废，不能核销`);
       const open = openAmount(inv);
       if (r2(a.amount) > open + 0.005) {
         throw new Error(`${inv.bill_no} 未${direction === 'in' ? '收' : '付'}只有 ${open}，不能核销 ${r2(a.amount)}`);
       }
+      comps.add(Number(inv.company_id) || 1);
     }
+    if (comps.size > 1) throw new Error('同一笔收付款不能跨主体核销（涉及 ' + [...comps].join(' / ') + '），请分开登记');
+    const companyId = comps.size === 1 ? [...comps][0] : scope.writeCompanyOf(req.user, b.company_id);
 
     const info = db.prepare(
-      `INSERT INTO payments (pay_no, direction, partner_type, partner_id, partner_name, currency, amount_orig, rate, amount, method, pay_date, status, remark, operator, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO payments (pay_no, direction, partner_type, partner_id, partner_name, currency, amount_orig, rate, amount, method, pay_date, status, remark, operator, created_at, company_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       nextPayNo(direction), direction, partnerType, b.partner_id || null, partnerName,
-      currency, amountOrig, rate, amount, b.method || '银行转账', payDate, 'valid', b.remark || null, req.user.username, t
+      currency, amountOrig, rate, amount, b.method || '银行转账', payDate, 'valid', b.remark || null, req.user.username, t, companyId
     );
     const payId = Number(info.lastInsertRowid);
 
@@ -376,8 +431,7 @@ router.post('/payments', authRequired, requireRole(WRITE), wrap(async (req, res)
 
 /** 红冲：款项作废，核销金额退回各账款 */
 router.post('/payments/:id/reverse', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const pay = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
-  if (!pay) return fail(res, 404, '收付款记录不存在');
+  const pay = invoiceInScope(req.user, 'payments', req.params.id, '收付款记录');
   if (pay.status === 'reversed') return fail(res, 400, '已经红冲过');
   const reason = ((req.body && req.body.reason) || '').trim();
   if (!reason) return fail(res, 400, '请填写红冲原因');
@@ -406,6 +460,8 @@ router.get('/open-invoices', authRequired, wrap(async (req, res) => {
   const partnerId = req.query.partner_id;
   const where = [S.OPEN_SQL];
   const args = [];
+  const a = sc(req.user);
+  if (a.scoped) { where.push('company_id = ?'); args.push(a.params[0]); }
   if (partnerId) {
     where.push(`${kind === 'ar' ? 'customer_id' : 'supplier_id'} = ?`);
     args.push(partnerId);

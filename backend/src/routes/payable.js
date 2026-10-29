@@ -14,6 +14,7 @@ const express = require('express');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const payable = require('../services/payable');
+const scope = require('../access/companyScope');
 const { toCsv } = require('../utils/csv');
 
 const router = express.Router();
@@ -30,7 +31,9 @@ router.get(
       res,
       payable.board({
         q: req.query.q,
-        only_overdue: req.query.only_overdue === '1'
+        only_overdue: req.query.only_overdue === '1',
+        // 分部只看自己主体的应付；集团角色传 null = 全集团
+        companyId: scope.filterCompanyId(req.user)
       })
     )
   )
@@ -40,7 +43,9 @@ router.get(
   '/schedule',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, payable.schedule({ weeks: req.query.weeks })))
+  wrap(async (req, res) =>
+    ok(res, payable.schedule({ weeks: req.query.weeks, companyId: scope.filterCompanyId(req.user) }))
+  )
 );
 
 router.get(
@@ -48,7 +53,11 @@ router.get(
   authRequired,
   requireRole(READ),
   wrap(async (req, res) => {
-    const b = payable.board({ q: req.query.q, only_overdue: req.query.only_overdue === '1' });
+    const b = payable.board({
+      q: req.query.q,
+      only_overdue: req.query.only_overdue === '1',
+      companyId: scope.filterCompanyId(req.user)
+    });
     const head = [
       '供应商编号', '供应商', '账期', '未付发票', '已收货未开票', '应付合计',
       '逾期金额', '最长逾期(天)', '7天内到期', '30天内到期', '最近到期日', '预计到期(未开票)'
@@ -99,7 +108,7 @@ router.get(
   authRequired,
   requireRole(READ),
   wrap(async (req, res) => {
-    const d = payable.detail(req.params.supplierId);
+    const d = payable.detail(req.params.supplierId, { companyId: scope.filterCompanyId(req.user) });
     if (!d) return fail(res, 404, '供应商不存在');
     return ok(res, d);
   })

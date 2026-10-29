@@ -11797,6 +11797,146 @@ async function req(path, { method = 'GET', body, token } = {}) {
       && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(uname), '已删');
   }
 
+  // ================= 数据范围：应收应付（钱的口径不能被跨主体看） =================
+  {
+    console.log('\n[数据范围：应收应付]');
+    const { db: MDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const ts = '2026-10-20 09:00:00';
+    const CO2 = 2;            // 义乌分公司
+    const due = '2026-10-01'; // 已逾期，账龄与催收都会算它
+
+    const cust = MDB.prepare('SELECT id, name FROM customers ORDER BY id LIMIT 1').get();
+    const sup = MDB.prepare('SELECT id, name FROM suppliers ORDER BY id LIMIT 1').get();
+
+    const mkAR = (no, companyId, amount, customerId) => {
+      const info = MDB.prepare(
+        `INSERT INTO ar_invoices (bill_no, customer_id, customer_name, currency, amount_orig, rate, amount,
+           paid_amount, due_date, status, source, created_by, created_at, updated_at, company_id)
+         VALUES (?,?,?,'CNY',?,1,?,0,?,'unpaid','manual','smoke',?,?,?)`
+      ).run(no, customerId || null, `范围客户 ${no}`, amount, amount, due, ts, ts, companyId);
+      return Number(info.lastInsertRowid);
+    };
+    const mkAP = (no, companyId, amount) => {
+      const info = MDB.prepare(
+        `INSERT INTO ap_invoices (bill_no, supplier_id, supplier_name, currency, amount_orig, rate, amount,
+           paid_amount, due_date, status, source, created_by, created_at, updated_at, company_id)
+         VALUES (?,?,?,'CNY',?,1,?,0,?,'unpaid','manual','smoke',?,?,?)`
+      ).run(no, sup ? sup.id : null, '范围供应商', amount, amount, due, ts, ts, companyId);
+      return Number(info.lastInsertRowid);
+    };
+
+    const arOwn = mkAR('SCOPEAR-2', CO2, 1000, cust ? cust.id : null);   // 分公司
+    const arOther = mkAR('SCOPEAR-1', 1, 5000, cust ? cust.id : null);   // 总部
+    const apOwn = mkAP('SCOPEAP-2', CO2, 700);
+    const apOther = mkAP('SCOPEAP-1', 1, 2500);
+
+    const funame = 'scope_fin';
+    const fpwd = 'ScopeFin123456';
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(funame);
+    MDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(funame, hashPassword(fpwd), '范围测试财务', 'finance', CO2, ts);
+    require('../src/services/access').clearCache();
+
+    const fl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: funame, password: fpwd })
+    }).then((r) => r.json());
+    const fTok = fl.data && fl.data.token;
+    ok('分公司财务账号可登录', !!fTok, fl.message || 'ok');
+
+    // ---- 1. 应收列表 ----
+    const subAr = await req('/api/finance/ar', { token: fTok });
+    const arNos = (subAr.json.data || []).map((x) => x.bill_no);
+    ok('★ 分公司账的应收列表不含总部单据',
+      subAr.status === 200 && arNos.includes('SCOPEAR-2') && !arNos.includes('SCOPEAR-1'),
+      `看到 ${arNos.length} 张`);
+
+    const adminAr = await req('/api/finance/ar', { token });
+    const adminNos = (adminAr.json.data || []).map((x) => x.bill_no);
+    ok('★ 集团管理员仍能看到两个主体的应收（合并口径不能被拦死）',
+      adminNos.includes('SCOPEAR-1') && adminNos.includes('SCOPEAR-2'), `管理员看到 ${adminNos.length} 张`);
+
+    // ---- 2. 总览与账龄的分母 ----
+    const expOpen = Number(MDB.prepare(
+      "SELECT COALESCE(SUM(amount - paid_amount),0) s FROM ar_invoices WHERE company_id = ? AND status <> 'void' AND amount - COALESCE(paid_amount,0) > 0.005"
+    ).get(CO2).s);
+    const sum2 = await req('/api/finance/summary', { token: fTok });
+    ok('★ 往来账总览按本公司算（金额与库里该主体未结合计一致）',
+      sum2.status === 200 && Math.abs(Number(sum2.json.data.ar_open) - expOpen) < 0.05
+      && sum2.json.data.scope === 'company',
+      `接口 ${sum2.json.data && sum2.json.data.ar_open} / 库里 ${expOpen} / scope=${sum2.json.data && sum2.json.data.scope}`);
+
+    const aging2 = await req('/api/finance/aging?kind=ar', { token: fTok });
+    const expAgingN = Number(MDB.prepare(
+      "SELECT COUNT(*) c FROM ar_invoices WHERE company_id = ? AND status <> 'void' AND amount - COALESCE(paid_amount,0) > 0.005"
+    ).get(CO2).c);
+    ok('★ 账龄桶张数与本公司一致（否则逾期率算的是别人家的账）',
+      aging2.status === 200 && Number(aging2.json.data.count) === expAgingN,
+      `接口 ${aging2.json.data && aging2.json.data.count} / 库里 ${expAgingN}`);
+
+    // ---- 3. 写操作：跨主体作废 / 核销都被拒 ----
+    const voidOther = await req(`/api/finance/ar/${arOther}/void`, {
+      method: 'POST', token: fTok, body: { reason: '试试改别家的单' }
+    });
+    ok('★ 跨主体作废应收返回 404（当它不存在）',
+      voidOther.status === 404, `HTTP ${voidOther.status} ${voidOther.json.message || ''}`);
+
+    const payOther = await req('/api/finance/payments', {
+      method: 'POST', token: fTok,
+      body: { direction: 'in', partner_type: 'customer', partner_name: 'x', amount: 100, allocations: [{ invoice_id: arOther, amount: 100 }] }
+    });
+    ok('★ 跨主体不能核销别家的应收（收款登记这一步就拦住）',
+      payOther.status >= 400 && payOther.status < 500 && payOther.status !== 200,
+      `HTTP ${payOther.status} ${(payOther.json.message || '').slice(0, 40)}`);
+
+    // ---- 4. 新建单据必须落在自己主体（不能默认 1） ----
+    const made = await req('/api/finance/ar', {
+      method: 'POST', token: fTok,
+      body: { partner_name: '新建客户', amount: 321, due_date: due, remark: '范围测试-新建' }
+    });
+    const madeRow = made.json.data || {};
+    const madeDb = madeRow.id ? MDB.prepare('SELECT company_id FROM ar_invoices WHERE id = ?').get(madeRow.id) : null;
+    ok('★ 分公司开出的应收记在自己主体（不写就默认 1，开完自己看不见）',
+      made.status === 200 && madeDb && Number(madeDb.company_id) === CO2,
+      `HTTP ${made.status} company_id=${madeDb && madeDb.company_id}`);
+
+    // ---- 5. 收付款列表 ----
+    const pays = await req('/api/finance/payments', { token: fTok });
+    const payCos = (pays.json.data || []).map((p) => Number(p.company_id) || 1);
+    ok('★ 收付款列表不含别家主体的收款', pays.status === 200 && payCos.every((c) => c === CO2),
+      `看到 ${payCos.length} 笔，主体集合 ${[...new Set(payCos)].join(',') || '空'}`);
+
+    // ---- 6. 应付台账：同一供应商，只算自己主体的应付 ----
+    const pb = await req('/api/payable/board', { token: fTok });
+    const supRow = ((pb.json.data || {}).rows || []).find((r) => sup && Number(r.supplier.id) === Number(sup.id));
+    ok('★ 应付台账里同一供应商只算本主体的未付（不是全集团欠他的钱）',
+      pb.status === 200 && (!supRow || Number(supRow.figures.open_amount) < 2000),
+      supRow ? `台账 ${supRow.figures.open_amount}（总部那张 2500 不该算进来）` : '该供应商无行');
+
+    // ---- 7. 应收催收：台账按主体、跨主体任务当不存在 ----
+    const cb = await req('/api/collections/board', { token: fTok });
+    const cRow = ((cb.json.data || {}).rows || []).find((r) => cust && Number(r.customer_id) === Number(cust.id));
+    ok('★ 催收台账同一客户的逾期金额只含本主体发票',
+      cb.status === 200 && (!cRow || Number(cRow.overdue_amount) < 5000),
+      cRow ? `台账 ${cRow.overdue_amount}（总部那张 5000 不该算进来）` : '该客户无逾期行');
+
+    // ---- 8. 集团角色的口径标记 ----
+    const sAdmin = await req('/api/finance/summary', { token });
+    ok('集团管理员金额口径标记为 group', sAdmin.status === 200 && sAdmin.json.data.scope === 'group',
+      `scope=${sAdmin.json.data && sAdmin.json.data.scope}`);
+
+    // ---- 清理 ----
+    if (madeRow.id) MDB.prepare('DELETE FROM ar_invoices WHERE id = ?').run(madeRow.id);
+    [arOwn, arOther].forEach((id) => MDB.prepare('DELETE FROM ar_invoices WHERE id = ?').run(id));
+    [apOwn, apOther].forEach((id) => MDB.prepare('DELETE FROM ap_invoices WHERE id = ?').run(id));
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(funame);
+    require('../src/services/access').clearCache();
+    const left = MDB.prepare("SELECT (SELECT COUNT(*) FROM ar_invoices WHERE bill_no LIKE 'SCOPEAR-%') + (SELECT COUNT(*) FROM ap_invoices WHERE bill_no LIKE 'SCOPEAP-%') c").get().c;
+    ok('应收应付范围夹具已清干净',
+      Number(left) === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(funame), '已删');
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');

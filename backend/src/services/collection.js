@@ -144,6 +144,33 @@ function resolveOwner(customerId) {
 }
 
 /* ------------------------------------------------------------------ *
+ * 主体范围（`company_id`）
+ * ------------------------------------------------------------------ */
+/**
+ * 催收任务表**没有** `company_id` 列 —— 它是从应收发票派生的。
+ *
+ * 两条路都能拿到主体，但只有一条对：
+ *   按客户（`customers.company_id`）→ 客户表有 8 行 company_id 是 NULL（历史导入），
+ *     这些客户的逾期会**凭空消失**；而且一个客户可以和多个主体有往来。
+ *   按任务挂的发票（`collection_task_items → ar_invoices`）→ 与钱的口径一致。
+ * 所以这里一律从发票推，不从客户推。
+ */
+const taskCompanySql = (alias = 'collection_tasks') =>
+  `EXISTS (SELECT 1 FROM collection_task_items ci JOIN ar_invoices ai ON ai.id = ci.invoice_id
+            WHERE ci.task_id = ${alias}.id AND ai.company_id = ?)`;
+
+/** 单张任务是否属于该主体 */
+function taskInCompany(taskId, companyId) {
+  if (!companyId) return true;
+  return !!db
+    .prepare(
+      `SELECT 1 AS x FROM collection_task_items ci JOIN ar_invoices ai ON ai.id = ci.invoice_id
+        WHERE ci.task_id = ? AND ai.company_id = ? LIMIT 1`
+    )
+    .get(Number(taskId), Number(companyId));
+}
+
+/* ------------------------------------------------------------------ *
  * 逾期台账（还没生成任务之前先看清楚）
  * ------------------------------------------------------------------ */
 /**
@@ -152,6 +179,7 @@ function resolveOwner(customerId) {
  */
 function board(q = {}) {
   const internal = internalCustomerIds();
+  const cid = q.companyId ? Number(q.companyId) : null;
   const rows = db
     .prepare(
       `SELECT customer_id, IFNULL(customer_name,'（无客户名）') AS customer_name,
@@ -161,19 +189,28 @@ function board(q = {}) {
          FROM ar_invoices
         WHERE ${S.OPEN_SQL}
           AND due_date IS NOT NULL AND due_date < ?
-          AND customer_id IS NOT NULL
+          AND customer_id IS NOT NULL ${cid ? 'AND company_id = ?' : ''}
         GROUP BY customer_id
         ORDER BY overdue_amount DESC`
     )
-    .all(today());
+    .all(...(cid ? [today(), cid] : [today()]));
 
   const out = rows.map((r) => {
     const days = Math.max(0, daysBetween(today(), r.oldest_due));
-    const task = db
-      .prepare(
-        "SELECT * FROM collection_tasks WHERE customer_id = ? AND status <> 'closed' ORDER BY id DESC LIMIT 1"
-      )
-      .get(r.customer_id);
+    // 判定「这个客户在本主体下有没有在催的单」——不按客户查全部任务，
+    // 否则别家主体先建了任务，这边就会显示"已有任务"而永远发不出去
+    const task = cid
+      ? db
+        .prepare(
+          `SELECT * FROM collection_tasks t WHERE t.customer_id = ? AND t.status <> 'closed'
+             AND ${taskCompanySql('t')} ORDER BY t.id DESC LIMIT 1`
+        )
+        .get(r.customer_id, cid)
+      : db
+        .prepare(
+          "SELECT * FROM collection_tasks WHERE customer_id = ? AND status <> 'closed' ORDER BY id DESC LIMIT 1"
+        )
+        .get(r.customer_id);
     const owner = resolveOwner(r.customer_id);
     return {
       customer_id: r.customer_id,
@@ -231,7 +268,8 @@ function board(q = {}) {
  * @param {{all?:boolean, customer_ids?:number[], min_overdue_days?:number}} opts
  */
 function generate(opts = {}, user) {
-  const bd = board({});
+  const cid = opts.companyId ? Number(opts.companyId) : null;
+  const bd = board({ companyId: cid });
   const minDays = Math.max(1, Number(opts.min_overdue_days) || 1);
   const internal = internalCustomerIds();
 
@@ -264,10 +302,10 @@ function generate(opts = {}, user) {
     const invs = db
       .prepare(
         `SELECT * FROM ar_invoices
-          WHERE ${S.OPEN_SQL} AND customer_id = ? AND due_date IS NOT NULL AND due_date < ?
+          WHERE ${S.OPEN_SQL} AND customer_id = ? AND due_date IS NOT NULL AND due_date < ? ${cid ? 'AND company_id = ?' : ''}
           ORDER BY due_date`
       )
-      .all(x.customer_id, today());
+      .all(...(cid ? [x.customer_id, today(), cid] : [x.customer_id, today()]));
     if (!invs.length) {
       skipped.push({ customer_id: x.customer_id, customer_name: x.customer_name, reason: '没有逾期发票' });
       return;
@@ -443,6 +481,11 @@ function list(q = {}) {
 
   const where = [];
   const params = [];
+  // 主体条件必须第一个 push：后面的参数位置跟着它走
+  if (q.companyId) {
+    where.push(taskCompanySql());
+    params.push(Number(q.companyId));
+  }
   if (q.status) {
     const arr = String(q.status).split(',').map((s) => s.trim()).filter(Boolean);
     if (arr.length) {
@@ -497,22 +540,29 @@ function list(q = {}) {
       };
     });
 
-  return { rows, summary: stats() };
+  return { rows, summary: stats(q.companyId) };
 }
 
-function stats() {
-  const all = db.prepare('SELECT status, COUNT(*) n, COALESCE(SUM(remaining),0) amt FROM collection_tasks GROUP BY status').all();
+function stats(companyId) {
+  const cid = companyId ? Number(companyId) : null;
+  // 统计口径必须和列表一致：列表按主体收窄、统计算全集团，两个数字永远对不上
+  const whr = cid ? `WHERE ${taskCompanySql()}` : '';
+  const args = cid ? [cid] : [];
+  const all = db.prepare(`SELECT status, COUNT(*) n, COALESCE(SUM(remaining),0) amt FROM collection_tasks ${whr} GROUP BY status`).all(...args);
   const g = (s) => {
     const x = all.find((r) => r.status === s);
     return { count: x ? Number(x.n) : 0, amount: x ? r2(x.amt) : 0 };
   };
-  const openTasks = db.prepare("SELECT * FROM collection_tasks WHERE status <> 'closed'").all();
+  const openTasks = db
+    .prepare(`SELECT * FROM collection_tasks ${cid ? `WHERE ${taskCompanySql()} AND status <> 'closed'` : "WHERE status <> 'closed'"}`)
+    .all(...args);
   const noOwner = openTasks.filter((t) => !t.owner_username && !t.owner_name).length;
   const broken = db
     .prepare(
-      "SELECT COUNT(*) c, COALESCE(SUM(remaining),0) amt FROM collection_tasks WHERE status = 'escalated'"
+      `SELECT COUNT(*) c, COALESCE(SUM(remaining),0) amt FROM collection_tasks
+        ${cid ? `WHERE ${taskCompanySql()} AND status = 'escalated'` : "WHERE status = 'escalated'"}`
     )
-    .get();
+    .get(...args);
   return {
     open: g('open'),
     following: g('following'),
@@ -528,9 +578,10 @@ function stats() {
   };
 }
 
-function detail(id) {
+function detail(id, { companyId } = {}) {
   const task = db.prepare('SELECT * FROM collection_tasks WHERE id = ?').get(id);
-  if (!task) throw bad('催收任务不存在', 404);
+  // 不属于本主体的任务按「不存在」处理 —— 与订单域同一口径（403 会泄露存在性）
+  if (!task || !taskInCompany(id, companyId)) throw bad('催收任务不存在', 404);
   const synced = syncTask(task);
   const fresh = db.prepare('SELECT * FROM collection_tasks WHERE id = ?').get(id);
   const logs = db
@@ -744,6 +795,7 @@ module.exports = {
   resolveOwner,
   board,
   generate,
+  taskInCompany,
   computeTask,
   syncTask,
   refreshAll,

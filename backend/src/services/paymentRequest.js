@@ -554,6 +554,8 @@ function pay(id, payload, user) {
   db.exec('BEGIN');
   try {
     // 逐张复查未付额：审批期间可能有人手工改了发票（哪怕是同一张单，也要以库为准）
+    // 同时收集主体：付款单落在哪个主体，由它核销的发票决定（发票上有 company_id）
+    const payCompanies = new Set();
     items.forEach((it) => {
       const inv = db.prepare('SELECT * FROM ap_invoices WHERE id = ?').get(it.invoice_id);
       if (!inv) throw bad(`发票 ${it.bill_no} 不存在`);
@@ -564,20 +566,26 @@ function pay(id, payload, user) {
           `发票 ${it.bill_no} 的未付额只剩 ${open}，不够这次付款 ${it.amount}（可能已被别的单据先付了），请重新核对`
         );
       }
+      payCompanies.add(Number(inv.company_id) || 1);
     });
+    // 一笔付款只能结一个主体的账：跨主体时两边账上都不对，而合计刚好对得上
+    if (payCompanies.size > 1) {
+      throw bad(`付款申请 ${req.req_no} 核销了多个主体的发票（${[...payCompanies].join(' / ')}），请拆单后再执行`);
+    }
+    const payCompanyId = payCompanies.size === 1 ? [...payCompanies][0] : 1;
 
     const info = db
       .prepare(
         `INSERT INTO payments (pay_no, direction, partner_type, partner_id, partner_name, currency,
             amount_orig, rate, amount, method, pay_date, status, remark, operator, created_at,
-            bank_account_id, payment_request_id)
-         VALUES (?, 'out', 'supplier', ?, ?, ?, ?, 1, ?, ?, ?, 'valid', ?, ?, ?, ?, ?)`
+            bank_account_id, payment_request_id, company_id)
+         VALUES (?, 'out', 'supplier', ?, ?, ?, ?, 1, ?, ?, ?, 'valid', ?, ?, ?, ?, ?, ?)`
       )
       .run(
         payNo, req.supplier_id || null, req.supplier_name || null, req.currency || 'CNY',
         r2(req.amount), r2(req.amount), method, payDate,
         `付款申请 ${req.req_no}`, user.username, t,
-        bankAccountId, Number(id)
+        bankAccountId, Number(id), payCompanyId
       );
     const paymentId = Number(info.lastInsertRowid);
 

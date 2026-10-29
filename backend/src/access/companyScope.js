@@ -24,12 +24,22 @@
  *
  * ## 覆盖到哪、没覆盖到哪
  *
- * 当前**已接入**：订单域（列表 / 导出 / 工作台统计 / 详情 / 扫码查询 / 单据页 /
- * 改名 / 图片 / 流转 / 回退）。
- * **未接入**：其它业务域（应收应付、库存、生产、人事…）。也就是说，
- * 现在这套东西**仍然只适合单主体使用**；要真正做多主体隔离，按
- * `docs/DB-SCHEMA.md` 顶部「数据库边界」那一节的清单逐域接入并补断言，
- * 每接入一个域，就在冒烟里加一条"跨公司读不到"的用例。
+ * 已接入（v1.59 起）：
+ *   1. 订单域：列表 / 导出 / 工作台统计 / 详情 / 扫码查询 / 单据页 / 改名 / 图片 /
+ *      流转 / 批量流转 / 回退；
+ *   2. 应收应付域：往来账总览 / 账龄 / 应收列表 / 应付列表 / 新建 / 作废 /
+ *      收付款列表 / 登记收付款与核销 / 红冲 / 未结清单；应付台账 / 付款计划 /
+ *      供应商明细；应收催收（台账 / 任务 / 统计 / 详情 / 跟进）。
+ *   3. 写入侧：开票（订单发货开应收、采购入库开应付）、手工开票、登记收付款、
+ *      付款申请执行付款，都按主体落 `company_id`。
+ *
+ * **未接入**：库存 / 生产 / 采购 / 人事薪酬 / 集团报表 / 资金计划 / 对账单 /
+ * 数据导出。也就是说这套东西对"分部看不到总部单据"这件事只做到了
+ * **单据与账款层**；要全站隔离，按 `docs/DB-SCHEMA.md` 顶部「数据库边界」
+ * 的清单逐域接入，每接一个域就在冒烟里加一条"跨公司读不到"的用例。
+ *
+ * 判断某个接口该不该接的口径：**它返回的是不是"某个法人主体的账"**。
+ * 是 → 接入；天生跨主体的合并报表 → 不接，但要显式收 `company_id` 参数。
  */
 const { db } = require('../db');
 
@@ -86,10 +96,58 @@ function canSee(user, row) {
  * 逐个 id 试就能数出别家有多少张单。404 是这里唯一正确的回答。
  */
 function assertOrder(user, id) {
-  const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(Number(id));
-  if (!row) return { ok: false, reason: '订单不存在', status: 404 };
-  if (!canSee(user, row)) return { ok: false, reason: '订单不存在', status: 404 };
+  return assertRow(user, 'orders', id, '订单');
+}
+
+/** 表名白名单格式（表名会拼进 SQL，绝不能直接吃调用方传来的字符串） */
+const TABLE_RE = /^[a-z_][a-z0-9_]*$/;
+
+/**
+ * 取任意一张带 `company_id` 的表的一行，并校验归属
+ *
+ * `assertOrder` 只是它的一个特例。往来账、催收、账龄这些地方都要"按 id 取一条
+ * 再判归属"，各写一遍的结果是某处漏判 —— 而漏判的表现是"能打开别家的单"，
+ * 从日志里看不出来。所以只留这一个实现，调用方传表名与提示名。
+ */
+function assertRow(user, table, id, label = '记录') {
+  if (!TABLE_RE.test(String(table))) throw new Error(`assertRow 表名非法：${table}`);
+  const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(Number(id));
+  if (!row) return { ok: false, reason: `${label}不存在`, status: 404 };
+  if (!canSee(user, row)) return { ok: false, reason: `${label}不存在`, status: 404 };
   return { ok: true, row };
 }
 
-module.exports = { GROUP_ROLES, of, clause, where, canSee, assertOrder };
+/**
+ * 写数据时该落到哪个主体
+ *
+ * 三个坑：
+ *   1. 这些表的 `company_id` 都是 `NOT NULL DEFAULT 1` —— 不显式写就一律记到总部。
+ *      分部开一张应收，开完自己看不见（被范围过滤掉），还进了总部的账。
+ *   2. 集团角色（admin/boss）可以**显式指定**主体（合并口径要补录/代录）；
+ *      没指定就用他自己绑定的那个，不猜。
+ *   3. 没绑定主体的历史账号回退 1，但启动时上线清单 `users_bound` 会点名。
+ */
+function writeCompanyOf(user, explicit) {
+  const s = of(user);
+  const v = Number(explicit);
+  if (s.cross && v > 0) return v;
+  return s.companyId || 1;
+}
+
+/**
+ * 传给 service 层的主体 id：集团角色 → null（不过滤），其余 → 自己的主体
+ *
+ * 为什么不用 `clause()` 拼 SQL：`payable` / `collection` 这些服务要算汇总、
+ * 要按供应商分组，拼条件得穿到每个查询里；它们本来就是"按参数算一份报表"，
+ * 直接传一个 `companyId` 更不容易漏。
+ */
+function filterCompanyId(user) {
+  const s = of(user);
+  if (s.cross) return null;
+  return s.companyId || null;
+}
+
+module.exports = {
+  GROUP_ROLES, of, clause, where, canSee,
+  assertOrder, assertRow, writeCompanyOf, filterCompanyId
+};

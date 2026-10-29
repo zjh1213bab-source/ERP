@@ -28,6 +28,20 @@ const { db } = require('../db');
 const S = require('./invoiceStatus');
 const T = require('./paymentTerms');
 
+/**
+ * 主体过滤（`companyId` 为 null 时不过滤 = 集团口径）
+ *
+ * 这里要处理三类表的归属差异，不能一刀切：
+ *   - `ap_invoices` / `payments` 自己有 `company_id`，直接比；
+ *   - `purchase_orders`（已收货未开票）没有这一列 → 按它挂的订单算归属；
+ *   - `payment_requests` 也没有 → 已付款的按那笔付款的主体，未付款的归默认主体。
+ * 没有这一列的表按「默认主体」归属，与表上 `company_id NOT NULL DEFAULT 1` 同口径，
+ * 好处是：不会因为"查不到主体"就把一笔真实的应付藏起来。
+ */
+const ownCompany = (v) => (v === null || v === undefined || !Number(v) ? 1 : Number(v));
+const PO_COMPANY = "(SELECT company_id FROM orders o WHERE o.id = po.order_id)";
+const PR_COMPANY = "(SELECT company_id FROM payments p WHERE p.id = r.payment_id)";
+
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const num = (n) => Number(n) || 0;
 
@@ -52,8 +66,15 @@ function termLabel(s) {
 /**
  * 供应商应付台账
  */
-function board({ q, only_overdue, asOf } = {}) {
+function board({ q, only_overdue, asOf, companyId } = {}) {
   const today = String(asOf || T.todayStr()).slice(0, 10);
+  // 集团角色（companyId=null）看全集团；分部只看自己主体的应付
+  const cid = companyId ? Number(companyId) : null;
+  const byCompany = cid ? 'AND company_id = ?' : '';
+  const byCompanyArgs = cid ? [cid] : [];
+  // 没有 company_id 列的表：按归属表达式过滤（表达式只在需要时拼进 SQL）
+  const byPo = cid ? `AND IFNULL(${PO_COMPANY}, 1) = ?` : '';
+  const byPr = cid ? `AND IFNULL(${PR_COMPANY}, 1) = ?` : '';
   const sups = db.prepare("SELECT * FROM suppliers WHERE status <> 'deleted' ORDER BY id").all();
 
   // 一次性把未结发票捞出来分组，避免每个供应商查一遍
@@ -62,10 +83,10 @@ function board({ q, only_overdue, asOf } = {}) {
       `SELECT id, bill_no, supplier_id, supplier_name, amount, COALESCE(paid_amount,0) AS paid_amount,
               due_date, created_at, source
          FROM ap_invoices
-        WHERE ${S.OPEN_SQL}
+        WHERE ${S.OPEN_SQL} ${byCompany}
         ORDER BY due_date`
     )
-    .all();
+    .all(...byCompanyArgs);
 
   const bySupplier = new Map();
   openInvoices.forEach((v) => {
@@ -84,11 +105,11 @@ function board({ q, only_overdue, asOf } = {}) {
               po.expect_date,
               (SELECT MAX(receive_date) FROM goods_receipts g WHERE g.po_id = po.id) AS received_date
          FROM purchase_orders po
-        WHERE po.status = 'received'
+        WHERE po.status = 'received' ${byPo}
           AND NOT EXISTS (SELECT 1 FROM ap_invoices a WHERE a.purchase_id = po.id AND a.status <> 'void')
         ORDER BY po.id`
     )
-    .all();
+    .all(...byCompanyArgs);
   const unbilledBySup = new Map();
   unbilled.forEach((p) => {
     const k = p.supplier_id === null || p.supplier_id === undefined ? `name:${p.supplier || ''}` : Number(p.supplier_id);
@@ -110,10 +131,10 @@ function board({ q, only_overdue, asOf } = {}) {
       `SELECT IFNULL(r.supplier_id, -1) AS sid, IFNULL(r.supplier_name,'') AS sname,
               COUNT(DISTINCT r.id) AS n, COALESCE(SUM(r.amount),0) AS amt
          FROM payment_requests r
-        WHERE r.status IN ('draft','submitted','approved')
+        WHERE r.status IN ('draft','submitted','approved') ${byPr}
         GROUP BY IFNULL(r.supplier_id, -1), IFNULL(r.supplier_name,'')`
     )
-    .all();
+    .all(...byCompanyArgs);
   const pipelineBySup = new Map();
   pipelineRows.forEach((x) => pipelineBySup.set(Number(x.sid), { n: Number(x.n), amt: Number(x.amt) }));
 
@@ -306,19 +327,20 @@ function board({ q, only_overdue, asOf } = {}) {
  * 第一组固定是「已逾期」，后面是第 1..N 周。逾期单独成组，因为它不是"计划"，
  * 是"已经晚了"——混在"本周"里会让人以为还有时间。
  */
-function schedule({ weeks = 8, asOf } = {}) {
+function schedule({ weeks = 8, asOf, companyId } = {}) {
   const today = String(asOf || T.todayStr()).slice(0, 10);
   const nWeeks = Math.min(Math.max(Number(weeks) || 8, 1), 26);
+  const cid = companyId ? Number(companyId) : null;
 
   const invoices = db
     .prepare(
       `SELECT id, bill_no, supplier_id, supplier_name, amount, COALESCE(paid_amount,0) AS paid_amount,
               due_date, created_at
          FROM ap_invoices
-        WHERE ${S.OPEN_SQL}
+        WHERE ${S.OPEN_SQL} ${cid ? 'AND company_id = ?' : ''}
         ORDER BY due_date`
     )
-    .all()
+    .all(...(cid ? [cid] : []))
     .map((v) => {
       const due = String(v.due_date || '').slice(0, 10);
       return {
@@ -391,11 +413,11 @@ function schedule({ weeks = 8, asOf } = {}) {
       `SELECT po.id, po.po_no, po.supplier_id, po.supplier, po.total_amount, po.order_date, po.expect_date,
               (SELECT MAX(receive_date) FROM goods_receipts g WHERE g.po_id = po.id) AS received_date
          FROM purchase_orders po
-        WHERE po.status = 'received'
+        WHERE po.status = 'received' ${cid ? `AND IFNULL(${PO_COMPANY}, 1) = ?` : ''}
           AND NOT EXISTS (SELECT 1 FROM ap_invoices a WHERE a.purchase_id = po.id AND a.status <> 'void')
         ORDER BY po.id`
     )
-    .all()
+    .all(...(cid ? [cid] : []))
     .map((p) => {
       const sup = p.supplier_id ? db.prepare('SELECT term_days, payment_terms FROM suppliers WHERE id = ?').get(p.supplier_id) : null;
       const parsed = sup ? (sup.term_days !== null && sup.term_days !== undefined ? Number(sup.term_days) : (T.parseTerms(sup.payment_terms) || {}).days) : null;
@@ -468,19 +490,23 @@ function schedule({ weeks = 8, asOf } = {}) {
 }
 
 /** 单供应商明细：未付发票 + 已收货未开票的采购单 + 最近付款 */
-function detail(supplierId) {
+function detail(supplierId, { companyId } = {}) {
   const s = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplierId);
   if (!s) return null;
   const today = T.todayStr();
+  // 明细也要按主体收：台账合计收窄了、点进去却能看到别家的每一张发票，等于没收
+  const cid = companyId ? Number(companyId) : null;
+  const bc = cid ? 'AND company_id = ?' : '';
+  const bcArgs = cid ? [cid] : [];
 
   const invoices = db
     .prepare(
       `SELECT id, bill_no, amount, COALESCE(paid_amount,0) AS paid_amount, due_date, created_at, source, purchase_id
          FROM ap_invoices
-        WHERE supplier_id = ? AND ${S.OPEN_SQL}
+        WHERE supplier_id = ? AND ${S.OPEN_SQL} ${bc}
         ORDER BY due_date`
     )
-    .all(supplierId)
+    .all(supplierId, ...bcArgs)
     .map((v) => {
       const due = String(v.due_date || '').slice(0, 10);
       return {
@@ -497,20 +523,20 @@ function detail(supplierId) {
       `SELECT po.id, po.po_no, po.total_amount, po.order_date, po.expect_date,
               (SELECT MAX(receive_date) FROM goods_receipts g WHERE g.po_id = po.id) AS received_date
          FROM purchase_orders po
-        WHERE po.supplier_id = ? AND po.status = 'received'
+        WHERE po.supplier_id = ? AND po.status = 'received' ${cid ? `AND IFNULL(${PO_COMPANY}, 1) = ?` : ''}
           AND NOT EXISTS (SELECT 1 FROM ap_invoices a WHERE a.purchase_id = po.id AND a.status <> 'void')
         ORDER BY po.id`
     )
-    .all(supplierId);
+    .all(supplierId, ...bcArgs);
 
   const paid = db
     .prepare(
       `SELECT id, pay_no, amount, pay_date, status, remark
          FROM payments
-        WHERE direction = 'out' AND partner_id = ?
+        WHERE direction = 'out' AND partner_id = ? ${bc}
         ORDER BY pay_date DESC LIMIT 20`
     )
-    .all(supplierId);
+    .all(supplierId, ...bcArgs);
 
   const openAmount = r2(invoices.reduce((a, v) => a + v.open_amount, 0));
   const unbilledAmount = r2(unbilled.reduce((a, p) => a + num(p.total_amount), 0));

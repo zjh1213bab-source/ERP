@@ -51,12 +51,22 @@ function openAPForPurchase(purchaseId, userId) {
   // 到期日 = 开票日（= 全部收完那天） + 供应商账期；账期读不出来就留空，**不猜一个 30 天**
   const due = T.apDueDate(supplier, String(t).slice(0, 10));
 
+  /**
+   * 应付跟着采购单走主体：采购单挂的订单属于哪个主体，应付就记哪个主体。
+   * `purchase_orders` 自己没有 `company_id`，而没有关联订单的采购（备货采购）
+   * 归默认主体 1 —— 与表上 `company_id NOT NULL DEFAULT 1` 同口径。
+   * 不显式写这一列会用默认值，等于把分部的采购全记到总部账上。
+   */
+  const companyId = Number((
+    db.prepare('SELECT company_id FROM orders WHERE id = ?').get(po.order_id || 0) || {}
+  ).company_id) || 1;
+
   const info = db
     .prepare(
       `INSERT INTO ap_invoices
          (bill_no, purchase_id, supplier_id, supplier_name, currency, amount_orig, rate, amount,
-          paid_amount, due_date, status, source, remark, created_by, created_at, updated_at)
-       VALUES (?,?,?,?, 'CNY', ?, 1, ?, 0, ?, 'unpaid', 'purchase', ?, ?, ?, ?)`
+          paid_amount, due_date, status, source, remark, created_by, created_at, updated_at, company_id)
+       VALUES (?,?,?,?, 'CNY', ?, 1, ?, 0, ?, 'unpaid', 'purchase', ?, ?, ?, ?, ?)`
     )
     .run(
       nextNo('YF', 'ap_invoices'),
@@ -69,7 +79,8 @@ function openAPForPurchase(purchaseId, userId) {
       `采购单 ${po.po_no} 收货自动开票${due ? '' : '（供应商未设账期，到期日为空）'}`,
       userId || 'system',
       t,
-      t
+      t,
+      companyId
     );
 
   return db.prepare('SELECT * FROM ap_invoices WHERE id = ?').get(Number(info.lastInsertRowid));

@@ -20,6 +20,21 @@ const { db } = require('../db');
 const { ok, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const C = require('../services/collection');
+const scope = require('../access/companyScope');
+
+/** 当前用户能看的主体（null = 集团角色，全集团） */
+const cidOf = (req) => scope.filterCompanyId(req.user);
+
+/** 任务级守卫：不属于本主体的任务当作不存在（与订单域同口径） */
+function taskOr404(req) {
+  const id = Number(req.params.id);
+  if (!C.taskInCompany(id, cidOf(req))) {
+    const e = new Error('催收任务不存在');
+    e.status = 404;
+    throw e;
+  }
+  return id;
+}
 const { toCsv } = require('../utils/csv');
 
 const router = express.Router();
@@ -45,7 +60,7 @@ router.get(
       results: Object.entries(C.RESULT_LABEL).map(([code, label]) => ({ code, label })),
       close_reasons: Object.entries(C.CLOSE_REASON_LABEL).map(([code, label]) => ({ code, label })),
       owners: users,
-      stats: C.stats()
+      stats: C.stats(cidOf(req))
     });
   })
 );
@@ -54,21 +69,21 @@ router.get(
   '/board',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, C.board(req.query)))
+  wrap(async (req, res) => ok(res, C.board({ ...req.query, companyId: cidOf(req) })))
 );
 
 router.get(
   '/stats',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, C.stats()))
+  wrap(async (req, res) => ok(res, C.stats(cidOf(req))))
 );
 
 router.post(
   '/generate',
   authRequired,
   requireRole(CLOSE),
-  wrap(async (req, res) => ok(res, C.generate(req.body || {}, req.user)))
+  wrap(async (req, res) => ok(res, C.generate({ ...(req.body || {}), companyId: cidOf(req) }, req.user)))
 );
 
 router.get(
@@ -76,7 +91,7 @@ router.get(
   authRequired,
   requireRole(READ),
   wrap(async (req, res) => {
-    const l = C.list(req.query);
+    const l = C.list({ ...req.query, companyId: cidOf(req) });
     const head = [
       '任务号', '客户', '负责人', '归属', '等级', '状态', '逾期金额', '剩余未收', '已收回',
       '回收率%', '发票数', '最长逾期天数', '承诺日期', '承诺金额', '承诺次数', '跳票次数',
@@ -137,7 +152,7 @@ router.get(
       // 兼容「只有名字没账号」的单子
       if (u && u.name) q.owner_name = u.name;
     }
-    return ok(res, C.list(q));
+    return ok(res, C.list({ ...q, companyId: cidOf(req) }));
   })
 );
 
@@ -145,35 +160,35 @@ router.get(
   '/:id',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, C.detail(Number(req.params.id))))
+  wrap(async (req, res) => ok(res, C.detail(Number(req.params.id), { companyId: cidOf(req) })))
 );
 
 router.post(
   '/:id/log',
   authRequired,
   requireRole(WRITE),
-  wrap(async (req, res) => ok(res, C.log(Number(req.params.id), req.body || {}, req.user)))
+  wrap(async (req, res) => ok(res, C.log(taskOr404(req), req.body || {}, req.user)))
 );
 
 router.post(
   '/:id/assign',
   authRequired,
   requireRole(CLOSE),
-  wrap(async (req, res) => ok(res, C.assign(Number(req.params.id), req.body || {}, req.user)))
+  wrap(async (req, res) => ok(res, C.assign(taskOr404(req), req.body || {}, req.user)))
 );
 
 router.post(
   '/:id/close',
   authRequired,
   requireRole(CLOSE),
-  wrap(async (req, res) => ok(res, C.close(Number(req.params.id), req.body || {}, req.user)))
+  wrap(async (req, res) => ok(res, C.close(taskOr404(req), req.body || {}, req.user)))
 );
 
 router.post(
   '/:id/reopen',
   authRequired,
   requireRole(CLOSE),
-  wrap(async (req, res) => ok(res, C.reopen(Number(req.params.id), req.body || {}, req.user)))
+  wrap(async (req, res) => ok(res, C.reopen(taskOr404(req), req.body || {}, req.user)))
 );
 
 module.exports = router;
