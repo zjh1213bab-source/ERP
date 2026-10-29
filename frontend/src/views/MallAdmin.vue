@@ -104,7 +104,7 @@
               <td style="white-space: nowrap">
                 <button class="link-btn" @click="openInquiry(r)">明细</button>
                 <button v-if="canWrite && ['submitted','quoted'].includes(r.status)" class="link-btn" @click="openQuote(r)">报价</button>
-                <button v-if="canWrite && r.status !== 'converted'" class="link-btn" @click="convert(r)">转订单</button>
+                <button v-if="canWrite && r.status === 'confirmed'" class="link-btn" @click="convert(r)">转订单</button>
               </td>
             </tr>
             <tr v-if="!inquiries.length"><td colspan="8" class="empty-cell">暂无询价单</td></tr>

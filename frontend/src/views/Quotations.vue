@@ -41,7 +41,7 @@
               <button v-if="r.status === 'draft' && canWrite" class="link-btn" @click="setStatus(r, 'sent')">发出</button>
               <button v-if="r.status === 'sent' && canWrite" class="link-btn" @click="setStatus(r, 'accepted')">客户接受</button>
               <button v-if="r.status === 'sent' && canWrite" class="link-btn danger" @click="setStatus(r, 'rejected')">客户拒绝</button>
-              <button v-if="['draft','sent','accepted'].includes(r.status) && canWrite" class="link-btn" @click="convert(r)">转订单</button>
+              <button v-if="r.status === 'accepted' && canWrite" class="link-btn" @click="convert(r)">转订单</button>
               <button v-if="r.order_id" class="link-btn" @click="$router.push('/orders')">看订单</button>
               <button v-if="r.status === 'draft' && canWrite" class="link-btn danger" @click="remove(r)">删除</button>
             </td>

@@ -230,7 +230,7 @@ router.post('/inquiries/:id/convert', authRequired, requireRole(WRITE), wrap(asy
   const q = inquiryFull(req.params.id);
   if (!q) return fail(res, 404, '询价单不存在');
   if (q.status === 'converted') return fail(res, 400, '该询价单已转过订单');
-  if (['cancelled'].includes(q.status)) return fail(res, 400, '已取消的询价单不能转订单');
+  if (q.status !== 'confirmed') return fail(res, 400, '询价单尚未确认，不能转为销售订单');
   if (!q.items.length) return fail(res, 400, '询价单没有明细');
 
   const r = mall.convertInquiryToOrder(q, q.items, req.user.username);
