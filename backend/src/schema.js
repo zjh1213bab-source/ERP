@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 793 个对象
- * （360 张表 + 433 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 794 个对象
+ * （360 张表 + 434 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -30,7 +30,7 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS factories (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT,\n  name TEXT NOT NULL,\n  type TEXT NOT NULL DEFAULT 'outsource',      -- own 本厂 / outsource 外协\n  contact TEXT,\n  phone TEXT,\n  address TEXT,\n  status TEXT NOT NULL DEFAULT 'active',\n  created_at TEXT NOT NULL\n, image_url TEXT);",
   "CREATE TABLE IF NOT EXISTS dispatch_orders (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_id INTEGER NOT NULL,\n  factory_id INTEGER,\n  factory_name TEXT,\n  type TEXT NOT NULL DEFAULT 'own',            -- own 本厂 / outsource 外协\n  qty REAL NOT NULL DEFAULT 0,\n  price REAL NOT NULL DEFAULT 0,\n  status TEXT NOT NULL DEFAULT 'dispatched',\n  remark TEXT,\n  created_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS attachments (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  target_type TEXT NOT NULL,                  -- order / techpack\n  target_id INTEGER NOT NULL,\n  filename TEXT NOT NULL,\n  url TEXT NOT NULL,\n  size INTEGER DEFAULT 0,\n  mime TEXT,\n  uploader TEXT,\n  created_at TEXT NOT NULL\n, cat TEXT NOT NULL DEFAULT 'other', note TEXT, node_id INTEGER, taken_at TEXT, deleted_at TEXT);",
-  "CREATE TABLE IF NOT EXISTS employees (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT,\n  name TEXT NOT NULL,\n  department_id INTEGER,\n  position TEXT,\n  phone TEXT,\n  hire_date TEXT,\n  status TEXT NOT NULL DEFAULT 'active',      -- active / left\n  remark TEXT,\n  created_at TEXT NOT NULL\n, base_salary REAL DEFAULT 0, leave_date TEXT, employment_type TEXT DEFAULT 'fulltime', regular_date TEXT, id_card TEXT, emergency_contact TEXT, image_url TEXT);",
+  "CREATE TABLE IF NOT EXISTS employees (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  code TEXT,\n  name TEXT NOT NULL,\n  department_id INTEGER,\n  position TEXT,\n  phone TEXT,\n  hire_date TEXT,\n  status TEXT NOT NULL DEFAULT 'active',      -- active / left\n  remark TEXT,\n  created_at TEXT NOT NULL\n, base_salary REAL DEFAULT 0, leave_date TEXT, employment_type TEXT DEFAULT 'fulltime', regular_date TEXT, id_card TEXT, emergency_contact TEXT, image_url TEXT, company_id INTEGER NOT NULL DEFAULT 1);",
   "CREATE TABLE IF NOT EXISTS leave_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  employee_id INTEGER,\n  employee_name TEXT,\n  type TEXT NOT NULL DEFAULT 'annual',        -- annual 年假 / sick 病假 / personal 事假 / other\n  start_date TEXT,\n  end_date TEXT,\n  days REAL DEFAULT 0,\n  reason TEXT,\n  status TEXT NOT NULL DEFAULT 'pending',     -- pending / approved / rejected\n  reviewed_by TEXT,\n  created_at TEXT NOT NULL\n);",
   "CREATE TABLE IF NOT EXISTS audit_logs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  username TEXT,\n  method TEXT,\n  path TEXT,\n  status INTEGER,\n  ip TEXT,\n  created_at TEXT NOT NULL\n, seq INTEGER, prev_hash TEXT, hash TEXT, module TEXT, action TEXT, target TEXT, summary TEXT, actor_role TEXT, duration_ms INTEGER, module_group TEXT);",
   "CREATE TABLE IF NOT EXISTS approval_flows (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  name TEXT NOT NULL,\n  target_type TEXT NOT NULL DEFAULT 'cost',\n  min_amount REAL DEFAULT 0,\n  max_amount REAL DEFAULT 999999999,\n  steps TEXT NOT NULL,                         -- JSON: [{\"role\":\"finance\",\"name\":\"财务审核\"}]\n  active INTEGER DEFAULT 1,\n  created_at TEXT NOT NULL\n, sla_hours REAL DEFAULT 24, escalate_role TEXT);",
@@ -798,5 +798,6 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_omc_mat ON order_material_colors(order_material_id);",
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_issue_item ON material_issue_items(issue_id, material_id, name, item_id, colorway);",
   "CREATE TABLE IF NOT EXISTS schema_migrations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    version TEXT NOT NULL,                  -- schema.js 内容指纹（改结构必变）\n    tables INTEGER NOT NULL DEFAULT 0,\n    indexes INTEGER NOT NULL DEFAULT 0,\n    migrated_cols INTEGER NOT NULL DEFAULT 0,\n    note TEXT,\n    applied_at TEXT NOT NULL\n  );",
-  "CREATE INDEX IF NOT EXISTS idx_po_company ON purchase_orders(company_id, status);"
+  "CREATE INDEX IF NOT EXISTS idx_po_company ON purchase_orders(company_id, status);",
+  "CREATE INDEX IF NOT EXISTS idx_employee_company ON employees(company_id, status);"
 ];

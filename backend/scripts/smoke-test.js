@@ -12429,6 +12429,139 @@ async function req(path, { method = 'GET', body, token } = {}) {
       leftBuy === 0 && leftAp === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(wname), '已删');
   }
 
+  // ================= 数据范围：人事薪酬（员工/考勤/请假/工资单） =================
+  {
+    console.log('\n[数据范围：人事薪酬]');
+    const { db: MDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const ts = '2026-10-20 09:00:00';
+    const CO2 = 2;
+
+    MDB.prepare("DELETE FROM employees WHERE code IN ('SCOPEEMP1','SCOPEEMP2')").run();
+    const mkEmp = (code, name, companyId) => Number(MDB.prepare(
+      `INSERT INTO employees (code, name, position, status, base_salary, hire_date, created_at, company_id)
+       VALUES (?,?,?,'active',6000,'2026-01-01',?,?)`
+    ).run(code, name, '范围测试', ts, companyId).lastInsertRowid);
+    const empOther = mkEmp('SCOPEEMP1', '范围员工甲', 1);
+    const empOwn = mkEmp('SCOPEEMP2', '范围员工乙', CO2);
+
+    // 各一条考勤与请假（考勤/请假挂在 employee_id 上，没有 company_id）
+    // attendance 表没有 type 列（是 check_in/check_out/status 三件套）
+    const attIds = [
+      MDB.prepare("INSERT INTO attendance (employee_id, employee_name, date, check_in, status, created_at) VALUES (?,?,?,?,'normal',?)").run(empOther, '范围员工甲', '2026-10-20', '09:00', ts).lastInsertRowid,
+      MDB.prepare("INSERT INTO attendance (employee_id, employee_name, date, check_in, status, created_at) VALUES (?,?,?,?,'normal',?)").run(empOwn, '范围员工乙', '2026-10-20', '09:00', ts).lastInsertRowid
+    ].map(Number);
+    const leaveIds = [
+      MDB.prepare("INSERT INTO leave_requests (employee_id, employee_name, type, start_date, end_date, days, reason, status, created_at) VALUES (?,?,'annual','2026-10-21','2026-10-21',1,'范围测试','pending',?)").run(empOther, '范围员工甲', ts).lastInsertRowid,
+      MDB.prepare("INSERT INTO leave_requests (employee_id, employee_name, type, start_date, end_date, days, reason, status, created_at) VALUES (?,?,'annual','2026-10-21','2026-10-21',1,'范围测试','pending',?)").run(empOwn, '范围员工乙', ts).lastInsertRowid
+    ].map(Number);
+
+    const hname = 'scope_hr';
+    const hpwd = 'ScopeHr123456';
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(hname);
+    MDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(hname, hashPassword(hpwd), '范围测试人事', 'hr', CO2, ts);
+    require('../src/services/access').clearCache();
+    const hl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: hname, password: hpwd })
+    }).then((r) => r.json());
+    const hTok = hl.data && hl.data.token;
+    ok('分公司人事账号可登录', !!hTok, hl.message || 'ok');
+
+    // ---- 1. 员工档案 ----
+    const els = await req('/api/employees', { token: hTok });
+    const codes = ((els.json.data) || []).map((e) => e.code);
+    ok('★ 分公司人事的员工列表不含总部员工（底薪就挂在档案上）',
+      els.status === 200 && codes.includes('SCOPEEMP2') && !codes.includes('SCOPEEMP1'),
+      `看到 ${codes.length} 人`);
+
+    const putOther = await req(`/api/employees/${empOther}`, {
+      method: 'PUT', token: hTok, body: { name: '改名试试' }
+    });
+    ok('★ 跨主体不能改别家员工档案', putOther.status === 404, `HTTP ${putOther.status}`);
+
+    const delOther = await req(`/api/employees/${empOther}`, { method: 'DELETE', token: hTok });
+    ok('★ 跨主体不能给别家员工办离职', delOther.status === 404, `HTTP ${delOther.status}`);
+
+    const madeEmp = await req('/api/employees', {
+      method: 'POST', token: hTok, body: { code: 'SCOPEEMP3', name: '范围员工丙', position: '车工', base_salary: 5000 }
+    });
+    const madeEmpId = madeEmp.json.data && madeEmp.json.data.id;
+    const madeEmpCo = madeEmpId ? Number(MDB.prepare('SELECT company_id FROM employees WHERE id = ?').get(madeEmpId).company_id) : null;
+    ok('★ 分公司建员工记在自己主体（以前没有这一列）',
+      madeEmp.status === 200 && madeEmpCo === CO2, `company_id=${madeEmpCo}`);
+
+    // ---- 2. 考勤 ----
+    const att = await req('/api/attendance?month=2026-10', { token: hTok });
+    const attEmpIds = (att.json.data || []).map((x) => Number(x.employee_id));
+    ok('★ 分公司的考勤列表只含自己员工（工时是工资的前置数据）',
+      att.status === 200 && attEmpIds.includes(empOwn) && !attEmpIds.includes(empOther),
+      `看到 ${attEmpIds.length} 条`);
+
+    const clockOther = await req('/api/attendance/clock', {
+      method: 'POST', token: hTok, body: { employee_id: empOther, type: 'in' }
+    });
+    ok('★ 不能给别家员工打卡', clockOther.status === 404, `HTTP ${clockOther.status}`);
+
+    // ---- 3. 请假 ----
+    const lv = await req('/api/leaves', { token: hTok });
+    const lvEmpIds = (lv.json.data || []).map((x) => Number(x.employee_id));
+    ok('★ 分公司的请假列表只含自己员工',
+      lv.status === 200 && lvEmpIds.includes(empOwn) && !lvEmpIds.includes(empOther),
+      `看到 ${lvEmpIds.length} 条`);
+
+    const reviewOther = await req(`/api/leaves/${leaveIds[0]}/review`, {
+      method: 'POST', token: hTok, body: { approve: true }
+    });
+    ok('★ 跨主体不能审批别家员工的请假', reviewOther.status === 404, `HTTP ${reviewOther.status}`);
+
+    // ---- 4. 工资单：生成只算自己员工，并落自己主体 ----
+    // 断言**不看该期间总行数**（别的测试/演示可能也在同一期间留了单），
+    // 只看三件事：本次创建数 = 本主体在职人数、本主体的行都落在本主体、
+    // 别家主体一行都没被新增。
+    const PERIOD = '2026-09';
+    const beforeOther = Number(MDB.prepare('SELECT COUNT(*) c FROM payrolls WHERE period = ? AND company_id <> ?').get(PERIOD, CO2).c);
+    const gen = await req('/api/payrolls/generate', {
+      method: 'POST', token: hTok, body: { period: PERIOD }
+    });
+    const afterOther = Number(MDB.prepare('SELECT COUNT(*) c FROM payrolls WHERE period = ? AND company_id <> ?').get(PERIOD, CO2).c);
+    const ownActive = Number(MDB.prepare("SELECT COUNT(*) c FROM employees WHERE status='active' AND company_id = ?").get(CO2).c);
+    const ownRows = MDB.prepare('SELECT employee_id FROM payrolls WHERE period = ? AND company_id = ?').all(PERIOD, CO2);
+    const made = Number((gen.json.data && gen.json.data.created) || 0);
+    ok('★ 分公司生成工资单只算自己主体的在职员工，且落在自己主体',
+      gen.status === 200 && made === ownActive && ownRows.length === ownActive && afterOther === beforeOther,
+      `本次创建 ${made} / 本主体在职 ${ownActive} 人 / 别家主体 ${beforeOther}→${afterOther}`);
+
+    const pl = await req('/api/payrolls?period=2026-09', { token: hTok });
+    const plCos = (pl.json.data || []).map((x) => Number(x.company_id) || 1);
+    ok('★ 分公司的工资单列表不含别家主体（金额另有脱敏，两者互不替代）',
+      pl.status === 200 && plCos.length > 0 && plCos.every((c) => c === CO2),
+      `看到 ${plCos.length} 张，主体集合 ${[...new Set(plCos)].join(',') || '空'}`);
+
+    // ---- 5. 集团管理员仍能看到两边 ----
+    const adminEmp = await req('/api/employees', { token });
+    const adminCodes = (adminEmp.json.data || []).map((e) => e.code);
+    ok('★ 集团管理员仍能看到两个主体的员工',
+      adminCodes.includes('SCOPEEMP1') && adminCodes.includes('SCOPEEMP2'), `管理员看到 ${adminCodes.length} 人`);
+
+    // ---- 清理 ----
+    // 只删本次为夹具员工生成的工资单 —— 按期间整段删会连带抹掉别人的数据
+    [empOther, empOwn, madeEmpId].filter(Boolean).forEach((id) =>
+      MDB.prepare("DELETE FROM payrolls WHERE period = '2026-09' AND employee_id = ?").run(id));
+    [leaveIds[0], leaveIds[1]].forEach((id) => MDB.prepare('DELETE FROM leave_requests WHERE id = ?').run(id));
+    [attIds[0], attIds[1]].forEach((id) => MDB.prepare('DELETE FROM attendance WHERE id = ?').run(id));
+    [empOther, empOwn, madeEmpId].filter(Boolean).forEach((id) => MDB.prepare('DELETE FROM employees WHERE id = ?').run(id));
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(hname);
+    require('../src/services/access').clearCache();
+    const leftHr = Number(MDB.prepare("SELECT COUNT(*) c FROM employees WHERE code LIKE 'SCOPEEMP%'").get().c);
+    const leftPay = Number(MDB.prepare(
+      "SELECT COUNT(*) c FROM payrolls WHERE period = '2026-09' AND employee_id IN (" + [empOther, empOwn, madeEmpId].filter(Boolean).join(',') + ')'
+    ).get().c);
+    ok('人事薪酬范围夹具已清干净',
+      leftHr === 0 && leftPay === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(hname), '已删');
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');

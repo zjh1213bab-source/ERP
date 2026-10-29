@@ -9,6 +9,21 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const scope = require('../access/companyScope');
+
+/** 请假单挂在 `employee_id` 上，按员工主体判归属 */
+const cidOf = (req) => scope.filterCompanyId(req.user);
+const empScope = (cid, col = 'employee_id') => scope.parentClauseSql(cid, 'employees', col).sql;
+
+/** 请假单归属校验（顺着 employee_id 判） */
+function leaveOr404(req, id) {
+  const row = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(Number(id));
+  if (!row) { const e = new Error('记录不存在'); e.status = 404; throw e; }
+  if (row.employee_id && !scope.assertRow(req.user, 'employees', row.employee_id, '员工').ok) {
+    const e = new Error('记录不存在'); e.status = 404; throw e;
+  }
+  return row;
+}
 
 const router = express.Router();
 const WRITE = ['admin', 'hr'];
@@ -20,6 +35,8 @@ router.get('/', authRequired, wrap(async (req, res) => {
   const { status = '', employee_id = '' } = req.query;
   const where = [];
   const params = [];
+  const empWh = empScope(cidOf(req));
+  if (empWh) where.push(empWh.replace(/^ AND /, ''));
   if (status) { where.push('status = ?'); params.push(status); }
   if (employee_id) { where.push('employee_id = ?'); params.push(employee_id); }
   const sql = 'SELECT * FROM leave_requests ' + (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY id DESC';
@@ -31,8 +48,10 @@ router.post('/', authRequired, requireRole(ALL_STAFF), wrap(async (req, res) => 
   if (!b.employee_id && !b.employee_name) return fail(res, 400, '请选择员工');
   let name = b.employee_name;
   if (b.employee_id && !name) {
-    const emp = db.prepare('SELECT name FROM employees WHERE id = ?').get(b.employee_id);
-    name = emp ? emp.name : null;
+    // 只能给自己主体的员工开请假单
+    const empRow = scope.assertRow(req.user, 'employees', b.employee_id, '员工');
+    if (!empRow.ok) return fail(res, 404, '员工不存在');
+    name = empRow.row.name;
   }
   const info = db.prepare(
     'INSERT INTO leave_requests (employee_id, employee_name, type, start_date, end_date, days, reason, status, created_at) VALUES (?,?,?,?,?,?,?,\'pending\',?)'
@@ -41,7 +60,7 @@ router.post('/', authRequired, requireRole(ALL_STAFF), wrap(async (req, res) => 
 }));
 
 router.post('/:id/review', authRequired, requireRole(REVIEW), wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(req.params.id);
+  const row = leaveOr404(req, req.params.id);
   if (!row) return fail(res, 404, '记录不存在');
   const status = (req.body && req.body.approve === false) ? 'rejected' : 'approved';
   db.prepare('UPDATE leave_requests SET status = ?, reviewed_by = ? WHERE id = ?').run(status, req.user.username, req.params.id);
@@ -49,7 +68,7 @@ router.post('/:id/review', authRequired, requireRole(REVIEW), wrap(async (req, r
 }));
 
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT 1 AS x FROM leave_requests WHERE id = ?').get(req.params.id);
+  const row = leaveOr404(req, req.params.id);
   if (!row) return fail(res, 404, '记录不存在');
   db.prepare('DELETE FROM leave_requests WHERE id = ?').run(req.params.id);
   return ok(res, { id: Number(req.params.id) });

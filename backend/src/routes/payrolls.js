@@ -28,6 +28,28 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const privacy = require('../services/privacy');
 const { reqCtx } = require('../utils/reqCtx');
+const scope = require('../access/companyScope');
+
+/**
+ * 工资单的主体
+ *
+ * `payrolls` 一直有 `company_id`，但**从来没有写过、也没有筛过** ——
+ * 一直是默认 1：分部人事生成工资单，全记到总部；而分部打开列表看到的是总部的工资。
+ * 这轮补上写入与过滤。员工档案 v1.64 才有 `company_id`，所以"生成"这一步
+ * 只取本主体的在职员工 —— 否则给分部生成工资单会把总部的人也带进去。
+ */
+const cidOf = (req) => scope.filterCompanyId(req.user);
+
+/** 取一张工资单并校验归属；跨主体按不存在处理 */
+function payOr404(req, id) {
+  const r = scope.assertRow(req.user, 'payrolls', id, '工资单');
+  if (!r.ok) {
+    const e = new Error(r.reason);
+    e.status = r.status;
+    throw e;
+  }
+  return r.row;
+}
 
 const router = express.Router();
 const WRITE = ['admin', 'hr', 'finance'];
@@ -39,9 +61,10 @@ const {
   round2, STATUS_LABELS, SOCIAL_RATE, calcTax, workDaysInMonth, periodRange, recalc, withComputed
 } = require('../services/payrollCalc');
 
-function listByPeriod(period, status) {
+function listByPeriod(period, status, companyId) {
   const where = [];
   const params = [];
+  if (companyId) { where.push('company_id = ?'); params.push(Number(companyId)); }
   if (period) { where.push('period = ?'); params.push(period); }
   if (status) { where.push('status = ?'); params.push(status); }
   const sql = 'SELECT * FROM payrolls ' + (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') +
@@ -53,12 +76,18 @@ function listByPeriod(period, status) {
 router.get('/', authRequired, requireRole(READ), wrap(async (req, res) => {
   const { period = '', status = '' } = req.query;
   // 工资金额一律走字段级脱敏：admin 技术权限不默认可读工资（原型的硬要求）
-  return ok(res, privacy.maskRows('payrolls', listByPeriod(period, status), reqCtx(req, { action: 'list' })));
+  return ok(res, privacy.maskRows('payrolls', listByPeriod(period, status, cidOf(req)), reqCtx(req, { action: 'list' })));
 }));
 
 // ---------- 有数据的月份 ----------
 router.get('/periods', authRequired, requireRole(READ), wrap(async (req, res) => {
-  const rows = db.prepare('SELECT period, COUNT(*) AS cnt, SUM(net_pay) AS total FROM payrolls GROUP BY period ORDER BY period DESC').all();
+  // 「有工资单的月份」也要分主体：分部不该看到总部发过哪几个月、发了多少
+  const cid = cidOf(req);
+  const rows = db.prepare(
+    'SELECT period, COUNT(*) AS cnt, SUM(net_pay) AS total FROM payrolls' +
+    (cid ? ' WHERE company_id = ' + Number(cid) : '') +
+    ' GROUP BY period ORDER BY period DESC'
+  ).all();
   return ok(res, rows);
 }));
 
@@ -66,7 +95,7 @@ router.get('/periods', authRequired, requireRole(READ), wrap(async (req, res) =>
 router.get('/summary', authRequired, requireRole(READ), wrap(async (req, res) => {
   const period = String(req.query.period || '').trim();
   if (!period) return fail(res, 400, '缺少 period（YYYY-MM）');
-  const rows = listByPeriod(period);
+  const rows = listByPeriod(period, '', cidOf(req));
   const sum = (k) => round2(rows.reduce((s, r) => s + (Number(r[k]) || 0), 0));
   const byStatus = {};
   rows.forEach((r) => {
@@ -107,7 +136,7 @@ router.get('/export', authRequired, requireRole(READ), wrap(async (req, res) => 
   const period = String(req.query.period || '').trim();
   if (!period) return fail(res, 400, '缺少 period（YYYY-MM）');
   // 导出是最大的泄漏口：无权限的人导出来必须是掩码，并且每次导出都留痕
-  const rawRows = listByPeriod(period);
+  const rawRows = listByPeriod(period, '', cidOf(req));
   const rows = privacy.maskRows('payrolls', rawRows, reqCtx(req, { action: 'export' }));
   privacy.markExport('payrolls', ['base_salary', 'gross_pay', 'net_pay', 'tax', 'social_insurance', 'piece_wage'],
     reqCtx(req, { note: `导出工资单 CSV ${period}`, row_count: rawRows.length }));
@@ -134,9 +163,12 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
   if (!/^\d{4}-\d{2}$/.test(period)) return fail(res, 400, '月份格式应为 YYYY-MM');
   const overwrite = !!b.overwrite;
 
+  const cid = cidOf(req);
+  // 只给本主体的在职员工生成 —— 否则分部生成工资单会把总部的人一起算进去
   const emps = db.prepare(
     `SELECT e.*, d.name AS dept_name FROM employees e
-     LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'active' ORDER BY e.id`
+     LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'active'` +
+    (cid ? ' AND e.company_id = ' + Number(cid) : '') + ' ORDER BY e.id'
   ).all();
   if (!emps.length) return fail(res, 400, '没有在职员工，请先在「员工档案」录入');
 
@@ -157,8 +189,8 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
   const ins = db.prepare(
     `INSERT INTO payrolls (period, employee_id, employee_name, department, base_salary, work_days, actual_days,
       leave_days, absent_days, overtime_hours, overtime_pay, bonus, allowance, piece_wage, deduction,
-      social_insurance, tax, gross_pay, net_pay, status, remark, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      social_insurance, tax, gross_pay, net_pay, status, remark, created_at, updated_at, company_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
 
   db.exec('BEGIN');
@@ -235,7 +267,9 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
         ins.run(period, e.id, e.name, e.dept_name || null, baseSalary, workDays, row.actual_days,
           leaveDays, absentDays, row.overtime_hours, c.overtimePay, row.bonus, row.allowance,
           row.piece_wage, row.deduction, row.social_insurance, c.tax,
-          c.gross, c.net, 'draft', null, t, t);
+          c.gross, c.net, 'draft', null, t, t,
+          // 主体跟着**员工**走：给哪家的人在算工资，这张单就属于哪家
+          Number(e.company_id) || 1);
         created++;
       }
     }
@@ -259,7 +293,7 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
 
 // ---------- 调整 ----------
 router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM payrolls WHERE id = ?').get(req.params.id);
+  const row = payOr404(req, req.params.id);
   if (!row) return fail(res, 404, '工资单不存在');
   if (row.status !== 'draft') return fail(res, 400, `当前为「${STATUS_LABELS[row.status]}」，只有草稿可调整`);
   const b = req.body || {};
@@ -296,7 +330,7 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
 
 // ---------- 状态流转 ----------
 router.post('/:id/confirm', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM payrolls WHERE id = ?').get(req.params.id);
+  const row = payOr404(req, req.params.id);
   if (!row) return fail(res, 404, '工资单不存在');
   if (row.status !== 'draft') return fail(res, 400, '只有草稿可以确认');
   db.prepare("UPDATE payrolls SET status='confirmed', updated_at=? WHERE id=?").run(now(), row.id);
@@ -304,7 +338,7 @@ router.post('/:id/confirm', authRequired, requireRole(WRITE), wrap(async (req, r
 }));
 
 router.post('/:id/pay', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM payrolls WHERE id = ?').get(req.params.id);
+  const row = payOr404(req, req.params.id);
   if (!row) return fail(res, 404, '工资单不存在');
   if (row.status !== 'confirmed') return fail(res, 400, '只有「已确认」的工资单可以发放');
   db.prepare("UPDATE payrolls SET status='paid', updated_at=? WHERE id=?").run(now(), row.id);
@@ -320,6 +354,16 @@ router.post('/batch', authRequired, requireRole(WRITE), wrap(async (req, res) =>
   if (!['confirm', 'pay'].includes(action)) return fail(res, 400, 'action 只能是 confirm 或 pay');
   const from = action === 'confirm' ? 'draft' : 'confirmed';
   const to = action === 'confirm' ? 'confirmed' : 'paid';
+
+  /**
+   * 批量里混进别家的工资单 → 整批拒绝。
+   * 只改一半比直接拒绝更难查：人以为都发了，实际漏了一批，而漏的那批没有任何提示。
+   */
+  for (const id of ids) {
+    if (!scope.assertRow(req.user, 'payrolls', id, '工资单').ok) {
+      return fail(res, 404, '工资单不存在');
+    }
+  }
 
   let changed = 0, skipped = 0;
   const t = now();
@@ -340,7 +384,7 @@ router.post('/batch', authRequired, requireRole(WRITE), wrap(async (req, res) =>
 
 // ---------- 删除 ----------
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM payrolls WHERE id = ?').get(req.params.id);
+  const row = payOr404(req, req.params.id);
   if (!row) return fail(res, 404, '工资单不存在');
   if (row.status !== 'draft') return fail(res, 400, '只有草稿可以删除');
   db.prepare('DELETE FROM payrolls WHERE id = ?').run(row.id);

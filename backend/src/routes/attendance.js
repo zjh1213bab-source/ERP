@@ -7,6 +7,14 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const scope = require('../access/companyScope');
+
+/**
+ * 考勤没有 company_id，挂在 `employee_id` 上 —— 员工档案 v1.64 才有主体，
+ * 所以这里一律按「父表」判归属。工时是工资的前置数据，跨主体能看到就等于能看到别人的出勤。
+ */
+const cidOf = (req) => scope.filterCompanyId(req.user);
+const empScope = (cid, col = 'employee_id') => scope.parentClauseSql(cid, 'employees', col).sql;
 
 const router = express.Router();
 const WRITE = ['admin', 'hr'];
@@ -27,6 +35,8 @@ router.get('/', authRequired, wrap(async (req, res) => {
   const { month = '', employee_id = '' } = req.query;
   const where = [];
   const params = [];
+  const empWh = empScope(cidOf(req));
+  if (empWh) where.push(empWh.replace(/^ AND /, ''));
   if (month) { where.push("substr(date,1,7) = ?"); params.push(month); }
   if (employee_id) { where.push('employee_id = ?'); params.push(employee_id); }
   const sql = 'SELECT * FROM attendance ' + (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY date DESC, id DESC';
@@ -37,8 +47,10 @@ router.post('/clock', authRequired, requireRole(ALL_STAFF), wrap(async (req, res
   const { employee_id, type } = req.body || {};
   if (!employee_id) return fail(res, 400, '请选择员工');
   if (!['in', 'out'].includes(type)) return fail(res, 400, '打卡类型不合法');
-  const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(employee_id);
-  if (!emp) return fail(res, 404, '员工不存在');
+  // 只能给本主体的员工打卡（别家的员工 id 在这里当不存在）
+  const empRow = scope.assertRow(req.user, 'employees', employee_id, '员工');
+  if (!empRow.ok) return fail(res, 404, '员工不存在');
+  const emp = empRow.row;
 
   const date = localDate();
   const time = localTime();

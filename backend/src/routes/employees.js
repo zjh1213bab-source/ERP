@@ -11,6 +11,27 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const privacy = require('../services/privacy');
 const { reqCtx } = require('../utils/reqCtx');
+const scope = require('../access/companyScope');
+
+/**
+ * 员工档案的主体
+ *
+ * 劳动合同签在哪一家、社保在哪缴、工资由谁发，是按法人主体分开的 —— 所以 v1.64 给
+ * `employees` 加了 `company_id`。不脱敏的底薪就挂在档案上，不分主体的后果是
+ * **分部人事能看到总部所有人的工资**（手机身份证早脱敏了，工资没有）。
+ */
+const cidOf = (req) => scope.filterCompanyId(req.user);
+
+/** 取一名员工并校验归属；跨主体按不存在处理 */
+function empOr404(req, id) {
+  const r = scope.assertRow(req.user, 'employees', id, '员工');
+  if (!r.ok) {
+    const e = new Error(r.reason);
+    e.status = r.status;
+    throw e;
+  }
+  return r.row;
+}
 
 const router = express.Router();
 const WRITE = ['admin', 'hr'];
@@ -19,6 +40,8 @@ router.get('/', authRequired, wrap(async (req, res) => {
   const { q = '', status = '' } = req.query;
   const where = [];
   const params = [];
+  const cid = cidOf(req);
+  if (cid) { where.push('e.company_id = ?'); params.push(cid); }
   if (q) { where.push('(e.name LIKE ? OR e.code LIKE ? OR e.position LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   if (status) { where.push('e.status = ?'); params.push(status); }
   const sql = `SELECT e.*, d.name AS department_name FROM employees e
@@ -40,13 +63,13 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const b = req.body || {};
   if (!b.name) return fail(res, 400, '姓名必填');
   const info = db.prepare(
-    'INSERT INTO employees (code, name, department_id, position, phone, hire_date, status, base_salary, remark, image_url, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(b.code || null, b.name, b.department_id || null, b.position || null, b.phone || null, b.hire_date || null, b.status || 'active', Number(b.base_salary) || 0, b.remark || null, b.image_url || null, now());
+    'INSERT INTO employees (code, name, department_id, position, phone, hire_date, status, base_salary, remark, image_url, created_at, company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(b.code || null, b.name, b.department_id || null, b.position || null, b.phone || null, b.hire_date || null, b.status || 'active', Number(b.base_salary) || 0, b.remark || null, b.image_url || null, now(), scope.writeCompanyOf(req.user));
   return ok(res, db.prepare('SELECT * FROM employees WHERE id = ?').get(Number(info.lastInsertRowid)));
 }));
 
 router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM employees WHERE id = ?').get(req.params.id);
+  const row = empOr404(req, req.params.id);
   if (!row) return fail(res, 404, '员工不存在');
   const b = req.body || {};
   db.prepare('UPDATE employees SET code=?, name=?, department_id=?, position=?, phone=?, hire_date=?, status=?, base_salary=?, remark=?, image_url=? WHERE id=?').run(
@@ -59,7 +82,7 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
 }));
 
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const row = db.prepare('SELECT 1 AS x FROM employees WHERE id = ?').get(req.params.id);
+  const row = empOr404(req, req.params.id);
   if (!row) return fail(res, 404, '员工不存在');
   db.prepare("UPDATE employees SET status='left' WHERE id=?").run(req.params.id);
   return ok(res, { id: Number(req.params.id), status: 'left' });

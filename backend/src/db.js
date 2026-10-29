@@ -193,6 +193,12 @@ function migrate() {
    * 列表一按主体筛，分部采购员新开的单会记到总部、自己又看不见。
    */
   add('purchase_orders', 'company_id', 'INTEGER NOT NULL DEFAULT 1');
+  /**
+   * 员工档案挂主体。劳动合同签在哪家、社保在哪缴、工资由谁发，是按法人主体分开的；
+   * 没有这一列时分部人事能看到总部所有人的底薪，而考勤/请假/计件挂在 employee_id 上
+   * 也都推不出主体。
+   */
+  add('employees', 'company_id', 'INTEGER NOT NULL DEFAULT 1');
 
   // 领料明细挂到「款 × 颜色」（按色发料；老数据 item_id=0 / colorway='' 按总量核）
   add('material_issue_items', 'item_id', 'INTEGER NOT NULL DEFAULT 0');
