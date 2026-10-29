@@ -11937,6 +11937,133 @@ async function req(path, { method = 'GET', body, token } = {}) {
       Number(left) === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(funame), '已删');
   }
 
+  // ================= 数据范围：领料与盘点（单据层按主体，存量层不分主体） =================
+  {
+    console.log('\n[数据范围：领料与盘点]');
+    const { db: MDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const ts = '2026-10-20 09:00:00';
+    const CO2 = 2;
+
+    // 两张领料单：一张总部、一张分部（明细留空，只为验证列表/详情/动作的范围）
+    const mkIssue = (no, companyId) => {
+      const info = MDB.prepare(
+        `INSERT INTO material_issues (issue_no, company_id, kind, receiver_type, req_date, status,
+           item_count, req_qty, issued_qty, amount, note, created_by, created_at, updated_at)
+         VALUES (?,?,'extra','own','2026-10-20','draft',0,0,0,0,'范围测试',?,?,?)`
+      ).run(no, companyId, ts, ts, ts);
+      return Number(info.lastInsertRowid);
+    };
+    // 单号不带横线：扫码/标签码解析按 '-' 分段取第一段当订单号，带横线的号会被拆开
+    MDB.prepare("DELETE FROM material_issues WHERE issue_no IN ('SCOPEISS1','SCOPEISS2')").run();
+    const issOwn = mkIssue('SCOPEISS2', CO2);
+    const issOther = mkIssue('SCOPEISS1', 1);
+
+    // 总部一张未完成盘点：用来验证「建盘点的互斥要按主体判」
+    MDB.prepare("DELETE FROM stocktakes WHERE take_no = 'SCOPEPD1'").run();
+    const takeOther = Number(MDB.prepare(
+      `INSERT INTO stocktakes (take_no, company_id, scope, warehouse, take_date, status, freeze,
+         item_count, counter, note, created_by, created_at, updated_at)
+       VALUES ('SCOPEPD1',1,'material','cn','2026-10-20','draft',1,0,'范围测试','范围测试盘点',?,?,?)`
+    ).run(ts, ts, ts).lastInsertRowid);
+
+    // 分部的订单（建订单备料时验证主体继承）
+    MDB.prepare("DELETE FROM orders WHERE order_no = 'SCOPEMT1'").run();
+    const orderInfo = MDB.prepare(
+      `INSERT INTO orders (order_no, type, status, rate, total_usd, total_amount, currency, style_name,
+         order_date, delivery_date, created_at, updated_at, company_id)
+       VALUES ('SCOPEMT1','custom','assigned',7.1,100,710,'USD','范围领料测试','2026-10-20','2026-11-20',?,?,?)`
+    ).run(ts, ts, CO2);
+    const orderId = Number(orderInfo.lastInsertRowid);
+
+    const wname = 'scope_wh';
+    const wpwd = 'ScopeWh123456';
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(wname);
+    MDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(wname, hashPassword(wpwd), '范围测试仓管', 'warehouse', CO2, ts);
+    require('../src/services/access').clearCache();
+
+    const wl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: wname, password: wpwd })
+    }).then((r) => r.json());
+    const wTok = wl.data && wl.data.token;
+    ok('分公司仓管账号可登录', !!wTok, wl.message || 'ok');
+
+    // ---- 1. 领料列表 ----
+    const subIss = await req('/api/matflow/issues', { token: wTok });
+    const subNos = (subIss.json.data.rows || []).map((r) => r.issue_no);
+    ok('★ 分公司账的领料列表不含总部单据',
+      subIss.status === 200 && subNos.includes('SCOPEISS2') && !subNos.includes('SCOPEISS1'),
+      `看到 ${subNos.length} 张`);
+
+    // ---- 2. 跨主体详情与动作 ----
+    const peek = await req(`/api/matflow/issues/${issOther}`, { token: wTok });
+    ok('★ 跨主体读领料单详情返回 404', peek.status === 404, `HTTP ${peek.status}`);
+
+    const prep = await req(`/api/matflow/issues/${issOther}/prepare`, { method: 'POST', token: wTok });
+    ok('★ 跨主体不能给别家的领料单备料', prep.status === 404, `HTTP ${prep.status}`);
+
+    const ret = await req('/api/matflow/returns', {
+      method: 'POST', token: wTok, body: { issue_id: issOther, type: 'leftover', reason: '范围测试退料' }
+    });
+    ok('★ 不能拿别家的领料单开退料（否则等于把别家库存加上来）',
+      ret.status >= 400 && ret.status < 500, `HTTP ${ret.status} ${(ret.json.message || '').slice(0, 24)}`);
+
+    // ---- 3. 建订单备料：主体继承订单，不继承前端传的 company_id ----
+    MDB.prepare('INSERT INTO order_materials (order_id, type, name, unit, one_use, loss, all_colors, total_use, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(orderId, 'fabric', '范围测试面料', '米', 1, 0, 1, 100, ts);
+    const made = await req('/api/matflow/issues', {
+      method: 'POST', token: wTok,
+      body: { order_id: orderId, kind: 'order', req_date: '2026-10-20', items: [{ name: '范围测试面料', unit: '米', req_qty: 10 }] }
+    });
+    const madeId = made.json.data && made.json.data.id;
+    const madeCo = madeId ? Number(MDB.prepare('SELECT company_id FROM material_issues WHERE id = ?').get(madeId).company_id) : null;
+    ok('★ 分公司建的订单备料记在订单主体上（原来写死 1，记到总部去了）',
+      made.status === 200 && madeCo === CO2, `HTTP ${made.status} company_id=${madeCo}`);
+
+    // ---- 4. 建盘点：互斥按主体判 + 落自己主体 ----
+    const take = await req('/api/matflow/stocktakes', {
+      method: 'POST', token: wTok, body: { take_date: '2026-10-20', note: '范围测试盘点' }
+    });
+    const takeId = take.json.data && take.json.data.id;
+    const takeCo = takeId ? Number(MDB.prepare('SELECT company_id FROM stocktakes WHERE id = ?').get(takeId).company_id) : null;
+    ok('★ 总部有未完成盘点时，分公司仍能开自己的盘点（互斥原来查全库，分部被永久挡住）',
+      take.status === 200 && takeCo === CO2, `HTTP ${take.status} company_id=${takeCo} ${(take.json.message || '').slice(0, 30)}`);
+
+    // ---- 5. 跨主体盘点详情 ----
+    const peekTake = await req(`/api/matflow/stocktakes/${takeOther}`, { token: wTok });
+    ok('★ 跨主体读盘点单详情返回 404', peekTake.status === 404, `HTTP ${peekTake.status}`);
+
+    // ---- 6. 集团管理员仍看得到 ----
+    const adminIss = await req('/api/matflow/issues', { token });
+    const adminNos = (adminIss.json.data.rows || []).map((r) => r.issue_no);
+    ok('★ 集团管理员仍能看到两个主体的领料单',
+      adminNos.includes('SCOPEISS1') && adminNos.includes('SCOPEISS2'), `管理员看到 ${adminNos.length} 张`);
+
+    // ---- 清理 ----
+    if (takeId) {
+      MDB.prepare('DELETE FROM stocktake_items WHERE take_id = ?').run(takeId);
+      MDB.prepare('DELETE FROM stocktakes WHERE id = ?').run(takeId);
+    }
+    MDB.prepare('DELETE FROM stocktakes WHERE take_no = ?').run('SCOPEPD1');
+    if (madeId) {
+      MDB.prepare('DELETE FROM material_issue_items WHERE issue_id = ?').run(madeId);
+      MDB.prepare('DELETE FROM material_issues WHERE id = ?').run(madeId);
+    }
+    [issOwn, issOther].forEach((id) => MDB.prepare('DELETE FROM material_issues WHERE id = ?').run(id));
+    MDB.prepare('DELETE FROM order_materials WHERE order_id = ?').run(orderId);
+    MDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(orderId);
+    MDB.prepare('DELETE FROM orders WHERE id = ?').run(orderId);
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(wname);
+    require('../src/services/access').clearCache();
+    const left = Number(MDB.prepare(
+      "SELECT (SELECT COUNT(*) FROM material_issues WHERE issue_no LIKE 'SCOPEISS%') + (SELECT COUNT(*) FROM stocktakes WHERE take_no LIKE 'SCOPEPD%') + (SELECT COUNT(*) FROM orders WHERE order_no = 'SCOPEMT1') c"
+    ).get().c);
+    ok('领料与盘点范围夹具已清干净',
+      left === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(wname), '已删');
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');

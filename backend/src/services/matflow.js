@@ -132,6 +132,53 @@ function assertNotFrozen(scope) {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * 主体范围（单据层）
+ * ------------------------------------------------------------------ *
+ * 库存这一域要分两层看：
+ *
+ *   1. **实物存量层**（`materials` / `stock_items` / `stock_ledger` / `office_stock`）
+ *      没有 `company_id`，因为它是"一个仓库里真实有多少"。一桶染料不会因为换了个
+ *      法人主体就变成两桶。所以**存量层不分主体**，这是刻意的，不是漏了。
+ *   2. **单据层**（`material_issues` / `material_returns` / `stocktakes`）有
+ *      `company_id`。领了哪家主体的料、盘了哪家的账，是能回答也必须回答的问题。
+ *
+ * 另外三张单据表的 `company_id` 原来在 INSERT 里**写死成 1**，与财务那批
+ * `DEFAULT 1` 是同一类问题：分部领料记到总部账上，然后自己看不见。
+ * 现在按来源继承：领料继承订单主体，退料继承领料单主体，盘点用操作人主体。
+ */
+
+/** 业务错误带 404：跨主体与不存在给同一个回答（403 会泄露"这单存在"） */
+function notFound(msg) {
+  const e = new Error(msg);
+  e.code = 404;
+  return e;
+}
+
+/** 取一张领料单并校验归属；跨主体按不存在处理 */
+function ownIssue(id, companyId) {
+  const d = db.prepare('SELECT * FROM material_issues WHERE id = ?').get(Number(id));
+  if (!d) return null;
+  if (companyId && Number(d.company_id) !== Number(companyId)) return null;
+  return d;
+}
+
+/** 取一张退料单并校验归属 */
+function ownReturn(id, companyId) {
+  const r = db.prepare('SELECT * FROM material_returns WHERE id = ?').get(Number(id));
+  if (!r) return null;
+  if (companyId && Number(r.company_id) !== Number(companyId)) return null;
+  return r;
+}
+
+/** 取一张盘点单并校验归属 */
+function ownStocktake(id, companyId) {
+  const t = db.prepare('SELECT * FROM stocktakes WHERE id = ?').get(Number(id));
+  if (!t) return null;
+  if (companyId && Number(t.company_id) !== Number(companyId)) return null;
+  return t;
+}
+
 // ---------- 备料 / 领料 ----------
 
 /**
@@ -346,6 +393,8 @@ function suggestFromOrder(orderId) {
 function listIssues(q) {
   const where = [];
   const args = [];
+  // 主体条件先 push：后面的参数位置跟着它走
+  if (q.companyId) { where.push('d.company_id = ?'); args.push(Number(q.companyId)); }
   if (q.status) { where.push('d.status = ?'); args.push(q.status); }
   if (q.order_no) { where.push('d.order_no LIKE ?'); args.push(`%${q.order_no}%`); }
   if (q.kind) { where.push('d.kind = ?'); args.push(q.kind); }
@@ -374,8 +423,8 @@ const RETURN_TYPE = {
 };
 const TAKE_STATUS = { draft: '草稿', counting: '盘点中', submitted: '待调账', adjusted: '已调账', cancelled: '已取消' };
 
-function issueDetail(id) {
-  const d = db.prepare('SELECT * FROM material_issues WHERE id = ?').get(id);
+function issueDetail(id, companyId) {
+  const d = ownIssue(id, companyId);
   if (!d) return null;
   const items = db.prepare(
     `SELECT i.*, (i.issued_qty - i.returned_qty) AS returnable,
@@ -441,7 +490,7 @@ function issueDetail(id) {
   };
 }
 
-function createIssue(b, operator) {
+function createIssue(b, operator, companyId) {
   const items = Array.isArray(b.items) ? b.items : [];
   const clean = items
     .map((x) => ({
@@ -493,6 +542,14 @@ function createIssue(b, operator) {
     }
     dup.add(k);
   });
+  /**
+   * 主体：订单备料跟着订单走（订单属于哪个法人主体，领料就记哪个），
+   * 车间补料/打样领料没有订单，用操作人所在主体。
+   * 原来这里写死 1 —— 分部领的料全记在总部账上。
+   */
+  // 不取 b.company_id：那是客户端能随便改的字段，主体只能来自订单或操作人
+  const ownCompany = (order && Number(order.company_id)) || Number(companyId) || 1;
+
   const kind = ['order', 'extra', 'sample'].includes(b.kind) ? b.kind : 'order';
   if (kind === 'order' && !orderId) throw new Error('订单备料必须选订单；车间补料/打样领料请换类型');
   if (kind === 'extra' && !String(b.note || '').trim()) throw new Error('车间补料必须写补料原因');
@@ -509,7 +566,7 @@ function createIssue(b, operator) {
          req_date, status, item_count, req_qty, issued_qty, amount, note, created_by, created_at, updated_at, demo_tag)
        VALUES (?,?,?,?,?,?,?,?,?,?, 'draft', ?,?,0,0,?,?,?,?,?)`
     ).run(
-      no, 1, orderId, order ? order.order_no : null, order ? order.style_name : null,
+      no, ownCompany, orderId, order ? order.order_no : null, order ? order.style_name : null,
       kind, b.receiver_type === 'outsource' ? 'outsource' : 'own',
       b.factory_id ? int0(b.factory_id) : null, b.factory_name || null,
       b.req_date || today(), clean.length, reqQty, b.note || null, operator, ts, ts, b.demo_tag || null
@@ -535,9 +592,9 @@ function createIssue(b, operator) {
 }
 
 /** 备料：占用库存。占用按原料汇总检查，避免同一原料多行重复占用 */
-function prepareIssue(id, operator) {
-  const d = db.prepare('SELECT * FROM material_issues WHERE id = ?').get(id);
-  if (!d) throw new Error('备料单不存在');
+function prepareIssue(id, operator, companyId) {
+  const d = ownIssue(id, companyId);
+  if (!d) throw notFound('备料单不存在');
   if (d.status !== 'draft') throw new Error(`当前状态「${ISSUE_STATUS[d.status] || d.status}」不能备料（只有草稿能备料）`);
   const items = db.prepare('SELECT * FROM material_issue_items WHERE issue_id = ?').all(id);
   if (!items.length) throw new Error('单据没有明细');
@@ -571,9 +628,9 @@ function prepareIssue(id, operator) {
 }
 
 /** 发料：扣库存。允许少发，少发转 partial 并记欠发 */
-function issueOut(id, b, operator) {
-  const d = db.prepare('SELECT * FROM material_issues WHERE id = ?').get(id);
-  if (!d) throw new Error('备料单不存在');
+function issueOut(id, b, operator, companyId) {
+  const d = ownIssue(id, companyId);
+  if (!d) throw notFound('备料单不存在');
   if (!['prepared', 'partial'].includes(d.status)) throw new Error(`当前状态「${ISSUE_STATUS[d.status] || d.status}」不能发料（需先备料）`);
   assertNotFrozen('material');
 
@@ -650,9 +707,9 @@ function issueOut(id, b, operator) {
 }
 
 /** 结案：还有欠发时要写说明（不许把欠发静默关掉） */
-function closeIssue(id, note, operator) {
-  const d = db.prepare('SELECT * FROM material_issues WHERE id = ?').get(id);
-  if (!d) throw new Error('备料单不存在');
+function closeIssue(id, note, operator, companyId) {
+  const d = ownIssue(id, companyId);
+  if (!d) throw notFound('备料单不存在');
   if (!['issued', 'partial'].includes(d.status)) throw new Error('只有已发料（含部分发出）的单据能结案');
   const open = r2(num(d.req_qty) - num(d.issued_qty));
   if (open > EPS && String(note || '').trim().length < 4) {
@@ -664,9 +721,9 @@ function closeIssue(id, note, operator) {
   return issueDetail(id);
 }
 
-function cancelIssue(id, reason, operator) {
-  const d = db.prepare('SELECT * FROM material_issues WHERE id = ?').get(id);
-  if (!d) throw new Error('备料单不存在');
+function cancelIssue(id, reason, operator, companyId) {
+  const d = ownIssue(id, companyId);
+  if (!d) throw notFound('备料单不存在');
   if (!['draft', 'prepared'].includes(d.status)) throw new Error('已发料的单据不能取消，请走退料');
   if (String(reason || '').trim().length < 4) throw new Error('取消备料单必须写原因（≥4 字）');
   const ts = now();
@@ -680,6 +737,7 @@ function cancelIssue(id, reason, operator) {
 function listReturns(q) {
   const where = [];
   const args = [];
+  if (q.companyId) { where.push('r.company_id = ?'); args.push(Number(q.companyId)); }
   if (q.status) { where.push('r.status = ?'); args.push(q.status); }
   if (q.order_no) { where.push('r.order_no LIKE ?'); args.push(`%${q.order_no}%`); }
   const rows = db.prepare(
@@ -689,9 +747,10 @@ function listReturns(q) {
   return rows.map((r) => ({ ...r, type_label: RETURN_TYPE[r.type] || r.type, status_label: r.status === 'draft' ? '草稿' : (r.status === 'confirmed' ? '已入库' : '已取消') }));
 }
 
-function createReturn(b, operator) {
+function createReturn(b, operator, companyId) {
   const issueId = int0(b.issue_id);
-  const d = db.prepare('SELECT * FROM material_issues WHERE id = ?').get(issueId);
+  // 只能退自己主体的料的退料：跨主体退料等于把别家的库存加上来
+  const d = ownIssue(issueId, companyId);
   if (!d) throw new Error('退料必须选一张领料单');
   if (!['issued', 'partial', 'closed'].includes(d.status)) throw new Error('这张单还没发过料，没有可退的');
   const reason = String(b.reason || '').trim();
@@ -721,8 +780,8 @@ function createReturn(b, operator) {
   try {
     const info = db.prepare(
       `INSERT INTO material_returns (return_no, company_id, issue_id, order_id, order_no, type, status, qty, amount, reason, created_by, created_at, updated_at, demo_tag)
-       VALUES (?,1,?,?,?,?, 'draft', ?,?,?,?,?,?,?)`
-    ).run(no, issueId, d.order_id, d.order_no, type, totalQty, totalAmount, reason, operator, ts, ts, b.demo_tag || null);
+       VALUES (?,?,?,?,?,?, 'draft', ?,?,?,?,?,?,?)`
+    ).run(no, Number(d.company_id) || 1, issueId, d.order_id, d.order_no, type, totalQty, totalAmount, reason, operator, ts, ts, b.demo_tag || null);
     const rid = info.lastInsertRowid;
     const stmt = db.prepare(
       `INSERT INTO material_return_items (return_id, issue_item_id, material_id, name, spec, unit, qty, price, amount, batch_no, remark)
@@ -743,11 +802,13 @@ function ridOf(no) {
   return db.prepare('SELECT id FROM material_returns WHERE return_no = ?').get(no).id;
 }
 
-function returnDetail(id) {
+function returnDetail(id, companyId) {
   const r = db.prepare(
     `SELECT r.*, d.issue_no FROM material_returns r LEFT JOIN material_issues d ON d.id = r.issue_id WHERE r.id = ?`
   ).get(id);
   if (!r) return null;
+  // 跨主体按不存在处理（与详情/动作保持同一口径）
+  if (companyId && Number(r.company_id) !== Number(companyId)) return null;
   return {
     ...r,
     type_label: RETURN_TYPE[r.type] || r.type,
@@ -763,9 +824,9 @@ function returnDetail(id) {
 }
 
 /** 退料入库：加回库存 + 写流水 + 累加已退 */
-function confirmReturn(id, operator) {
-  const r = db.prepare('SELECT * FROM material_returns WHERE id = ?').get(id);
-  if (!r) throw new Error('退料单不存在');
+function confirmReturn(id, operator, companyId) {
+  const r = ownReturn(id, companyId);
+  if (!r) throw notFound('退料单不存在');
   if (r.status !== 'draft') throw new Error('只有草稿状态的退料单能入库');
   assertNotFrozen('material');
   const items = db.prepare('SELECT * FROM material_return_items WHERE return_id = ?').all(id);
@@ -811,10 +872,18 @@ function confirmReturn(id, operator) {
 // ---------- 盘点 ----------
 
 /** 建盘点单：默认把「有库存或有往来的原料」全列上，账面数在此时快照 */
-function createStocktake(b, operator) {
+function createStocktake(b, operator, companyId) {
   const takeDate = b.take_date || today();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(takeDate)) throw new Error('盘点日期格式应为 YYYY-MM-DD');
-  const running = db.prepare("SELECT take_no FROM stocktakes WHERE status IN ('draft','counting','submitted') LIMIT 1").get();
+  /**
+   * 「同时只许一张未完成盘点」这条互斥**要按主体判**。
+   * 原来查全库：分部还没盘完，总部就永远开不了新盘点，报错里还只提别家的单号，
+   * 现场只能理解为"系统坏了"。
+   */
+  const own = Number(companyId) || null;
+  const running = own
+    ? db.prepare("SELECT take_no FROM stocktakes WHERE status IN ('draft','counting','submitted') AND company_id = ? LIMIT 1").get(own)
+    : db.prepare("SELECT take_no FROM stocktakes WHERE status IN ('draft','counting','submitted') LIMIT 1").get();
   if (running) throw new Error(`已有未完成的盘点单 ${running.take_no}，先把它盘完或取消（避免两套账面数打架）`);
 
   const scope = 'material';
@@ -832,8 +901,8 @@ function createStocktake(b, operator) {
   try {
     const info = db.prepare(
       `INSERT INTO stocktakes (take_no, company_id, scope, warehouse, take_date, status, freeze, item_count, counter, note, created_by, created_at, updated_at, demo_tag)
-       VALUES (?,1,?,?,?, 'draft', 1, ?,?,?,?,?,?,?)`
-    ).run(no, scope, b.warehouse || 'cn', takeDate, mats.length, b.counter || operator, b.note || null, operator, ts, ts, b.demo_tag || null);
+       VALUES (?,?,?,?,?, 'draft', 1, ?,?,?,?,?,?,?)`
+    ).run(no, Number(companyId) || 1, scope, b.warehouse || 'cn', takeDate, mats.length, b.counter || operator, b.note || null, operator, ts, ts, b.demo_tag || null);
     const tid = info.lastInsertRowid;
     const stmt = db.prepare(
       `INSERT INTO stocktake_items (take_id, material_id, name, spec, unit, book_qty, count_qty, diff_qty, price, diff_amount)
@@ -848,8 +917,8 @@ function createStocktake(b, operator) {
   }
 }
 
-function stocktakeDetail(id) {
-  const t = db.prepare('SELECT * FROM stocktakes WHERE id = ?').get(id);
+function stocktakeDetail(id, companyId) {
+  const t = ownStocktake(id, companyId);
   if (!t) return null;
   const items = db.prepare('SELECT * FROM stocktake_items WHERE take_id = ? ORDER BY (count_qty IS NULL) DESC, material_id').all(id);
   const counted = items.filter((x) => x.count_qty !== null && x.count_qty !== undefined).length;
@@ -865,10 +934,15 @@ function stocktakeDetail(id) {
 }
 
 function listStocktakes(q) {
+  // 主体条件与 status 一起进 WHERE，参数顺序必须跟着拼接顺序
+  const whr = [];
+  const args = [];
+  if (q.companyId) { whr.push('t.company_id = ?'); args.push(Number(q.companyId)); }
+  if (q.status) { whr.push('t.status = ?'); args.push(q.status); }
   const rows = db.prepare(
     `SELECT t.*, (SELECT COUNT(*) FROM stocktake_items i WHERE i.take_id = t.id AND i.count_qty IS NULL) AS uncounted
-     FROM stocktakes t ${q.status ? 'WHERE t.status = ?' : ''} ORDER BY t.id DESC LIMIT 100`
-  ).all(...(q.status ? [q.status] : []));
+     FROM stocktakes t ${whr.length ? 'WHERE ' + whr.join(' AND ') : ''} ORDER BY t.id DESC LIMIT 100`
+  ).all(...args);
   return rows.map((r) => ({
     ...r,
     status_label: TAKE_STATUS[r.status] || r.status,
@@ -877,9 +951,9 @@ function listStocktakes(q) {
 }
 
 /** 开始盘点：转 counting（冻结生效） */
-function startCount(id, operator) {
-  const t = db.prepare('SELECT * FROM stocktakes WHERE id = ?').get(id);
-  if (!t) throw new Error('盘点单不存在');
+function startCount(id, operator, companyId) {
+  const t = ownStocktake(id, companyId);
+  if (!t) throw notFound('盘点单不存在');
   if (t.status !== 'draft') throw new Error('只有草稿能开始盘点');
   const ts = now();
   db.prepare("UPDATE stocktakes SET status='counting', updated_at=? WHERE id=?").run(ts, id);
@@ -887,9 +961,9 @@ function startCount(id, operator) {
 }
 
 /** 录实盘数：只改实盘与差异，不动库存 */
-function saveCount(id, b) {
-  const t = db.prepare('SELECT * FROM stocktakes WHERE id = ?').get(id);
-  if (!t) throw new Error('盘点单不存在');
+function saveCount(id, b, companyId) {
+  const t = ownStocktake(id, companyId);
+  if (!t) throw notFound('盘点单不存在');
   if (!['draft', 'counting'].includes(t.status)) throw new Error(`当前状态「${TAKE_STATUS[t.status]}」不能再录数`);
   const input = Array.isArray(b.items) ? b.items : [];
   if (!input.length) throw new Error('没有要保存的盘点行');
@@ -949,9 +1023,9 @@ function refreshTakeSummary(id) {
 }
 
 /** 提交：有差异必须写原因；没盘的行不许蒙混过关 */
-function submitStocktake(id, b, operator) {
-  const t = db.prepare('SELECT * FROM stocktakes WHERE id = ?').get(id);
-  if (!t) throw new Error('盘点单不存在');
+function submitStocktake(id, b, operator, companyId) {
+  const t = ownStocktake(id, companyId);
+  if (!t) throw notFound('盘点单不存在');
   if (!['draft', 'counting'].includes(t.status)) throw new Error('只有草稿/盘点中的单据能提交');
   // 允许在提交时一并带上原因
   if (b && Array.isArray(b.items) && b.items.length) {
@@ -995,9 +1069,9 @@ function submitStocktake(id, b, operator) {
 }
 
 /** 调账：写盘盈/盘亏流水并改余额（一次落账，不可重复） */
-function adjustStocktake(id, operator) {
-  const t = db.prepare('SELECT * FROM stocktakes WHERE id = ?').get(id);
-  if (!t) throw new Error('盘点单不存在');
+function adjustStocktake(id, operator, companyId) {
+  const t = ownStocktake(id, companyId);
+  if (!t) throw notFound('盘点单不存在');
   if (t.status !== 'submitted') throw new Error('只有「待调账」的盘点单能落账');
   const items = db.prepare('SELECT * FROM stocktake_items WHERE take_id = ?').all(id);
   const diffs = items.filter((x) => Math.abs(num(x.diff_qty)) > EPS && !x.adjusted);
@@ -1032,9 +1106,9 @@ function adjustStocktake(id, operator) {
   return stocktakeDetail(id);
 }
 
-function cancelStocktake(id, reason, operator) {
-  const t = db.prepare('SELECT * FROM stocktakes WHERE id = ?').get(id);
-  if (!t) throw new Error('盘点单不存在');
+function cancelStocktake(id, reason, operator, companyId) {
+  const t = ownStocktake(id, companyId);
+  if (!t) throw notFound('盘点单不存在');
   if (t.status === 'adjusted') throw new Error('已调账的盘点单不能取消（差异已经落到库存上了）');
   if (String(reason || '').trim().length < 4) throw new Error('取消盘点必须写原因（≥4 字）');
   const ts = now();

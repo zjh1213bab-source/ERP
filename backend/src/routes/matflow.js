@@ -11,6 +11,15 @@ const { db } = require('../db');
 const { ok, fail } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const S = require('../services/matflow');
+const scope = require('../access/companyScope');
+
+/**
+ * 当前用户能看/能操作的主体（null = 集团角色，不过滤）
+ *
+ * 库存这域分两层：**实物存量不分主体**（一个仓里有多少，见 services/matflow 顶部说明），
+ * **单据按主体**（领料单 / 退料单 / 盘点单都带 company_id）。
+ */
+const cidOf = (req) => scope.filterCompanyId(req.user);
 
 const router = express.Router();
 const READ = ['admin', 'sales', 'tech', 'finance', 'production', 'warehouse'];
@@ -29,6 +38,13 @@ function guard(fn) {
     }
   };
 }
+
+/** 业务错误带 404：跨主体与不存在给同一个回答 */
+const notFoundErr = (msg) => {
+  const e = new Error(msg || '不存在');
+  e.code = 404;
+  return e;
+};
 
 const opName = (req) =>
   (req.user && (req.user.name || req.user.username)) || String((req.user && (req.user.id || req.user.sub)) || 'system');
@@ -58,62 +74,67 @@ router.get('/ledger', authRequired, guard((req) => ({ rows: S.ledger(req.query |
 /* ==================== 备料 / 领料 ==================== */
 
 /** 订单用料建议（含可用量与缺口） */
-router.get('/issues/suggest', authRequired, guard((req) => S.suggestFromOrder(Number((req.query || {}).order_id))));
+router.get('/issues/suggest', authRequired, guard((req) => {
+  const orderId = Number((req.query || {}).order_id);
+  const ord = scope.assertOrder(req.user, orderId);
+  if (!ord.ok) throw notFoundErr(ord.reason);
+  return S.suggestFromOrder(orderId);
+}));
 
-router.get('/issues', authRequired, guard((req) => ({ rows: S.listIssues(req.query || {}) })));
+router.get('/issues', authRequired, guard((req) => ({ rows: S.listIssues({ ...(req.query || {}), companyId: cidOf(req) }) })));
 
 router.get('/issues/:id', authRequired, guard((req) => {
-  const d = S.issueDetail(req.params.id);
-  if (!d) throw new Error('备料单不存在');
+  const d = S.issueDetail(req.params.id, cidOf(req));
+  if (!d) throw notFoundErr('备料单不存在');
   return d;
 }));
 
-router.post('/issues', authRequired, requireRole(...WRITE), guard((req) => S.createIssue(req.body || {}, opName(req))));
+router.post('/issues', authRequired, requireRole(...WRITE), guard((req) => S.createIssue(req.body || {}, opName(req), cidOf(req))));
 
-router.post('/issues/:id/prepare', authRequired, requireRole(...WRITE), guard((req) => S.prepareIssue(req.params.id, opName(req))));
+router.post('/issues/:id/prepare', authRequired, requireRole(...WRITE), guard((req) => S.prepareIssue(req.params.id, opName(req), cidOf(req))));
 
-router.post('/issues/:id/issue', authRequired, requireRole(...WRITE), guard((req) => S.issueOut(req.params.id, req.body || {}, opName(req))));
+router.post('/issues/:id/issue', authRequired, requireRole(...WRITE), guard((req) => S.issueOut(req.params.id, req.body || {}, opName(req), cidOf(req))));
 
-router.post('/issues/:id/close', authRequired, requireRole(...WRITE), guard((req) => S.closeIssue(req.params.id, (req.body || {}).note, opName(req))));
+router.post('/issues/:id/close', authRequired, requireRole(...WRITE), guard((req) => S.closeIssue(req.params.id, (req.body || {}).note, opName(req), cidOf(req))));
 
-router.post('/issues/:id/cancel', authRequired, requireRole(...WRITE), guard((req) => S.cancelIssue(req.params.id, (req.body || {}).reason, opName(req))));
+router.post('/issues/:id/cancel', authRequired, requireRole(...WRITE), guard((req) => S.cancelIssue(req.params.id, (req.body || {}).reason, opName(req), cidOf(req))));
 
 /* ==================== 退料 ==================== */
 
-router.get('/returns', authRequired, guard((req) => ({ rows: S.listReturns(req.query || {}) })));
+router.get('/returns', authRequired, guard((req) => ({ rows: S.listReturns({ ...(req.query || {}), companyId: cidOf(req) }) })));
 
 router.get('/returns/:id', authRequired, guard((req) => {
-  const d = S.returnDetail(req.params.id);
-  if (!d) throw new Error('退料单不存在');
+  const d = S.returnDetail(req.params.id, cidOf(req));
+  if (!d) throw notFoundErr('退料单不存在');
   return d;
 }));
 
-router.post('/returns', authRequired, requireRole(...WRITE), guard((req) => S.createReturn(req.body || {}, opName(req))));
+router.post('/returns', authRequired, requireRole(...WRITE), guard((req) => S.createReturn(req.body || {}, opName(req), cidOf(req))));
 
-router.post('/returns/:id/confirm', authRequired, requireRole(...WRITE), guard((req) => S.confirmReturn(req.params.id, opName(req))));
+router.post('/returns/:id/confirm', authRequired, requireRole(...WRITE), guard((req) => S.confirmReturn(req.params.id, opName(req), cidOf(req))));
 
 /* ==================== 盘点 ==================== */
 
-router.get('/stocktakes', authRequired, guard((req) => ({ rows: S.listStocktakes(req.query || {}) })));
+router.get('/stocktakes', authRequired, guard((req) => ({ rows: S.listStocktakes({ ...(req.query || {}), companyId: cidOf(req) }) })));
 
 router.get('/stocktakes/:id', authRequired, guard((req) => {
-  const d = S.stocktakeDetail(req.params.id);
-  if (!d) throw new Error('盘点单不存在');
+  const d = S.stocktakeDetail(req.params.id, cidOf(req));
+  if (!d) throw notFoundErr('盘点单不存在');
   return d;
 }));
 
-router.post('/stocktakes', authRequired, requireRole(...WRITE), guard((req) => S.createStocktake(req.body || {}, opName(req))));
+router.post('/stocktakes', authRequired, requireRole(...WRITE), guard((req) => S.createStocktake(req.body || {}, opName(req), cidOf(req))));
 
-router.post('/stocktakes/:id/start', authRequired, requireRole(...WRITE), guard((req) => S.startCount(req.params.id, opName(req))));
+router.post('/stocktakes/:id/start', authRequired, requireRole(...WRITE), guard((req) => S.startCount(req.params.id, opName(req), cidOf(req))));
 
-router.post('/stocktakes/:id/count', authRequired, requireRole(...WRITE), guard((req) => S.saveCount(req.params.id, req.body || {})));
+router.post('/stocktakes/:id/count', authRequired, requireRole(...WRITE), guard((req) => S.saveCount(req.params.id, req.body || {}, cidOf(req))));
 
-router.post('/stocktakes/:id/submit', authRequired, requireRole(...WRITE), guard((req) => S.submitStocktake(req.params.id, req.body || {}, opName(req))));
+router.post('/stocktakes/:id/submit', authRequired, requireRole(...WRITE), guard((req) => S.submitStocktake(req.params.id, req.body || {}, opName(req), cidOf(req))));
 
 /** 落账会改库存：只给仓库/管理员 */
-router.post('/stocktakes/:id/adjust', authRequired, requireRole(...ADJUST), guard((req) => S.adjustStocktake(req.params.id, opName(req))));
+router.post('/stocktakes/:id/adjust', authRequired, requireRole(...ADJUST), guard((req) => S.adjustStocktake(req.params.id, opName(req), cidOf(req))));
 
-router.post('/stocktakes/:id/cancel', authRequired, requireRole(...WRITE), guard((req) => S.cancelStocktake(req.params.id, (req.body || {}).reason, opName(req))));
+router.post('/stocktakes/:id/cancel', authRequired, requireRole(...WRITE), guard((req) => S.cancelStocktake(req.params.id, (req.body || {}).reason, opName(req), cidOf(req))));
 
 /* ==================== 订单侧联动 ==================== */
 
@@ -121,6 +142,9 @@ router.post('/stocktakes/:id/cancel', authRequired, requireRole(...WRITE), guard
 
 router.get('/order/:id', authRequired, guard((req) => {
   const orderId = Number(req.params.id);
+  // 别家的订单在这里就是 404（与订单域同一口径）
+  const ord = scope.assertOrder(req.user, orderId);
+  if (!ord.ok) throw notFoundErr(ord.reason);
   const o = db.prepare('SELECT id, order_no, style_name, status FROM orders WHERE id = ?').get(orderId);
   if (!o) throw new Error('订单不存在');
   const issues = db.prepare(
