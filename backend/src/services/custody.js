@@ -41,6 +41,53 @@ const { db, now } = require('../db');
 const { localDate } = require('../utils/time');
 const { nextNo } = require('../utils/docNo');
 const { round2, withDepreciation } = require('./assetDep');
+const scope = require('../access/companyScope');
+
+/**
+ * 这一域的主体怎么判（**不需要加列**，全部走父表）
+ *
+ * - `custody_items` 自己就有 `company_id`（实物是哪个主体的资产）；
+ * - `custody_records` 的 `item_id` 是 NOT NULL → 按实物判；
+ * - `custody_claims` 也挂实物 → 按实物判（不用 record 冗余，实物更稳）；
+ * - `custody_clearances` 挂员工 → 按 `employees.company_id` 判；
+ * - `custody_actions` 是多态留痕日志，**故意不筛** —— 它记的是"谁在什么时候动了什么"，
+ *   按主体过滤会让时间线缺环节，而时间线正是定责时要看的东西。
+ *
+ * 为什么"实物归属"是主口径而不是"员工归属"：一件工衣在分部仓里、发给总部来支援的人，
+ * 这东西仍是分部的资产，盘点与处置要分部管；反过来按员工判，分部盘点时就看不到这件东西。
+ */
+const itemScope = (cid, col = 'item_id') => scope.parentClauseSql(cid, 'custody_items', col).sql;
+const empScope = (cid, col = 'employee_id') => scope.parentClauseSql(cid, 'employees', col).sql;
+
+/** 取一件实物并校验归属；跨主体按不存在（403 会承认存在性） */
+function ownItem(id, companyId) {
+  const row = db.prepare('SELECT * FROM custody_items WHERE id = ?').get(Number(id));
+  if (!row) throw bad('实物不存在', 404);
+  if (companyId && Number(row.company_id) !== Number(companyId)) throw bad('实物不存在', 404);
+  return row;
+}
+
+/** 取一条领用记录并校验归属（按它挂的实物判） */
+function ownRecord(id, companyId) {
+  const row = db.prepare('SELECT * FROM custody_records WHERE id = ?').get(Number(id));
+  if (!row) throw bad('领用记录不存在', 404);
+  if (companyId) {
+    const it = db.prepare('SELECT company_id FROM custody_items WHERE id = ?').get(row.item_id);
+    if (!it || Number(it.company_id) !== Number(companyId)) throw bad('领用记录不存在', 404);
+  }
+  return row;
+}
+
+/** 取一张清退单并校验归属（按员工判） */
+function ownClearance(id, companyId) {
+  const row = db.prepare('SELECT * FROM custody_clearances WHERE id = ?').get(Number(id));
+  if (!row) throw bad('清退单不存在', 404);
+  if (companyId && row.employee_id) {
+    const e = db.prepare('SELECT company_id FROM employees WHERE id = ?').get(row.employee_id);
+    if (!e || Number(e.company_id) !== Number(companyId)) throw bad('清退单不存在', 404);
+  }
+  return row;
+}
 
 const bad = (msg, status = 400) => {
   const e = new Error(msg);
@@ -171,38 +218,42 @@ function itemById(id) {
  * 一、字典与统计
  * ==================================================================== */
 
-function stats() {
+function stats(companyId) {
   const t = today();
-  const items = db.prepare("SELECT COUNT(*) c, SUM(CASE WHEN durable=1 THEN 1 ELSE 0 END) d FROM custody_items WHERE status='active'").get();
-  const open = db.prepare("SELECT COUNT(*) c FROM custody_records WHERE status IN ('issued','awaiting')").get().c;
-  const awaiting = db.prepare("SELECT COUNT(*) c FROM custody_records WHERE status='awaiting'").get().c;
+  const cid = Number(companyId) || null;
+  const it = cid ? ' AND i.company_id = ' + cid : '';
+  const items = db.prepare(`SELECT COUNT(*) c, SUM(CASE WHEN durable=1 THEN 1 ELSE 0 END) d FROM custody_items i WHERE i.status='active'${it}`).get();
+  const open = db.prepare(`SELECT COUNT(*) c FROM custody_records r JOIN custody_items i ON i.id = r.item_id WHERE r.status IN ('issued','awaiting')${it}`).get().c;
+  const awaiting = db.prepare(`SELECT COUNT(*) c FROM custody_records r JOIN custody_items i ON i.id = r.item_id WHERE r.status='awaiting'${it}`).get().c;
   // 逾期只认有期限、要求归还、还没回来
   const overdue = db.prepare(`
     SELECT COUNT(*) c FROM custody_records r JOIN custody_items i ON i.id = r.item_id
     WHERE r.status IN ('issued','awaiting') AND i.require_return = 1
-      AND r.expected_return_at IS NOT NULL AND r.expected_return_at < ?`).get(t).c;
+      AND r.expected_return_at IS NOT NULL AND r.expected_return_at < ?${it}`).get(t).c;
   // 工衣这类不强制退回的，单列「不催」，不混进逾期
   const optionalOut = db.prepare(`
     SELECT COUNT(*) c, COALESCE(SUM(r.qty - r.returned_qty),0) q FROM custody_records r
     JOIN custody_items i ON i.id = r.item_id
-    WHERE r.status IN ('issued','awaiting') AND i.require_return = 0`).get();
+    WHERE r.status IN ('issued','awaiting') AND i.require_return = 0${it}`).get();
   const due7 = db.prepare(`
     SELECT COUNT(*) c FROM custody_records r JOIN custody_items i ON i.id = r.item_id
     WHERE r.status IN ('issued','awaiting') AND i.require_return = 1
-      AND r.expected_return_at >= ? AND r.expected_return_at <= ?`)
+      AND r.expected_return_at >= ? AND r.expected_return_at <= ?${it}`)
     .get(t, localDate(new Date(Date.now() + 7 * 86400000).toISOString())).c;
-  const claims = db.prepare("SELECT COUNT(*) c FROM custody_claims WHERE review_status='pending'").get().c;
+  const cl = cid ? ' AND ' + itemScope(cid).replace(/^ AND /, '') : '';
+  const claims = db.prepare(`SELECT COUNT(*) c FROM custody_claims WHERE review_status='pending'${cl}`).get().c;
   const unconfirmed = db.prepare(`
     SELECT COUNT(*) c, COALESCE(SUM(liable_amount),0) amt FROM custody_claims
-    WHERE review_status IN ('partial','liable') AND finance_confirm_no IS NULL`).get();
+    WHERE review_status IN ('partial','liable') AND finance_confirm_no IS NULL${cl}`).get();
   const confirmed = db.prepare(`
     SELECT COUNT(*) c, COALESCE(SUM(liable_amount),0) amt FROM custody_claims
-    WHERE finance_confirm_no IS NOT NULL`).get();
-  const clearanceOpen = db.prepare("SELECT COUNT(*) c FROM custody_clearances WHERE status='open'").get().c;
+    WHERE finance_confirm_no IS NOT NULL${cl}`).get();
+  const clearanceOpen = db.prepare(`SELECT COUNT(*) c FROM custody_clearances c WHERE c.status='open'${cid ? ' AND c.employee_id IN (SELECT id FROM employees WHERE company_id = ' + cid + ')' : ''}`).get().c;
 
   const byKind = db.prepare(`
     SELECT r.item_kind kind, COUNT(*) cnt, COALESCE(SUM(r.qty - r.returned_qty),0) qty
-    FROM custody_records r WHERE r.status IN ('issued','awaiting') GROUP BY r.item_kind`).all()
+    FROM custody_records r JOIN custody_items i ON i.id = r.item_id
+    WHERE r.status IN ('issued','awaiting')${it} GROUP BY r.item_kind`).all()
     .map((x) => ({ ...x, label: KIND[x.kind] || x.kind, qty: round2(x.qty) }));
 
   return {
@@ -224,7 +275,8 @@ function stats() {
   };
 }
 
-function dict() {
+function dict(companyId) {
+  const cid = Number(companyId) || null;
   return {
     kinds: labels(KIND),
     statuses: labels(STATUS),
@@ -234,8 +286,13 @@ function dict() {
     scrap_modes: labels(SCRAP_MODE),
     clearance_status: labels(CLR_STATUS),
     depts: db.prepare('SELECT id, name FROM departments ORDER BY id').all(),
-    employees: db.prepare("SELECT id, code, name, department_id, status, leave_date FROM employees WHERE status IS NULL OR status <> 'left' ORDER BY name").all(),
-    stats: stats()
+    // 员工下拉也按主体筛：分部的领用登记不该出现总部所有人（那是点名册，不是通讯录）
+    employees: db.prepare(
+      "SELECT id, code, name, department_id, status, leave_date FROM employees " +
+      "WHERE (status IS NULL OR status <> 'left')" + (cid ? ' AND company_id = ' + cid : '') +
+      ' ORDER BY name'
+    ).all(),
+    stats: stats(cid)
   };
 }
 
@@ -246,6 +303,7 @@ function dict() {
 function listItems(q = {}) {
   const where = [];
   const params = [];
+  if (q.companyId) { where.push('i.company_id = ?'); params.push(Number(q.companyId)); }
   if (q.kind) { where.push('i.kind = ?'); params.push(q.kind); }
   if (q.status) { where.push('i.status = ?'); params.push(q.status); }
   if (q.q) {
@@ -258,8 +316,17 @@ function listItems(q = {}) {
   return db.prepare(sql).all(...params).map(decorItem);
 }
 
-function saveItem(b = {}, actor) {
+function saveItem(b = {}, actor, user) {
   const id = Number(b.id) || 0;
+  /**
+   * 归属判断放在**一切字段校验之前**。
+   *
+   * 原来放在「取 old」那一步（字段校验之后），于是跨主体改档会先收到
+   * 「一物一码的在册数量只能是 1 件」这类 400 —— 参数本身不合规确实该报 400，
+   * 但顺序反了：先该判断"这条记录是不是你的"。否则调用方会以为改成功了、
+   * 只是参数要调，而不是"这台设备不属于我"。
+   */
+  if (id) ownItem(id, scope.filterCompanyId(user));
   const name = str(b.name);
   if (!name) throw bad('实物名称必填');
   const kind = KIND[b.kind] ? b.kind : 'uniform';
@@ -294,7 +361,13 @@ function saveItem(b = {}, actor) {
         qty_total, unit, require_return, max_per_person, life_months, asset_id, location, status, note,
         created_at, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-      itemNo, str(b.item_code) || null, Number(b.company_id) || 1, kind, name, str(b.spec) || null,
+      itemNo, str(b.item_code) || null,
+      /**
+       * 主体不能直接取 b.company_id —— 那是客户端能随手改的字段。
+       * writeCompanyOf(user, explicit) 的语义：只有集团角色（admin/boss）可以显式给某个主体建档
+       * （总部行政替分部建实物档案是正常需求），其余角色一律落到自己主体。
+       */
+      scope.writeCompanyOf(user, b.company_id), kind, name, str(b.spec) || null,
       str(b.size) || null, str(b.color) || null, durable, qtyTotal, str(b.unit) || '件', requireReturn,
       maxPer, life, assetId, str(b.location) || null, 'active', str(b.note) || null, t, t
     );
@@ -304,7 +377,6 @@ function saveItem(b = {}, actor) {
   }
 
   const old = db.prepare('SELECT * FROM custody_items WHERE id = ?').get(id);
-  if (!old) throw bad('实物不存在', 404);
   const used = db.prepare('SELECT COUNT(*) c FROM custody_records WHERE item_id = ?').get(id).c;
   if (used && (Number(old.durable) !== durable || old.kind !== kind)) {
     throw bad('该实物已有领用记录，类别与「是否一物一码」不能再改（历史统计口径会前后不一致）');
@@ -328,7 +400,8 @@ function saveItem(b = {}, actor) {
  * 恢复可用：损坏件修好了（或经检查不影响使用）。
  * 必须走这一步才能再发 —— 「归还了」不等于「还能用」。
  */
-function restoreItem(id, b = {}, actor) {
+function restoreItem(id, b = {}, actor, companyId) {
+  ownItem(id, companyId);
   const item = itemById(id);
   if (!item) throw bad('实物不存在', 404);
   if (item.status !== 'hold') throw bad('只有在「待处理」的实物才需要恢复');
@@ -343,7 +416,8 @@ function restoreItem(id, b = {}, actor) {
 /** 处置（核销/报废变卖/转出）
  * 拒绝挂资产卡的实物：那类东西的价值体现在资产台账，两边各自报废必然对不上。
  */
-function scrapItem(id, b = {}, actor) {
+function scrapItem(id, b = {}, actor, companyId) {
+  ownItem(id, companyId);
   const item = itemById(id);
   if (!item) throw bad('实物不存在', 404);
   if (item.status === 'scrapped') throw bad('该实物已处置');
@@ -442,8 +516,10 @@ function insertRecord({ item, emp, qty, due, draft, actor, handover, note, prevI
   return Number(info.lastInsertRowid);
 }
 
-function createRecord(b = {}, actor) {
+function createRecord(b = {}, actor, companyId) {
   const draft = !!b.draft;
+  // 只能给自己主体的实物登记领用：跨主体的实物是别家的资产，领了等于凭空少一件
+  ownItem(b.item_id, companyId);
   const item = itemById(b.item_id);
   if (!item) throw bad('实物不存在', 404);
   const emp = employeeOf(b.employee_id);
@@ -464,7 +540,8 @@ function createRecord(b = {}, actor) {
 }
 
 /** 草稿发放：这一刻才真正占实物 */
-function publishRecord(id, actor) {
+function publishRecord(id, actor, companyId) {
+  ownRecord(id, companyId);
   const rec = db.prepare('SELECT * FROM custody_records WHERE id = ?').get(id);
   if (!rec) throw bad('领用记录不存在', 404);
   if (rec.status !== 'draft') throw bad('只有草稿才能发放');
@@ -486,7 +563,8 @@ function publishRecord(id, actor) {
  * - 归还时必须登记状态：不知道东西好坏就定不了责
  * - 登记损坏/遗失只**生成待复核单**，不动任何金额
  */
-function returnRecord(id, b = {}, actor) {
+function returnRecord(id, b = {}, actor, companyId) {
+  ownRecord(id, companyId);
   const rec = db.prepare('SELECT * FROM custody_records WHERE id = ?').get(id);
   if (!rec) throw bad('领用记录不存在', 404);
   if (rec.status === 'draft') throw bad('草稿还没发放，不需要归还');
@@ -561,7 +639,8 @@ function returnRecord(id, b = {}, actor) {
  * 为什么不改 employee_id —— 改了就没有「谁用过这件东西」的历史，
  * 上一任弄坏的东西会被记到下一任头上。
  */
-function transferRecord(id, b = {}, actor) {
+function transferRecord(id, b = {}, actor, companyId) {
+  ownRecord(id, companyId);
   const rec = db.prepare('SELECT * FROM custody_records WHERE id = ?').get(id);
   if (!rec) throw bad('领用记录不存在', 404);
   if (!OPEN.includes(rec.status)) throw bad(`该记录是「${STATUS[rec.status]}」，不能转交`);
@@ -639,6 +718,8 @@ const REC_SELECT = `
 function listRecords(q = {}) {
   const where = [];
   const params = [];
+  // 台账按**实物**主体判（领用记录没有 company_id，item_id 是 NOT NULL）
+  if (q.companyId) { where.push(itemScope(Number(q.companyId)).replace(/^ AND /, '')); }
   if (q.status) {
     if (q.status === 'open') { where.push("r.status IN ('issued','awaiting')"); }
     else { where.push('r.status = ?'); params.push(q.status); }
@@ -662,7 +743,13 @@ function listRecords(q = {}) {
   return db.prepare(sql).all(...params, limit).map(decorRecord);
 }
 
-function detailRecord(id) {
+function detailRecord(id, companyId) {
+  if (companyId) {
+    const own = db.prepare('SELECT item_id FROM custody_records WHERE id = ?').get(Number(id));
+    if (!own) return null;
+    const it = db.prepare('SELECT company_id FROM custody_items WHERE id = ?').get(own.item_id);
+    if (!it || Number(it.company_id) !== Number(companyId)) return null;
+  }
   const r = db.prepare(REC_SELECT + ' WHERE r.id = ?').get(id);
   if (!r) return null;
   const rec = decorRecord(r);
@@ -678,9 +765,11 @@ function detailRecord(id) {
 }
 
 /** 某人身上挂着什么 */
-function personView(employeeId) {
+function personView(employeeId, companyId) {
   const emp = employeeOf(employeeId);
   if (!emp) throw bad('员工不存在', 404);
+  // 「谁身上有什么」按员工归属判：查别家的员工等于查别家的人拿了什么，这是点名册级别的信息
+  if (companyId && Number(emp.company_id) !== Number(companyId)) throw bad('员工不存在', 404);
   const dept = emp.department_id ? db.prepare('SELECT name FROM departments WHERE id = ?').get(emp.department_id) : null;
   const open = listRecords({ employee_id: employeeId, status: 'open', limit: 500 });
   const history = listRecords({ employee_id: employeeId, limit: 500 }).filter((r) => !r.is_open);
@@ -702,13 +791,13 @@ function personView(employeeId) {
   };
 }
 
-function overdueList() {
-  return listRecords({ overdue: '1', limit: 500 });
+function overdueList(companyId) {
+  return listRecords({ overdue: '1', limit: 500, companyId });
 }
 
-function itemTimeline(itemId) {
+function itemTimeline(itemId, companyId) {
+  ownItem(itemId, companyId);
   const item = itemById(itemId);
-  if (!item) throw bad('实物不存在', 404);
   const acts = db.prepare("SELECT * FROM custody_actions WHERE (target_type='item' AND target_id=?) OR (target_type='record' AND target_id IN (SELECT id FROM custody_records WHERE item_id=?)) ORDER BY id DESC LIMIT 200").all(itemId, itemId);
   return { item, records: listRecords({ item_id: itemId, limit: 200 }), actions: acts };
 }
@@ -750,9 +839,11 @@ function decorClearance(r) {
  * - 工衣这类不强制退回的 → 只列进清单，**不改状态、不设期限**（原型：不把工衣全部强制退回）
  * - 同一人已有进行中的清退单 → 直接返回，不重复建
  */
-function buildClearance(b = {}, actor) {
+function buildClearance(b = {}, actor, companyId) {
   const emp = employeeOf(b.employee_id);
   if (!emp) throw bad('员工不存在', 404);
+  // 离职清退按**员工**主体判：给别家员工开清退单，等于替别家做离职交接
+  if (companyId && Number(emp.company_id) !== Number(companyId)) throw bad('员工不存在', 404);
   const exist = db.prepare("SELECT * FROM custody_clearances WHERE employee_id = ? AND status = 'open'").get(emp.id);
   if (exist) return { ...decorClearance(exist), reused: true };
 
@@ -798,14 +889,15 @@ function buildClearance(b = {}, actor) {
 function listClearances(q = {}) {
   const where = [];
   const params = [];
+  // 清退单没有 company_id，按员工父表判
+  if (q.companyId) { where.push(empScope(Number(q.companyId)).replace(/^ AND /, '')); }
   if (q.status) { where.push('status = ?'); params.push(q.status); }
   const sql = 'SELECT * FROM custody_clearances ' + (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY CASE status WHEN \'open\' THEN 0 ELSE 1 END, id DESC LIMIT 200';
   return db.prepare(sql).all(...params).map(decorClearance);
 }
 
-function closeClearance(id, b = {}, actor) {
-  const row = db.prepare('SELECT * FROM custody_clearances WHERE id = ?').get(id);
-  if (!row) throw bad('清退单不存在', 404);
+function closeClearance(id, b = {}, actor, companyId) {
+  const row = ownClearance(id, companyId);
   if (row.status === 'closed') throw bad('该清退单已结案');
   const c = decorClearance(row);
   if (c.must_done < c.must_total) {
@@ -840,6 +932,8 @@ function decorClaim(r) {
 function listClaims(q = {}) {
   const where = [];
   const params = [];
+  // 定责单挂实物 → 按实物主体判（金额最终要进这家主体的账）
+  if (q.companyId) { where.push(itemScope(Number(q.companyId)).replace(/^ AND /, '')); }
   if (q.review_status) { where.push('review_status = ?'); params.push(q.review_status); }
   if (q.employee_id) { where.push('employee_id = ?'); params.push(Number(q.employee_id)); }
   if (q.q) {
@@ -852,8 +946,10 @@ function listClaims(q = {}) {
   return db.prepare(sql).all(...params).map(decorClaim);
 }
 
-function createClaim(b = {}, actor) {
+function createClaim(b = {}, actor, companyId) {
+  if (b.item_id) ownItem(b.item_id, companyId);   // 别家的实物不能拿来定责
   const rec = b.record_id ? db.prepare('SELECT * FROM custody_records WHERE id = ?').get(b.record_id) : null;
+  if (rec && companyId) ownRecord(rec.id, companyId);
   const itemId = rec ? rec.item_id : (b.item_id ? Number(b.item_id) : null);
   const empId = rec ? rec.employee_id : (b.employee_id ? Number(b.employee_id) : null);
   if (!itemId) throw bad('请选择实物（或从一条领用记录发起）');
@@ -881,9 +977,10 @@ function createClaim(b = {}, actor) {
  * 复核结论：只写责任比例与定责金额，**不写工资、不写应付、不写凭证**。
  * 金额要真的收，得财务拿回执号来确认（下面 confirmFinance）。
  */
-function reviewClaim(id, b = {}, actor) {
+function reviewClaim(id, b = {}, actor, companyId) {
   const row = db.prepare('SELECT * FROM custody_claims WHERE id = ?').get(id);
   if (!row) throw bad('复核单不存在', 404);
+  if (companyId && row.item_id) ownItem(row.item_id, companyId);
   if (row.finance_confirm_no) throw bad('财务已确认金额，不能再改判；如需修正请另开一张复核单');
   if (row.review_status === 'closed') throw bad('该复核单已结案');
 
@@ -913,9 +1010,11 @@ function reviewClaim(id, b = {}, actor) {
 }
 
 /** 财务确认：必须有回执号；确认后金额才算落地，但本模块仍然只是「记录」，不改账 */
-function confirmFinance(id, b = {}, actor, roles) {
+function confirmFinance(id, b = {}, actor, roles, companyId) {
   const row = db.prepare('SELECT * FROM custody_claims WHERE id = ?').get(id);
   if (!row) throw bad('复核单不存在', 404);
+  // 财务确认的是"记到哪家的账"，跨主体确认等于替别家认下这笔赔偿
+  if (companyId && row.item_id) ownItem(row.item_id, companyId);
   if (!['partial', 'liable'].includes(row.review_status)) {
     throw bad('只有「部分责任 / 全责」的复核单才需要财务确认');
   }
@@ -938,12 +1037,29 @@ function confirmFinance(id, b = {}, actor, roles) {
  * 七、看板
  * ==================================================================== */
 
-function board() {
-  const s = stats();
-  const overdue = overdueList().slice(0, 20);
-  const pendingClaims = listClaims({ review_status: 'pending' }).slice(0, 20);
-  const clearances = listClearances({ status: 'open' }).slice(0, 10);
-  const actions = db.prepare('SELECT * FROM custody_actions ORDER BY id DESC LIMIT 30').all()
+function board(companyId) {
+  const cid = Number(companyId) || null;
+  const s = stats(cid);
+  const overdue = overdueList(cid).slice(0, 20);
+  const pendingClaims = listClaims({ review_status: 'pending', companyId: cid }).slice(0, 20);
+  const clearances = listClearances({ status: 'open', companyId: cid }).slice(0, 10);
+  /**
+   * 「最近动作」要按 target **反查**归属，不能直接不筛。
+   *
+   * 教训：单条实物的时间线不筛是对的（范围已由 ownItem 卡死，筛了会缺环节），
+   * 但看板这条是**全表最近 30 条** —— 不筛就把别家的员工名、物品名、赔偿金额混进分部的首页。
+   * 两种"日志"的可见性口径不同，不能共用一条规则。
+   */
+  const actWhere = cid
+    ? `WHERE (a.target_type='item' AND a.target_id IN (SELECT id FROM custody_items WHERE company_id = ${cid}))
+        OR (a.target_type='record' AND a.target_id IN (
+              SELECT r.id FROM custody_records r JOIN custody_items i ON i.id = r.item_id WHERE i.company_id = ${cid}))
+        OR (a.target_type='clearance' AND a.target_id IN (
+              SELECT c.id FROM custody_clearances c JOIN employees e ON e.id = c.employee_id WHERE e.company_id = ${cid}))
+        OR (a.target_type='claim' AND a.target_id IN (
+              SELECT a2.id FROM custody_claims a2 JOIN custody_items i2 ON i2.id = a2.item_id WHERE i2.company_id = ${cid}))`
+    : '';
+  const actions = db.prepare(`SELECT a.* FROM custody_actions a ${actWhere} ORDER BY a.id DESC LIMIT 30`).all()
     .map((a) => ({ ...a, action_label: ACTION_LABEL[a.action] || a.action }));
   return { stats: s, overdue, pending_claims: pendingClaims, clearances, actions };
 }

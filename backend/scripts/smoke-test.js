@@ -12742,6 +12742,161 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
   }
 
+  // ================= 数据范围：资产工衣与领归（实物 / 领用 / 清退 / 定责） =================
+  {
+    console.log('\n[数据范围：资产领归]');
+    const { db: CDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const ts = '2026-10-20 09:00:00';
+    const CO2 = 2;
+
+    const wipe = () => {
+      const itIds = CDB.prepare("SELECT id FROM custody_items WHERE item_no IN ('RANCU1','RANCU2')").all().map((r) => Number(r.id));
+      if (itIds.length) {
+        const ph = itIds.map(() => '?').join(',');
+        CDB.prepare(`DELETE FROM custody_claims WHERE item_id IN (${ph})`).run(...itIds);
+        CDB.prepare(`DELETE FROM custody_records WHERE item_id IN (${ph})`).run(...itIds);
+        CDB.prepare(`DELETE FROM custody_items WHERE id IN (${ph})`).run(...itIds);
+      }
+      CDB.prepare("DELETE FROM custody_clearances WHERE clearance_no = 'RANCUC1'").run();
+      CDB.prepare("DELETE FROM employees WHERE code IN ('RANCU1','RANCU2')").run();
+      CDB.prepare("DELETE FROM users WHERE username = 'cu_hr'").run();
+    };
+    wipe();
+
+    const mkEmp = (code, name, companyId) => Number(CDB.prepare(
+      `INSERT INTO employees (code, name, position, status, base_salary, hire_date, created_at, company_id)
+       VALUES (?,?,?,'active',6000,'2026-01-01',?,?)`
+    ).run(code, name, '领归范围', ts, companyId).lastInsertRowid);
+    const empC1 = mkEmp('RANCU1', '领归员工甲', 1);
+    const empC2 = mkEmp('RANCU2', '领归员工乙', CO2);
+
+    const mkItem = (no, name, companyId) => Number(CDB.prepare(
+      `INSERT INTO custody_items (item_no, kind, name, durable, qty_total, qty_out, unit, require_return,
+         status, company_id, created_at, updated_at)
+       VALUES (?,?,?,0,50,0,'双',1,'active',?,?,?)`
+    ).run(no, 'ppe', name, companyId, ts, ts).lastInsertRowid);
+    const itemC1 = mkItem('RANCU1', '范围手套甲', 1);
+    const itemC2 = mkItem('RANCU2', '范围手套乙', CO2);
+
+    const recC1 = Number(CDB.prepare(
+      `INSERT INTO custody_records (rec_no, item_id, item_kind, durable, employee_id, employee_name, qty, status,
+         issued_at, issued_by, returned_qty, created_at, updated_at)
+       VALUES ('RANCUR1',?,?,0,?,?,5,'issued',?,'smoke',0,?,?)`
+    ).run(itemC1, 'ppe', empC1, '领归员工甲', ts, ts, ts).lastInsertRowid);
+
+    CDB.prepare(
+      `INSERT INTO custody_clearances (clearance_no, employee_id, employee_name, status, must_total, must_done,
+         optional_total, optional_done, created_at, updated_at)
+       VALUES ('RANCUC1',?,?,'open',0,0,0,0,?,?)`
+    ).run(empC1, '领归员工甲', ts, ts);
+
+    CDB.prepare(
+      `INSERT INTO custody_claims (claim_no, record_id, item_id, employee_id, employee_name, damage_type, qty,
+         desc_text, claim_amount, review_status, status, created_at, updated_at)
+       VALUES ('RANCUD1',?,?,?,?, 'damaged',2,'范围测试',100,'pending','open',?,?)`
+    ).run(recC1, itemC1, empC1, '领归员工甲', ts, ts);
+
+    const uname = 'cu_hr';
+    const upwd = 'CuHr123456';
+    CDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(uname, hashPassword(upwd), '领归范围行政', 'hr', CO2, ts);
+    require('../src/services/access').clearCache();
+    const cl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: uname, password: upwd })
+    }).then((r) => r.json());
+    const cTok = cl.data && cl.data.token;
+    ok('分公司行政账号可登录', !!cTok, cl.message || 'ok');
+
+    // ---- 1. 实物档案 ----
+    const its = await req('/api/custody/items', { token: cTok });
+    const itNos = ((its.json.data) || []).map((x) => x.item_no);
+    ok('★ 分公司只看得到自己主体的实物（资产就在这张表上，不靠推）',
+      its.status === 200 && itNos.includes('RANCU2') && !itNos.includes('RANCU1'),
+      `看到 ${itNos.length} 件：${itNos.slice(0, 6).join(',')}`);
+
+    // 故意在 body 里塞 company_id=1：非集团角色不能借建档把资产记到别家
+    const madeIt = await req('/api/custody/items', {
+      method: 'POST', token: cTok,
+      body: { item_no: 'RANCU3', kind: 'ppe', name: '范围手套丙', durable: false, qty_total: 10, company_id: 1 }
+    });
+    const madeItId = madeIt.json.data && madeIt.json.data.id;
+    const madeItCo = madeItId ? Number(CDB.prepare('SELECT company_id FROM custody_items WHERE id = ?').get(madeItId).company_id) : null;
+    ok('★ 分公司建档落在自己主体（body 里传别家 company_id 不作数）',
+      madeIt.status === 200 && madeItCo === CO2,
+      `HTTP ${madeIt.status} 落主体 ${madeItCo}`);
+    if (madeItId) CDB.prepare('DELETE FROM custody_items WHERE id = ?').run(madeItId);
+
+    const editOther = await req('/api/custody/items', {
+      method: 'POST', token: cTok, body: { id: itemC1, name: '改名试试', kind: 'ppe', qty_total: 50 }
+    });
+    ok('★ 跨主体不能改别家实物档案', editOther.status === 404, `HTTP ${editOther.status}`);
+
+    const scrapOther = await req(`/api/custody/scrap/${itemC1}`, {
+      method: 'POST', token: cTok, body: { scrap_mode: 'discard', reason: '跨主体处置试试' }
+    });
+    ok('★ 跨主体不能处置别家实物（处置等于东西消失）', scrapOther.status === 404, `HTTP ${scrapOther.status}`);
+
+    // ---- 2. 领用台账 ----
+    const recs = await req('/api/custody/records', { token: cTok });
+    const recNos = ((recs.json.data) || []).map((x) => x.rec_no);
+    ok('★ 分公司领用台账不含别家实物的记录',
+      recs.status === 200 && !recNos.includes('RANCUR1'),
+      `看到 ${recNos.length} 条`);
+
+    const mkRecOther = await req('/api/custody/records', {
+      method: 'POST', token: cTok, body: { item_id: itemC1, employee_id: empC1, qty: 1, draft: true }
+    });
+    ok('★ 跨主体不能给别家实物登记领用', mkRecOther.status === 404, `HTTP ${mkRecOther.status}`);
+
+    const getRecOther = await req(`/api/custody/records/${recC1}`, { token: cTok });
+    ok('★ 跨主体读领用详情 404', getRecOther.status === 404, `HTTP ${getRecOther.status}`);
+
+    const pubOther = await req(`/api/custody/records/${recC1}/publish`, { method: 'POST', token: cTok, body: {} });
+    ok('★ 跨主体不能发放别家的领用草稿', pubOther.status === 404, `HTTP ${pubOther.status}`);
+
+    // ---- 3. 谁身上有什么 ----
+    const pvOther = await req(`/api/custody/person/${empC1}`, { token: cTok });
+    ok('★ 跨主体不能查「谁身上有什么」（等于点名册级的领用清单）',
+      pvOther.status === 404, `HTTP ${pvOther.status}`);
+
+    // ---- 4. 离职清退 ----
+    const clrs = await req('/api/custody/clearances', { token: cTok });
+    const clrNos = ((clrs.json.data) || []).map((x) => x.clearance_no);
+    ok('★ 分公司清退单列表不含别家员工',
+      clrs.status === 200 && !clrNos.includes('RANCUC1'), `看到 ${clrNos.length} 张`);
+
+    const mkClrOther = await req('/api/custody/clearances', {
+      method: 'POST', token: cTok, body: { employee_id: empC1, reason: '跨主体清退试试' }
+    });
+    ok('★ 跨主体不能给别家员工开离职清退', mkClrOther.status === 404, `HTTP ${mkClrOther.status}`);
+
+    // ---- 5. 损坏定责 ----
+    const clms = await req('/api/custody/claims', { token: cTok });
+    const clmNos = ((clms.json.data) || []).map((x) => x.claim_no);
+    ok('★ 分公司定责单列表不含别家实物（金额最终进哪家账要能对上）',
+      clms.status === 200 && !clmNos.includes('RANCUD1'), `看到 ${clmNos.length} 张`);
+
+    // ---- 6. 看板统计 ----
+    const bd = await req('/api/custody/board', { token: cTok });
+    const ownItemCnt = Number(CDB.prepare("SELECT COUNT(*) c FROM custody_items WHERE status='active' AND company_id = ?").get(CO2).c);
+    const bdItems = bd.json.data && bd.json.data.stats ? Number(bd.json.data.stats.items) : -1;
+    const bdActCo = ((bd.json.data && bd.json.data.actions) || []).length;
+    ok('★ 看板统计只算本主体（在册数与库里一致，最近动作不漏别家）',
+      bd.status === 200 && bdItems === ownItemCnt && bdActCo === 0,
+      `看板 ${bdItems} / 库里 ${ownItemCnt} / 动作 ${bdActCo} 条`);
+
+    // ---- 清理 ----
+    wipe();
+    const leftIt = Number(CDB.prepare("SELECT COUNT(*) c FROM custody_items WHERE item_no LIKE 'RANCU%'").get().c);
+    const leftRec = Number(CDB.prepare("SELECT COUNT(*) c FROM custody_records WHERE rec_no = 'RANCUR1'").get().c);
+    const leftClm = Number(CDB.prepare("SELECT COUNT(*) c FROM custody_claims WHERE claim_no = 'RANCUD1'").get().c);
+    require('../src/services/access').clearCache();
+    ok('资产领归范围夹具已清干净', leftIt === 0 && leftRec === 0 && leftClm === 0,
+      `实物 ${leftIt} / 领用 ${leftRec} / 定责 ${leftClm}`);
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');
