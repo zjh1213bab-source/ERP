@@ -11274,6 +11274,214 @@ async function req(path, { method = 'GET', body, token } = {}) {
       !MDB.prepare("SELECT 1 x FROM orders WHERE order_no = 'MCOL-TEST-1'").get(), '已删');
   }
 
+  // ================= 领料按「款 × 颜色」发料 =================
+  {
+    console.log('\n[领料按颜色发料]');
+    const { db: MDB } = require('../src/db');
+    const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
+    const near = (a, b) => Math.abs(num(a) - num(b)) < 0.02;
+
+    // ---------- 夹具：2 款 4 色 + 按色配料的用料 ----------
+    const mkMat = async (name, unit, stock, type) => {
+      const r = await req('/api/materials', {
+        method: 'POST', token,
+        body: { type: type || 'fabric', name, unit, stock_qty: stock, code: `SMK-IC-${name}` }
+      });
+      return r.json.data;
+    };
+    const matFabA = await mkMat('冒烟按色布 A', '米', 5000);
+    const matFabB = await mkMat('冒烟按色布 B', '米', 5000);
+    const matBtn = await mkMat('冒烟按色纽扣', '个', 20000, 'accessory');
+
+    const mkOrder = await req('/api/orders', {
+      method: 'POST', token,
+      body: {
+        order_no: 'MIC-TEST-1', type: 'custom',
+        items: [
+          { product_name: '按色T恤', style_no: 'IC-TZ-01', colors: [
+            { color: '印花001', sizes: [{ size: 'M', qty: 100, usd_price: 2 }, { size: 'L', qty: 50, usd_price: 2 }] },
+            { color: '印花002', sizes: [{ size: 'M', qty: 80, usd_price: 2 }] }
+          ] },
+          { product_name: '按色卫衣', style_no: 'IC-WY-01', colors: [
+            { color: '印花003', sizes: [{ size: 'M', qty: 200, usd_price: 3 }] },
+            { color: '印花004', sizes: [{ size: 'M', qty: 120, usd_price: 3 }] }
+          ] }
+        ]
+      }
+    });
+    const oid = mkOrder.json.data && mkOrder.json.data.id;
+    const items = (mkOrder.json.data && mkOrder.json.data.items) || [];
+    const itA = items.find((x) => x.style_no === 'IC-TZ-01');
+    const itB = items.find((x) => x.style_no === 'IC-WY-01');
+
+    const addMat = (body) => req('/api/order-materials', { method: 'POST', token, body: { order_id: oid, ...body } });
+    const wa = await addMat({
+      item_id: itA.id, type: 'fabric', material_id: matFabA.id, name: matFabA.name, unit: '米',
+      one_use: 1.35, loss: 5, price: 18,
+      colors: [{ colorway: '印花001', color_no: 'A1', qty: 1.35 }, { colorway: '印花002', color_no: 'A2', qty: 1.45 }]
+    });
+    const wb = await addMat({
+      item_id: itB.id, type: 'fabric', material_id: matFabB.id, name: matFabB.name, unit: '米',
+      one_use: 0.9, loss: 5, price: 22,
+      colors: [{ colorway: '印花003', color_no: 'C3', qty: 0.9 }, { colorway: '印花004', color_no: 'C4', qty: 0.95 }]
+    });
+    const wc = await addMat({
+      item_id: itA.id, type: 'accessory', material_id: matBtn.id, name: matBtn.name, unit: '个',
+      one_use: 4, loss: 2, price: 0.12, all_colors: 1
+    });
+
+    // ---------- 1. 建议按色展开 ----------
+    const sg1 = await req(`/api/matflow/issues/suggest?order_id=${oid}`, { token });
+    const sgItems = (sg1.json.data && sg1.json.data.items) || [];
+    const line001 = sgItems.find((x) => x.colorway === '印花001');
+    const line002 = sgItems.find((x) => x.colorway === '印花002');
+    const line004 = sgItems.find((x) => x.colorway === '印花004');
+    const lineBtn = sgItems.find((x) => x.name === matBtn.name);
+    ok('★ 备料建议按「款 × 颜色」展开（4 个色 + 1 个全色通用 = 5 行）',
+      sg1.status === 200 && sgItems.length === 5 && sg1.json.data.color_lines === 4,
+      `HTTP ${sg1.status} / ${sgItems.length} 行 / 按色 ${sg1.json.data && sg1.json.data.color_lines}`);
+
+    ok('★ 分色行的件数取「该色件数」而不是整款件数',
+      !!line001 && near(line001.piece_qty, 150) && near(line004.piece_qty, 120),
+      `印花001=${line001 && line001.piece_qty}（该色 150，款共 230）/ 印花004=${line004 && line004.piece_qty}`);
+
+    ok('分色行带上色号与款号', !!line001 && line001.color_no === 'A1' && line001.style_no === 'IC-TZ-01',
+      `色号=${line001 && line001.color_no} 款=${line001 && line001.style_no}`);
+
+    const sumA = sgItems.filter((x) => x.name === matFabA.name).reduce((s, x) => s + num(x.order_total), 0);
+    ok('★ 分色行合计 = 物料行总用量（同一套账不能两个数）',
+      near(sumA, wa.json.data.total_use),
+      `合计 ${Math.round(sumA * 100) / 100} vs 物料 ${wa.json.data && wa.json.data.total_use}`);
+
+    ok('全色通用的料只出一行并标明「全部颜色」',
+      !!lineBtn && lineBtn.colorway === '' && lineBtn.color_mode === 'all' && near(lineBtn.piece_qty, 230),
+      `${lineBtn && lineBtn.color_mode} / 件数 ${lineBtn && lineBtn.piece_qty}`);
+
+    // ---------- 2. 建单：同一原料多色必须能共存 ----------
+    const mkIssue = (items2) => req('/api/matflow/issues', {
+      method: 'POST', token,
+      body: { kind: 'order', order_id: oid, req_date: '2026-11-05', note: '冒烟：按颜色备料', items: items2 }
+    });
+    const toItem = (x, qty) => ({
+      material_id: x.material_id, name: x.name, spec: x.spec, unit: x.unit,
+      req_qty: qty === undefined ? x.req_qty : qty,
+      item_id: x.item_id, colorway: x.colorway, color_no: x.color_no, price: x.price
+    });
+
+    const made = await mkIssue(sgItems.map((x) => toItem(x)));
+    const issueId = made.json.data && made.json.data.id;
+    ok('★ 同一原料的两个颜色可以同时在一张单上（唯一索引已按款+色放开）',
+      made.status === 200 && !!issueId && (made.json.data.items || []).length === 5,
+      `HTTP ${made.status} ${(made.json.message || '').slice(0, 60)}`);
+
+    ok('明细带款号与颜色', (made.json.data.items || []).filter((x) => x.colorway).length === 4
+      && (made.json.data.items || []).every((x) => x.item_style_no),
+      (made.json.data.items || []).slice(0, 2).map((x) => `${x.item_style_no}/${x.colorway || '不分色'}`).join(' '));
+
+    // ---------- 3. 校验类 ----------
+    const dupColor = await mkIssue([toItem(line001), toItem(line001, 10)]);
+    ok('★ 同料同款同色重复出现被拒（否则按色汇总会翻倍）',
+      dupColor.status === 400 && /重复/.test(dupColor.json.message || ''), `HTTP ${dupColor.status}`);
+
+    const noItem = await mkIssue([{ material_id: matFabA.id, name: matFabA.name, unit: '米', req_qty: 10, colorway: '印花001' }]);
+    ok('填了颜色不填款被拒（颜色属于款，没有款就没有合法颜色集合）',
+      noItem.status === 400 && /没指定是哪个款/.test(noItem.json.message || ''), `HTTP ${noItem.status}`);
+
+    const badColor = await mkIssue([{
+      material_id: matFabA.id, name: matFabA.name, unit: '米', req_qty: 10, item_id: itA.id, colorway: '印花009'
+    }]);
+    ok('★ 填该款没有的颜色被拒', badColor.status === 400 && /不属于这个款/.test(badColor.json.message || ''),
+      `HTTP ${badColor.status} ${(badColor.json.message || '').slice(0, 40)}`);
+
+    const crossColor = await mkIssue([{
+      material_id: matFabA.id, name: matFabA.name, unit: '米', req_qty: 10, item_id: itA.id, colorway: '印花003'
+    }]);
+    ok('★ 填别的款的颜色也被拒（款与色必须同属一支）', crossColor.status === 400, `HTTP ${crossColor.status}`);
+
+    // ---------- 4. 备料 + 发料 ----------
+    const prep = await req(`/api/matflow/issues/${issueId}/prepare`, { method: 'POST', token, body: {} });
+    ok('按色领料单可以备料（占用库存）', prep.status === 200 && prep.json.data.status === 'prepared', `HTTP ${prep.status}`);
+
+    const det0 = await req(`/api/matflow/issues/${issueId}`, { token });
+    const r001 = (det0.json.data.items || []).find((x) => x.colorway === '印花001');
+    const r002 = (det0.json.data.items || []).find((x) => x.colorway === '印花002');
+    const r003 = (det0.json.data.items || []).find((x) => x.colorway === '印花003');
+    const r004 = (det0.json.data.items || []).find((x) => x.colorway === '印花004');
+    const half002 = Math.round(num(r002.req_qty) * 0.6 * 100) / 100;
+
+    const outRes = await req(`/api/matflow/issues/${issueId}/issue`, {
+      method: 'POST', token,
+      body: { items: [
+        { id: r001.id, issued_qty: r001.req_qty, batch_no: 'G-A1' },
+        { id: r002.id, issued_qty: half002, batch_no: 'G-A2' }
+      ] }
+    });
+    ok('按色发料：只发两个颜色，单据转「部分发出」',
+      outRes.status === 200 && outRes.json.data.status === 'partial',
+      `HTTP ${outRes.status} / ${outRes.json.data && outRes.json.data.status_label}`);
+
+    // ---------- 5. 再查建议：按色扣减不能串色 ----------
+    const sg2 = await req(`/api/matflow/issues/suggest?order_id=${oid}`, { token });
+    const it2 = (sg2.json.data && sg2.json.data.items) || [];
+    const g001 = it2.find((x) => x.colorway === '印花001');
+    const g002 = it2.find((x) => x.colorway === '印花002');
+    const g003 = it2.find((x) => x.colorway === '印花003');
+    ok('★ 按色扣减：发过的颜色不再要，没发的颜色照旧（不串色）',
+      sg2.status === 200
+      && near(g001.already_issued, r001.req_qty) && near(g001.req_qty, 0)
+      && near(g002.already_issued, half002) && num(g002.req_qty) > 0
+      && near(g003.already_issued, 0) && near(g003.req_qty, r003.req_qty),
+      `001 已领 ${g001 && g001.already_issued}/需 ${g001 && g001.req_qty}；002 已领 ${g002 && g002.already_issued}/需 ${g002 && g002.req_qty}；003 已领 ${g003 && g003.already_issued}/需 ${g003 && g003.req_qty}`);
+
+    // ---------- 6. 流水备注带颜色（面料按色追溯的最后一道凭据） ----------
+    const led = await req(`/api/matflow/ledger?material_id=${matFabA.id}&limit=10`, { token });
+    const ledRows = (led.json.data && led.json.data.rows) || [];
+    const hasColorRemark = ledRows.some((l) => l.type === 'issue' && /印花001/.test(l.remark || ''));
+    const hasBatch = ledRows.some((l) => /G-A1/.test(l.remark || ''));
+    ok('★ 发料流水备注写明颜色的色号与缸号', hasColorRemark && hasBatch,
+      ledRows.slice(0, 2).map((l) => l.remark).join(' | ').slice(0, 80));
+
+    // ---------- 7. 按色汇总与退料 ----------
+    const det1 = await req(`/api/matflow/issues/${issueId}`, { token });
+    const byColor = det1.json.data.by_color || [];
+    const sumIssued = byColor.reduce((s, g) => s + num(g.issued_qty), 0);
+    ok('★ 明细「按颜色汇总」与单头已发合计一致',
+      byColor.length === 5 && near(sumIssued, det1.json.data.issued_qty),
+      `${byColor.length} 组 / 汇总 ${Math.round(sumIssued * 100) / 100} vs 单头 ${det1.json.data.issued_qty}`);
+
+    const ret = await req('/api/matflow/returns', {
+      method: 'POST', token,
+      body: { issue_id: issueId, type: 'leftover', reason: '冒烟：印花001 余料退回', items: [{ issue_item_id: r001.id, qty: 10 }] }
+    });
+    ok('按色退料：只退印花001 的余料', ret.status === 200 && (ret.json.data.items || []).some((x) => x.colorway === '印花001'),
+      `HTTP ${ret.status} / ${(ret.json.data && ret.json.data.items || []).map((x) => x.colorway || '不分色').join(',')}`);
+
+    const retOver = await req('/api/matflow/returns', {
+      method: 'POST', token,
+      body: { issue_id: issueId, type: 'leftover', reason: '冒烟：退别的颜色的量', items: [{ issue_item_id: r003.id, qty: 5 }] }
+    });
+    ok('★ 印花003 一发未发，退料被拒（可退按行算，不按整料算）',
+      retOver.status === 400 && /可退/.test(retOver.json.message || ''), `HTTP ${retOver.status}`);
+
+    // ---------- 清理 ----------
+    const retIds = MDB.prepare('SELECT id FROM material_returns WHERE issue_id = ?').all(issueId).map((r) => r.id);
+    retIds.forEach((rid) => MDB.prepare('DELETE FROM material_return_items WHERE return_id = ?').run(rid));
+    MDB.prepare('DELETE FROM material_returns WHERE issue_id = ?').run(issueId);
+    MDB.prepare("DELETE FROM material_ledger WHERE ref_type IN ('material_issue','material_return') AND ref_id = ?").run(issueId);
+    MDB.prepare('DELETE FROM material_issue_items WHERE issue_id = ?').run(issueId);
+    MDB.prepare('DELETE FROM material_issues WHERE id = ?').run(issueId);
+    MDB.prepare(`DELETE FROM order_material_colors WHERE order_material_id IN
+                 (SELECT id FROM order_materials WHERE order_id = ?)`).run(oid);
+    MDB.prepare('DELETE FROM order_materials WHERE order_id = ?').run(oid);
+    MDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(oid);
+    MDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(oid);
+    MDB.prepare('DELETE FROM orders WHERE id = ?').run(oid);
+    [matFabA.id, matFabB.id, matBtn.id].forEach((id) => MDB.prepare('DELETE FROM materials WHERE id = ?').run(id));
+    ok('按色发料夹具已清干净',
+      !MDB.prepare("SELECT 1 x FROM orders WHERE order_no = 'MIC-TEST-1'").get()
+      && !MDB.prepare("SELECT 1 x FROM materials WHERE code LIKE 'SMK-IC-%'").get(), '已删');
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

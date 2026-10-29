@@ -19,7 +19,12 @@ const { hashPassword } = require('./auth/password');
 let DatabaseCtor;
 let driver;
 try {
-  DatabaseCtor = require('better-sqlite3');
+  const BetterSqlite = require('better-sqlite3');
+  // 可选原生模块可能存在但 ABI 与当前 Node 不兼容（例如在 Node 22 安装后用 Node 24 启动）。
+  // 只 require 不会触发 ABI 检查，因此先用内存库验证构造成功，再选为实际驱动。
+  const probe = new BetterSqlite(':memory:');
+  probe.close();
+  DatabaseCtor = BetterSqlite;
   driver = 'better-sqlite3';
 } catch (e) {
   try {
@@ -118,6 +123,26 @@ function migrate() {
   // 开发单明细
   add('tech_pack_materials', 'material_id', 'INTEGER');
   add('tech_pack_materials', 'use_part', 'TEXT');
+
+  // 领料明细挂到「款 × 颜色」（按色发料；老数据 item_id=0 / colorway='' 按总量核）
+  add('material_issue_items', 'item_id', 'INTEGER NOT NULL DEFAULT 0');
+  add('material_issue_items', 'colorway', "TEXT NOT NULL DEFAULT ''");
+  add('material_issue_items', 'color_no', 'TEXT');
+  /**
+   * 唯一索引要带上款与颜色，否则「同一原料两个颜色」会被当成重复行拦掉。
+   * 每次启动都检查一次索引定义，已经对了就不动（DROP+CREATE 在 4000 行表上没必要天天做）。
+   */
+  const issueIdx = (() => {
+    try {
+      return (db.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='uq_issue_item'").get() || {}).sql || '';
+    } catch (e) { return ''; }
+  })();
+  if (issueIdx && !(issueIdx.includes('item_id') && issueIdx.includes('colorway'))) {
+    try {
+      db.exec('DROP INDEX IF EXISTS uq_issue_item');
+      db.exec('CREATE UNIQUE INDEX uq_issue_item ON material_issue_items(issue_id, material_id, name, item_id, colorway)');
+    } catch (e) { /* 老库有重复行时建不上：留给 apply-issuecolor-ddl.js 处理 */ }
+  }
 
   // 往来账原币字段（历史数据按 CNY 处理）
   ['ar_invoices', 'ap_invoices'].forEach((tb) => {

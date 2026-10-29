@@ -246,7 +246,7 @@
 
     <!-- ==================== 新建备料单 ==================== -->
     <div v-if="newIssue.open" class="modal-mask" @click.self="newIssue.open = false">
-      <div class="modal wide">
+      <div class="modal xwide">
         <h3>新建备料单</h3>
         <div class="fgrid">
           <label>类型
@@ -275,21 +275,30 @@
         </label>
 
         <div v-if="newIssue.loading" class="tiny muted" style="margin: 10px 0">正在按订单用料计算需求…</div>
-        <div v-else-if="suggest && suggest.items && suggest.items.length" class="table-wrap" style="max-height: 320px">
-          <table class="data">
+        <div v-else-if="suggest && suggest.items && suggest.items.length" class="table-wrap" style="max-height: 340px">
+          <table class="data" style="min-width: 940px">
             <thead>
               <tr>
-                <th>原料</th><th>单位</th><th class="num">订单总用量</th><th class="num">已领</th>
-                <th class="num">本次需求</th><th class="num">可用</th><th class="num">缺口</th>
+                <th>款</th><th>颜色</th><th>原料</th><th>单位</th>
+                <th class="num">件数</th><th class="num">单件用量</th><th class="num">需求量</th>
+                <th class="num">已领</th><th class="num">本次需求</th><th class="num">可用</th><th class="num">缺口</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(it, i) in newIssue.items" :key="i" :class="{ 'row-bad': it.gap > 0 }">
+              <tr v-for="(it, i) in newIssue.items" :key="i" :class="{ 'row-bad': it.gap > 0, 'row-warn': it.color_mode === 'legacy' }">
+                <td class="tiny">{{ it.style_no || '不分款' }}</td>
+                <td class="tiny">
+                  <span :class="colorTag(it.color_mode)">{{ it.color_label || '未指定颜色' }}</span>
+                  <span v-if="it.color_no" class="tiny muted"> · {{ it.color_no }}</span>
+                </td>
                 <td>
                   {{ it.name }}
                   <span v-if="!it.material_id" class="tag red">未关联档案</span>
+                  <div v-if="it.note" class="tiny muted">{{ it.note }}</div>
                 </td>
                 <td class="tiny">{{ it.unit || '—' }}</td>
+                <td class="num tiny muted">{{ it.piece_qty ? num(it.piece_qty) : '' }}</td>
+                <td class="num tiny muted">{{ num(it.one_use) }}</td>
                 <td class="num tiny">{{ num(it.order_total) }}</td>
                 <td class="num tiny muted">{{ it.already_issued ? num(it.already_issued) : '' }}</td>
                 <td class="num"><input v-model.number="it.req_qty" type="number" class="mini-inp" min="0" step="0.01" /></td>
@@ -300,7 +309,11 @@
           </table>
         </div>
         <div v-else class="tiny muted" style="margin: 10px 0">
-          选订单后自动带出该单用料（来自订单的「面辅料用量」，含损耗）。没有用料记录就手工加行。
+          选订单后自动带出该单用料（来自订单的「面辅料用量」，含损耗）。<b>配了颜色的料一个颜色一行</b>，
+          仓库按色配比发料；没配颜色的行按整款件数算。没有用料记录就手工加行。
+        </div>
+        <div v-if="suggest && suggest.warnings && suggest.warnings.length" class="warn-box" style="margin: 8px 0">
+          <div v-for="(w, i) in suggest.warnings" :key="'w' + i" class="tiny">{{ w }}</div>
         </div>
 
         <div class="ops-row">
@@ -355,16 +368,21 @@
         </div>
         <div v-if="detail.data.note" class="tiny muted" style="margin: 6px 0">说明：{{ detail.data.note }}</div>
 
-        <div class="table-wrap" style="max-height: 300px">
-          <table class="data">
+        <div class="table-wrap" style="max-height: 320px">
+          <table class="data" style="min-width: 1040px">
             <thead>
               <tr>
-                <th>原料</th><th>缸号</th><th class="num">需求</th><th class="num">已发</th>
+                <th>款</th><th>颜色</th><th>原料</th><th>缸号</th><th class="num">需求</th><th class="num">已发</th>
                 <th class="num">欠发</th><th class="num">已退</th><th class="num">可退</th><th class="num">可用(不含本单)</th><th class="num">金额</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="it in detail.data.items" :key="it.id" :class="{ 'row-warn': it.short > 0 }">
+                <td class="tiny">{{ it.item_style_no || '不分款' }}</td>
+                <td class="tiny">
+                  <span :class="it.colorway ? 'tag blue' : 'tag gray'">{{ it.colorway || '不分色' }}</span>
+                  <span v-if="it.color_no" class="tiny muted"> · {{ it.color_no }}</span>
+                </td>
                 <td>{{ it.name }}<span v-if="it.spec" class="tiny muted"> · {{ it.spec }}</span></td>
                 <td class="tiny mono">{{ it.batch_no || '—' }}</td>
                 <td class="num">{{ num(it.req_qty) }}<span class="tiny muted">{{ it.unit }}</span></td>
@@ -377,6 +395,26 @@
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <div v-if="detail.data.by_color && detail.data.by_color.length > 1" style="margin-top: 12px">
+          <h4 class="sec">按颜色汇总（车间按色领料、按色核销就靠这张表）</h4>
+          <div class="table-wrap" style="max-height: 320px">
+            <table class="data">
+              <thead><tr><th>款</th><th>颜色</th><th>色号</th><th class="num">需求</th><th class="num">已发</th><th class="num">欠发</th><th class="num">已退</th></tr></thead>
+              <tbody>
+                <tr v-for="(g, i) in detail.data.by_color" :key="'c' + i" :class="{ 'row-warn': g.short > 0 }">
+                  <td class="tiny">{{ g.style_no || '不分款' }}</td>
+                  <td class="tiny"><span :class="g.colorway ? 'tag blue' : 'tag gray'">{{ g.colorway || '不分色' }}</span></td>
+                  <td class="tiny mono">{{ g.color_no || '—' }}</td>
+                  <td class="num">{{ num(g.req_qty) }}</td>
+                  <td class="num">{{ num(g.issued_qty) }}</td>
+                  <td class="num" :class="{ orange: g.short > 0 }">{{ g.short ? num(g.short) : '' }}</td>
+                  <td class="num tiny muted">{{ g.returned_qty ? num(g.returned_qty) : '' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div v-if="detail.data.returns && detail.data.returns.length" style="margin-top: 12px">
@@ -423,17 +461,19 @@
 
     <!-- ==================== 发料 ==================== -->
     <div v-if="out.open" class="modal-mask" @click.self="out.open = false">
-      <div class="modal">
+      <div class="modal xwide">
         <h3>发料出库</h3>
         <div class="help-inline">
           默认按未发量全发；可以少发（车间只要一部分），少发的部分会一直挂在「欠发」上。
           <b>发料会真扣库存并写流水</b>，发出去就退不回来，只能走退料。
         </div>
         <div class="table-wrap">
-          <table class="data">
-            <thead><tr><th>原料</th><th class="num">未发</th><th class="num">可用</th><th class="num">本次发</th><th>缸号</th></tr></thead>
+          <table class="data" style="min-width: 760px">
+            <thead><tr><th>款</th><th>颜色</th><th>原料</th><th class="num">未发</th><th class="num">可用</th><th class="num">本次发</th><th>缸号</th></tr></thead>
             <tbody>
               <tr v-for="it in out.items" :key="it.id">
+                <td class="tiny">{{ it.item_style_no || '不分款' }}</td>
+                <td class="tiny"><span :class="it.colorway ? 'tag blue' : 'tag gray'">{{ it.colorway || '不分色' }}</span></td>
                 <td>{{ it.name }}</td>
                 <td class="num tiny">{{ num(it.req_qty - it.issued_qty) }}</td>
                 <td class="num tiny" :class="{ red: it.available !== null && it.available < 0 }">{{ it.available === null ? '—' : num(it.available) }}</td>
@@ -452,7 +492,7 @@
 
     <!-- ==================== 退料弹窗 ==================== -->
     <div v-if="ret.open" class="modal-mask" @click.self="ret.open = false">
-      <div class="modal">
+      <div class="modal wide">
         <h3>新建退料</h3>
         <div class="fgrid">
           <label>对应领料单
@@ -474,10 +514,12 @@
           <input v-model="ret.reason" placeholder="例如：裁床排版优化，余料退回仓库" />
         </label>
         <div v-if="ret.items.length" class="table-wrap">
-          <table class="data">
-            <thead><tr><th>原料</th><th class="num">已发</th><th class="num">已退</th><th class="num">可退</th><th class="num">本次退</th></tr></thead>
+          <table class="data" style="min-width: 620px">
+            <thead><tr><th>款</th><th>颜色</th><th>原料</th><th class="num">已发</th><th class="num">已退</th><th class="num">可退</th><th class="num">本次退</th></tr></thead>
             <tbody>
               <tr v-for="it in ret.items" :key="it.id">
+                <td class="tiny">{{ it.item_style_no || '不分款' }}</td>
+                <td class="tiny"><span :class="it.colorway ? 'tag blue' : 'tag gray'">{{ it.colorway || '不分色' }}</span></td>
                 <td>{{ it.name }}</td>
                 <td class="num tiny">{{ num(it.issued_qty) }}</td>
                 <td class="num tiny muted">{{ it.returned_qty ? num(it.returned_qty) : '' }}</td>
@@ -743,11 +785,30 @@ function addManualRow() {
   newIssue.manual.push({ material_id: '', req_qty: 1 });
 }
 
+/**
+ * 颜色在建议表里的标签色：
+ *   per_color 分色行 → 蓝（按色配）
+ *   all       全色通用 → 灰
+ *   none      该款没配颜色 → 橙（本来是分色单，缺了配置要看得出来）
+ *   legacy    历史未分色已发 → 橙（这行是按总量核的，不是按色）
+ */
+const colorTag = (mode) => ({
+  per_color: 'tag blue',
+  all: 'tag gray',
+  none: 'tag orange',
+  legacy: 'tag orange'
+}[mode] || 'tag gray');
+
 async function submitIssue() {
   const items = [];
   (newIssue.items || []).forEach((x) => {
     if (num(x.req_qty) > 0) {
-      items.push({ material_id: x.material_id, name: x.name, spec: x.spec, unit: x.unit, req_qty: num(x.req_qty) });
+      items.push({
+        material_id: x.material_id, name: x.name, spec: x.spec, unit: x.unit, req_qty: num(x.req_qty),
+        item_id: x.item_id || 0, colorway: x.colorway || '', color_no: x.color_no || null,
+        // 带上用料行上的单价（没价就 null，后端再去查最近采购价），否则发料金额全是「未计价」
+        price: x.price === undefined ? null : x.price
+      });
     }
   });
   (newIssue.manual || []).forEach((m) => {
@@ -802,7 +863,8 @@ function openOut() {
   out.open = true;
   out.items = (detail.data.items || []).map((it) => ({
     id: it.id, name: it.name, req_qty: it.req_qty, issued_qty: it.issued_qty,
-    available: it.available, send: num(it.req_qty - it.issued_qty), batch_no: it.batch_no || ''
+    available: it.available, send: num(it.req_qty - it.issued_qty), batch_no: it.batch_no || '',
+    colorway: it.colorway || '', color_no: it.color_no || null, item_style_no: it.item_style_no || ''
   }));
 }
 
@@ -864,7 +926,8 @@ async function loadReturnItems() {
   try {
     const d = await api.matflowIssue(ret.issue_id);
     ret.items = (d.items || []).filter((x) => x.returnable > 0.005).map((x) => ({
-      id: x.id, name: x.name, issued_qty: x.issued_qty, returned_qty: x.returned_qty, returnable: x.returnable, send: 0
+      id: x.id, name: x.name, issued_qty: x.issued_qty, returned_qty: x.returned_qty, returnable: x.returnable, send: 0,
+      colorway: x.colorway || '', item_style_no: x.item_style_no || ''
     }));
     if (!ret.items.length) alert('这张单没有可退的了（已发都已退回）');
   } catch (e) {

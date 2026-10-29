@@ -18,6 +18,7 @@
  *   10) 盘点调账只调数量（写 `stock_gain` / `stock_loss` 流水），**不改采购价、不生成凭证**。
  */
 const { db } = require('../db');
+const OMC = require('./orderMaterialColors');   // 件数口径与颜色归属只认这一份实现
 
 const EPS = 0.005;
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -133,45 +134,212 @@ function assertNotFrozen(scope) {
 
 // ---------- 备料 / 领料 ----------
 
-/** 订单用料建议：把 order_materials 变成备料明细，并带出可用量与缺口 */
+/**
+ * 订单用料建议：把 order_materials 变成备料明细，并带出可用量与缺口
+ *
+ * ## 按「款 × 颜色」展开
+ *
+ * 物料配了颜色 → 一行一个颜色（`order_material_colors` 有几行就出几行）；
+ * 配的是「全部颜色通用」或压根没配 → 一行，颜色留空，按整款件数算。
+ *
+ * ## 已发量必须按同一个口径扣
+ *
+ * 分色行只能扣**同款同色**的发料量。拿整料的已发量去减每个颜色，会把同一个
+ * 306 米从两个颜色里各减一次，看起来「早就领够了」，实际一米没发。
+ * 所以：
+ *   分色行 → 只减 (原料, 款, 色) 完全相同的已发
+ *   未分色行 → 减该原料在该订单的全部已发
+ *
+ * ## 老单据（未分色）已经在发的料不摊派
+ *
+ * 历史领料单没有款/色（`item_id=0`、`colorway=''`）。那些料已经发出去了，
+ * 但**发给了哪个颜色无从得知**。这时若还按颜色出建议，用户会以为「一米没领」，
+ * 再领一遍就是双倍。所以整料退回到总量口径：只出一行、扣掉全部已发、
+ * 在 `color_mode='legacy'` 上标出来 —— 不猜、不摊派，让人按总量核对。
+ */
 function suggestFromOrder(orderId) {
   const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   if (!o) throw new Error('订单不存在');
-  const rows = db.prepare('SELECT * FROM order_materials WHERE order_id = ? ORDER BY id').all(orderId);
+  // 面料在前、辅料在后：仓库是照这个顺序配料的，界面上倒过来会让人来回翻
+  const rows = db.prepare(
+    `SELECT * FROM order_materials WHERE order_id = ?
+      ORDER BY CASE type WHEN 'fabric' THEN 0 ELSE 1 END, item_id, id`
+  ).all(orderId);
+
+  const mKeyOf = (materialId, name) => `${materialId || 0}|${name}`;
+  const cKeyOf = (materialId, name, itemId, colorway) => `${mKeyOf(materialId, name)}|${int0(itemId)}|${colorway || ''}`;
+
   const issuedRows = db.prepare(
-    `SELECT i.material_id, i.name, COALESCE(SUM(i.issued_qty - i.returned_qty),0) q
+    `SELECT i.material_id, i.name, i.item_id, i.colorway,
+            COALESCE(SUM(i.issued_qty - i.returned_qty),0) q
      FROM material_issue_items i JOIN material_issues d ON d.id = i.issue_id
      WHERE d.order_id = ? AND d.status IN ('issued','partial','closed')
-     GROUP BY i.material_id, i.name`
+     GROUP BY i.material_id, i.name, i.item_id, i.colorway`
   ).all(orderId);
-  const issuedMap = new Map(issuedRows.map((r) => [`${r.material_id || 0}|${r.name}`, num(r.q)]));
 
-  const items = rows.map((r) => {
-    const total = r2(num(r.total_use));
-    const already = r2(issuedMap.get(`${r.material_id || 0}|${r.name}`) || 0);
-    const remain = r2(Math.max(0, total - already));
-    const avail = r.material_id ? availableOf(r.material_id, null, orderId) : null;
-    return {
-      material_id: r.material_id,
-      name: r.name,
-      spec: r.spec,
-      unit: r.unit,
-      req_qty: remain,
-      order_total: total,
-      already_issued: already,
-      stock_qty: r.material_id ? r2(num((db.prepare('SELECT stock_qty FROM materials WHERE id = ?').get(r.material_id) || {}).stock_qty)) : null,
-      reserved: r.material_id ? reservedOf(r.material_id, null, orderId) : null,
-      available: avail,
-      gap: avail === null ? null : r2(Math.max(0, remain - avail)),
-      price: num(r.price) > 0 ? r2(r.price) : lastPrice(r.material_id),
-      linked: !!r.material_id
-    };
+  const issuedByColor = new Map();   // 精确到款+色
+  const issuedByMat = new Map();     // 整料（含未分色）
+  const issuedColored = new Map();   // 整料里已经分过色的部分
+  issuedRows.forEach((r) => {
+    const q = r2(num(r.q));
+    issuedByColor.set(cKeyOf(r.material_id, r.name, r.item_id, r.colorway), q);
+    const mk = mKeyOf(r.material_id, r.name);
+    issuedByMat.set(mk, r2((issuedByMat.get(mk) || 0) + q));
+    if (int0(r.item_id) || String(r.colorway || '')) {
+      issuedColored.set(mk, r2((issuedColored.get(mk) || 0) + q));
+    }
   });
+
+  const styleOf = new Map(
+    db.prepare('SELECT id, style_no, product_name FROM order_items WHERE order_id = ?').all(orderId)
+      .map((i) => [Number(i.id), i])
+  );
+  const colorsStmt = db.prepare('SELECT colorway, color_no, qty FROM order_material_colors WHERE order_material_id = ? ORDER BY id');
+
+  const lines = [];
+  const mismatch = [];
+  rows.forEach((m) => {
+    const loss = 1 + (num(m.loss) || 0) / 100;
+    const oneUse = num(m.one_use);
+    const style = m.item_id ? styleOf.get(int0(m.item_id)) : null;
+    const base = {
+      order_material_id: m.id,
+      material_id: m.material_id,
+      name: m.name,
+      spec: m.spec,
+      unit: m.unit,
+      item_id: int0(m.item_id),
+      style_no: style ? style.style_no : '',
+      product_name: style ? style.product_name : '',
+      price: num(m.price) > 0 ? r2(m.price) : lastPrice(m.material_id),
+      linked: !!m.material_id
+    };
+    const colors = colorsStmt.all(m.id);
+    const made = [];
+    if (num(m.all_colors) === 1 || !colors.length) {
+      const piece = OMC.qtyOf(m.order_id, m.item_id);
+      made.push({
+        ...base,
+        colorway: '',
+        color_no: null,
+        color_mode: num(m.all_colors) === 1 ? 'all' : 'none',
+        color_label: num(m.all_colors) === 1 ? '全部颜色' : '未指定颜色',
+        piece_qty: piece,
+        one_use: r2(oneUse),
+        order_total: r2(oneUse * piece * loss)
+      });
+    } else {
+      colors.forEach((c) => {
+        const one = c.qty === null || c.qty === undefined ? oneUse : num(c.qty);
+        const piece = OMC.qtyOfColor(m.item_id, c.colorway);
+        made.push({
+          ...base,
+          colorway: c.colorway,
+          color_no: c.color_no || null,
+          color_mode: 'per_color',
+          color_label: c.colorway,
+          piece_qty: piece,
+          one_use: r2(one),
+          order_total: r2(one * piece * loss)
+        });
+      });
+      // 同一套账两个数：分色合计必须等于物料行上的总用量（差在 0.02 以上说明 total_use 没重算）
+      const sum = r2(made.reduce((s, x) => s + x.order_total, 0));
+      if (Math.abs(sum - num(m.total_use)) > 0.02) {
+        mismatch.push(`${m.name}（${style ? style.style_no : '不分款'}）：分色合计 ${sum}，物料总用量 ${r2(num(m.total_use))}`);
+      }
+    }
+    made.forEach((x) => lines.push(x));
+  });
+
+  /**
+   * 同一原料 + 同一款 + 同一色只留一行（两张物料行填成一样的料时合并，别让仓库领两遍）
+   */
+  const merged = new Map();
+  let mergedRows = 0;
+  lines.forEach((x) => {
+    const k = `${cKeyOf(x.material_id, x.name, x.item_id, x.colorway)}|${x.spec || ''}`;
+    const hit = merged.get(k);
+    if (hit) {
+      hit.order_total = r2(hit.order_total + x.order_total);
+      hit.piece_qty = r2(hit.piece_qty + x.piece_qty);
+      mergedRows += 1;
+    } else {
+      merged.set(k, { ...x });
+    }
+  });
+
+  /** 有历史未分色发料的料 → 退回总量口径（一行，扣全部已发），不摊派到颜色 */
+  const legacyMats = new Set();
+  issuedByMat.forEach((all, mk) => {
+    if (all - (issuedColored.get(mk) || 0) > EPS) legacyMats.add(mk);
+  });
+
+  const groups = new Map();
+  [...merged.values()].forEach((x) => {
+    const mk = mKeyOf(x.material_id, x.name);
+    if (!groups.has(mk)) groups.set(mk, []);
+    groups.get(mk).push(x);
+  });
+
+  const items = [];
+  groups.forEach((list, mk) => {
+    const legacy = legacyMats.has(mk);
+    if (legacy) {
+      const total = r2(list.reduce((s, x) => s + x.order_total, 0));
+      const already = r2(issuedByMat.get(mk) || 0);
+      const head = list[0];
+      items.push({
+        ...head,
+        item_id: 0,
+        style_no: '',
+        colorway: '',
+        color_no: null,
+        color_mode: 'legacy',
+        color_label: list.length > 1 ? `历史已发未分色（${list.length} 色合并）` : '历史已发未分色',
+        piece_qty: r2(list.reduce((s, x) => s + x.piece_qty, 0)),
+        order_total: total,
+        already_issued: already,
+        req_qty: r2(Math.max(0, total - already)),
+        note: '这料之前有未分色的发料记录，本行按总量核对；后续按色发料请先把这张单结清'
+      });
+      return;
+    }
+    list.forEach((x) => {
+      const already = r2(issuedByColor.get(cKeyOf(x.material_id, x.name, x.item_id, x.colorway)) || 0);
+      const total = r2(x.order_total);
+      items.push({
+        ...x,
+        order_total: total,
+        already_issued: already,
+        req_qty: r2(Math.max(0, total - already)),
+        note: x.color_mode === 'none' && x.item_id ? '该款还没配颜色，按整款件数算' : null
+      });
+    });
+  });
+
+  items.forEach((x) => {
+    const avail = x.material_id ? availableOf(x.material_id, null, orderId) : null;
+    x.stock_qty = x.material_id ? r2(num((db.prepare('SELECT stock_qty FROM materials WHERE id = ?').get(x.material_id) || {}).stock_qty)) : null;
+    x.reserved = x.material_id ? reservedOf(x.material_id, null, orderId) : null;
+    x.available = avail;
+    x.gap = avail === null ? null : r2(Math.max(0, num(x.req_qty) - avail));
+  });
+
+  const warnings = [];
+  if (mismatch.length) warnings.push(`分色合计与物料总用量不一致：${mismatch.slice(0, 3).join('；')}`);
+  if (legacyMats.size) warnings.push(`${legacyMats.size} 个原料有未分色的历史发料，已按总量单列出单（不摊到颜色）`);
+  if (mergedRows) warnings.push(`合并了 ${mergedRows} 行重复的「同料同款同色」需求`);
+
   return {
     order: { id: o.id, order_no: o.order_no, style_no: o.style_name, type: o.type, status: o.status },
     items,
     unlinked: items.filter((x) => !x.linked).length,
-    shortage: items.filter((x) => x.gap !== null && x.gap > EPS).length
+    shortage: items.filter((x) => x.gap !== null && x.gap > EPS).length,
+    color_lines: items.filter((x) => x.color_mode === 'per_color').length,
+    legacy_lines: items.filter((x) => x.color_mode === 'legacy').length,
+    item_count: items.length,
+    warnings
   };
 }
 
@@ -211,15 +379,42 @@ function issueDetail(id) {
   if (!d) return null;
   const items = db.prepare(
     `SELECT i.*, (i.issued_qty - i.returned_qty) AS returnable,
-            (i.req_qty - i.issued_qty) AS short
-     FROM material_issue_items i WHERE i.issue_id = ? ORDER BY i.id`
+            (i.req_qty - i.issued_qty) AS short,
+            oi.style_no AS item_style_no, oi.product_name AS item_product_name
+     FROM material_issue_items i
+     LEFT JOIN order_items oi ON oi.id = i.item_id
+     WHERE i.issue_id = ? ORDER BY i.item_id, i.colorway, i.id`
   ).all(id).map((r) => ({
     ...r,
+    item_id: int0(r.item_id),
+    colorway: r.colorway || '',
     returnable: r2(Math.max(0, num(r.returnable))),
     short: r2(Math.max(0, num(r.short))),
     stock_qty: r.material_id ? r2(num((db.prepare('SELECT stock_qty FROM materials WHERE id=?').get(r.material_id) || {}).stock_qty)) : null,
     available: r.material_id ? availableOf(r.material_id, id) : null
   }));
+
+  /** 按款+颜色汇总：分色发料后唯一能回答「印花001 到底领了多少」的地方 */
+  const byColor = [];
+  const cMap = new Map();
+  items.forEach((x) => {
+    const k = `${x.item_id}|${x.colorway}`;
+    if (!cMap.has(k)) {
+      cMap.set(k, {
+        item_id: x.item_id, style_no: x.item_style_no || '', product_name: x.item_product_name || '',
+        colorway: x.colorway, color_no: x.color_no || null,
+        req_qty: 0, issued_qty: 0, short: 0, returned_qty: 0
+      });
+    }
+    const g = cMap.get(k);
+    g.req_qty = r2(g.req_qty + num(x.req_qty));
+    g.issued_qty = r2(g.issued_qty + num(x.issued_qty));
+    g.short = r2(g.short + num(x.short));
+    g.returned_qty = r2(g.returned_qty + num(x.returned_qty));
+    if (!g.color_no && x.color_no) g.color_no = x.color_no;
+  });
+  cMap.forEach((g) => byColor.push(g));
+
   const returns = db.prepare('SELECT * FROM material_returns WHERE issue_id = ? ORDER BY id DESC').all(id)
     .map((r) => ({ ...r, type_label: RETURN_TYPE[r.type] || r.type }));
   const ledgers = db.prepare(
@@ -232,6 +427,8 @@ function issueDetail(id) {
     kind_label: ISSUE_KIND[d.kind] || d.kind,
     open_qty: r2(num(d.req_qty) - num(d.issued_qty)),
     items,
+    by_color: byColor,
+    colored: items.filter((x) => x.colorway || x.item_id).length,
     returns,
     ledgers,
     can: {
@@ -255,7 +452,10 @@ function createIssue(b, operator) {
       req_qty: r2(num(x.req_qty)),
       price: x.price === null || x.price === undefined || x.price === '' ? null : r2(num(x.price)),
       batch_no: x.batch_no || null,
-      remark: x.remark || null
+      remark: x.remark || null,
+      item_id: x.item_id ? int0(x.item_id) : 0,
+      colorway: String(x.colorway || '').trim(),
+      color_no: x.color_no || null
     }))
     .filter((x) => x.name && x.req_qty > EPS);
 
@@ -268,10 +468,29 @@ function createIssue(b, operator) {
     if (!order) throw new Error('订单不存在');
     if (['cancelled', 'closed'].includes(order.status)) throw new Error(`订单 ${order.order_no} 已${order.status === 'cancelled' ? '取消' : '结案'}，不能再备料`);
   }
+
+  /**
+   * 款与颜色：颜色必须属于这个款。
+   *
+   * 没有款的「颜色」是自由文本，谁也保证不了它是真的颜色；
+   * 发料时才发现在系统里查不到这个色，就是车间台账和系统账对不上的起点。
+   */
+  clean.forEach((x) => {
+    if (!x.colorway) { x.color_no = null; return; }
+    if (!x.item_id) throw new Error(`「${x.name}」填了颜色「${x.colorway}」但没指定是哪个款：颜色属于款，请先选款`);
+    const item = db.prepare('SELECT id, order_id, style_no FROM order_items WHERE id = ?').get(x.item_id);
+    if (!item) throw new Error(`款 #${x.item_id} 不存在`);
+    if (orderId && Number(item.order_id) !== Number(orderId)) throw new Error(`款 ${item.style_no} 不属于这张订单，不能挂到这张领料单上`);
+    OMC.assertColorsBelong(x.item_id, [x.colorway]);   // 不属于该款直接拒（带出该款真实颜色）
+  });
+
   const dup = new Set();
   clean.forEach((x) => {
-    const k = `${x.material_id || 0}|${x.name}`;
-    if (dup.has(k)) throw new Error(`原料「${x.name}」重复出现，同一张单只能有一行（数量请合并）`);
+    const k = `${x.material_id || 0}|${x.name}|${x.item_id || 0}|${x.colorway || ''}`;
+    if (dup.has(k)) {
+      const label = x.colorway ? `「${x.name}」的「${x.colorway}」` : `原料「${x.name}」`;
+      throw new Error(`${label}重复出现，同一张单同一款同一色只能有一行（数量请合并）`);
+    }
     dup.add(k);
   });
   const kind = ['order', 'extra', 'sample'].includes(b.kind) ? b.kind : 'order';
@@ -297,12 +516,15 @@ function createIssue(b, operator) {
     );
     const issueId = info.lastInsertRowid;
     const stmt = db.prepare(
-      `INSERT INTO material_issue_items (issue_id, material_id, name, spec, unit, req_qty, issued_qty, returned_qty, price, amount, batch_no, short_qty, remark)
-       VALUES (?,?,?,?,?,?,0,0,?,0,?,?,?)`
+      `INSERT INTO material_issue_items
+        (issue_id, material_id, name, spec, unit, req_qty, issued_qty, returned_qty, price, amount, batch_no, short_qty, remark,
+         item_id, colorway, color_no)
+       VALUES (?,?,?,?,?,?,0,0,?,0,?,?,?,?,?,?)`
     );
     clean.forEach((x) => {
       const price = x.price !== null ? x.price : lastPrice(x.material_id);
-      stmt.run(issueId, x.material_id, x.name, x.spec, x.unit, x.req_qty, price, x.batch_no, x.req_qty, x.remark);
+      stmt.run(issueId, x.material_id, x.name, x.spec, x.unit, x.req_qty, price, x.batch_no, x.req_qty, x.remark,
+        x.item_id, x.colorway, x.color_no);
     });
     db.exec('COMMIT');
     return issueDetail(issueId);
@@ -357,6 +579,7 @@ function issueOut(id, b, operator) {
 
   const rows = db.prepare('SELECT * FROM material_issue_items WHERE issue_id = ?').all(id);
   const input = Array.isArray(b.items) && b.items.length ? b.items : rows.map((r) => ({ id: r.id, issued_qty: num(r.req_qty) - num(r.issued_qty) }));
+  const tag = (r) => `「${r.name}${r.colorway ? ' · ' + r.colorway : ''}」`;
   const plan = [];
   for (const x of input) {
     const row = rows.find((r) => r.id === int0(x.id));
@@ -364,10 +587,10 @@ function issueOut(id, b, operator) {
     const want = r2(num(x.issued_qty));
     if (want < -EPS) throw new Error('发料数量不能为负');
     const left = r2(num(row.req_qty) - num(row.issued_qty));
-    if (want > left + EPS) throw new Error(`「${row.name}」本次发 ${want} 超过未发量 ${left}；要超领请先改备料量`);
+    if (want > left + EPS) throw new Error(`${tag(row)}本次发 ${want} 超过未发量 ${left}；要超领请先改备料量`);
     if (want <= EPS) continue;
     const avail = availableOf(row.material_id, id);
-    if (want > avail + EPS) throw new Error(`「${row.name}」可用只有 ${avail}，发不出 ${want}（可扣本单已备量后仍不足）`);
+    if (want > avail + EPS) throw new Error(`${tag(row)}可用只有 ${avail}，发不出 ${want}（可扣本单已备量后仍不足）`);
     plan.push({ row, qty: want, batch_no: x.batch_no || row.batch_no, price: x.price === undefined ? row.price : (x.price === null ? null : r2(num(x.price))) });
   }
   if (!plan.length) throw new Error('没有填任何发料数量');
@@ -403,7 +626,10 @@ function issueOut(id, b, operator) {
       applyStock({
         materialId: p.row.material_id, type: 'issue', qty: -p.qty, unit: p.row.unit,
         refType: 'material_issue', refId: id, refNo: d.issue_no,
-        remark: `${ISSUE_KIND[d.kind] || d.kind}${d.order_no ? ' · ' + d.order_no : ''}${p.batch_no ? ' · 缸号 ' + p.batch_no : ''}`,
+        remark: `${ISSUE_KIND[d.kind] || d.kind}${d.order_no ? ' · ' + d.order_no : ''}`
+          + `${p.row.colorway ? ' · ' + p.row.colorway : ''}`
+          + `${p.row.color_no ? '(' + p.row.color_no + ')' : ''}`
+          + `${p.batch_no ? ' · 缸号 ' + p.batch_no : ''}`,
         operator
       }, ts);
     });
@@ -482,7 +708,7 @@ function createReturn(b, operator) {
     if (!row) throw new Error(`明细 #${x.issue_item_id} 不属于该领料单`);
     const qty = r2(num(x.qty));
     const can = r2(num(row.issued_qty) - num(row.returned_qty));
-    if (qty > can + EPS) throw new Error(`「${row.name}」可退只有 ${can}（已发 ${row.issued_qty} − 已退 ${row.returned_qty}），退不了 ${qty}`);
+    if (qty > can + EPS) throw new Error(`「${row.name}${row.colorway ? ' · ' + row.colorway : ''}」可退只有 ${can}（已发 ${row.issued_qty} − 已退 ${row.returned_qty}），退不了 ${qty}`);
     plan.push({ row, qty });
   }
 
@@ -525,7 +751,14 @@ function returnDetail(id) {
   return {
     ...r,
     type_label: RETURN_TYPE[r.type] || r.type,
-    items: db.prepare('SELECT * FROM material_return_items WHERE return_id = ? ORDER BY id').all(id)
+    // 颜色从领料明细带过来：退料单自己不再存一份，避免两处存的色不一致
+    items: db.prepare(
+      `SELECT t.*, i.item_id, i.colorway, i.color_no, oi.style_no AS item_style_no
+         FROM material_return_items t
+         LEFT JOIN material_issue_items i ON i.id = t.issue_item_id
+         LEFT JOIN order_items oi ON oi.id = i.item_id
+        WHERE t.return_id = ? ORDER BY t.id`
+    ).all(id).map((x) => ({ ...x, colorway: x.colorway || '', item_id: int0(x.item_id) }))
   };
 }
 
@@ -544,7 +777,9 @@ function confirmReturn(id, operator) {
     const row = issues.find((x) => x.id === it.issue_item_id);
     if (!row) throw new Error(`明细 #${it.issue_item_id} 已不存在`);
     const can = r2(num(row.issued_qty) - num(row.returned_qty));
-    if (num(it.qty) > can + EPS) throw new Error(`「${it.name}」可退只剩 ${can}，本单退了 ${it.qty}（可能另一张退料单已先入库）`);
+    if (num(it.qty) > can + EPS) {
+      throw new Error(`「${it.name}${row.colorway ? ' · ' + row.colorway : ''}」可退只剩 ${can}，本单退了 ${it.qty}（可能另一张退料单已先入库）`);
+    }
   });
 
   const ts = now();
@@ -553,10 +788,13 @@ function confirmReturn(id, operator) {
     items.forEach((it) => {
       if (!it.material_id) throw new Error(`「${it.name}」没有关联原料档案，无法入库（请先补档案）`);
       db.prepare('UPDATE material_issue_items SET returned_qty = COALESCE(returned_qty,0) + ? WHERE id = ?').run(it.qty, it.issue_item_id);
+      const colorRow = issues.find((x) => x.id === it.issue_item_id) || {};
       applyStock({
         materialId: it.material_id, type: 'issue_return', qty: it.qty, unit: it.unit,
         refType: 'material_return', refId: id, refNo: r.return_no,
-        remark: `${RETURN_TYPE[r.type] || r.type}${r.order_no ? ' · ' + r.order_no : ''}：${r.reason}`,
+        remark: `${RETURN_TYPE[r.type] || r.type}${r.order_no ? ' · ' + r.order_no : ''}`
+          + `${colorRow.colorway ? ' · ' + colorRow.colorway : ''}`
+          + `：${r.reason}`,
         operator
       }, ts);
     });
