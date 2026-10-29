@@ -462,7 +462,14 @@ function board({ templateId = null, status = '', q = '', limit = 200 } = {}) {
 
   const orders = db.prepare(`
     SELECT o.id, o.order_no, o.status, o.type, o.style_name, o.cus_order_no,
-           o.order_date, o.delivery_date, o.total_usd, c.name AS customer_name
+           o.order_date, o.delivery_date, o.total_usd, o.image_url,
+           /* 款图两处可放：订单自己的 image_url，或打版（技术资料）里的图。
+              大多数单实际上只填了打版那张 —— 所以不能只看订单表，否则看板上
+              十张有九张是空白占位。取最新一版有图的。 */
+           (SELECT tp.image_url FROM tech_packs tp
+             WHERE tp.order_id = o.id AND IFNULL(tp.image_url, '') <> ''
+             ORDER BY tp.id DESC LIMIT 1) AS tech_image_url,
+           c.name AS customer_name
       FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
      WHERE ${where.join(' AND ')}
      ORDER BY o.delivery_date IS NULL, o.delivery_date, o.id DESC
@@ -498,6 +505,8 @@ function board({ templateId = null, status = '', q = '', limit = 200 } = {}) {
       ...o,
       cells,
       extra,
+      /** 看板缩略图：订单图优先，没有再取打版图；都没有就是空（前端出占位） */
+      thumb: o.image_url || o.tech_image_url || '',
       /** 这张单还没生成过工序（没走过「转生产中」）：看板要提示，不能显示成「全都没开始」 */
       no_nodes: nodes.length === 0,
       done_count: done,

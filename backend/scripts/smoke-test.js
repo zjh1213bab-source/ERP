@@ -10796,6 +10796,82 @@ async function req(path, { method = 'GET', body, token } = {}) {
       okBack ? okBack.name : '?');
   }
 
+  // ================= 订单跟踪：款图与打版信息 =================
+  {
+    console.log('\n[订单跟踪款图与打版信息]');
+    const { db: PDB } = require('../src/db');
+
+    const bd = await req('/api/node-flow/board', { token });
+    const rows = (bd.json.data && bd.json.data.rows) || [];
+    ok('看板每行都带 thumb 字段（空串表示没图，不是 undefined）',
+      rows.length > 0 && rows.every((r) => typeof r.thumb === 'string'),
+      `${rows.length} 行`);
+
+    // 造两张在产单：A 只有订单图，B 只有打版图 —— 验证优先级与兜底
+    const items = [{ product_name: '款图烟测', colors: [{ color: '黑', sizes: [{ size: 'M', qty: 1, usd_price: 1 }] }] }];
+    const mkA = await req('/api/orders', {
+      method: 'POST', token, body: { order_no: 'IMG-TEST-A', type: 'custom', items }
+    });
+    const mkB = await req('/api/orders', {
+      method: 'POST', token, body: { order_no: 'IMG-TEST-B', type: 'custom', items }
+    });
+    const idA = mkA.json.data && mkA.json.data.id;
+    const idB = mkB.json.data && mkB.json.data.id;
+    // 看板只列「挂了流程模板」的订单，而刚建的订单 node_template_id 还是空 ——
+    // 先 init 铺一遍节点（它同时把订单挂到模板上），再改状态
+    await req('/api/order-nodes/init', { method: 'POST', token, body: { order_id: idA } });
+    await req('/api/order-nodes/init', { method: 'POST', token, body: { order_id: idB } });
+    PDB.prepare("UPDATE orders SET image_url = '/uploads/test-a.png', status = 'production' WHERE id = ?").run(idA);
+    PDB.prepare("UPDATE orders SET image_url = NULL, status = 'production' WHERE id = ?").run(idB);
+    const tpB = await req('/api/techpacks', {
+      method: 'POST', token, body: { order_id: idB, product_name: '款图烟测B' }
+    });
+    const tpBid = tpB.json.data && tpB.json.data.id;
+    if (tpBid) PDB.prepare("UPDATE tech_packs SET image_url = '/uploads/test-b.png' WHERE id = ?").run(tpBid);
+
+    const bd2 = await req('/api/node-flow/board', { token });
+    const rowA = (bd2.json.data.rows || []).find((r) => r.id === idA);
+    const rowB = (bd2.json.data.rows || []).find((r) => r.id === idB);
+    ok('★ 款图优先用订单自己的图',
+      rowA && rowA.thumb === '/uploads/test-a.png', rowA ? rowA.thumb : '没这行');
+    ok('★ 订单没图时退回打版（技术资料）的图 —— 大多数单只填了打版那张',
+      rowB && rowB.thumb === '/uploads/test-b.png', rowB ? rowB.thumb : '没这行');
+
+    // 两边都没有 → 空串，前端出占位
+    PDB.prepare('UPDATE tech_packs SET image_url = NULL WHERE id = ?').run(tpBid);
+    const bd3 = await req('/api/node-flow/board', { token });
+    const rowB2 = (bd3.json.data.rows || []).find((r) => r.id === idB);
+    ok('两边都没图时 thumb 是空串（前端据此显示款式首字占位）',
+      rowB2 && rowB2.thumb === '', rowB2 ? JSON.stringify(rowB2.thumb) : '没这行');
+
+    // 订单详情接口要带 image_url（速览弹窗靠它显示大图）
+    const od = await req('/api/orders/' + idA, { token });
+    ok('订单详情带 image_url（速览弹窗用它出大图）',
+      od.status === 200 && od.json.data && od.json.data.image_url === '/uploads/test-a.png',
+      od.json.data ? String(od.json.data.image_url) : '?');
+
+    // 打版接口能取到「打版时填的信息」
+    const tpc = await req('/api/techpacks/by-order/' + idB + '/current', { token });
+    ok('按订单能取到当前版技术资料（速览里的打版信息就靠它）',
+      tpc.status === 200 && (tpc.json.data === null || (tpc.json.data && tpc.json.data.order_id === idB)),
+      `HTTP ${tpc.status}`);
+
+    // 清理
+    [idA, idB].forEach((id) => {
+      if (!id) return;
+      PDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(id);
+      PDB.prepare('DELETE FROM tech_pack_materials WHERE tech_pack_id IN (SELECT id FROM tech_packs WHERE order_id = ?)').run(id);
+      PDB.prepare('DELETE FROM tech_pack_sizes WHERE tech_pack_id IN (SELECT id FROM tech_packs WHERE order_id = ?)').run(id);
+      PDB.prepare('DELETE FROM tech_packs WHERE order_id = ?').run(id);
+      PDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
+      PDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+      PDB.prepare('DELETE FROM orders WHERE id = ?').run(id);
+    });
+    ok('款图夹具已清干净',
+      !PDB.prepare("SELECT 1 x FROM orders WHERE order_no LIKE 'IMG-TEST-%'").get(),
+      '已删');
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

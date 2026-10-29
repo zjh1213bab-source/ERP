@@ -77,24 +77,36 @@
         <tbody>
           <tr v-for="r in board.rows" :key="r.id">
             <td class="trk-fixed">
-              <div class="trk-order">
-                <a class="lnk mono" @click="$router.push('/orders?order=' + r.id)"><b>{{ r.order_no }}</b></a>
-                <span class="tag" :class="statusTag(r.status)">{{ statusLabel(r.status) }}</span>
-              </div>
-              <div class="trk-style">{{ r.style_name || '—' }}</div>
-              <div class="trk-cus">
-                {{ r.customer_name || '—' }}
-                <span v-if="r.delivery_date" :class="isLate(r) ? 'trk-late' : ''"> · 交期 {{ r.delivery_date }}</span>
-              </div>
-              <div class="trk-bar">
-                <div class="trk-bar-in" :style="{ width: r.progress + '%' }"></div>
-              </div>
-              <div v-if="r.no_nodes" class="trk-prog trk-nonodes">
-                未生成工序 · 订单还没转到「生产中」
-              </div>
-              <div v-else class="trk-prog">
-                {{ r.progress }}% · {{ r.done_count }}/{{ r.total_count }}
-                <span v-if="r.skipped_count"> · 跳过 {{ r.skipped_count }}</span>
+              <div class="trk-l">
+                <!-- 款图：订单图优先，没有就用打版图。点图看大图，点订单号看打版信息 -->
+                <div class="trk-thumb" :class="{ empty: !thumbOf(r) }" :title="thumbOf(r) ? '点开看大图' : '这张单还没有款图'"
+                  @click.stop="thumbOf(r) && openImage(r.thumb, r.order_no)">
+                  <img v-if="thumbOf(r)" :src="r.thumb" alt="" @error="onThumbErr(r.id)" />
+                  <!-- 没款图时不留一片灰：显示款式首字 + 稳定底色，
+                       一眼能区分不同单，也不至于把「无图」当故障 -->
+                  <span v-else class="trk-ph" :style="{ background: phBg(r.id) }">{{ phText(r) }}</span>
+                </div>
+                <div class="trk-info">
+                  <div class="trk-order">
+                    <a class="lnk mono" :title="'看打版信息与工序明细'" @click="openPeek(r.id)"><b>{{ r.order_no }}</b></a>
+                    <span class="tag" :class="statusTag(r.status)">{{ statusLabel(r.status) }}</span>
+                  </div>
+                  <div class="trk-style">{{ r.style_name || '—' }}</div>
+                  <div class="trk-cus">
+                    {{ r.customer_name || '—' }}
+                    <span v-if="r.delivery_date" :class="isLate(r) ? 'trk-late' : ''"> · 交期 {{ r.delivery_date }}</span>
+                  </div>
+                  <div class="trk-bar">
+                    <div class="trk-bar-in" :style="{ width: r.progress + '%' }"></div>
+                  </div>
+                  <div v-if="r.no_nodes" class="trk-prog trk-nonodes">
+                    未生成工序
+                  </div>
+                  <div v-else class="trk-prog">
+                    {{ r.progress }}% · {{ r.done_count }}/{{ r.total_count }}
+                    <span v-if="r.skipped_count"> · 跳过 {{ r.skipped_count }}</span>
+                  </div>
+                </div>
               </div>
             </td>
 
@@ -137,6 +149,9 @@
         </tbody>
       </table>
     </div>
+
+    <!-- ================= 订单速览（款图 + 打版信息） ================= -->
+    <OrderPeek v-model:open="peekOpen" :order-id="peekId" />
 
     <!-- ================= 节点详情 / 留言 ================= -->
     <div v-if="dlg.open" class="modal-mask" @click.self="dlg.open = false">
@@ -186,6 +201,8 @@
 import { ref, reactive, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
+import { openImage } from '../store/viewer';
+import OrderPeek from '../components/OrderPeek.vue';
 
 const templates = ref([]);
 const tplId = ref(null);
@@ -194,6 +211,14 @@ const q = ref('');
 const board = ref({ template: null, columns: [], rows: [], summary: {} });
 const summary = ref({});
 const canFlow = can('node.flow');
+
+/* 订单速览：点订单号打开，看款图与打版时填的面料/辅料/工艺/客户要求 */
+const peekOpen = ref(false);
+const peekId = ref(null);
+function openPeek(id) {
+  peekId.value = id;
+  peekOpen.value = true;
+}
 
 function statusLabel(s) {
   return {
@@ -216,6 +241,33 @@ function ico(s) {
 function cellClass(cell) {
   if (cell.missing) return 'is-missing';
   return 'is-' + cell.status;
+}
+/**
+ * 图片加载失败要退回占位字，不能留一块白。
+ *
+ * 库里真有坏图（现存一张 70 字节的 png），`<img>` 加载失败时不会报错，
+ * 只显示一块空白 —— 看起来像「这单没图但格子坏了」，而实际是图坏了。
+ * 这两种情况该长得不一样。
+ */
+const broken = reactive({});
+function onThumbErr(id) { broken[id] = true; }
+function thumbOf(r) { return broken[r.id] ? '' : (r.thumb || ''); }
+
+/**
+ * 占位字：优先取款名里的第一个汉字。
+ *
+ * 直接 `slice(0,1)` 会取到 "EXDEMO-过交期款" 的 E、"SO2026..." 的 S ——
+ * 那是单号开头，不是款式，占位就白占了一个位置。取不到汉字才退回单号首字。
+ */
+function phText(r) {
+  const m = String(r.style_name || '').match(/[\u4e00-\u9fa5]/);
+  if (m) return m[0];
+  return String(r.order_no || '?').trim().slice(0, 1);
+}
+/** 无款图时的占位底色：按订单 id 取，同一张单每次刷新都是同一个颜色 */
+function phBg(id) {
+  const palette = ['#eef2f8', '#f2eef8', '#eef7f2', '#fdf3ea', '#eef4fa', '#f7f0f0'];
+  return palette[Math.abs(Number(id) || 0) % palette.length];
 }
 function isLate(r) {
   if (!r.delivery_date) return false;
@@ -318,9 +370,23 @@ onMounted(load);
 /* 左侧固定列 */
 .trk-fixed {
   position: sticky; left: 0; z-index: 4;
-  background: #fff; min-width: 250px; max-width: 250px;
+  background: #fff; min-width: 296px; max-width: 296px;
   padding: 10px 12px !important; text-align: left;
   border-right: 1px solid #e4eaf3;
+}
+/* 款图 + 信息并排；信息列必须 min-width:0，否则单号会把格子撑开 */
+.trk-l { display: flex; gap: 9px; align-items: flex-start; }
+.trk-info { min-width: 0; flex: 1; }
+.trk-thumb {
+  width: 42px; height: 42px; flex: none; border-radius: 7px; overflow: hidden;
+  border: 1px solid #e6ecf5; background: #f4f6fa; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.trk-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.trk-thumb.empty { cursor: default; }
+.trk-ph {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; color: #8a94a6;
 }
 .trk-table thead .trk-fixed { z-index: 5; background: #f7f9fd; }
 .trk-order { display: flex; align-items: center; gap: 6px; }
