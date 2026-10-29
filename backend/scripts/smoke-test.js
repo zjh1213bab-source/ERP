@@ -10970,6 +10970,97 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ok('信息看板对不存在的订单返回 404（不返回空壳）', nf.status === 404, `HTTP ${nf.status}`);
   }
 
+  // ================= 仅扫码工序：检验 / 包装不占看板列，但仍在流程里 =================
+  {
+    console.log('\n[仅扫码工序（检验/包装）]');
+    const fs3 = require('fs');
+    const path3 = require('path');
+    const { db: VDB } = require('../src/db');
+    const NF = require('../src/services/nodeFlow');
+
+    const bd = await req('/api/node-flow/board', { token });
+    const cols = (bd.json.data && bd.json.data.columns) || [];
+    const scan = (bd.json.data && bd.json.data.scan_items) || [];
+    ok('★ 仅扫码的工序不占看板列（13 列刚好放下，不用横向滚）',
+      bd.status === 200 && !cols.some((c) => c.code === 'inspect' || c.code === 'pack')
+      && scan.some((x) => x.code === 'inspect') && scan.some((x) => x.code === 'pack'),
+      `${cols.length} 列 / 仅扫码 ${scan.map((x) => x.name).join('、') || '无'}`);
+
+    const rows = (bd.json.data && bd.json.data.rows) || [];
+    const row = rows.find((r) => r.total_count > r.cells.length);
+    ok('★ 仅扫码的工序仍算进度（只算可见列会让 13 列全绿显示 100% 却入不了库）',
+      !!row && row.total_count === row.cells.length + scan.length,
+      row ? `${row.order_no}：${row.done_count}/${row.total_count}，可见列 ${row.cells.length}` : '没有在产单');
+
+    // 扫码/报工取的是 order_nodes，隐藏列不能让它少两条
+    const nds = await req('/api/order-nodes?order_id=' + (row ? row.id : 0), { token });
+    const list = (nds.json.data || []);
+    ok('★ 扫码/报工仍能看到检验、包装（隐藏只作用于看板列，不动工序记录）',
+      list.some((n) => n.code === 'inspect') && list.some((n) => n.code === 'pack'),
+      `${list.length} 个节点`);
+
+    ok('★ 隐藏节点仍带「待扫码」提示（进度不满时能说清差在哪步）',
+      !!row && Array.isArray(row.scan_pending_names)
+      && row.scan_pending === row.scan_pending_names.length,
+      row ? `待扫码 ${row.scan_pending}：${(row.scan_pending_names || []).join('、')}` : '?');
+
+    // ---------- 回写某一步按 code，不按名字 ----------
+    const stockSrc = fs3.readFileSync(path3.join(__dirname, '..', 'src/routes/stock.js'), 'utf8');
+    ok('★ 成品入库 / 发货不再按节点名回写（改名那一刻就静默失效，且按单分批失效）',
+      !/UPDATE order_nodes SET[^"]*name\s*=/.test(stockSrc) && /markDoneByCode/.test(stockSrc),
+      /markDoneByCode/.test(stockSrc) ? '已按 code' : '仍有名字匹配');
+
+    // ---------- 造一张单验证 markDoneByCode 的语义 ----------
+    const mk = await req('/api/orders', {
+      method: 'POST', token,
+      body: { order_no: 'VIS-TEST-1', type: 'custom', items: [{ product_name: '隐藏工序烟测', colors: [{ color: '黑', sizes: [{ size: 'M', qty: 1, usd_price: 1 }] }] }] }
+    });
+    const vid = mk.json.data && mk.json.data.id;
+    await req('/api/order-nodes/init', { method: 'POST', token, body: { order_id: vid } });
+    const first = NF.markDoneByCode(vid, 'inspect', { operator: 'smoke-first' });
+    const second = NF.markDoneByCode(vid, 'inspect', { operator: 'smoke-second' });
+    const after = VDB.prepare("SELECT status, operator FROM order_nodes WHERE order_id = ? AND code = 'inspect'").get(vid);
+    ok('★ 单据动作回写工序按 code 认；已完成的不覆盖首次操作人',
+      first === true && second === false && after && after.status === 'done' && after.operator === 'smoke-first',
+      `first=${first} second=${second} operator=${after ? after.operator : '?'}`);
+
+    // ---------- 部分更新：只传一个字段也要能存 ----------
+    const tplId = (bd.json.data.template || {}).id;
+    const detail = await req(`/api/node-flow/templates/${tplId}`, { token });
+    const anyItem = (detail.json.data.items || []).find((x) => x.code === 'sew') || (detail.json.data.items || [])[0];
+    const onlyReq = await req(`/api/node-flow/items/${anyItem.id}`, {
+      method: 'PUT', token, body: { required: anyItem.required }
+    });
+    ok('★ 只传一个字段也能改（「必经/可选」「看板/仅扫码」都是部分更新，原来一点就报「名称必填」）',
+      onlyReq.status === 200 && onlyReq.json.data && onlyReq.json.data.name === anyItem.name,
+      `HTTP ${onlyReq.status} ${onlyReq.json.message || ''}`);
+
+    // ---------- 最后一个可见列不能隐藏 ----------
+    const tplNew = await req('/api/node-flow/templates', { method: 'POST', token, body: { name: '烟测单节点流程' } });
+    const tid = tplNew.json.data && tplNew.json.data.id;
+    const one = await req(`/api/node-flow/templates/${tid}/items`, { method: 'POST', token, body: { name: '唯一工序' } });
+    const oneId = one.json.data && one.json.data.id;
+    const hideLast = await req(`/api/node-flow/items/${oneId}`, { method: 'PUT', token, body: { visible: 0 } });
+    ok('★ 不能把最后一个可见列也隐藏（全隐藏后看板是空表，却会提示「保存成功」）',
+      hideLast.status === 400, `HTTP ${hideLast.status} ${(hideLast.json.message || '').slice(0, 30)}`);
+
+    // ---------- 清理 ----------
+    if (tid) {
+      VDB.prepare('DELETE FROM node_template_items WHERE template_id = ?').run(tid);
+      VDB.prepare('DELETE FROM node_templates WHERE id = ?').run(tid);
+    }
+    if (vid) {
+      VDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(vid);
+      VDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(vid);
+      VDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(vid);
+      VDB.prepare('DELETE FROM orders WHERE id = ?').run(vid);
+    }
+    ok('隐藏工序夹具已清干净',
+      !VDB.prepare("SELECT 1 x FROM orders WHERE order_no = 'VIS-TEST-1'").get()
+      && !VDB.prepare("SELECT 1 x FROM node_templates WHERE name = '烟测单节点流程'").get(),
+      '已删');
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

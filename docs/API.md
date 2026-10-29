@@ -3614,7 +3614,7 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 | PUT | /api/node-flow/templates/:id | node.flow | 改流程：`{name, note, status}` |
 | POST | /api/node-flow/templates/:id/default | node.flow | 设为默认（全局只一个；已归档的不能设） |
 | POST | /api/node-flow/templates/:id/items | node.flow | 新增节点：`{name, required, role, color}`；`code` 自动分配 `c_N` |
-| PUT | /api/node-flow/items/:id | node.flow | 改节点：`{name, required, role, color, status, note}`；**`code` 传了也忽略** |
+| PUT | /api/node-flow/items/:id | node.flow | 改节点：`{name, required, role, color, status, note, visible}`；**部分更新**（只传一个字段即可）；**`code` 传了也忽略** |
 | POST | /api/node-flow/items/:id/status | node.flow | 停用 / 恢复：`{status: 'active'|'off'}` |
 | POST | /api/node-flow/templates/:id/reorder | node.flow | 排序：`{ids: [...]}`，按数组顺序重写 seq 为 1..n |
 | POST | /api/node-flow/templates/:id/apply | node.flow | 应用到已有订单：`{dry_run, order_ids, include_status}` |
@@ -3628,10 +3628,13 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 |---|---|
 | `code` 不可改 | 改 code 会让历史记录与「以后这个节点」失联；接口层面忽略传入值 |
 | 停用 ≠ 删除 | 停用只影响新订单；已下单的节点记录原样保留 |
-| 内置节点不能停用 | `builtin=1` 的节点有联动逻辑挂在 code 上，停掉就断；**可以改名、可以调序** |
+| 内置节点不能停用 | 只有 4 个 code 锁死（`cut` / `sew` / `inspect` / `pack`，有代码逻辑挂在上面）；其余内置节点可以停用、改名、调序 |
+| `visible=0` = 仅扫码 | 不占看板列，但**节点照常生成、照常算进度、入库校验照常查它** —— 列不显示 ≠ 这道工序不做 |
+| 不能全隐藏 | 最后一个可见节点不允许改成 `visible=0`（看板会变空表），返回 400 |
 | 同流程内不能重名 | 看板两列同名没人分得清 |
 | 改模板不影响已下单 | 要让存量跟上必须走 `apply`，且只追加、不删、不改名 |
 | `apply` 默认只补在产订单 | `assigned` / `production` / `instock`；给已结案的单补「待开始」节点会把历史搞脏 |
+| 单据动作回写工序按 code | 成品入库 → `instock`、发货 → `ship`，走 `markDoneByCode`；**不按名字**，且已完成的不覆盖首次操作人 |
 | `apply` 默认 `dry_run=true` | 先看「会往哪些单补哪些节点」再按确认 |
 | 必经节点不能标不适用 | `required=1` 时 `status='skipped'` → 400；真的不做要改模板 |
 | 标不适用必须写原因 | `skip_reason` 至少 1 字；否则等于把这一步悄悄抹掉 |
@@ -3655,6 +3658,9 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 
 | 字段 | 含义 |
 |---|---|
+| `columns[]` | **只含看板可见的节点**（`visible=1`） |
+| `scan_items[]` | 仅扫码的节点（`visible=0`，如检验 / 包装）：不出列，但计入进度 |
+| `scan_pending` / `scan_pending_names` | 还没扫码完成的步数与名字 —— 进度不满时说明差在哪 |
 | `cells[].missing` | 这张单没有该 code 的节点记录（一般是新加的模板节点还没 apply） |
 | `extra[]` | 模板之外的节点（单据级自定义，或模板已停用的）—— 追加在列尾，不能让它从看板上消失 |
 | `no_nodes` | 这张单完全没生成过工序（还没转到「生产中」） |

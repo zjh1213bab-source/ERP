@@ -96,10 +96,21 @@ function buildGroups(ctx) {
   const map = (arr) => arr.map(([key, label, value, wide]) => ({ key, label, value: value === undefined ? '' : value, wide: !!wide }));
 
   const doneCount = nodes.filter((x) => x.status === 'done').length;
+  /**
+   * 「仅扫码」的工序（visible=0，如检验 / 包装）在明细里标出来。
+   *
+   * 它们不占看板列，但**算在进度里、也拦入库**。不标的话会出现怪事：
+   * 进度写着 13/15，看板上 13 列全绿，入库却被拦 ——
+   * 人会以为系统算错，其实差的是那两步要在车间扫码完成。
+   */
+  const scanCodes = new Set(
+    db.prepare('SELECT code FROM node_template_items WHERE visible = 0').all().map((r) => r.code)
+  );
+  const mark = (x) => (scanCodes.has(x.code) ? '·扫码' : '');
   const process = [
     { key: 'node_progress', label: '工序进度', value: nodes.length ? `${doneCount}/${nodes.length} 已完成` : '未生成工序', wide: false },
     { key: 'node_current', label: '当前环节', value: (nodes.find((x) => x.status === 'doing') || nodes.find((x) => x.status === 'pending') || {}).name || '—', wide: false },
-    { key: 'node_detail', label: '工序明细', value: nodes.map((x) => `${x.name}(${x.status === 'done' ? '✓' : x.status === 'doing' ? '进行中' : x.status === 'skipped' ? '不适用' : '待'})`).join(' · '), wide: true }
+    { key: 'node_detail', label: '工序明细', value: nodes.map((x) => `${x.name}(${x.status === 'done' ? '✓' : x.status === 'doing' ? '进行中' : x.status === 'skipped' ? '不适用' : '待'}${mark(x)})`).join(' · '), wide: true }
   ];
 
   return [

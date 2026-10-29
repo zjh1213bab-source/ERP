@@ -23,7 +23,7 @@
             <span v-if="t.is_default" class="tag blue" style="font-size: 10px">默认</span>
           </div>
           <div class="nf-tpl-meta">
-            {{ t.item_count }} 个节点<template v-if="t.off_count"> · 停用 {{ t.off_count }}</template>
+            {{ t.item_count }} 节点 / {{ t.visible_count }} 列<template v-if="t.off_count"> · 停 {{ t.off_count }}</template>
             · {{ t.order_count }} 单在用
           </div>
         </div>
@@ -38,6 +38,9 @@
             <div>
               <h3>{{ cur.name }}</h3>
               <div class="tiny muted">{{ cur.note || '—' }}</div>
+              <div class="tiny muted">
+                {{ itemActive }} 个节点 · 看板 {{ itemVisible }} 列<template v-if="itemActive > itemVisible"> · 仅扫码 {{ itemActive - itemVisible }}</template>
+              </div>
             </div>
             <div style="display: flex; gap: 8px">
               <button v-if="canWrite && !cur.is_default" class="btn btn-ghost btn-sm" @click="makeDefault">设为默认</button>
@@ -51,6 +54,10 @@
             <b>改名随便改</b> —— 系统里「裁床单完成 → 标记裁剪节点」「首件确认 → 回写车缝节点」这些联动
             认的是节点的 <code>code</code>（{{ '`cut` / `sew`' }}），不是名字。
             所以你把「裁剪」改成「裁床」「开裁」，联动照样生效。
+            <span style="display: block; margin-top: 4px">
+              <b>看板列</b>：标「显示」的占订单跟踪一列；标「仅扫码」的（如检验、包装）不占列，
+              但节点照常生成、照常算进度、入库校验照常查它 —— 只是现场在扫码里走完。
+            </span>
             <span v-if="cur.is_default" style="display: block; margin-top: 4px">
               这是默认流程：新订单没有指定流程时用它。
             </span>
@@ -63,6 +70,7 @@
                 <th>节点名称</th>
                 <th style="width: 90px">code</th>
                 <th style="width: 72px">必经</th>
+                <th style="width: 78px">看板</th>
                 <th style="width: 96px">负责人</th>
                 <th style="width: 74px">状态</th>
                 <th style="width: 190px">操作</th>
@@ -85,6 +93,15 @@
                     title="点一下切换必经 / 可选（可选才能标「不适用」）"
                     @click="toggleReq(it)">{{ it.required ? '必经' : '可选' }}</button>
                 </td>
+                <td>
+                  <!-- 「看板」= 这道工序要不要占订单跟踪的一列。
+                       0 表示只在扫码/报工里走（检验、包装这类），节点照常生成、照常参与进度 -->
+                  <button class="nf-req-tgl" :class="{ scan: Number(it.visible) === 0 }" :disabled="!canWrite"
+                    :title="Number(it.visible) === 0
+                      ? '当前仅扫码（不占看板列）· 点一下改为看板显示'
+                      : '当前在看板上占一列 · 点一下改为仅扫码'"
+                    @click="toggleVisible(it)">{{ Number(it.visible) === 0 ? '仅扫码' : '显示' }}</button>
+                </td>
                 <td class="tiny">{{ roleLabel(it.role) }}</td>
                 <td>
                   <span v-if="it.status === 'off'" class="tag red" style="font-size: 10px">已停用</span>
@@ -95,14 +112,15 @@
                   <button v-if="canWrite && i > 0" class="link-btn" title="上移" @click="move(i, -1)">▲</button>
                   <button v-if="canWrite && i < cur.items.length - 1" class="link-btn" title="下移" @click="move(i, 1)">▼</button>
                   <button v-if="canWrite" class="link-btn" :class="{ danger: it.status !== 'off' }"
-                    :disabled="it.builtin" :title="it.builtin ? '内置节点不能停用（裁床单/首件确认要回写到它）' : ''"
+                    :disabled="it.locked"
+                    :title="it.locked ? '这一步有单据联动（裁床单 / 首件 / 入库校验要回写它），不能停用；可以改名或改成仅扫码' : ''"
                     @click="toggleStatus(it)">
                     {{ it.status === 'off' ? '启用' : '停用' }}
                   </button>
                 </td>
               </tr>
               <tr v-if="!cur.items.length">
-                <td colspan="7" class="empty-cell">这个流程还没有节点</td>
+                <td colspan="8" class="empty-cell">这个流程还没有节点</td>
               </tr>
             </tbody>
           </table>
@@ -225,7 +243,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -235,6 +253,10 @@ const canWrite = can('node.flow');
 
 const templates = ref([]);
 const cur = ref(null);
+/* 节点统计：模板里可能含已停用的，这里只数 active 的 */
+const itemActive = computed(() => ((cur.value && cur.value.items) || []).filter((x) => x.status === 'active').length);
+const itemVisible = computed(() => ((cur.value && cur.value.items) || [])
+  .filter((x) => x.status === 'active' && Number(x.visible) !== 0).length);
 
 function roleLabel(r) {
   return { production: '生产车间', warehouse: '仓库', qc: '质检', outsource: '外协厂' }[r] || r || '—';
@@ -278,6 +300,20 @@ async function saveName(it) {
 async function toggleReq(it) {
   try {
     await api.updateNodeFlowItem(it.id, { required: it.required ? 0 : 1 });
+    await reload();
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------------- 看板显示 / 仅扫码 ---------------- */
+/**
+ * 隐藏只看「要不要占一列」，不代表这道工序不做：
+ * 节点照常生成、照常算进度、入库闸门照常校验它。
+ * 后端会拒绝「把最后一个可见列也隐藏」—— 那种情况看板会是空表。
+ */
+async function toggleVisible(it) {
+  const next = Number(it.visible) === 0 ? 1 : 0;
+  try {
+    await api.updateNodeFlowItem(it.id, { visible: next });
     await reload();
   } catch (e) { alert(e.message); }
 }
@@ -407,6 +443,8 @@ void router;
   border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer;
 }
 .nf-req-tgl.opt { border-color: #fadfae; background: #fff7ea; color: #b45309; }
+/* 仅扫码：用灰蓝，和「可选」的橙色区分开 —— 两个概念，别长得一样 */
+.nf-req-tgl.scan { border-color: #ccd7e6; background: #f2f6fc; color: #5b6b80; }
 .nf-req-tgl:disabled { opacity: .75; cursor: not-allowed; }
 .nf-bi { font-size: 9px; color: #2563eb; background: #e8f0ff; border-radius: 3px; padding: 0 3px; margin-left: 4px; }
 .nf-off { opacity: .5; }

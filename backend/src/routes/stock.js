@@ -20,6 +20,8 @@ const WRITE = ['admin', 'warehouse', 'production', 'sales'];
 const { getStock, applyStock, addLedger, round2 } = require('../services/stockOps');
 // 客户信用闸门：货出门这一刻才判（下单时只提示，钱/货出门才拦）
 const credit = require('../services/credit');
+const orderFlow = require('../services/orderFlow');
+const { markDoneByCode } = require('../services/nodeFlow');
 
 function orderSizeRows(orderId) {
   return db
@@ -182,11 +184,13 @@ router.post('/instock', authRequired, requireRole(['admin', 'warehouse', 'produc
   const { order_id, warehouse = 'cn' } = req.body || {};
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(order_id);
   if (!order) return fail(res, 404, '订单不存在');
-  if (!['assigned', 'production'].includes(order.status)) {
-    return fail(res, 400, `订单当前为「${order.status}」，只有已分单/生产中可入库`);
-  }
+  if (order.status !== 'production') return fail(res, 400, `订单当前为「${order.status}」，只有生产中的订单可入库`);
+  orderFlow.check(order_id, { to: 'instock', user: req.user, source: 'stock' });
   const rows = orderSizeRows(order_id);
   if (!rows.length) return fail(res, 400, '订单没有明细');
+  const matrixQty = rows.reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
+  const orderedQty = Number(db.prepare('SELECT COALESCE(SUM(qty),0) AS qty FROM order_items WHERE order_id = ?').get(order_id).qty) || 0;
+  if (!(matrixQty > 0) || Math.abs(matrixQty - orderedQty) > 0.0001) return fail(res, 400, '颜色尺码明细数量与订单总量不一致，不能按整单入库');
   try {
     db.exec('BEGIN');
     rows.forEach((r) => {
@@ -196,9 +200,19 @@ router.post('/instock', authRequired, requireRole(['admin', 'warehouse', 'produc
     });
     const t = now();
     db.prepare('UPDATE orders SET status=?, updated_at=? WHERE id=?').run('instock', t, order_id);
+    /**
+     * 按 code 标记，**不按名字**。
+     *
+     * 这里原先是 `WHERE name='成品入库'`。它在业务把节点改名成「入库」的那一刻
+     * 就静默失效了 —— 库存流水照写、订单状态照转，只有节点停在「待开始」。
+     * 而且失效是**按订单分批**发生的：老单节点还叫「成品入库」照样能标记，
+     * 新单不行。同一个动作一半生效一半不生效，最难查的那种。
+     */
+    markDoneByCode(order_id, 'instock', { date: t.slice(0, 10), operator: req.user.username });
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
       .run(order_id, order.status, 'instock', req.user.username, `成品入库(${warehouse})`, t);
     db.exec('COMMIT');
+    orderFlow.afterTransition(order, { to: 'instock', note: `成品入库(${warehouse})`, user: req.user });
     return ok(res, { order_id: Number(order_id), warehouse, status: 'instock' });
   } catch (e) {
     db.exec('ROLLBACK');
@@ -212,6 +226,7 @@ router.post('/ship', authRequired, requireRole(['admin', 'warehouse', 'finance']
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(order_id);
   if (!order) return fail(res, 404, '订单不存在');
   if (order.status !== 'instock') return fail(res, 400, `订单当前为「${order.status}」，只有已入库可发货`);
+  orderFlow.check(order_id, { to: 'shipped', user: req.user, source: 'stock' });
   const rows = orderSizeRows(order_id);
   // 入库那边有「订单没有明细」的校验，发货这边原来漏了：
   // 没有明细的空单会一路走完流程被标成「已发货」，货一件没出库，
@@ -256,12 +271,15 @@ router.post('/ship', authRequired, requireRole(['admin', 'warehouse', 'finance']
     });
     const t = now();
     db.prepare('UPDATE orders SET status=?, updated_at=? WHERE id=?').run('shipped', t, order_id);
+    // 同上：按 code（ship）标记，改名不影响
+    markDoneByCode(order_id, 'ship', { date: t.slice(0, 10), operator: req.user.username });
     const shipNote = consumed
       ? `发货出库(${warehouse})·信用放行单#${consumed.id}`
       : `发货出库(${warehouse})`;
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
       .run(order_id, order.status, 'shipped', req.user.username, shipNote, t);
     db.exec('COMMIT');
+    orderFlow.afterTransition(order, { to: 'shipped', note: shipNote, user: req.user });
     return ok(res, {
       order_id: Number(order_id),
       warehouse,

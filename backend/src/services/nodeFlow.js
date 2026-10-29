@@ -116,6 +116,8 @@ function listTemplates() {
   return rows.map((t) => ({
     ...t,
     item_count: Number(db.prepare("SELECT COUNT(*) c FROM node_template_items WHERE template_id = ? AND status = 'active'").get(t.id).c),
+    /** 其中占看板列的（visible=1）—— 列表上直接看出「15 个节点里 13 列」 */
+    visible_count: Number(db.prepare("SELECT COUNT(*) c FROM node_template_items WHERE template_id = ? AND status = 'active' AND visible = 1").get(t.id).c),
     off_count: Number(db.prepare("SELECT COUNT(*) c FROM node_template_items WHERE template_id = ? AND status = 'off'").get(t.id).c),
     order_count: Number(db.prepare('SELECT COUNT(*) c FROM orders WHERE node_template_id = ?').get(t.id).c)
   }));
@@ -124,7 +126,20 @@ function listTemplates() {
 function getTemplate(id) {
   const t = db.prepare('SELECT * FROM node_templates WHERE id = ?').get(id);
   if (!t) throw bad('流程模板不存在', 404);
-  return { ...t, items: templateItems(id, { includeOff: true }) };
+  /**
+   * 每个节点带上 `locked`：**锁定清单只在后端定义一次**。
+   *
+   * 前端原来按 `builtin` 判断「不许停用」，而后端已收窄到 4 个 code，
+   * 两边标准不一致的结果是：接口允许停用某节点，界面上按钮却是灰的，
+   * 业务只会认为「这系统不让改」。
+   */
+  return {
+    ...t,
+    items: templateItems(id, { includeOff: true }).map((it) => ({
+      ...it,
+      locked: LOCKED_CODES.includes(it.code)
+    }))
+  };
 }
 
 /** 新建 / 修改模板本体（名称、备注、是否默认） */
@@ -198,15 +213,26 @@ function saveItem(templateId, b) {
   const tpl = db.prepare('SELECT * FROM node_templates WHERE id = ?').get(templateId);
   if (!tpl) throw bad('流程模板不存在', 404);
 
-  const name = String(b.name || '').trim();
-  if (!name) throw bad('节点名称必填');
-  if (name.length > 20) throw bad('节点名称最多 20 字（看板一列放不下更长的）');
+  /**
+   * 名称**只在传了的时候才校验**。
+   *
+   * 这是个部分更新接口：界面上的「必经/可选」「看板/仅扫码」都只传一个字段。
+   * 原来一进门就 `name = String(b.name || '')`，于是那两个开关一点就报
+   * 「节点名称必填」—— 配置页看着有两个可点的开关，实际都点不动。
+   * 必填只在**新建**时要求。
+   */
+  const hasName = b.name !== undefined && String(b.name).trim() !== '';
+  if (hasName && String(b.name).trim().length > 20) {
+    throw bad('节点名称最多 20 字（看板一列放不下更长的）');
+  }
 
   const t = now();
 
   if (b.id) {
     const row = db.prepare('SELECT * FROM node_template_items WHERE id = ? AND template_id = ?').get(b.id, templateId);
-    if (!row) throw bad('节点不存在', 404);
+    if (!row) throw bad('节点不存在（或不属于这个流程）', 404);
+
+    const name = hasName ? String(b.name).trim() : row.name;
 
     // 同模板内不允许重名：看板上两列同名，没人分得清哪个是哪个
     const dup = db.prepare(
@@ -222,9 +248,28 @@ function saveItem(templateId, b) {
         + '用不到就改名说明它在你们厂叫什么。');
     }
 
+    /**
+     * `visible`：这道工序要不要占看板一列。
+     *
+     * 0 = 仅扫码（检验、包装这类现场扫一下就走完的工序）。
+     * **隐藏不等于不做**：节点照常生成、照常参与进度、入库闸门照常校验它，
+     * 只是不占列 —— 15 个节点全摆出来，13 列的看板就得横向滚。
+     */
+    const visible = b.visible !== undefined ? (b.visible ? 1 : 0) : Number(row.visible);
+
+    // 全流程不能一个可见节点都不剩 —— 那看板就成了一张空表，
+    // 而「保存成功」会让人以为配好了。要精简到这一步，说明流程本身该重建。
+    if (visible === 0 && Number(row.visible) !== 0) {
+      const still = Number(db.prepare(
+        "SELECT COUNT(*) c FROM node_template_items WHERE template_id = ? AND status = 'active' AND visible = 1 AND id <> ?"
+      ).get(templateId, b.id).c);
+      if (!still) throw bad('这是流程里最后一个看板列，不能隐藏 —— 全隐藏后看板会是空表。要精简请改流程本身。');
+    }
+
     db.prepare(
       `UPDATE node_template_items
-          SET name = ?, seq = ?, required = ?, role = ?, color = ?, status = ?, note = ?, updated_at = ?
+          SET name = ?, seq = ?, required = ?, role = ?, color = ?, status = ?, note = ?,
+              visible = ?, updated_at = ?
         WHERE id = ?`
     ).run(
       name,
@@ -234,11 +279,16 @@ function saveItem(templateId, b) {
       b.color !== undefined ? b.color : row.color,
       status,
       b.note !== undefined ? b.note : row.note,
+      visible,
       t,
       b.id
     );
     return db.prepare('SELECT * FROM node_template_items WHERE id = ?').get(b.id);
   }
+
+  /* 新建：名称必填 */
+  const name = String(b.name || '').trim();
+  if (!name) throw bad('节点名称必填');
 
   const dup = db.prepare('SELECT id FROM node_template_items WHERE template_id = ? AND name = ?').get(templateId, name);
   if (dup) throw bad(`这个流程里已经有叫「${name}」的节点了`);
@@ -247,8 +297,8 @@ function saveItem(templateId, b) {
   const code = nextCustomCode(templateId);
   const info = db.prepare(
     `INSERT INTO node_template_items
-      (template_id, code, name, seq, required, role, color, builtin, status, note, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,0,'active',?,?,?)`
+      (template_id, code, name, seq, required, role, color, builtin, status, note, visible, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,0,'active',?,?,?,?)`
   ).run(
     templateId,
     code,
@@ -258,6 +308,8 @@ function saveItem(templateId, b) {
     b.role || 'production',
     b.color || null,
     b.note || null,
+    // 新建的默认占列；要「仅扫码」显式传 visible:0
+    b.visible !== undefined ? (b.visible ? 1 : 0) : 1,
     t,
     t
   );
@@ -351,6 +403,32 @@ function ensureNodes(orderId) {
 /** 按 code 找一张订单的节点（替代所有 `name LIKE '%xx%'`） */
 function findByCode(orderId, code) {
   return db.prepare('SELECT * FROM order_nodes WHERE order_id = ? AND code = ? ORDER BY id LIMIT 1').get(orderId, code);
+}
+
+/**
+ * 把某一步直接标成完成 —— 给「单据动作反推工序」用的（入库、发货）
+ *
+ * 入库办完、货发出去之后，那一步其实已经发生了，不该还要人回看板点一下。
+ * 但这件事**必须按 code 认**：按名字认的话，业务一改名就静默失效，
+ * 而且失效是按订单分批的（老单节点名还是旧的），一半生效一半不生效。
+ *
+ * 已经完成的不覆盖：`actual_date` 与 `operator` 记的是**第一次做完**的时间和人，
+ * 补一次发货不该把它改成今天。
+ *
+ * 找不到节点时返回 false 而不抛错：调用它的地方库存流水已经写进事务了，
+ * 为一个节点记录把整笔入库回滚是本末倒置。但会在服务端日志里留一行 —— 不静默。
+ */
+function markDoneByCode(orderId, code, { date = null, operator = null } = {}) {
+  const node = findByCode(orderId, code);
+  if (!node) {
+    console.warn(`[nodeFlow] 订单 ${orderId} 没有 code=${code} 的节点，无法回写完成状态`);
+    return false;
+  }
+  if (node.status === 'done') return false;
+  db.prepare(
+    "UPDATE order_nodes SET status = 'done', actual_date = COALESCE(?, actual_date), operator = COALESCE(?, operator) WHERE id = ?"
+  ).run(date || localDate(new Date().toISOString()), operator, node.id);
+  return true;
 }
 
 /**
@@ -572,18 +650,40 @@ function board({
      ORDER BY ${ORDER}
      LIMIT ?`).all(...args, Number(limit) || 200);
 
-  const columns = templateItems(tpl.id).map((it) => ({
+  /**
+   * 看板列 = 模板里 `visible=1` 的节点。
+   *
+   * 「检验」「包装」这类工序的现场动作是车间扫码，不是跟单在电脑上点，
+   * 摆在列里只会把 13 列撑成 15 列、还要横向滚。所以它们 visible=0：
+   * 列不显示，但 order_nodes 里那条记录照常生成（扫码、报工、入库闸门都靠它）。
+   *
+   * 注意：**不能把它们的记录也删掉**，否则成品入库的两道闸门（按 code 找
+   * inspect / pack）永远拦着，而界面上还找不到那个节点。
+   */
+  const items = templateItems(tpl.id);
+  const columns = items.filter((it) => Number(it.visible) !== 0).map((it) => ({
     id: it.id, code: it.code, name: it.name, seq: it.seq,
     required: it.required, role: it.role, color: it.color, builtin: it.builtin
   }));
+  /** 仅扫码的节点：不出列，但进度要算它们（否则 13 列全 ✓ 显示 100% 却入不了库） */
+  const scanItems = items.filter((it) => Number(it.visible) === 0);
+  const scanCodes = new Set(scanItems.map((it) => it.code));
 
   const rows = orders.map((o) => {
     const nodes = db.prepare('SELECT * FROM order_nodes WHERE order_id = ? ORDER BY seq, id').all(o.id);
     const byCode = new Map(nodes.map((n) => [n.code, n]));
+    /**
+     * 格子名用**模板当前名**，不用 order_nodes 里的快照名。
+     *
+     * order_nodes.name 是下单那一刻抄下来的，业务把「成品入库」改成「入库」之后，
+     * 老单的快照名还是旧值 —— 于是同一列出现「表头写入库、格子里写成品入库」。
+     * 列头本来就来自模板，格子必须跟列头一致。
+     * 历史名字仍留在 order_nodes 里（订单详情能查），这里只是显示层取当前名。
+     */
     const cells = columns.map((c) => {
       const n = byCode.get(c.code);
       return n
-        ? { node_id: n.id, code: c.code, name: n.name, status: n.status, actual_date: n.actual_date, plan_date: n.plan_date, operator: n.operator, skip_reason: n.skip_reason, missing: false }
+        ? { node_id: n.id, code: c.code, name: c.name, status: n.status, actual_date: n.actual_date, plan_date: n.plan_date, operator: n.operator, skip_reason: n.skip_reason, missing: false }
         : { node_id: null, code: c.code, name: c.name, status: 'none', missing: true };
     });
     /**
@@ -594,12 +694,26 @@ function board({
      * 历史记录仍在 order_nodes 里，订单详情能查。
      */
     const extra = nodes
-      .filter((n) => Number(n.is_custom) === 1 && !columns.some((c) => c.code === n.code))
+      .filter((n) => Number(n.is_custom) === 1
+        && !columns.some((c) => c.code === n.code)
+        && !scanCodes.has(n.code))
       .map((n) => ({ node_id: n.id, code: n.code, name: n.name, status: n.status, actual_date: n.actual_date, plan_date: n.plan_date, operator: n.operator, skip_reason: n.skip_reason, missing: false, extra: true }));
 
-    const done = cells.filter((c) => c.status === 'done').length;
-    const skipped = cells.filter((c) => c.status === 'skipped').length;
-    const total = cells.filter((c) => c.status !== 'none').length;
+    /* 仅扫码的节点：不进列，但要进进度。 */
+    const scanCells = scanItems
+      .map((it) => {
+        const n = byCode.get(it.code);
+        return n ? { node_id: n.id, code: it.code, name: it.name, status: n.status } : null;
+      })
+      .filter(Boolean);
+    /** 还没扫码完成的步骤 —— 进度不是 100% 时，这行字说明差在哪 */
+    const scanPending = scanCells.filter((c) => c.status !== 'done' && c.status !== 'skipped');
+
+    const allCells = cells.concat(scanCells);
+    const done = allCells.filter((c) => c.status === 'done').length;
+    const skipped = allCells.filter((c) => c.status === 'skipped').length;
+    const total = allCells.filter((c) => c.status !== 'none').length;
+    /** 当前环节取可见列：看板上没有「检验」这一列，却把光标指到它，人会找不到在哪 */
     const cur = cells.find((c) => c.status === 'doing')
       || cells.find((c) => c.status === 'pending')
       || null;
@@ -620,13 +734,24 @@ function board({
       skipped_count: skipped,
       progress: total ? Math.round((done / total) * 100) : 0,
       current: cur ? cur.name : null,
-      current_code: cur ? cur.code : null
+      current_code: cur ? cur.code : null,
+      /**
+       * 仅扫码的步骤状态 —— 单独返回，不占列。
+       *
+       * 前端拿它做两件事：进度没到 100% 时说明「还差检验、包装」；
+       * 全部走完时也不必让人猜为什么进度停在 86%。
+       */
+      scan_total: scanCells.length,
+      scan_pending: scanPending.length,
+      scan_pending_names: scanPending.map((c) => c.name)
     };
   });
 
   return {
     template: { id: tpl.id, name: tpl.name, is_default: tpl.is_default },
     columns,
+    /** 仅扫码的节点清单（不进列，但它是流程的一部分，得让人知道有这几步） */
+    scan_items: scanItems.map((it) => ({ code: it.code, name: it.name, seq: it.seq })),
     rows,
     stats,
     filters: {
@@ -701,6 +826,7 @@ module.exports = {
   reorder,
   ensureNodes,
   findByCode,
+  markDoneByCode,
   applyToOrders,
   board,
   setNode
