@@ -21,7 +21,7 @@
 | 数据库 | **359 业务表 + 1 结构台账 / 435 索引**（表结构单一来源 `backend/src/schema.js`，由 `scripts/rebuild-schema.js` 从 sqlite_master 导出；v1.68 新增 `users.token_version`、`integration_endpoints.api_key_hash/api_key_hint`） |
 | 后端路由文件 | 122 个（`backend/src/routes/`） |
 | 前端视图 | 124 个（`frontend/src/views/`，含 `mall/` 客户商城子目录） |
-| 冒烟测试 | **2199/2199 全通过**（单公司模式默认；跳过 112 条多主体断言，48 个用例块）。多主体模式 `SINGLE_COMPANY=0` 下为 **2306/2306**（跳过 5 条单公司断言）。含「跑完库里无烟测残留」自检（`cd backend && npm run smoke`） |
+| 冒烟测试 | **2200/2200 全通过**（单公司模式默认；跳过 112 条多主体断言，48 个用例块）。多主体模式 `SINGLE_COMPANY=0` 下为 **2307/2307**（跳过 5 条单公司断言）。含「跑完库里无烟测残留」自检（`cd backend && npm run smoke`） |
 | RBAC 审计 | **1091 个带角色要求的接口 / 166 权限点 / 0 问题**（`npm run rbac`） |
 | 页面巡检 | **78 页 0 异常**（`node scripts/sweep-pages.js`） |
 | 原型对齐覆盖率 | **100%（197 / 197 功能节点）**，已全覆盖 |

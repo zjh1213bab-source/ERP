@@ -13031,6 +13031,17 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
   {
     console.log('\n[安全加固]');
     const { db: HDB } = require('../src/db');
+    /**
+     * 上传夹具要删盘上的文件，不能只删逻辑记录
+     *
+     * 冒烟每次跑都往 `data/uploads` 落一个 51 字节的 png；不删的话一年就是几百个
+     * 没人认领的碎片（备份包也会跟着变大）。「跑完无残留」这条自检本来只查数据库，
+     * 文件得自己删。
+     */
+    const FSU = require('fs');
+    const PXU = require('path');
+    const UPLOAD_DIR = require('../src/routes/upload').UPLOAD_DIR;
+    let upFileName = null;
     const STAMP = String(Date.now()).slice(-7);
     const U_SCOPE = 'smk_sec_' + STAMP;      // 账号归属 + 会话撤销
     const U_LOCK = 'smk_lock_' + STAMP;      // 登录限流（这个账号故意永远登不上）
@@ -13142,6 +13153,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       upOk.status === 200 && /^\/uploads\/[0-9a-f]+\.png$/.test((upOk.json.data || {}).url || ''),
       `HTTP ${upOk.status} ${(upOk.json.data || {}).url || ''}`);
     if (upOk.status === 200) {
+      upFileName = PXU.basename(String(upOk.json.data.url || ''));
       const raw = await fetch(BASE + upOk.json.data.url);
       ok('★ 上传目录带 nosniff + CSP sandbox（就算被打开也不执行脚本）',
         raw.headers.get('x-content-type-options') === 'nosniff'
@@ -13257,6 +13269,13 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     }
     HDB.prepare('DELETE FROM users WHERE username = ?').run(U_LOCK);
     require('../src/services/access').clearCache();
+    // 盘上的夹具文件也删掉（失败不影响断言 —— 但下面会验它真的没了）
+    if (upFileName) {
+      try { FSU.unlinkSync(PXU.join(UPLOAD_DIR, upFileName)); } catch (e) { /* ignore */ }
+    }
+    ok('冒烟上传的图片已从盘上删除（不留碎片）',
+      !upFileName || !FSU.existsSync(PXU.join(UPLOAD_DIR, upFileName)),
+      upFileName || '(未上传)');
 
     const leftU = Number(HDB.prepare("SELECT COUNT(*) c FROM users WHERE username LIKE 'smk_sec_%' OR username LIKE 'smk_lock_%'").get().c);
     const leftE = Number(HDB.prepare("SELECT COUNT(*) c FROM integration_endpoints WHERE code LIKE 'smk_ep_%'").get().c);
