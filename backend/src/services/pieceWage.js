@@ -171,7 +171,7 @@ function makeResolver() {
     if (cache.has('id' + id)) return cache.get('id' + id);
     const e = db
       .prepare(
-        `SELECT e.id, e.code, e.name, e.status, d.name AS dept_name
+        `SELECT e.id, e.code, e.name, e.status, e.company_id, d.name AS dept_name
            FROM employees e LEFT JOIN departments d ON d.id = e.department_id WHERE e.id = ?`
       )
       .get(id);
@@ -182,7 +182,7 @@ function makeResolver() {
     if (cache.has('n' + name)) return cache.get('n' + name);
     const rows = db
       .prepare(
-        `SELECT e.id, e.code, e.name, e.status, d.name AS dept_name
+        `SELECT e.id, e.code, e.name, e.status, e.company_id, d.name AS dept_name
            FROM employees e LEFT JOIN departments d ON d.id = e.department_id WHERE e.name = ?`
       )
       .all(name);
@@ -247,15 +247,22 @@ function bundleQtyMap() {
  * 试算某个月（不落库）
  * @returns {{ period, from, to, items, by_employee, diagnostics, summary }}
  */
-function preview(period) {
+function preview(period, companyId) {
   const { from, to } = periodRange(period);
+  /**
+   * 主体：计件工资是**发给人的**，所以按员工主体过滤（不是按订单）。
+   * 分部员工偶尔做了总部订单的活，钱仍发给分部的人 —— 跟订单走会把这笔钱记进总部工资表。
+   * 无法归属到人的报工不属于任何主体的计件，但按**订单**主体归到诊断里，
+   * 这样分部看得到自己名下的异常（不然那些"姓名对不上档案"的提示会整体消失）。
+   */
+  const cid = Number(companyId) || null;
   const cfg = ATT.getConfig();
   const att = ATT.monthMap(from, to);
   const dailyCap = Number(cfg.daily_cap_qty) || 0;
   const reports = db
     .prepare(
       `SELECT r.id, r.order_id, r.node_name, r.bundle_no, r.qty_ok, r.qty_defect,
-              r.employee_id, r.operator, r.report_date, o.order_no
+              r.employee_id, r.operator, r.report_date, o.order_no, o.company_id AS order_company_id
          FROM production_reports r
          LEFT JOIN orders o ON o.id = r.order_id
         WHERE r.report_date >= ? AND r.report_date <= ? AND IFNULL(r.qty_ok, 0) > 0
@@ -288,6 +295,8 @@ function preview(period) {
     // 1) 归人
     const who = resolveEmployee(r, R);
     if (!who.employee) {
+      // 无法归属：按**订单**主体留痕（分部的异常要能被分部看见）
+      if (cid && Number(r.order_company_id) !== cid) return;
       unassigned.push({
         report_id: r.id, order_no: r.order_no, bundle_no: r.bundle_no,
         process_name: processName, qty: Number(r.qty_ok) || 0,
@@ -295,6 +304,8 @@ function preview(period) {
       });
       return;
     }
+    // 归到人的按人的主体判：钱发给谁，就记谁的账
+    if (cid && Number(who.employee.company_id || 1) !== cid) return;
     if (st.multi) {
       multiStyle.push({ order_no: r.order_no, report_id: r.id, process_name: processName });
     }
@@ -514,11 +525,17 @@ function preview(period) {
 }
 
 /** 生成（或覆盖）某月草案 */
-function createRun(period, operator, note) {
-  const p = preview(period);
+function createRun(period, operator, note, companyId) {
+  const cid = Number(companyId) || 1;
+  const p = preview(period, cid);
+  /**
+   * 「该月已有确认过的核算单就不许再建」**必须按主体判**。
+   * 原来查全集团：分部确认了自己那张之后，总部同月永远建不了单，
+   * 而报错只提分部的单号 —— 现场只能理解成"系统坏了"（与盘点单那个 bug 同型）。
+   */
   const existConfirmed = db
-    .prepare("SELECT * FROM piece_wage_runs WHERE period = ? AND status = 'confirmed'")
-    .get(period);
+    .prepare("SELECT * FROM piece_wage_runs WHERE period = ? AND company_id = ? AND status = 'confirmed'")
+    .get(period, cid);
   if (existConfirmed) {
     throw bad(`该月已有确认过的核算单 ${existConfirmed.run_no}，要重算请先作废（作废要写理由）`);
   }
@@ -533,28 +550,34 @@ function createRun(period, operator, note) {
   db.exec('BEGIN');
   try {
     // 草案可覆盖：删旧的草案（明细级联删），并**复用它的编号** ——
-    // 同一期间的草案只是「当前试算」，编号每次重算都涨会让对账时对不上号
+    // 同一期间的草案只是「当前试算」，编号每次重算都涨会让对账时对不上号。
+    // 同样只碰自己主体的草案：分部重算不许删总部的草案。
     const olds = db
-      .prepare("SELECT id, run_no FROM piece_wage_runs WHERE period = ? AND status = 'draft'")
-      .all(period);
+      .prepare("SELECT id, run_no FROM piece_wage_runs WHERE period = ? AND company_id = ? AND status = 'draft'")
+      .all(period, cid);
     const reuseNo = olds.length ? olds[0].run_no : null;
     olds.forEach((o) => {
       db.prepare('DELETE FROM piece_wage_items WHERE run_id = ?').run(o.id);
       db.prepare('DELETE FROM piece_wage_runs WHERE id = ?').run(o.id);
     });
 
+    /**
+     * 单号：`run_no` 上有 UNIQUE 约束，两个主体同月各建一单会撞号。
+     * 所以序号**按主体**各自递增，非默认主体再加 `C{id}` 后缀。
+     * 这样单主体部署的编号与历史完全一致（PW202609-01），多主体才出现后缀（PW202609-01C2）。
+     */
     const prefix = 'PW' + period.replace('-', '');
+    const suffix = cid !== 1 ? 'C' + cid : '';
     let runNo = reuseNo;
     if (!runNo) {
-      const maxRow = db
-        .prepare('SELECT run_no FROM piece_wage_runs WHERE run_no LIKE ? ORDER BY run_no DESC LIMIT 1')
-        .get(prefix + '%');
-      let seq = 1;
-      if (maxRow) {
-        const n = parseInt(String(maxRow.run_no).slice(prefix.length + 1), 10);
-        if (!isNaN(n)) seq = n + 1;
-      }
-      runNo = prefix + '-' + String(seq).padStart(2, '0');
+      const used = db
+        .prepare('SELECT run_no FROM piece_wage_runs WHERE period = ? AND company_id = ?')
+        .all(period, cid);
+      const maxSeq = used.reduce((m, r) => {
+        const hit = String(r.run_no || '').match(/-(\d+)/);
+        return hit ? Math.max(m, Number(hit[1])) : m;
+      }, 0);
+      runNo = prefix + '-' + String(maxSeq + 1).padStart(2, '0') + suffix;
     }
 
     const s = p.summary;
@@ -564,8 +587,8 @@ function createRun(period, operator, note) {
            (run_no, period, status, items_count, employees_count, total_qty, total_amount,
             missing_rate_count, unassigned_count, capped_count,
             att_conflict_count, att_excluded_count, att_capped_count,
-            payload, note, created_by, created_at)
-         VALUES (?,?, 'draft', ?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+            payload, note, created_by, created_at, company_id)
+         VALUES (?,?, 'draft', ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         runNo, period, s.items_count, s.employees_count, s.total_qty, s.total_amount,
@@ -574,7 +597,7 @@ function createRun(period, operator, note) {
         round2(s.daily_capped_count + s.month_capped_count),
         // payload 里连当时的策略一起存：以后改了配置，也能解释这份单当时按什么规则算的
         JSON.stringify({ ...p.diagnostics, att_policy: s.att_policy, daily_cap_qty: s.daily_cap_qty }),
-        note || null, operator, t
+        note || null, operator, t, cid
       ).lastInsertRowid;
 
     const ins = db.prepare(
@@ -602,9 +625,23 @@ function createRun(period, operator, note) {
   }
 }
 
-function listRuns({ period, status } = {}) {
+/**
+ * 取一张核算单并校验归属 —— 跨主体按**不存在**处理
+ *
+ * 返回 404 而不是 403：403 等于承认「这个 id 是真的，只是你没权限」，
+ * 逐个试 id 就能数出别家发过多少次工资、发了多少。
+ */
+function ownRun(id, companyId) {
+  const run = db.prepare('SELECT * FROM piece_wage_runs WHERE id = ?').get(Number(id));
+  if (!run) throw bad('核算单不存在', 404);
+  if (companyId && Number(run.company_id) !== Number(companyId)) throw bad('核算单不存在', 404);
+  return run;
+}
+
+function listRuns({ period, status, companyId } = {}) {
   const where = [];
   const params = [];
+  if (companyId) { where.push('company_id = ?'); params.push(Number(companyId)); }
   if (period) {
     where.push('period = ?');
     params.push(period);
@@ -627,9 +664,8 @@ function listRuns({ period, status } = {}) {
     }));
 }
 
-function getRun(id) {
-  const run = db.prepare('SELECT * FROM piece_wage_runs WHERE id = ?').get(id);
-  if (!run) throw bad('核算单不存在', 404);
+function getRun(id, companyId) {
+  const run = ownRun(id, companyId);
   const items = db
     .prepare(
       `SELECT * FROM piece_wage_items WHERE run_id = ?
@@ -667,9 +703,8 @@ function getRun(id) {
 }
 
 /** 确认：缺单价一条都不许过 */
-function confirmRun(id, operator, extraNote) {
-  const run = db.prepare('SELECT * FROM piece_wage_runs WHERE id = ?').get(id);
-  if (!run) throw bad('核算单不存在', 404);
+function confirmRun(id, operator, extraNote, companyId) {
+  const run = ownRun(id, companyId);
   // 确认时允许补写处理说明（比如「临时工张三另行结算」）：
   // 无法归属的报工不阻塞确认，但必须留下一句话说明怎么处理
   const note = extraNote !== undefined && String(extraNote).trim() ? String(extraNote).trim() : run.note;
@@ -677,7 +712,9 @@ function confirmRun(id, operator, extraNote) {
   if (run.status === 'void') throw bad('作废的单不能确认');
   if (!run.items_count) throw bad('没有明细，不能确认');
 
-  const p = preview(run.period);
+  // 按**单据自己的主体**重算，而不是当前登录人的主体：
+  // 管理员确认分部那张单时，口径必须是分部的（用总部口径会漏掉分部的缺价、多查总部的异常）
+  const p = preview(run.period, run.company_id);
   if (p.summary.missing_rate_count > 0) {
     const names = [...new Set(p.diagnostics.missing_rate.map((m) => m.process_name))].slice(0, 5);
     throw bad(
@@ -719,20 +756,19 @@ function confirmRun(id, operator, extraNote) {
   db.prepare(
     "UPDATE piece_wage_runs SET status='confirmed', confirmed_by=?, confirmed_at=?, note=? WHERE id=?"
   ).run(operator, now(), note || null, id);
-  return getRun(id);
+  return getRun(id, companyId);
 }
 
 /** 作废（必须写理由） */
-function voidRun(id, reason, operator) {
-  const run = db.prepare('SELECT * FROM piece_wage_runs WHERE id = ?').get(id);
-  if (!run) throw bad('核算单不存在', 404);
+function voidRun(id, reason, operator, companyId) {
+  const run = ownRun(id, companyId);
   if (run.status === 'void') throw bad('已经作废了');
   const why = String(reason || '').trim();
   if (why.length < 4) throw bad('作废要写理由（至少 4 个字），工钱的事以后要能解释');
   db.prepare(
     "UPDATE piece_wage_runs SET status='void', void_reason=?, confirmed_by=COALESCE(confirmed_by,?), confirmed_at=COALESCE(confirmed_at,?) WHERE id=?"
   ).run(why, operator, now(), id);
-  return getRun(id);
+  return getRun(id, companyId);
 }
 
 // ---------------- 工资条 / 车间公示 ----------------
@@ -762,9 +798,8 @@ function maskName(name) {
  * @param {number} runId
  * @param {'person'|'public'} mode
  */
-function payslips(runId, mode = 'person') {
-  const run = db.prepare('SELECT * FROM piece_wage_runs WHERE id = ?').get(runId);
-  if (!run) throw bad('核算单不存在', 404);
+function payslips(runId, mode = 'person', companyId) {
+  const run = ownRun(runId, companyId);
   if (run.status !== 'confirmed') {
     throw bad('只有「已确认」的核算单才能出工资条 —— 草案的数字还会变，发出去要吵架', 400);
   }

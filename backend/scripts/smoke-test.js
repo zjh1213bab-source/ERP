@@ -13,6 +13,25 @@ let pass = 0;
 let fail = 0;
 const failures = [];
 
+/**
+ * 记录本次跑过的用例块（`console.log('\n[块名]')` 形式）
+ *
+ * 为什么需要：条数会随数据浮动（某块按"当前有几张可退采购单"循环），
+ * 所以「2253 变 2247」既可能是数据分支，也可能是整块被跳过 —— 光看总数分不清。
+ * v1.64 我就为此花了半小时人肉比对。现在块数单独钉一条断言：真丢一整块会立刻破线。
+ */
+const blockSeen = new Set();
+{
+  const rawLog = console.log.bind(console);
+  console.log = (...args) => {
+    if (args.length === 1 && typeof args[0] === 'string') {
+      const m = args[0].trim().match(/^\[(.+)\]$/);
+      if (m) blockSeen.add(m[1]);
+    }
+    rawLog(...args);
+  };
+}
+
 function ok(name, cond, extra) {
   if (cond) {
     pass++;
@@ -5109,11 +5128,16 @@ async function req(path, { method = 'GET', body, token } = {}) {
        * 现在撤销后按保留上限裁（最新 5 份），这里把上限钉住。
        */
       const rpDir = require('path').resolve(__dirname, '../data/replaced');
-      const cancelledCount = require('fs').existsSync(rpDir)
-        ? require('fs').readdirSync(rpDir).filter((f) => f.startsWith('restore-cancelled-')).length
-        : 0;
+      const rpFiles = require('fs').existsSync(rpDir)
+        ? require('fs').readdirSync(rpDir).filter((f) => f.startsWith('restore-cancelled-'))
+        : [];
+      const cancelledCount = rpFiles.length;
+      // 失败时要把「哪一份、为什么没删」带出来 —— 只报数量的话，下次还是得靠猜
+      const pruned = (rb.json.data && rb.json.data.pruned) || {};
       ok('★ 撤销恢复后旧副本按上限保留（不无限堆积占满磁盘）', cancelledCount <= 5,
-        `replaced/ 里 restore-cancelled 共 ${cancelledCount} 份（上限 5）`);
+        `replaced/ 里 restore-cancelled 共 ${cancelledCount} 份（上限 5）`
+        + ` | 本次裁剪 deleted=${pruned.deleted} failed=${JSON.stringify(pruned.failed || [])}`
+        + ` | 现存 ${rpFiles.join(', ')}`);
     }
 
     // ---- 自清理：删掉本次生成的备份（含回滚点） ----
@@ -12521,17 +12545,33 @@ async function req(path, { method = 'GET', body, token } = {}) {
     // 只看三件事：本次创建数 = 本主体在职人数、本主体的行都落在本主体、
     // 别家主体一行都没被新增。
     const PERIOD = '2026-09';
+    /**
+     * 断言只针对**本次新增的行**，不看该期间总行数、也不看"行数是否恰好等于在职人数"。
+     *
+     * 为什么：这个期间别的用例/演示也可能留过工资单；而且冒烟上一次若崩在中途没走到清理，
+     * 会留下孤儿行（员工已删、工资单还在）—— 按总行数断言就会把"别人的残留"算成自己的错，
+     * 排查方向直接跑偏（v1.64 我就为此误判过一次）。
+     * 用「生成前后的差集 == 本主体在职员工集合」才既精确又不脆。
+     */
     const beforeOther = Number(MDB.prepare('SELECT COUNT(*) c FROM payrolls WHERE period = ? AND company_id <> ?').get(PERIOD, CO2).c);
+    const beforeIds = new Set(MDB.prepare('SELECT id FROM payrolls WHERE period = ?').all(PERIOD).map((r) => Number(r.id)));
     const gen = await req('/api/payrolls/generate', {
       method: 'POST', token: hTok, body: { period: PERIOD }
     });
     const afterOther = Number(MDB.prepare('SELECT COUNT(*) c FROM payrolls WHERE period = ? AND company_id <> ?').get(PERIOD, CO2).c);
-    const ownActive = Number(MDB.prepare("SELECT COUNT(*) c FROM employees WHERE status='active' AND company_id = ?").get(CO2).c);
-    const ownRows = MDB.prepare('SELECT employee_id FROM payrolls WHERE period = ? AND company_id = ?').all(PERIOD, CO2);
+    const ownActiveIds = MDB.prepare("SELECT id FROM employees WHERE status='active' AND company_id = ?").all(CO2).map((r) => Number(r.id)).sort();
+    const newRows = MDB.prepare('SELECT id, employee_id, company_id FROM payrolls WHERE period = ?').all(PERIOD)
+      .filter((r) => !beforeIds.has(Number(r.id)));
+    const newEmpIds = [...new Set(newRows.map((r) => Number(r.employee_id)))].sort();
+    const newCos = [...new Set(newRows.map((r) => Number(r.company_id)))];
     const made = Number((gen.json.data && gen.json.data.created) || 0);
     ok('★ 分公司生成工资单只算自己主体的在职员工，且落在自己主体',
-      gen.status === 200 && made === ownActive && ownRows.length === ownActive && afterOther === beforeOther,
-      `本次创建 ${made} / 本主体在职 ${ownActive} 人 / 别家主体 ${beforeOther}→${afterOther}`);
+      gen.status === 200
+      && made === ownActiveIds.length
+      && JSON.stringify(newEmpIds) === JSON.stringify(ownActiveIds)
+      && newCos.length === 1 && newCos[0] === CO2
+      && afterOther === beforeOther,
+      `本次创建 ${made} / 本主体在职 ${ownActiveIds.length} 人 / 新增员工 ${JSON.stringify(newEmpIds)} / 主体 ${JSON.stringify(newCos)} / 别家 ${beforeOther}→${afterOther}`);
 
     const pl = await req('/api/payrolls?period=2026-09', { token: hTok });
     const plCos = (pl.json.data || []).map((x) => Number(x.company_id) || 1);
@@ -12560,6 +12600,146 @@ async function req(path, { method = 'GET', body, token } = {}) {
     ).get().c);
     ok('人事薪酬范围夹具已清干净',
       leftHr === 0 && leftPay === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(hname), '已删');
+  }
+
+  // ================= 数据范围：计件工资（试算 / 核算单 / 工资条） =================
+  {
+    console.log('\n[数据范围：计件工资]');
+    const { db: PDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const ts = '1998-01-15 10:00:00';
+    const CO2 = 2;
+    const PERIOD = '1998-01';        // 空期间，不碰真实月份的核算单
+    const PROC = '__范围计件工序__';  // 独立工序名，避免影响别的单价
+
+    // 幂等清理（重复跑不堆数据）
+    const wipe = () => {
+      PDB.prepare("DELETE FROM production_reports WHERE remark = 'SMOKE-PWRANGE'").run();
+      PDB.prepare('DELETE FROM piece_rates WHERE process_name = ?').run(PROC);
+      PDB.prepare(
+        'DELETE FROM piece_wage_items WHERE run_id IN (SELECT id FROM piece_wage_runs WHERE period = ?)'
+      ).run(PERIOD);
+      PDB.prepare('DELETE FROM piece_wage_runs WHERE period = ?').run(PERIOD);
+      PDB.prepare("DELETE FROM employees WHERE code IN ('RANGEPW1','RANGEPW2')").run();
+      PDB.prepare("DELETE FROM users WHERE username = 'rangepw_hr'").run();
+    };
+    wipe();
+
+    const mkEmp = (code, name, companyId) => Number(PDB.prepare(
+      `INSERT INTO employees (code, name, position, status, base_salary, hire_date, created_at, company_id)
+       VALUES (?,?,?,'active',6000,'1998-01-01',?,?)`
+    ).run(code, name, '计件范围', ts, companyId).lastInsertRowid);
+    const empC1 = mkEmp('RANGEPW1', '计件员工甲', 1);
+    const empC2 = mkEmp('RANGEPW2', '计件员工乙', CO2);
+
+    // 单价（工价是集团主数据，没有主体维度 —— 见 docs/DB-SCHEMA.md）
+    PDB.prepare(
+      `INSERT INTO piece_rates (process_name, style_no, unit_price, effective_from, status, created_by, created_at)
+       VALUES (?, NULL, 1.5, '1998-01-01', 'active', 'smoke', ?)`
+    ).run(PROC, ts);
+
+    // 两人各一条报工（同期间同工序）：一人属总部、一人属分部
+    // order_id 是 NOT NULL —— 借一张现存订单即可：归人的报工按**员工**主体判，与订单主体无关
+    const anyOrder = PDB.prepare('SELECT id FROM orders ORDER BY id LIMIT 1').get();
+    if (!anyOrder) {
+      ok('计件工资范围用例前置数据', true, '库里没有订单，跳过');
+    } else {
+    const insRep = PDB.prepare(
+      `INSERT INTO production_reports
+         (order_id, node_id, node_name, report_date, qty_ok, qty_defect, hours, operator, employee_id, remark, created_at)
+       VALUES (?,NULL,?,?,?,0,0,?,?,?,?)`
+    );
+    const repC1 = Number(insRep.run(anyOrder.id, PROC, '1998-01-10', 10, '计件员工甲', empC1, 'SMOKE-PWRANGE', ts).lastInsertRowid);
+    const repC2 = Number(insRep.run(anyOrder.id, PROC, '1998-01-11', 20, '计件员工乙', empC2, 'SMOKE-PWRANGE', ts).lastInsertRowid);
+
+    const uname = 'rangepw_hr';
+    const upwd = 'RangePw123456';
+    // 角色必须是 finance：确认/作废的 requireRole 是 APPROVE=['admin','finance']，
+    // 用 hr 会先被 RBAC 拦成 403，就测不到"跨主体 404"这一层（权限 ≠ 数据范围）
+    PDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(uname, hashPassword(upwd), '计件范围财务', 'finance', CO2, ts);
+    require('../src/services/access').clearCache();
+    const sl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: uname, password: upwd })
+    }).then((r) => r.json());
+    const sTok = sl.data && sl.data.token;
+    ok('分公司计件财务账号可登录', !!sTok, sl.message || 'ok');
+
+    // ---- 1. 试算只含自己员工的报工 ----
+    const pv = await req('/api/piece-wage/preview?period=' + PERIOD, { token: sTok });
+    const pvItems = (pv.json.data && pv.json.data.items) || [];
+    const pvEmpIds = [...new Set(pvItems.map((x) => Number(x.employee_id)))];
+    const admPv = await req('/api/piece-wage/preview?period=' + PERIOD, { token });
+    const admEmpIds = [...new Set(((admPv.json.data && admPv.json.data.items) || []).map((x) => Number(x.employee_id)))];
+    ok('★ 分公司试算只算自己员工的报工（钱发给谁就记谁的账）',
+      pv.status === 200 && pvEmpIds.length === 1 && pvEmpIds[0] === empC2,
+      `明细 ${pvItems.length} 条 / 员工 ${JSON.stringify(pvEmpIds)}（总部视角 ${JSON.stringify(admEmpIds)}）`);
+
+    ok('集团管理员的试算仍含两个主体（合并口径不能被范围拦死）',
+      admPv.status === 200 && admEmpIds.includes(empC1) && admEmpIds.includes(empC2),
+      `员工 ${JSON.stringify(admEmpIds)}`);
+
+    // ---- 2. 总部先建单并确认（造出「同月已有确认单」） ----
+    const admMk = await req('/api/piece-wage/runs', { method: 'POST', token, body: { period: PERIOD } });
+    const admRunId = admMk.json.data && admMk.json.data.id;
+    ok('总部可建本期间核算单', admMk.status === 200 && !!admRunId, `HTTP ${admMk.status} ${admMk.json.message || ''}`);
+    const admCf = await req(`/api/piece-wage/runs/${admRunId}/confirm`, { method: 'POST', token, body: {} });
+    ok('总部核算单可确认', admCf.status === 200, `HTTP ${admCf.status} ${admCf.json.message || ''}`);
+
+    // ---- 3. 分部同月仍能建自己的单（互斥必须按主体） ----
+    const mk = await req('/api/piece-wage/runs', { method: 'POST', token: sTok, body: { period: PERIOD } });
+    const runId = mk.json.data && mk.json.data.id;
+    const runCo = runId ? Number(PDB.prepare('SELECT company_id FROM piece_wage_runs WHERE id = ?').get(runId).company_id) : null;
+    const runNo = runId ? PDB.prepare('SELECT run_no FROM piece_wage_runs WHERE id = ?').get(runId).run_no : '';
+    ok('★ 总部同月已有确认单时，分公司仍能建自己那张（互斥原来查全集团）',
+      mk.status === 200 && !!runId && runCo === CO2,
+      `HTTP ${mk.status} ${mk.json.message || ''} 主体=${runCo}`);
+    ok('★ 分公司核算单号带主体后缀（run_no 全局唯一，不然两个主体撞号）',
+      /C2$/.test(String(runNo)) && String(runNo).startsWith('PW199801'),
+      `单号 ${runNo}`);
+
+    // ---- 4. 列表与详情按主体 ----
+    const list = await req('/api/piece-wage/runs?period=' + PERIOD, { token: sTok });
+    const listCos = [...new Set(((list.json.data) || []).map((r) => Number(r.company_id)))];
+    ok('★ 分公司核算单列表不含总部主体',
+      list.status === 200 && listCos.length === 1 && listCos[0] === CO2,
+      `看到 ${((list.json.data) || []).length} 张，主体 ${JSON.stringify(listCos)}`);
+
+    const getOther = await req(`/api/piece-wage/runs/${admRunId}`, { token: sTok });
+    ok('★ 跨主体读核算单详情 404（不是 403，避免被探测存在性）',
+      getOther.status === 404, `HTTP ${getOther.status}`);
+
+    const cfOther = await req(`/api/piece-wage/runs/${admRunId}/confirm`, { method: 'POST', token: sTok, body: {} });
+    ok('★ 跨主体不能确认别家核算单', cfOther.status === 404, `HTTP ${cfOther.status}`);
+
+    const slipOther = await req(`/api/piece-wage/runs/${admRunId}/payslips`, { token: sTok });
+    ok('★ 跨主体不能出别家工资条（一张条子就是一个人的工钱）',
+      slipOther.status === 404, `HTTP ${slipOther.status}`);
+
+    const voidOther = await req(`/api/piece-wage/runs/${admRunId}/void`, {
+      method: 'POST', token: sTok, body: { reason: '跨主体作废试试' }
+    });
+    ok('★ 跨主体不能作废别家核算单', voidOther.status === 404, `HTTP ${voidOther.status}`);
+
+    // ---- 5. 自己的单能确认，且工资条只含自己的人 ----
+    const cf = await req(`/api/piece-wage/runs/${runId}/confirm`, { method: 'POST', token: sTok, body: {} });
+    ok('分公司可确认自己那张核算单', cf.status === 200, `HTTP ${cf.status} ${cf.json.message || ''}`);
+    const slip = await req(`/api/piece-wage/runs/${runId}/payslips`, { token: sTok });
+    const slipRows = (slip.json.data && slip.json.data.rows) || [];
+    const slipIds = [...new Set(slipRows.map((r) => Number(r.employee_id)))];
+    ok('★ 工资条只含本主体的人', slip.status === 200 && slipIds.length === 1 && slipIds[0] === empC2,
+      `条数 ${slipRows.length} / 员工 ${JSON.stringify(slipIds)}`);
+
+    // ---- 清理 ----
+    wipe();
+    const left = Number(PDB.prepare('SELECT COUNT(*) c FROM piece_wage_runs WHERE period = ?').get(PERIOD).c);
+    const leftRep = Number(PDB.prepare("SELECT COUNT(*) c FROM production_reports WHERE remark = 'SMOKE-PWRANGE'").get().c);
+    const leftRate = Number(PDB.prepare('SELECT COUNT(*) c FROM piece_rates WHERE process_name = ?').get(PROC).c);
+    require('../src/services/access').clearCache();
+    ok('计件工资范围夹具已清干净', left === 0 && leftRep === 0 && leftRate === 0,
+      `单 ${left} / 报工 ${leftRep} / 单价 ${leftRate}`);
+    }
   }
 
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
@@ -12624,7 +12804,14 @@ async function req(path, { method = 'GET', body, token } = {}) {
       prodOut.includes('启动中止') ? '已打印启动中止与修复命令' : prodOut.slice(0, 60));
   }
 
-  console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
+  /**
+   * 兜底：整块用例被条件跳过时，总数可能只掉几条，肉眼看不出；块数会直接破线。
+   * 基线取 42（当前 44），留 2 块余量给"按环境跳过"的块。
+   */
+  ok('★ 用例块覆盖数不低于 42（整块被条件跳过会在这里破线）', blockSeen.size >= 42,
+    `本次覆盖 ${blockSeen.size} 块`);
+
+  console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项（覆盖 ${blockSeen.size} 个用例块）`);
   if (fail) {
     console.log('\n失败清单：');
     failures.forEach((f) => console.log('  - ' + f));

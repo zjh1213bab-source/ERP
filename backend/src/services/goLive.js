@@ -508,13 +508,7 @@ CHECKS.health = () => {
   const ms = Date.now() - t0;
   // 数据目录可写探测：只读挂载/磁盘满都会表现为「页面能开、保存没反应」
   const dataDir = path.resolve(__dirname, '../../data');
-  let writable = false;
-  try {
-    const probe = path.join(dataDir, `.golive-probe-${Date.now()}`);
-    fs.writeFileSync(probe, 'ok');
-    fs.unlinkSync(probe);
-    writable = true;
-  } catch (e) { writable = false; }
+  const writable = probeWritable(dataDir);
   const up = Math.floor(process.uptime());
   const hh = Math.floor(up / 3600);
   const mm = Math.floor((up % 3600) / 60);
@@ -552,13 +546,7 @@ CHECKS.env_mode = () => {
 CHECKS.upload_writable = () => {  let dir = null;
   try { dir = require('../routes/uploads').UPLOAD_DIR; } catch (e) { dir = path.resolve(__dirname, '../../data/uploads'); }
   if (!fs.existsSync(dir)) return { status: 'fail', result: `上传目录不存在：${dir}` };
-  let writable = false;
-  try {
-    const probe = path.join(dir, `.golive-probe-${Date.now()}`);
-    fs.writeFileSync(probe, 'ok');
-    fs.unlinkSync(probe);
-    writable = true;
-  } catch (e) { writable = false; }
+  const writable = probeWritable(dir);
   if (!writable) return { status: 'fail', result: `上传目录不可写：${dir} —— 上传按钮会一直转圈` };
   const walk = (p) => {
     let n = 0;
@@ -577,6 +565,39 @@ CHECKS.upload_writable = () => {  let dir = null;
 // 评估：生成 / 刷新
 // ============================================================
 const SECTION_ORDER = (s) => (SECTIONS[s] ? SECTIONS[s].order : 99);
+
+/**
+ * 目录可写探测（两处检查共用一份实现）
+ *
+ * 原来的写法两边各抄一遍：`writeFileSync` + `unlinkSync` 都放在同一个 try 里。
+ * 于是 **删不掉也会被判成"不可写"**（Windows 上刚写的文件常被杀毒/索引短暂占用），
+ * 检查报"数据目录不可写 —— 保存会失败"，而实际上目录好好的；
+ * 同时每次探测留下一个 2 字节的 `.golive-probe-*`，跑几十次就是几十个垃圾文件。
+ *
+ * 现在：**写成功即证明可写**；删除失败只留垃圾，不改变结论；顺手清掉 1 小时前的旧探针。
+ */
+function probeWritable(dir) {
+  const prefix = '.golive-probe-';
+  try {
+    // 先清历史残留（自己留下的，不是用户文件）
+    fs.readdirSync(dir).forEach((f) => {
+      if (!f.startsWith(prefix)) return;
+      try {
+        const st = fs.statSync(path.join(dir, f));
+        if (Date.now() - st.mtimeMs > 3600 * 1000) fs.unlinkSync(path.join(dir, f));
+      } catch (e) { /* 删不掉就下次再删 */ }
+    });
+  } catch (e) { /* 目录读不了，交给下面的写探测判 */ }
+
+  const probe = path.join(dir, prefix + Date.now());
+  try {
+    fs.writeFileSync(probe, 'ok');
+  } catch (e) {
+    return false;      // 写不进去 = 真的不可写
+  }
+  try { fs.unlinkSync(probe); } catch (e) { /* 删不掉不影响"可写"这个结论 */ }
+  return true;
+}
 
 function runAutoItems(round, items) {
   return items.map((it) => {

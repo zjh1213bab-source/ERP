@@ -25,6 +25,7 @@ const PW = require('../services/pieceWage');
 const ATT = require('../services/pieceAttendance');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const scope = require('../access/companyScope');
 const { db, now } = require('../db');
 const { toCsv } = require('../utils/csv');   // toCsv 自带 BOM，Excel 打开不乱码
 
@@ -35,6 +36,18 @@ const WRITE = ['admin', 'hr', 'finance'];
 const APPROVE = ['admin', 'finance'];
 
 const operatorOf = (req) => (req.user && (req.user.name || req.user.username)) || 'system';
+
+/**
+ * 当前用户能看的主体（null = 集团角色，全集团口径）
+ *
+ * 这一域怎么分：
+ * - **核算单（piece_wage_runs）按主体** —— 那是发钱的实体，v1.65 才加的这一列；
+ * - **试算按员工主体** —— 钱发给谁就记谁的账（见 services/pieceWage.preview）；
+ * - **工价与计件策略是全集团主数据**（piece_rates / piece_wage_config 没有 company_id）：
+ *   同一个款同一个工序在一个集团里只有一个工价，否则同一批货两个分部算出两个工钱。
+ *   这一条写进 docs/DB-SCHEMA.md，不要以为漏了。
+ */
+const cidOf = (req) => scope.filterCompanyId(req.user);
 
 router.get(
   '/meta',
@@ -100,7 +113,7 @@ router.get(
   requireRole(READ),
   wrap(async (req, res) => {
     const period = req.query.period;
-    const p = PW.preview(period);
+    const p = PW.preview(period, cidOf(req));
     return ok(res, ATT.board(p, p.config || ATT.getConfig()));
   })
 );
@@ -130,14 +143,14 @@ router.get(
   '/preview',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, PW.preview(req.query.period)))
+  wrap(async (req, res) => ok(res, PW.preview(req.query.period, cidOf(req))))
 );
 
 router.get(
   '/runs',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, PW.listRuns(req.query)))
+  wrap(async (req, res) => ok(res, PW.listRuns({ ...(req.query || {}), companyId: cidOf(req) })))
 );
 
 router.post(
@@ -146,7 +159,7 @@ router.post(
   requireRole(WRITE),
   wrap(async (req, res) => {
     const b = req.body || {};
-    return ok(res, PW.createRun(b.period, operatorOf(req), b.note));
+    return ok(res, PW.createRun(b.period, operatorOf(req), b.note, cidOf(req)));
   })
 );
 
@@ -154,7 +167,7 @@ router.get(
   '/runs/:id',
   authRequired,
   requireRole(READ),
-  wrap(async (req, res) => ok(res, PW.getRun(req.params.id)))
+  wrap(async (req, res) => ok(res, PW.getRun(req.params.id, cidOf(req))))
 );
 
 // 工资条 / 车间公示表：只认已确认的核算单（草案数字会变，发出去是吵架）
@@ -163,7 +176,7 @@ router.get(
   authRequired,
   requireRole(READ),
   wrap(async (req, res) =>
-    ok(res, PW.payslips(req.params.id, req.query.mode === 'public' ? 'public' : 'person'))
+    ok(res, PW.payslips(req.params.id, req.query.mode === 'public' ? 'public' : 'person', cidOf(req)))
   )
 );
 
@@ -172,7 +185,7 @@ router.post(
   authRequired,
   requireRole(APPROVE),
   wrap(async (req, res) =>
-    ok(res, PW.confirmRun(req.params.id, operatorOf(req), (req.body || {}).note))
+    ok(res, PW.confirmRun(req.params.id, operatorOf(req), (req.body || {}).note, cidOf(req)))
   )
 );
 
@@ -181,7 +194,7 @@ router.post(
   authRequired,
   requireRole(APPROVE),
   wrap(async (req, res) =>
-    ok(res, PW.voidRun(req.params.id, (req.body || {}).reason, operatorOf(req)))
+    ok(res, PW.voidRun(req.params.id, (req.body || {}).reason, operatorOf(req), cidOf(req)))
   )
 );
 
@@ -190,7 +203,8 @@ router.get(
   authRequired,
   requireRole(READ),
   wrap(async (req, res) => {
-    const run = PW.getRun(req.query.run_id);
+    // 导出与页面必须同一口径 —— 导出是数据出系统的最后一米
+    const run = PW.getRun(req.query.run_id, cidOf(req));
     const head = [
       '员工编号', '姓名', '部门', '订单号', '扎号', '工序', '报工日期', '当天考勤', '款号',
       '报工合格数', '计件数量', '是否封顶', '单价', '金额', '取价来源', '归人方式'

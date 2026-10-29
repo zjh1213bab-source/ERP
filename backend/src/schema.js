@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 794 个对象
- * （360 张表 + 434 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 795 个对象
+ * （360 张表 + 435 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -611,8 +611,7 @@ module.exports = [
   "CREATE TABLE IF NOT EXISTS piece_rates (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  style_no TEXT,                          -- 空 = 通用工序单价（所有款共用）\n  process_name TEXT NOT NULL,\n  unit_price REAL NOT NULL DEFAULT 0,\n  currency TEXT DEFAULT 'CNY',\n  effective_from TEXT NOT NULL,           -- 生效日 YYYY-MM-DD\n  effective_to TEXT,                      -- 空 = 长期有效\n  status TEXT DEFAULT 'active',           -- active / disabled（停用后不再被选中，历史仍可查）\n  note TEXT,\n  created_by TEXT,\n  created_at TEXT,\n  updated_at TEXT\n);",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_piece_rate_key\n  ON piece_rates(IFNULL(style_no, ''), process_name, effective_from);",
   "CREATE INDEX IF NOT EXISTS idx_piece_rate_lookup\n  ON piece_rates(process_name, effective_from, status);",
-  "CREATE TABLE IF NOT EXISTS piece_wage_runs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  run_no TEXT UNIQUE,\n  period TEXT NOT NULL,                   -- 核算月份 YYYY-MM\n  status TEXT DEFAULT 'draft',            -- draft / confirmed / void\n  items_count INTEGER DEFAULT 0,\n  employees_count INTEGER DEFAULT 0,\n  total_qty REAL DEFAULT 0,\n  total_amount REAL DEFAULT 0,\n  missing_rate_count INTEGER DEFAULT 0,   -- 缺单价的报工笔数（>0 不许确认）\n  unassigned_count INTEGER DEFAULT 0,     -- 无法归属到人的报工笔数\n  capped_count INTEGER DEFAULT 0,         -- 超报被拦下的笔数\n  payload TEXT,                           -- 预览诊断快照（缺单价/无法归属/超报清单）\n  note TEXT,\n  created_by TEXT,\n  created_at TEXT,\n  confirmed_by TEXT,\n  confirmed_at TEXT,\n  void_reason TEXT\n, att_conflict_count INTEGER NOT NULL DEFAULT 0, att_excluded_count INTEGER NOT NULL DEFAULT 0, att_capped_count INTEGER NOT NULL DEFAULT 0);",
-  "CREATE UNIQUE INDEX IF NOT EXISTS idx_piece_run_confirmed\n  ON piece_wage_runs(period) WHERE status = 'confirmed';",
+  "CREATE TABLE IF NOT EXISTS piece_wage_runs (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  run_no TEXT UNIQUE,\n  period TEXT NOT NULL,                   -- 核算月份 YYYY-MM\n  status TEXT DEFAULT 'draft',            -- draft / confirmed / void\n  items_count INTEGER DEFAULT 0,\n  employees_count INTEGER DEFAULT 0,\n  total_qty REAL DEFAULT 0,\n  total_amount REAL DEFAULT 0,\n  missing_rate_count INTEGER DEFAULT 0,   -- 缺单价的报工笔数（>0 不许确认）\n  unassigned_count INTEGER DEFAULT 0,     -- 无法归属到人的报工笔数\n  capped_count INTEGER DEFAULT 0,         -- 超报被拦下的笔数\n  payload TEXT,                           -- 预览诊断快照（缺单价/无法归属/超报清单）\n  note TEXT,\n  created_by TEXT,\n  created_at TEXT,\n  confirmed_by TEXT,\n  confirmed_at TEXT,\n  void_reason TEXT\n, att_conflict_count INTEGER NOT NULL DEFAULT 0, att_excluded_count INTEGER NOT NULL DEFAULT 0, att_capped_count INTEGER NOT NULL DEFAULT 0, company_id INTEGER NOT NULL DEFAULT 1);",
   "CREATE INDEX IF NOT EXISTS idx_piece_run_period ON piece_wage_runs(period, status);",
   "CREATE TABLE IF NOT EXISTS piece_wage_items (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  run_id INTEGER NOT NULL,\n  employee_id INTEGER,\n  employee_code TEXT,\n  employee_name TEXT,\n  department TEXT,\n  style_no TEXT,\n  process_name TEXT,\n  order_id INTEGER,\n  order_no TEXT,\n  bundle_no TEXT,\n  raw_qty REAL DEFAULT 0,                 -- 报工原始合格数\n  qty REAL DEFAULT 0,                     -- 计件数量（超报封顶后）\n  capped INTEGER DEFAULT 0,               -- 是否被扎件数封顶\n  unit_price REAL DEFAULT 0,\n  amount REAL DEFAULT 0,\n  rate_id INTEGER,\n  rate_source TEXT,                       -- style / generic\n  matched_by TEXT,                        -- id / name（怎么认出这个人的）\n  created_at TEXT\n, att_status TEXT, att_flagged INTEGER NOT NULL DEFAULT 0, excluded INTEGER NOT NULL DEFAULT 0, exclude_reason TEXT, cap_kind TEXT, report_date TEXT);",
   "CREATE INDEX IF NOT EXISTS idx_piece_item_run ON piece_wage_items(run_id, employee_id);",
@@ -799,5 +798,7 @@ module.exports = [
   "CREATE UNIQUE INDEX IF NOT EXISTS uq_issue_item ON material_issue_items(issue_id, material_id, name, item_id, colorway);",
   "CREATE TABLE IF NOT EXISTS schema_migrations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    version TEXT NOT NULL,                  -- schema.js 内容指纹（改结构必变）\n    tables INTEGER NOT NULL DEFAULT 0,\n    indexes INTEGER NOT NULL DEFAULT 0,\n    migrated_cols INTEGER NOT NULL DEFAULT 0,\n    note TEXT,\n    applied_at TEXT NOT NULL\n  );",
   "CREATE INDEX IF NOT EXISTS idx_po_company ON purchase_orders(company_id, status);",
-  "CREATE INDEX IF NOT EXISTS idx_employee_company ON employees(company_id, status);"
+  "CREATE INDEX IF NOT EXISTS idx_employee_company ON employees(company_id, status);",
+  "CREATE INDEX IF NOT EXISTS idx_piece_run_company ON piece_wage_runs(company_id, period);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_piece_run_confirmed ON piece_wage_runs(period, company_id) WHERE status = 'confirmed';"
 ];

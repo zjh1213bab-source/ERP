@@ -199,6 +199,32 @@ function migrate() {
    * 也都推不出主体。
    */
   add('employees', 'company_id', 'INTEGER NOT NULL DEFAULT 1');
+  /**
+   * 计件核算单挂主体。
+   *
+   * 这是**发钱的实体**（一个月一张单，谁多少钱），而试算是从全集团 production_reports
+   * 捞报工、按员工归人的 —— 与订单没有聚合关系，推不出来。
+   * 不加列的具体后果：分部确认了自己那张单后，总部同月永远建不了单（互斥查的是全集团），
+   * 而报错只提分部单号，现场只能理解成"系统坏了"。
+   */
+  add('piece_wage_runs', 'company_id', 'INTEGER NOT NULL DEFAULT 1');
+
+  /**
+   * 「同一期间只能有一张已确认核算单」这条规则原来是**部分唯一索引**
+   *   CREATE UNIQUE INDEX idx_piece_run_confirmed ON piece_wage_runs(period) WHERE status='confirmed'
+   * 没带主体 —— 分部确认后总部同月那张单永远确认不了，报错是
+   * `UNIQUE constraint failed: piece_wage_runs.period`，从名字看不出是"别家占了"。
+   * 带上 company_id，规则原样保留（同期同主体仍只有一张已确认）。
+   */
+  const pwConf = (() => {
+    try {
+      return (db.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_piece_run_confirmed'").get() || {}).sql || '';
+    } catch (e) { return ''; }
+  })();
+  if (pwConf && !pwConf.includes('company_id')) {
+    db.exec('DROP INDEX idx_piece_run_confirmed');
+    db.exec("CREATE UNIQUE INDEX idx_piece_run_confirmed ON piece_wage_runs(period, company_id) WHERE status = 'confirmed'");
+  }
 
   // 领料明细挂到「款 × 颜色」（按色发料；老数据 item_id=0 / colorway='' 按总量核）
   add('material_issue_items', 'item_id', 'INTEGER NOT NULL DEFAULT 0');

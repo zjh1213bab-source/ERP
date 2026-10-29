@@ -346,13 +346,17 @@ function rollbackRestore({ operator = '' } = {}) {
   /**
    * 撤销一次就留下一份 80MB 的库副本。演练时来回取消十几次，`replaced/` 能长到几个 GB，
    * 而没有任何界面会提醒磁盘 —— 所以每次撤销后按保留上限裁一遍（最新 5 份够查）。
+   *
+   * 裁剪结果**随返回值出去**：删不掉的文件（Windows 上被占就是 EPERM）原来被静默吞掉，
+   * 症状是目录稳定多留一份而每轮都显示"成功"。
    */
-  try { BR.pruneReplaced(config.dbPath); } catch (e) { /* 清理失败不影响撤销结果 */ }
+  let pruned = null;
+  try { pruned = BR.pruneReplaced(config.dbPath); } catch (e) { pruned = { error: String(e.message || e), failed: [] }; }
   if (plan && plan.source && plan.source.backup_id) {
     db.prepare("UPDATE backup_jobs SET restore_status='rolled_back', restore_at=? WHERE id=?")
       .run(now(), plan.source.backup_id);
   }
-  return { rolled_back: true, archived, operator, plan };
+  return { rolled_back: true, archived, operator, plan, pruned };
 }
 
 // ---------------- 业务级校验（恢复后要看的，不只是行数） ----------------

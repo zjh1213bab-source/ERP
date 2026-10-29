@@ -241,22 +241,34 @@ function pruneReplaced(dbPath, opts = {}) {
 
   let deleted = 0;
   let freed = 0;
+  /**
+   * 删不掉的**必须记下来**，不能静默吞。
+   *
+   * 原来这里是 `catch (e) { /* 被占用就下次再删 *\/ }`，结果 Windows 上文件被占一次就永久多留一份：
+   * 目录里稳定是 6 份（上限 5），而每次跑冒烟都"成功"—— 与当初 6.4GB 的成因是同一个：
+   * 清理失败没人知道。现在失败清单随返回值出去，冒烟断言会把它打出来。
+   */
+  const failed = [];
   groups.forEach((files, prefix) => {
     files
-      .map((f) => ({ f, m: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .map((f) => {
+        const full = path.join(dir, f);
+        try { return { f, full, m: fs.statSync(full).mtimeMs, size: fs.statSync(full).size }; } catch (e) { return null; }
+      })
+      .filter(Boolean)
       .sort((a, b) => b.m - a.m)
       .slice(limits[prefix])
       .forEach((x) => {
-        const full = path.join(dir, x.f);
         try {
-          const size = fs.statSync(full).size;
-          fs.unlinkSync(full);
+          fs.unlinkSync(x.full);
           deleted += 1;
-          freed += size;
-        } catch (e) { /* 被占用就下次再删，不阻断 */ }
+          freed += x.size;
+        } catch (e) {
+          failed.push({ file: x.f, code: e.code || String(e.message || e) });
+        }
       });
   });
-  return { deleted, freed };
+  return { deleted, freed, failed };
 }
 
 function pendingPath(dbPath) {
