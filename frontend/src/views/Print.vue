@@ -174,6 +174,25 @@
         <div class="pr-text">{{ tp.customer_req }}</div>
       </template>
 
+      <!-- ========== 款式图（车间看纸样做活，光有文字描述对不上） ========== -->
+      <template v-if="type !== 'packing' && type !== 'shipping'">
+        <h2 class="pr-sec">款式图</h2>
+        <div class="pr-shots">
+          <figure v-for="(sh, i) in shots" :key="i" class="pr-shot">
+            <img v-if="sh.url && !broken[sh.url]" :src="sh.url" alt="" @error="broken[sh.url] = true" />
+            <div v-else class="pr-shot-empty">
+              {{ sh.url ? '图片打不开（文件可能损坏）' : '未上传' }}
+            </div>
+            <figcaption>{{ sh.label }}</figcaption>
+          </figure>
+          <!-- 一张都没有时也要占一块：留白会让人以为「这一版没做图」而不是「还没传」 -->
+          <figure v-if="!shots.length" class="pr-shot">
+            <div class="pr-shot-empty">订单与打版都还没上传款图</div>
+            <figcaption>款式图</figcaption>
+          </figure>
+        </div>
+      </template>
+
       <!-- ========== 款式明细（工艺单放在尺寸表之前） ========== -->
       <h2 v-if="type !== 'packing'" class="pr-sec">款式 / 颜色 / 尺码明细</h2>
       <table v-if="type !== 'packing'" class="pr-table">
@@ -210,25 +229,35 @@
       </table>
 
       <!-- ========== 面辅料明细（开发单结构化数据，优先） ========== -->
+      <!--
+        列数刻意压到 14 列以内：A4 竖版内容宽约 186mm，列一多「物料名称」就被挤成
+        一个字一行（实测 17 列时就是这样，纸上没法看）。所以：
+          · 规格与成份并到物料名称下面一行
+          · 损耗与空差合成一格
+          · 生产工单不印单价与金额（车间用不到，价格也不该散到工位），改印总用量
+      -->
       <template v-if="tpMaterials.length">
         <h2 class="pr-sec">面辅料明细</h2>
-        <table class="pr-table">
+        <table class="pr-table pr-mat">
           <thead>
             <tr>
-              <th style="width: 30px">#</th>
-              <th style="width: 44px">类型</th>
-              <th style="width: 64px">款色</th>
-              <th>物料名称 / 规格</th>
-              <th style="width: 70px">面料色号</th>
-              <th>供应商</th>
-              <th>规格信息</th>
-              <th>成份</th>
-              <th style="width: 44px">单位</th>
-              <th style="width: 58px">单件用量</th>
-              <th style="width: 46px">损耗%</th>
-              <th style="width: 46px">空差%</th>
-              <th style="width: 52px">单价</th>
-              <th style="width: 56px">金额</th>
+              <th style="width: 24px">#</th>
+              <th style="width: 34px">类型</th>
+              <th style="width: 46px">款色</th>
+              <th>物料名称 / 规格 · 成份</th>
+              <th style="width: 38px">物料图</th>
+              <th style="width: 38px">色卡</th>
+              <th style="width: 44px">使用部位</th>
+              <th style="width: 44px">色号</th>
+              <th style="width: 58px">供应商</th>
+              <th style="width: 34px">单位</th>
+              <th style="width: 48px">单件用量</th>
+              <th style="width: 56px">损耗/空差</th>
+              <th v-if="type === 'production'" style="width: 56px">总用量</th>
+              <template v-else>
+                <th style="width: 46px">单价</th>
+                <th style="width: 50px">金额</th>
+              </template>
             </tr>
           </thead>
           <tbody>
@@ -236,25 +265,41 @@
               <td>{{ i + 1 }}</td>
               <td>{{ m.mat_type === 'fabric' ? '面料' : '辅料' }}</td>
               <td>{{ m.colorway || '-' }}</td>
-              <td>{{ m.material_name || '-' }}</td>
+              <td class="pr-matname">
+                <div>{{ m.material_name || '-' }}</div>
+                <div v-if="m.spec_info || m.composition" class="pr-dim">
+                  {{ [m.spec_info, m.composition].filter(Boolean).join(' · ') }}
+                </div>
+              </td>
+              <td class="pr-cellimg">
+                <img v-if="m.image_url && !broken[m.image_url]" :src="m.image_url" alt="" @error="broken[m.image_url] = true" />
+                <span v-else class="pr-dim">—</span>
+              </td>
+              <td class="pr-cellimg">
+                <img v-if="m.color_card_url && !broken[m.color_card_url]" :src="m.color_card_url" alt="" @error="broken[m.color_card_url] = true" />
+                <span v-else class="pr-dim">—</span>
+              </td>
+              <td>{{ m.use_part || '-' }}</td>
               <td>{{ m.color_no || '-' }}</td>
-              <td>{{ m.supplier || '-' }}<br /><span class="pr-dim">{{ m.supplier_info || '' }}</span></td>
-              <td>{{ m.spec_info || '-' }}</td>
-              <td>{{ m.composition || '-' }}</td>
+              <td>{{ m.supplier || '-' }}<div v-if="m.supplier_info" class="pr-dim">{{ m.supplier_info }}</div></td>
               <td>{{ m.unit || '-' }}</td>
               <td class="num">{{ m.one_use }}</td>
-              <td class="num">{{ m.loss_rate }}</td>
-              <td class="num">{{ m.air_gap }}</td>
-              <td class="num">{{ num2(m.unit_price) }}</td>
-              <td class="num">{{ num2(m.amount) }}</td>
+              <td class="num">{{ m.loss_rate || 0 }}% / {{ m.air_gap || 0 }}%</td>
+              <td v-if="type === 'production'" class="num"><b>{{ matNeed(m) }}</b></td>
+              <template v-else>
+                <td class="num">{{ num2(m.unit_price) }}</td>
+                <td class="num">{{ num2(m.amount) }}</td>
+              </template>
             </tr>
-            <tr class="pr-total">
-              <td colspan="13">单件物料成本合计</td>
+            <tr v-if="type !== 'production'" class="pr-total">
+              <td colspan="12">单件物料成本合计</td>
               <td class="num">{{ num2(matTotal) }}</td>
+              <td></td>
             </tr>
           </tbody>
         </table>
-        <div class="pr-note">金额口径：单件用量 × 单价（不含损耗与空差）。含损耗/空差的备料量请以生产工单为准。</div>
+        <div v-if="type !== 'production'" class="pr-note">金额口径：单件用量 × 单价（不含损耗与空差）。含损耗/空差的备料量请以生产工单为准。</div>
+        <div v-else class="pr-note">总用量 = 单件用量 × 本单件数 ×(1+损耗)×(1+空差，仅面料)。领料以总用量为准。</div>
       </template>
 
       <!-- ========== 成衣尺寸 ========== -->
@@ -444,7 +489,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, reactive, computed, onMounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import JsBarcode from 'jsbarcode';
 import { qrDataUrl, scanUrl, lanBase } from '../utils/qr';
@@ -486,6 +531,23 @@ const REQ_CATS = [
 
 const tpMaterials = computed(() => (tp.value && tp.value.materials) || []);
 
+/**
+ * 款式图
+ *
+ * 两个来源：订单自己的款图、打版的款图。实际数据里常常只有打版那张 ——
+ * 只读订单表的话，打印出来永远是「未上传」。同一条 URL 只画一次，
+ * 否则同一张图左右并排两张，看着像有两个款。
+ */
+const broken = reactive({});
+const shots = computed(() => {
+  const out = [];
+  const o = order.value && order.value.image_url;
+  const t = tp.value && tp.value.image_url;
+  if (o) out.push({ label: '订单款图', url: o });
+  if (t && t !== o) out.push({ label: '打版款图', url: t });
+  return out;
+});
+
 const matTotal = computed(() =>
   tpMaterials.value.reduce((s, m) => s + (Number(m.one_use) || 0) * (Number(m.unit_price) || 0), 0)
 );
@@ -501,6 +563,22 @@ const lines = computed(() => {
   return out;
 });
 const totalQty = computed(() => lines.value.reduce((s, l) => s + (Number(l.qty) || 0), 0));
+
+/**
+ * 总用量（生产工单用）
+ *
+ * 单件用量 × 本单件数 ×(1+损耗%)×(1+空差%)，空差只对**面料**生效：
+ * 空差是「一条布两头不能用的损耗」，辅料按个买，没有这个概念。
+ * 两者都乘在件数之后，与「齐套算料」的算法保持一致 —— 工单上的领料量
+ * 和系统里算出的需求量必须是同一个数，否则车间按工单领料永远对不上账。
+ */
+function matNeed(m) {
+  const qty = Number(totalQty.value) || 0;
+  const one = Number(m.one_use) || 0;
+  const loss = 1 + (Number(m.loss_rate) || 0) / 100;
+  const gap = m.mat_type === 'fabric' ? 1 + (Number(m.air_gap) || 0) / 100 : 1;
+  return Math.round(one * qty * loss * gap * 100) / 100;
+}
 
 const bundleQty = computed(() => bundles.value.reduce((s, b) => s + (Number(b.qty) || 0), 0));
 
@@ -627,6 +705,34 @@ function renderBarcode() {
   box-shadow: 0 2px 12px rgba(16, 32, 64, 0.08); color: #1f2937;
   font-size: 12.5px; line-height: 1.5;
 }
+/* ---------- 款式图：两张并排，A4 内容宽 186mm 时各占一半 ---------- */
+.pr-shots { display: flex; gap: 10px; margin-bottom: 12px; }
+.pr-shot { flex: 1; margin: 0; text-align: center; }
+.pr-shot img {
+  width: 100%; max-height: 78mm; object-fit: contain;
+  border: 1px solid #d8dee9; border-radius: 4px; background: #fafbfd; display: block;
+}
+.pr-shot-empty {
+  height: 46mm; display: flex; align-items: center; justify-content: center;
+  border: 1px dashed #c8d0dc; border-radius: 4px; background: #fafbfd;
+  color: #9aa5b5; font-size: 11px;
+}
+.pr-shot figcaption { margin-top: 4px; font-size: 11px; color: #5b6474; }
+
+/* 物料清单里的缩略图：固定小尺寸，不让图片把行高撑爆、也不裁掉整块色卡 */
+.pr-cellimg { text-align: center; padding: 2px !important; }
+.pr-cellimg img {
+  /* 10×11mm 左右：小到不撑行高，又足够看出是哪个色/哪颗扣 */
+  width: 40px; height: 46px; object-fit: contain;
+  border: 1px solid #e2e8f0; border-radius: 3px; background: #fff; display: inline-block;
+}
+
+/* 物料表 14 列，字号与内边距必须收一档，否则「物料名称」被挤成竖排 */
+.pr-mat { font-size: 10.5px; }
+.pr-mat th, .pr-mat td { padding: 3px 4px; }
+.pr-matname { text-align: left; line-height: 1.35; }
+
+
 .pr-head { text-align: center; border-bottom: 2px solid #1f2937; padding-bottom: 10px; margin-bottom: 12px; }
 .pr-co { font-size: 13px; letter-spacing: 2px; color: #33415a; }
 .pr-head h1 { margin: 6px 0 6px; font-size: 22px; letter-spacing: 4px; }
@@ -695,6 +801,11 @@ function renderBarcode() {
   .pr-sheet { box-shadow: none; border-radius: 0; padding: 0; }
   .pr-table, .pr-info { page-break-inside: auto; }
   .pr-table tr { page-break-inside: avoid; }
+  /* 图被切一半在纸上没法看：整块图保住，行也不许跨页 */
+  .pr-shots { page-break-inside: avoid; }
+  .pr-shot img { max-height: 62mm; }
+  .pr-mat { font-size: 9.5px; }
+  .pr-mat th, .pr-mat td { padding: 2px 3px; }
   .pr-sec { page-break-after: avoid; }
   /* 跨页时表头重复：多页工单散开后，第二页也能看出哪列是什么 */
   .pr-table thead, .pr-info thead { display: table-header-group; }
