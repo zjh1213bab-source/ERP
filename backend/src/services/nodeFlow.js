@@ -79,6 +79,19 @@ const BUILTIN_CODES = {
 
 const BUILTIN_ORDER = Object.keys(BUILTIN_CODES);
 
+/**
+ * 有代码逻辑挂在上面的内置节点 —— 只有这几个不能停用
+ *
+ * `cut`：裁床单完成时回写
+ * `sew`：首件放行/退回时回写
+ * `inspect` / `pack`：成品入库的两道闸门（`orderFlow.checkProductionReadyForStock`）
+ *
+ * 其余内置节点（备料、锁眼钉扣、水洗、印花、绣花…）只是**默认模板里预置的名字**，
+ * 没有任何代码依赖。早先一律不许停用，结果是想按自己的工序精简流程时被卡住 ——
+ * 业务不用这道工序，模板里就该能拿掉。
+ */
+const LOCKED_CODES = ['cut', 'sew', 'inspect', 'pack'];
+
 /** 默认模板：没有显式指定时用这个 */
 function defaultTemplate() {
   const t = db.prepare(
@@ -203,10 +216,10 @@ function saveItem(templateId, b) {
 
     const status = b.status !== undefined ? String(b.status) : row.status;
     if (!['active', 'off'].includes(status)) throw bad('非法状态');
-    if (status === 'off' && Number(row.builtin) === 1) {
-      throw bad(`「${row.name}」是系统内置节点，不能停用 —— `
-        + '裁床单、首件确认等环节要回写到它，停掉之后那些环节做完了节点也不会前进。'
-        + '用不到就把它拖到最后、或者改名说明它在你们厂叫什么，但别停用。');
+    if (status === 'off' && LOCKED_CODES.includes(row.code)) {
+      throw bad(`「${row.name}」不能停用 —— 裁床单完成、首件确认、成品入库校验都要回写到它，`
+        + '停掉之后那些环节做完了节点也不会前进（而且入库闸门会一直卡住）。'
+        + '用不到就改名说明它在你们厂叫什么。');
     }
 
     db.prepare(
@@ -260,8 +273,8 @@ function setItemStatus(id, status) {
   const row = db.prepare('SELECT * FROM node_template_items WHERE id = ?').get(id);
   if (!row) throw bad('节点不存在', 404);
   if (!['active', 'off'].includes(status)) throw bad('非法状态');
-  if (status === 'off' && Number(row.builtin) === 1) {
-    throw bad(`「${row.name}」是系统内置节点，不能停用（裁床单 / 首件确认要回写到它）`);
+  if (status === 'off' && LOCKED_CODES.includes(row.code)) {
+    throw bad(`「${row.name}」不能停用（裁床单 / 首件确认 / 入库校验要回写到它）`);
   }
   db.prepare('UPDATE node_template_items SET status = ?, updated_at = ? WHERE id = ?').run(status, now(), id);
   return db.prepare('SELECT * FROM node_template_items WHERE id = ?').get(id);
@@ -447,7 +460,7 @@ function applyToOrders(templateId, { orderIds = null, dryRun = true, includeStat
  */
 function board({
   templateId = null, status = '', q = '', limit = 200,
-  customerId = null, manager = '', dueFrom = '', dueTo = '',
+  customerId = null, manager = '', dueFrom = '', dueTo = '', orderFrom = '', orderTo = '',
   overdue = false, noDue = false, dueSoon = false,
   nodeCode = '', nodeStatus = '', sort = 'due'
 } = {}) {
@@ -508,6 +521,12 @@ function board({
   }
   if (customerId) { where.push('o.customer_id = ?'); args.push(Number(customerId)); }
   if (manager) { where.push('o.manager LIKE ?'); args.push(`%${manager}%`); }
+  // 下单时间区间：和货期区间分开两个筛选（车间关心货期，业务关心下单日）
+  if (orderFrom) { where.push("IFNULL(o.order_date,'') <> '' AND date(o.order_date) >= date(?)"); args.push(orderFrom); }
+  if (orderTo) { where.push("IFNULL(o.order_date,'') <> '' AND date(o.order_date) <= date(?)"); args.push(orderTo); }
+  // 下单时间区间：和货期区间分开两个筛选（车间关心货期，业务关心下单日）
+  if (orderFrom) { where.push("IFNULL(o.order_date,'') <> '' AND date(o.order_date) >= date(?)"); args.push(orderFrom); }
+  if (orderTo) { where.push("IFNULL(o.order_date,'') <> '' AND date(o.order_date) <= date(?)"); args.push(orderTo); }
   if (dueFrom) { where.push("IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) >= date(?)"); args.push(dueFrom); }
   if (dueTo) { where.push("IFNULL(o.delivery_date,'') <> '' AND date(o.delivery_date) <= date(?)"); args.push(dueTo); }
   if (noDue) where.push("IFNULL(o.delivery_date,'') = ''");
@@ -567,9 +586,15 @@ function board({
         ? { node_id: n.id, code: c.code, name: n.name, status: n.status, actual_date: n.actual_date, plan_date: n.plan_date, operator: n.operator, skip_reason: n.skip_reason, missing: false }
         : { node_id: null, code: c.code, name: c.name, status: 'none', missing: true };
     });
-    // 模板之外的节点（单据级自定义，或模板后来删掉的）：追加在列尾，不能让它从看板上消失
+    /**
+     * 模板之外的节点：**只取单据级单独加的**（is_custom=1）
+     *
+     * 模板里停用掉的节点不算 —— 业务停用它就是「我们厂不做这道工序」，
+     * 每行尾巴还挂着 6 个灰格子只会让人以为流程没配好。
+     * 历史记录仍在 order_nodes 里，订单详情能查。
+     */
     const extra = nodes
-      .filter((n) => !columns.some((c) => c.code === n.code))
+      .filter((n) => Number(n.is_custom) === 1 && !columns.some((c) => c.code === n.code))
       .map((n) => ({ node_id: n.id, code: n.code, name: n.name, status: n.status, actual_date: n.actual_date, plan_date: n.plan_date, operator: n.operator, skip_reason: n.skip_reason, missing: false, extra: true }));
 
     const done = cells.filter((c) => c.status === 'done').length;
@@ -605,7 +630,8 @@ function board({
     rows,
     stats,
     filters: {
-      status, q, customer_id: customerId, manager, due_from: dueFrom, due_to: dueTo,
+      status, q, customer_id: customerId, manager,
+      order_from: orderFrom, order_to: orderTo, due_from: dueFrom, due_to: dueTo,
       overdue: !!overdue, no_due: !!noDue, due_soon: !!dueSoon,
       node_code: nodeCode, node_status: nodeStatus, sort
     },

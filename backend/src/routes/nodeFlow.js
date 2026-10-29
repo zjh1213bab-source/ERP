@@ -85,6 +85,10 @@ router.get('/board', authRequired, wrap(async (req, res) => ok(res, svc.board({
   limit: req.query.limit || 200,
   customerId: req.query.customer_id || null,
   manager: req.query.manager || '',
+  orderFrom: req.query.order_from || '',
+  orderTo: req.query.order_to || '',
+  orderFrom: req.query.order_from || '',
+  orderTo: req.query.order_to || '',
   dueFrom: req.query.due_from || '',
   dueTo: req.query.due_to || '',
   // 查询串里传 "1"/"0"：`!!'0'` 是 true，这里显式比字符串

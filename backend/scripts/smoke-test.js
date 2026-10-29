@@ -10647,8 +10647,12 @@ async function req(path, { method = 'GET', body, token } = {}) {
 
     const tpls = await req('/api/node-flow/templates', { token });
     const tpl = (tpls.json.data || []).find((x) => x.is_default) || (tpls.json.data || [])[0];
-    ok('★ 有默认工序流程，且内置 13 道工序都在', tpls.status === 200 && tpl && tpl.item_count === 13,
-      tpls.json.data ? `${tpls.json.data.length} 套 / 默认 ${tpl && tpl.name} / ${tpl && tpl.item_count} 节点` : '无');
+    // 节点是可增删的，不能把数量写死；要保证的是「内置那 13 个身份都还在」（含停用的）
+    const detail0 = await req(`/api/node-flow/templates/${tpl.id}`, { token });
+    const builtin0 = (detail0.json.data.items || []).filter((x) => Number(x.builtin) === 1);
+    ok('★ 默认流程存在，内置 13 个节点身份都在（可改名 / 可停用，但 code 不丢）',
+      tpls.status === 200 && tpl && builtin0.length === 13,
+      tpls.json.data ? `${tpls.json.data.length} 套 / 启用 ${tpl && tpl.item_count} / 内置 ${builtin0.length}` : '无');
 
     const detail = await req(`/api/node-flow/templates/${tpl.id}`, { token });
     const cutItem = (detail.json.data.items || []).find((x) => x.code === 'cut');
@@ -10779,7 +10783,8 @@ async function req(path, { method = 'GET', body, token } = {}) {
       bd.json.data ? (bd.json.data.columns || []).map((c) => c.name).join(',') : '?');
 
     // ---- 清理：改回名字、删掉自定义节点与烟测订单 ----
-    await req(`/api/node-flow/items/${cutItem.id}`, { method: 'PUT', token, body: { name: '裁剪' } });
+    // 还原成测试前的名字（可能叫「裁剪」也可能被业务改成「裁床」，不能写死）
+    await req(`/api/node-flow/items/${cutItem.id}`, { method: 'PUT', token, body: { name: cutItem.name } });
     if (added.json.data) FDB.prepare('DELETE FROM node_template_items WHERE id = ?').run(added.json.data.id);
     if (noid) {
       FDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(noid);
@@ -10789,8 +10794,8 @@ async function req(path, { method = 'GET', body, token } = {}) {
     }
     const back = await req(`/api/node-flow/templates/${tpl.id}`, { token });
     const okBack = (back.json.data.items || []).find((x) => x.id === cutItem.id);
-    ok('流程夹具已还原（节点名改回「裁剪」、自定义节点与烟测订单已删）',
-      okBack && okBack.name === '裁剪'
+    ok('流程夹具已还原（节点名改回原值、自定义节点与烟测订单已删）',
+      okBack && okBack.name === cutItem.name
       && !FDB.prepare("SELECT 1 x FROM node_template_items WHERE name = '烟测尾部'").get()
       && !FDB.prepare("SELECT 1 x FROM orders WHERE order_no LIKE 'NF-TEST-%'").get(),
       okBack ? okBack.name : '?');

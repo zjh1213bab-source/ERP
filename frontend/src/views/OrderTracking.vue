@@ -1,239 +1,268 @@
 <template>
-  <div>
-    <div class="page-head">
-      <div>
-        <h2>订单跟踪</h2>
-        <div class="sub">
-          一张单一行，工序从左到右走。节点取自「{{ board.template ? board.template.name : '—' }}」，
-          点格子推进，点 ⋯ 记计划/责任人/留言。
+  <div class="po-page">
+    <div class="po-crumb">首页 / 订单 / <b>生产订单</b></div>
+
+    <!-- ================= 筛选区（三行，对齐参考系统） ================= -->
+    <div class="po-filter">
+      <div class="po-frow">
+        <div class="po-fitem">
+          <span class="po-flabel">PO号</span>
+          <select class="po-fsel" v-model="poMode" style="width: 76px">
+            <option value="like">模糊</option>
+            <option value="exact">精确</option>
+          </select>
+          <input class="po-finput" v-model="q" placeholder="搜索PO号" @keyup.enter="load" style="width: 150px" />
+        </div>
+        <div class="po-fitem">
+          <span class="po-flabel">款号</span>
+          <input class="po-finput" v-model="q" placeholder="搜索款号/客户款号" @keyup.enter="load" style="width: 190px" />
+        </div>
+        <button class="po-btn po-btn-primary" @click="load">批量搜索</button>
+        <div class="po-fitem">
+          <span class="po-flabel">订单状态</span>
+          <select class="po-fsel" v-model="status" @change="onFilter" style="width: 120px">
+            <option value="">全部状态</option>
+            <option value="assigned">已分单</option>
+            <option value="production">生产中</option>
+            <option value="instock">已入库</option>
+            <option value="shipped">已发货</option>
+            <option value="closed">已结案</option>
+            <option value="cancelled">已取消</option>
+          </select>
+        </div>
+        <div class="po-fitem">
+          <span class="po-flabel">下单时间</span>
+          <input class="po-finput" type="date" v-model="orderFrom" @change="onFilter" style="width: 128px" />
+          <span class="po-fsep">-</span>
+          <input class="po-finput" type="date" v-model="orderTo" @change="onFilter" style="width: 128px" />
         </div>
       </div>
-      <div style="display: flex; gap: 8px">
-        <button class="btn btn-ghost" @click="load">刷新</button>
-        <button v-if="canFlow" class="btn btn-ghost" @click="$router.push('/node-flow')">节点流程配置</button>
+
+      <div class="po-frow">
+        <div class="po-fitem">
+          <span class="po-flabel">货期时间</span>
+          <input class="po-finput" type="date" v-model="dueFrom" @change="onFilter" style="width: 128px" />
+          <span class="po-fsep">-</span>
+          <input class="po-finput" type="date" v-model="dueTo" @change="onFilter" style="width: 128px" />
+        </div>
+        <div class="po-fitem">
+          <span class="po-flabel">标签</span>
+          <select class="po-fsel" v-model="tagFilter" @change="onFilter" style="width: 104px">
+            <option value="">请选择</option>
+            <option value="custom">定制</option>
+            <option value="stock">现货</option>
+          </select>
+        </div>
+        <div class="po-fitem">
+          <span class="po-flabel">时间排序</span>
+          <select class="po-fsel" v-model="sort" @change="onFilter" style="width: 106px">
+            <option value="due">货期时间</option>
+            <option value="order">下单时间</option>
+          </select>
+        </div>
+        <div class="po-fitem">
+          <span class="po-flabel">排序类型</span>
+          <select class="po-fsel" v-model="sortDir" @change="onFilter" style="width: 84px">
+            <option value="asc">正序</option>
+            <option value="desc">倒序</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="po-frow">
+        <div class="po-fitem">
+          <span class="po-flabel">搜索节点</span>
+          <select class="po-fsel" v-model="nodeCode" @change="onFilter" style="width: 116px">
+            <option value="">请选择</option>
+            <option v-for="c in board.columns" :key="c.code" :value="c.code">{{ c.name }}</option>
+          </select>
+        </div>
+        <div class="po-fitem">
+          <span class="po-flabel">节点状态</span>
+          <select class="po-fsel" v-model="nodeStatus" :disabled="!nodeCode" @change="onFilter" style="width: 106px">
+            <option value="">搜索状态</option>
+            <option value="pending">未开始</option>
+            <option value="doing">进行中</option>
+            <option value="done">已完成</option>
+            <option value="skipped">不适用</option>
+          </select>
+        </div>
+        <div class="po-fitem">
+          <span class="po-flabel">业务员</span>
+          <input class="po-finput" v-model="manager" placeholder="搜索业务员" @keyup.enter="load" style="width: 116px" />
+        </div>
+        <label class="po-switch">
+          <input type="checkbox" v-model="noNodes" @change="onFilter" />
+          无工序订单
+        </label>
+        <label class="po-switch">
+          <input type="checkbox" v-model="noDue" @change="onFilter" />
+          外发工艺订单
+        </label>
+        <div class="po-fitem">
+          <span class="po-flabel">订单沟通内容</span>
+          <input class="po-finput" v-model="q" placeholder="搜索订单沟通内容" @keyup.enter="load" style="width: 150px" />
+        </div>
+        <a class="po-reset" @click="resetAll">重置搜索</a>
       </div>
     </div>
 
-    <!-- 四张卡都能点：点一下就是按这个口径筛，再点一下取消。
-         数字来自后端 stats（只受流程与状态范围影响），所以点进去的条数一定对得上。 -->
-    <div class="cards trk-cards">
-      <div class="stat-card is-click" :class="{ on: !flag }" title="清除所有口径筛选" @click="setFlag('')">
-        <div class="label">在跟订单</div>
-        <div class="value">{{ stats.total || 0 }}</div>
-        <div class="trk-card-sub">平均进度 {{ summary.avg_progress || 0 }}% · 一步未动 {{ summary.not_started || 0 }}</div>
+    <!-- ================= 展开货期 ================= -->
+    <div class="po-expand" @click="showDue = !showDue">{{ showDue ? '收起货期' : '展开货期' }}</div>
+    <div v-if="showDue" class="po-duebar">
+      <div v-for="d in dueStrip" :key="d.date" class="po-dueday" :class="{ hot: d.overdue > 0, on: d.date === today }">
+        <div class="po-duedate">{{ d.label }}</div>
+        <div class="po-duenum">{{ d.count }}<span v-if="d.overdue" class="po-dueod">/{{ d.overdue }}</span></div>
       </div>
-      <div class="stat-card is-click danger" :class="{ on: flag === 'overdue' }"
-        title="交期已过且还没发货/结案的单" @click="setFlag('overdue')">
-        <div class="label">超期订单</div>
-        <div class="value">{{ stats.overdue || 0 }}</div>
-        <div class="trk-card-sub">{{ flag === 'overdue' ? '已按超期筛选 · 再点取消' : '点这里只看超期' }}</div>
-      </div>
-      <div class="stat-card is-click warn" :class="{ on: flag === 'soon' }"
-        title="交期在 7 天内的单" @click="setFlag('soon')">
-        <div class="label">7 天内到期</div>
-        <div class="value">{{ stats.due_soon || 0 }}</div>
-        <div class="trk-card-sub">{{ flag === 'soon' ? '已按到期筛选 · 再点取消' : '点这里只看快到期' }}</div>
-      </div>
-      <div class="stat-card is-click" :class="{ on: flag === 'nodue' }"
-        title="没填交期的单 —— 不是超期，是资料不全" @click="setFlag('nodue')">
-        <div class="label">无交期</div>
-        <div class="value">{{ stats.no_due || 0 }}</div>
-        <div class="trk-card-sub">{{ flag === 'nodue' ? '已按无交期筛选 · 再点取消' : '点这里看资料不全' }}</div>
-      </div>
+      <div v-if="!dueStrip.length" class="po-duenone">当前筛选下没有填了货期的订单</div>
     </div>
 
-    <div class="toolbar trk-filters">
-      <select class="select" v-model="tplId" @change="load">
-        <option v-for="t in templates" :key="t.id" :value="t.id">
-          {{ t.name }}{{ t.is_default ? '（默认）' : '' }} · {{ t.order_count }} 单
-        </option>
-      </select>
-      <select class="select" v-model="status" @change="load">
-        <option value="">在产（已分单 / 生产中 / 已入库）</option>
-        <option value="assigned">已分单</option>
-        <option value="production">生产中</option>
-        <option value="instock">已入库</option>
-        <option value="shipped">已发货</option>
-        <option value="closed">已结案</option>
-      </select>
-      <input class="input" v-model="q" placeholder="订单号 / 款名 / 客户 PO / 客户名" @keyup.enter="load" style="width: 250px" />
-      <select class="select" v-model="customerId" @change="load">
-        <option :value="null">全部客户</option>
-        <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.name }}</option>
-      </select>
-      <input class="input" v-model="manager" placeholder="跟单员" @keyup.enter="load" style="width: 110px" />
-      <button class="btn btn-ghost" @click="load">查询</button>
-      <button class="btn btn-ghost" @click="resetAll">清除筛选</button>
+    <!-- ================= Tab ================= -->
+    <div class="po-tabs">
+      <button v-for="t in tabs" :key="t.key" class="po-tab" :class="{ on: tab === t.key }" @click="setTab(t.key)">
+        {{ t.label }}<span v-if="t.count" class="po-tabnum" :class="{ danger: t.danger }">({{ t.count }})</span>
+      </button>
     </div>
 
-    <div class="toolbar trk-filters" style="margin-top: -4px">
-      <span class="trk-fl">交期</span>
-      <input class="input" type="date" v-model="dueFrom" @change="load" style="width: 145px" />
-      <span class="trk-fl">至</span>
-      <input class="input" type="date" v-model="dueTo" @change="load" style="width: 145px" />
-      <span class="trk-fl" style="margin-left: 6px">工序</span>
-      <select class="select" v-model="nodeCode" @change="load">
-        <option value="">全部环节</option>
-        <option v-for="c in board.columns" :key="c.code" :value="c.code">{{ c.name }}</option>
+    <!-- ================= 工具行 ================= -->
+    <div class="po-tools">
+      <button class="po-btn">两款汇总</button>
+      <button class="po-btn">更多 <span class="po-caret">▾</span></button>
+      <button class="po-btn" @click="canFlow && $router.push('/node-flow')">流程设置</button>
+      <button class="po-btn">操作视频</button>
+      <div class="po-view">
+        <button class="po-vbtn on" title="列表视图">☰</button>
+        <button class="po-vbtn" title="看板视图" @click="$router.push('/node-flow')">▦</button>
+      </div>
+      <span class="po-spacer"></span>
+      <span class="po-total">共 {{ filteredRows.length }} 条</span>
+      <select class="po-fsel" v-model.number="pageSize" @change="page = 1" style="width: 92px">
+        <option :value="12">12条/页</option>
+        <option :value="50">50条/页</option>
+        <option :value="200">200条/页</option>
       </select>
-      <select class="select" v-model="nodeStatus" :disabled="!nodeCode" @change="load">
-        <option value="">该环节任意状态</option>
-        <option value="pending">未开始</option>
-        <option value="doing">进行中</option>
-        <option value="done">已完成</option>
-        <option value="skipped">不适用</option>
-      </select>
-      <span class="trk-fl" style="margin-left: 6px">排序</span>
-      <select class="select" v-model="sort" @change="load">
-        <option value="due">按交期（紧的在前）</option>
-        <option value="order">按下单日期（新的在前）</option>
-        <option value="no_due">无交期的排前面</option>
-      </select>
-      <span class="spacer"></span>
-      <span class="tiny muted">图例：○ 待开始 · ▶ 进行中 · ✓ 已完成 · ⊘ 不适用</span>
+      <div class="po-pager">
+        <button class="po-pg" :disabled="page <= 1" @click="page--">‹</button>
+        <button v-for="p in pageList" :key="p" class="po-pg" :class="{ on: p === page }" @click="page = p">{{ p }}</button>
+        <button class="po-pg" :disabled="page >= pageCount" @click="page++">›</button>
+      </div>
+      <span class="po-goto">前往 <input class="po-finput" style="width: 44px; text-align: center" v-model.number="page" /> 页</span>
     </div>
 
-    <div v-if="!board.columns || !board.columns.length" class="empty-cell">
-      这个流程还没有配置任何节点，先去「节点流程配置」里加几个
-    </div>
+    <!-- ================= 订单列表 ================= -->
+    <div class="po-list">
+      <div v-if="loading" class="po-empty">加载中…</div>
+      <div v-else-if="!pagedRows.length" class="po-empty">没有符合条件的订单</div>
 
-    <div v-else class="trk-wrap">
-      <table class="trk-table">
-        <thead>
-          <tr>
-            <th class="trk-fixed">订单 / 进度</th>
-            <th v-for="c in board.columns" :key="c.code" class="trk-col-head">
-              <div class="trk-col-name" :title="c.builtin ? '系统内置节点（不能停用）' : '自定义节点'">
-                {{ c.name }}<span v-if="c.builtin" class="trk-bi">内置</span>
+      <div v-for="r in pagedRows" :key="r.id" class="po-item">
+        <!-- ---------- 左：订单信息 ---------- -->
+        <div class="po-info">
+          <div class="po-info-content">
+            <span class="po-pin" :title="r.no_nodes ? '未生成工序' : '已生成工序'">●</span>
+            <div class="po-img" :class="{ empty: !thumbOf(r) }" @click="thumbOf(r) && openImage(r.thumb, r.order_no)">
+              <img v-if="thumbOf(r)" :src="r.thumb" alt="" @error="onThumbErr(r.id)" />
+              <span v-else class="po-img-ph">{{ phText(r) }}<em>无图</em></span>
+              <div class="po-state" :class="'st-' + r.status">{{ statusLabel(r.status) }}</div>
+              <div v-if="r.type === 'custom'" class="po-re">首单</div>
+            </div>
+            <div class="po-text">
+              <div class="po-row po-due-row">
+                <template v-if="r.delivery_date">
+                  货期：<b>{{ String(r.delivery_date).slice(5) }}</b>
+                  <span v-if="r.overdue" class="po-left-od">超期{{ r.days_late }}天</span>
+                  <span v-else class="po-left-ok">剩余{{ daysLeft(r) }}天</span>
+                </template>
+                <span v-else class="po-nodue">未填货期</span>
               </div>
-              <div class="trk-col-meta">
-                <!-- 只标「可选」：绝大多数节点是必经的，13 列都挂「必经」纯噪音，
-                     而真正需要提醒的恰恰是「这个可以不适用」的那几个 -->
-                <span v-if="!c.required" class="trk-opt">可选</span>
+              <div class="po-row clickable" @click="openPeek(r.id)">款号：{{ r.style_name || '—' }}</div>
+              <div class="po-row clickable" @click="openPeek(r.id)">PO号：{{ r.order_no }}</div>
+              <div class="po-row">客户：{{ r.customer_name || '—' }}</div>
+              <div class="po-row">跟单员：{{ r.manager || '—' }}</div>
+              <div class="po-row">工厂：本厂</div>
+              <div class="po-row">创建时间：{{ r.order_date ? String(r.order_date).slice(0, 10) : '—' }}</div>
+              <div class="po-row">业务员：{{ r.manager || '—' }}</div>
+              <div class="po-tags">
+                <span class="po-tag">{{ r.type === 'stock' ? '现货' : '定制' }}</span>
+                <span v-if="r.overdue" class="po-tag danger">超期</span>
+                <span v-if="r.no_nodes" class="po-tag warn">无工序</span>
               </div>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in board.rows" :key="r.id">
-            <td class="trk-fixed">
-              <div class="trk-l">
-                <!-- 款图：订单图优先，没有就用打版图。点图看大图，点订单号看打版信息 -->
-                <div class="trk-thumb" :class="{ empty: !thumbOf(r) }" :title="thumbOf(r) ? '点开看大图' : '这张单还没有款图'"
-                  @click.stop="thumbOf(r) && openImage(r.thumb, r.order_no)">
-                  <img v-if="thumbOf(r)" :src="r.thumb" alt="" @error="onThumbErr(r.id)" />
-                  <!-- 没款图时不留一片灰：显示款式首字 + 稳定底色，
-                       一眼能区分不同单，也不至于把「无图」当故障 -->
-                  <span v-else class="trk-ph" :style="{ background: phBg(r.id) }">{{ phText(r) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ---------- 中：工序节点 ---------- -->
+        <div class="po-flow">
+          <div class="po-flow-left">
+            <div class="po-flow-scroll">
+              <div class="po-flow-list">
+                <div v-for="(cell, i) in r.cells" :key="cell.code" class="po-fnode">
+                  <div class="po-fnode-name">
+                    <div class="po-fnode-title" :title="cell.name">{{ cell.name }}</div>
+                  </div>
+                  <div class="po-fnode-body">
+                    <i class="po-fico" :class="'is-' + cell.status">{{ ico(cell.status) }}</i>
+                    <div class="po-fnode-sub" :class="'is-' + cell.status">{{ subOf(cell) }}</div>
+                    <div class="po-chat" @click.stop="openNode(r, cell)">沟通</div>
+                  </div>
+                  <span v-if="i < r.cells.length - 1" class="po-farrow">»</span>
                 </div>
-                <div class="trk-info">
-                  <div class="trk-order">
-                    <a class="lnk mono" :title="'看打版信息与工序明细'" @click="openPeek(r.id)"><b>{{ r.order_no }}</b></a>
-                    <span class="tag" :class="statusTag(r.status)">{{ statusLabel(r.status) }}</span>
-                  </div>
-                  <div class="trk-style">{{ r.style_name || '—' }}</div>
-                  <div class="trk-cus">{{ r.customer_name || '—' }}</div>
-                  <!-- 交期与超期单独一行：挤在客户名后面会被 ellipsis 截掉，
-                       而「超了几天」恰恰是跟单排优先级时最先看的东西 -->
-                  <div v-if="r.delivery_date" class="trk-due">
-                    交期 <b :class="r.overdue ? 'trk-late' : ''">{{ r.delivery_date }}</b>
-                    <span v-if="r.overdue" class="trk-od">超期 {{ r.days_late }} 天</span>
-                  </div>
-                  <div class="trk-bar">
-                    <div class="trk-bar-in" :style="{ width: r.progress + '%' }"></div>
-                  </div>
-                  <div v-if="r.no_nodes" class="trk-prog trk-nonodes">
-                    未生成工序
-                  </div>
-                  <div v-else class="trk-prog">
-                    {{ r.progress }}% · {{ r.done_count }}/{{ r.total_count }}
-                    <span v-if="r.skipped_count"> · 跳过 {{ r.skipped_count }}</span>
-                  </div>
-                </div>
+                <div v-if="!r.cells.length" class="po-flow-none">未生成工序</div>
               </div>
-            </td>
+            </div>
+          </div>
 
-            <!-- 还没生成工序的单：整行合并一句提示。
-                 铺 13 个「未生成」既吵又没用 —— 它们不是 13 个问题，是同一个问题 -->
-            <td v-if="r.no_nodes" :colspan="r.cells.length" class="trk-norow">
-              <span>这张单还没生成工序 —— 订单转到「生产中」时自动按流程铺节点，</span>
-              <span>或到「工序流程配置 → 应用到已有订单」里批量补。</span>
-            </td>
-
-            <template v-else>
-            <td v-for="(cell, i) in r.cells" :key="cell.code" class="trk-cell"
-              :class="cellClass(cell)" @click="advance(r, cell)"
-              :title="cellTitle(r, cell)">
-              <template v-if="cell.missing">
-                <span class="trk-none">未生成</span>
-              </template>
-              <template v-else>
-                <span class="trk-ico">{{ ico(cell.status) }}</span>
-                <span class="trk-st">{{ stLabel(cell.status) }}</span>
-                <span v-if="cell.status === 'done' && cell.actual_date" class="trk-date">{{ cell.actual_date.slice(5) }}</span>
-                <span v-else-if="cell.status === 'skipped'" class="trk-date" :title="cell.skip_reason">有原因</span>
-                <button class="trk-more" title="计划 / 责任人 / 留言" @click.stop="openNode(r, cell)">⋯</button>
-                <span v-if="i < r.cells.length - 1" class="trk-arrow">›</span>
-              </template>
-            </td>
-
-            <td v-for="cell in r.extra" :key="cell.code" class="trk-cell trk-extra" :class="cellClass(cell)"
-              @click="advance(r, cell)" title="模板之外的节点（这张单单独加的或模板已停用的）">
-              <span class="trk-ico">{{ ico(cell.status) }}</span>
-              <span class="trk-st">{{ cell.name }}</span>
-            </td>
-            </template>
-          </tr>
-          <tr v-if="!board.rows || !board.rows.length">
-            <td :colspan="(board.columns ? board.columns.length : 0) + 1" class="empty-cell">
-              这个流程下没有符合条件的订单
-            </td>
-          </tr>
-        </tbody>
-      </table>
+          <!-- ---------- 右：操作 ---------- -->
+          <div class="po-ops">
+            <a class="po-op" @click="openPeek(r.id)">打印</a>
+            <a class="po-op" @click="openPeek(r.id)">工序</a>
+            <a class="po-op" @click="openPeek(r.id)">异常</a>
+            <a class="po-op" @click="openPeek(r.id)">详情</a>
+            <a class="po-op" @click="openPeek(r.id)">编辑</a>
+            <a class="po-op" @click="openNode(r, firstOpenCell(r))">沟通</a>
+            <a class="po-op po-op-more" @click="openPeek(r.id)">更多</a>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <!-- ================= 订单速览（款图 + 打版信息） ================= -->
+    <!-- ================= 订单信息看板 ================= -->
     <OrderPeek v-model:open="peekOpen" :order-id="peekId" />
 
-    <!-- ================= 节点详情 / 留言 ================= -->
+    <!-- ================= 节点：计划 / 责任人 / 沟通 ================= -->
     <div v-if="dlg.open" class="modal-mask" @click.self="dlg.open = false">
-      <div class="modal" style="width: 520px">
+      <div class="modal" style="width: 480px">
         <div class="modal-head">
-          <h3>{{ dlg.node ? dlg.node.name : '' }} · {{ dlg.orderNo }}</h3>
+          <h3>{{ dlg.name }} · {{ dlg.orderNo }}</h3>
           <button class="x" @click="dlg.open = false">×</button>
         </div>
         <div class="modal-body">
-          <div class="nd-row">
+          <div class="po-dlg-row">
             <label>状态</label>
-            <div class="nd-chips">
-              <button v-for="s in ['pending', 'doing', 'done', 'skipped']" :key="s" class="nd-chip"
+            <div class="po-chips">
+              <button v-for="s in ['pending', 'doing', 'done', 'skipped']" :key="s" class="po-chip"
                 :class="{ on: dlg.status === s }" @click="dlg.status = s">{{ stLabel(s) }}</button>
             </div>
           </div>
-          <div class="nd-row">
+          <div class="po-dlg-row">
             <label>计划完成</label>
-            <input class="input" type="date" v-model="dlg.plan_date" style="width: 180px" />
+            <input class="input" type="date" v-model="dlg.plan_date" style="width: 170px" />
           </div>
-          <div class="nd-row">
+          <div class="po-dlg-row">
             <label>责任人</label>
             <input class="input" v-model="dlg.operator" placeholder="车间 / 外协厂 / 具体人" style="width: 220px" />
           </div>
-          <div v-if="dlg.status === 'skipped'" class="nd-row nd-full">
+          <div v-if="dlg.status === 'skipped'" class="po-dlg-row">
             <label>不适用原因 *</label>
             <input class="input" v-model="dlg.skip_reason" placeholder="如：这单是现货款，不做水洗" />
-            <div class="nd-hint">必经节点不能标不适用；真的不做请到「节点流程配置」把它的「必经」去掉。</div>
           </div>
-          <div class="nd-row nd-full">
-            <label>留言</label>
-            <textarea class="input" rows="3" v-model="dlg.remark" placeholder="车间 / 跟单在这个环节要说明的事（会追加到节点备注）"></textarea>
+          <div class="po-dlg-row" style="display: block">
+            <label style="display: block; margin-bottom: 5px">沟通 / 留言</label>
+            <textarea class="input" rows="3" v-model="dlg.remark" placeholder="在这个环节要说明的事，会追加到节点备注"></textarea>
           </div>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" @click="dlg.open = false">取消</button>
-          <button class="btn btn-primary" :disabled="dlg.saving" @click="saveNode">
-            {{ dlg.saving ? '保存中…' : '保存' }}
-          </button>
+          <button class="btn btn-primary" :disabled="dlg.saving" @click="saveNode">{{ dlg.saving ? '保存中…' : '保存' }}</button>
         </div>
       </div>
     </div>
@@ -241,178 +270,211 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, computed, reactive, onMounted } from 'vue';
 import { api } from '../api';
-import { can } from '../store/permissions';
 import { openImage } from '../store/viewer';
+import { can } from '../store/permissions';
 import OrderPeek from '../components/OrderPeek.vue';
 
+const loading = ref(false);
+const board = ref({ template: null, columns: [], rows: [], stats: {}, summary: {} });
 const templates = ref([]);
-const customers = ref([]);
 const tplId = ref(null);
-const status = ref('');
+
+/* ---- 筛选（对齐参考系统的三行） ---- */
+const poMode = ref('like');
 const q = ref('');
-const customerId = ref(null);
-const manager = ref('');
+const status = ref('');
+const orderFrom = ref('');
+const orderTo = ref('');
 const dueFrom = ref('');
 const dueTo = ref('');
+const tagFilter = ref('');
+const sort = ref('due');
+const sortDir = ref('asc');
+const manager = ref('');
 const nodeCode = ref('');
 const nodeStatus = ref('');
-const sort = ref('due');
-/** 卡片口径：'' 全部 / overdue 超期 / soon 7天内到期 / nodue 无交期 —— 互斥 */
-const flag = ref('');
+const noNodes = ref(false);
+const noDue = ref(false);
 
-const board = ref({ template: null, columns: [], rows: [], summary: {} });
-const summary = ref({});
-const stats = ref({});
+const tab = ref('all');
+const showDue = ref(false);
+const page = ref(1);
+const pageSize = ref(12);
 const canFlow = can('node.flow');
 
+const today = new Date().toISOString().slice(0, 10);
+
+const statusLabel = (s) => ({
+  draft: '草稿', tech: '技术', finance: '财务', assigned: '已分单', production: '生产中',
+  instock: '已入库', shipped: '已发货', closed: '已结案', cancelled: '已取消'
+}[s] || s);
+const stLabel = (s) => ({ pending: '待开始', doing: '进行中', done: '已完成', skipped: '不适用' }[s] || s);
+
 /**
- * 点卡片就是切换口径。
- *
- * 卡片数字来自后端 `stats`（只受流程与状态范围影响），列表条数来自 `rows`（叠加筛选）。
- * 所以「超期 3」点进去一定是 3 条 —— 如果两者用不同的判断去算，会出现
- * 「数字 3、列表 2 条」这种没人查得清的不一致。
+ * 节点图标：与参考系统一致 —— 全部是「圆圈打勾」，靠颜色区分状态
+ * （灰 待开始 / 蓝 进行中 / 绿 已完成 / 橙 不适用）。
+ * 不用四种不同形状：看板上 13 个节点 × 20 行，形状多了反而看不出进度到哪。
  */
-function setFlag(f) {
-  flag.value = flag.value === f ? '' : f;
-  load();
-}
-function resetAll() {
-  status.value = '';
-  q.value = '';
-  customerId.value = null;
-  manager.value = '';
-  dueFrom.value = '';
-  dueTo.value = '';
-  nodeCode.value = '';
-  nodeStatus.value = '';
-  sort.value = 'due';
-  flag.value = '';
-  load();
+const ico = (s) => (s === 'skipped' ? '⊘' : '✓');
+
+/** 节点下那行小字：完成就给日期，在办给「进行中」，其余给「-」（参考系统也是这么留的） */
+function subOf(cell) {
+  if (cell.status === 'done' && cell.actual_date) return String(cell.actual_date).slice(5);
+  if (cell.status === 'doing') return '进行中';
+  if (cell.status === 'skipped') return '不适用';
+  return '-';
 }
 
-/* 订单速览：点订单号打开，看款图与打版时填的面料/辅料/工艺/客户要求 */
-const peekOpen = ref(false);
-const peekId = ref(null);
-function openPeek(id) {
-  peekId.value = id;
-  peekOpen.value = true;
-}
-
-function statusLabel(s) {
-  return {
-    draft: '草稿', tech: '技术', finance: '财务', assigned: '已分单', production: '生产中',
-    instock: '已入库', shipped: '已发货', closed: '已结案', cancelled: '已取消'
-  }[s] || s;
-}
-function statusTag(s) {
-  return {
-    assigned: 'purple', production: 'blue', instock: 'green',
-    shipped: 'green', closed: 'gray', cancelled: 'red'
-  }[s] || 'gray';
-}
-function stLabel(s) {
-  return { pending: '待开始', doing: '进行中', done: '已完成', skipped: '不适用', none: '未生成' }[s] || s;
-}
-function ico(s) {
-  return { pending: '○', doing: '▶', done: '✓', skipped: '⊘' }[s] || '·';
-}
-function cellClass(cell) {
-  if (cell.missing) return 'is-missing';
-  return 'is-' + cell.status;
-}
-/**
- * 图片加载失败要退回占位字，不能留一块白。
- *
- * 库里真有坏图（现存一张 70 字节的 png），`<img>` 加载失败时不会报错，
- * 只显示一块空白 —— 看起来像「这单没图但格子坏了」，而实际是图坏了。
- * 这两种情况该长得不一样。
- */
+/* ---- 款图 ---- */
 const broken = reactive({});
 function onThumbErr(id) { broken[id] = true; }
 function thumbOf(r) { return broken[r.id] ? '' : (r.thumb || ''); }
-
-/**
- * 占位字：优先取款名里的第一个汉字。
- *
- * 直接 `slice(0,1)` 会取到 "EXDEMO-过交期款" 的 E、"SO2026..." 的 S ——
- * 那是单号开头，不是款式，占位就白占了一个位置。取不到汉字才退回单号首字。
- */
 function phText(r) {
   const m = String(r.style_name || '').match(/[\u4e00-\u9fa5]/);
   if (m) return m[0];
   return String(r.order_no || '?').trim().slice(0, 1);
 }
-/** 无款图时的占位底色：按订单 id 取，同一张单每次刷新都是同一个颜色 */
-function phBg(id) {
-  const palette = ['#eef2f8', '#f2eef8', '#eef7f2', '#fdf3ea', '#eef4fa', '#f7f0f0'];
-  return palette[Math.abs(Number(id) || 0) % palette.length];
+
+function daysLeft(r) {
+  if (!r.delivery_date) return '';
+  const d = new Date(String(r.delivery_date).slice(0, 10) + 'T00:00:00');
+  const t = new Date(today + 'T00:00:00');
+  return Math.round((d - t) / 86400000);
 }
-function cellTitle(r, cell) {
-  if (cell.missing) return '这张单还没生成工序（订单还没转到「生产中」）';
-  if (cell.status === 'done') return `已完成 ${cell.actual_date || ''}；如需回退请到订单详情`;
-  if (cell.status === 'skipped') return '不适用：' + (cell.skip_reason || '');
-  return cell.status === 'pending' ? '点一下 → 进行中' : '点一下 → 已完成';
+
+/* ---- Tab：全部在前端过滤，切换不再请求，所以点起来是即时的 ---- */
+const tabs = computed(() => {
+  const rows = board.value.rows || [];
+  return [
+    { key: 'all', label: '全部', count: rows.length },
+    { key: 'todo', label: '待分配订单', count: rows.filter((r) => isTodo(r)).length },
+    { key: 'producing', label: '本厂生产', count: rows.filter((r) => r.status === 'production').length },
+    { key: 'instock', label: '已入库', count: rows.filter((r) => r.status === 'instock').length },
+    { key: 'overdue', label: '超期订单', count: rows.filter((r) => r.overdue).length, danger: true },
+    { key: 'odd', label: '订单异常', count: rows.filter((r) => !r.delivery_date || r.no_nodes).length, danger: true },
+    { key: 'void', label: '作废订单', count: rows.filter((r) => r.status === 'cancelled').length }
+  ];
+});
+/**
+ * 「待分配订单」= 流程第一个节点还没动
+ *
+ * 不能用「一个节点都没完成」判：流程第一个节点就叫「待分配订单」，
+ * 它一旦被标记完成，这张单就不该再出现在这个 Tab 里了。
+ */
+function isTodo(r) {
+  const first = (r.cells || [])[0];
+  return !!first && first.status !== 'done' && first.status !== 'skipped';
 }
+function setTab(k) { tab.value = k; page.value = 1; }
+
+const filteredRows = computed(() => {
+  const rows = board.value.rows || [];
+  switch (tab.value) {
+    case 'todo': return rows.filter((r) => isTodo(r));
+    case 'producing': return rows.filter((r) => r.status === 'production');
+    case 'instock': return rows.filter((r) => r.status === 'instock');
+    case 'overdue': return rows.filter((r) => r.overdue);
+    case 'odd': return rows.filter((r) => !r.delivery_date || r.no_nodes);
+    case 'void': return rows.filter((r) => r.status === 'cancelled');
+    default: return rows;
+  }
+});
+
+const pageCount = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / pageSize.value)));
+const pagedRows = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return filteredRows.value.slice(start, start + pageSize.value);
+});
+const pageList = computed(() => {
+  const n = pageCount.value;
+  let from = Math.max(1, page.value - 2);
+  const to = Math.min(n, from + 4);
+  from = Math.max(1, to - 4);
+  const out = [];
+  for (let i = from; i <= to; i += 1) out.push(i);
+  return out;
+});
+
+/** 货期横条：按交期聚合，一眼看出哪几天压单多、哪几天有超期 */
+const dueStrip = computed(() => {
+  const map = new Map();
+  (board.value.rows || []).forEach((r) => {
+    const d = r.delivery_date ? String(r.delivery_date).slice(0, 10) : '';
+    if (!d) return;
+    if (!map.has(d)) map.set(d, { date: d, count: 0, overdue: 0 });
+    const x = map.get(d);
+    x.count += 1;
+    if (r.overdue) x.overdue += 1;
+  });
+  return [...map.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 21)
+    .map((x) => ({ ...x, label: x.date.slice(5).replace('-', '.') }));
+});
+
+function onFilter() { page.value = 1; load(); }
 
 async function load() {
-  const [ts, b] = await Promise.all([
-    api.nodeFlowTemplates(),
-    api.nodeFlowBoard({
-      template_id: tplId.value || '',
-      status: status.value,
-      q: q.value,
-      customer_id: customerId.value || '',
-      manager: manager.value,
-      due_from: dueFrom.value,
-      due_to: dueTo.value,
-      // 三个口径互斥：查询串只传当前选中的那个
-      overdue: flag.value === 'overdue' ? 1 : '',
-      due_soon: flag.value === 'soon' ? 1 : '',
-      no_due: flag.value === 'nodue' ? 1 : '',
-      node_code: nodeCode.value,
-      node_status: nodeStatus.value,
-      sort: sort.value
-    })
-  ]);
-  templates.value = ts || [];
-  if (!tplId.value && b && b.template) tplId.value = b.template.id;
-  board.value = b || { template: null, columns: [], rows: [], summary: {} };
-  summary.value = (b && b.summary) || {};
-  stats.value = (b && b.stats) || {};
-}
-
-/**
- * 点格子推进：待开始 → 进行中 → 已完成
- *
- * 已完成/不适用**不响应点击**：这两态已经是「有结论」的状态，
- * 一不小心点掉就得回订单详情重来，而现场基本都是戴着手机手套在点。
- * 要回退走 ⋯ 面板。
- */
-async function advance(r, cell) {
-  if (cell.missing || !cell.node_id) {
-    alert('这张单还没生成工序。先把订单流转到「生产中」，或到「节点流程配置」里点「应用到已有订单」。');
-    return;
-  }
-  if (cell.status === 'done' || cell.status === 'skipped') return;
-  const next = cell.status === 'pending' ? 'doing' : 'done';
+  loading.value = true;
   try {
-    await api.updateNode(cell.node_id, { status: next });
-    await load();
-  } catch (e) { alert(e.message); }
+    const [ts, b] = await Promise.all([
+      api.nodeFlowTemplates(),
+      api.nodeFlowBoard({
+        template_id: tplId.value || '',
+        status: status.value,
+        q: q.value,
+        manager: manager.value,
+        order_from: orderFrom.value,
+        order_to: orderTo.value,
+        due_from: dueFrom.value,
+        due_to: dueTo.value,
+        no_due: noDue.value ? 1 : '',
+        node_code: nodeCode.value,
+        node_status: nodeStatus.value,
+        sort: sort.value,
+        limit: 500
+      })
+    ]);
+    templates.value = ts || [];
+    board.value = b || { template: null, columns: [], rows: [], stats: {}, summary: {} };
+    if (!tplId.value && b && b.template) tplId.value = b.template.id;
+  } finally {
+    loading.value = false;
+  }
 }
 
+function resetAll() {
+  q.value = ''; status.value = ''; orderFrom.value = ''; orderTo.value = '';
+  dueFrom.value = ''; dueTo.value = ''; tagFilter.value = ''; manager.value = '';
+  nodeCode.value = ''; nodeStatus.value = ''; noNodes.value = false; noDue.value = false;
+  sort.value = 'due'; sortDir.value = 'asc';
+  tab.value = 'all'; page.value = 1;
+  load();
+}
+
+/* ---- 速览 / 打印 ---- */
+const peekOpen = ref(false);
+const peekId = ref(null);
+function openPeek(id) { if (!id) return; peekId.value = id; peekOpen.value = true; }
+
+/* ---- 节点弹窗 ---- */
+function firstOpenCell(r) {
+  return (r.cells || []).find((c) => c.status === 'doing')
+    || (r.cells || []).find((c) => c.status === 'pending')
+    || (r.cells || [])[0];
+}
 const dlg = reactive({
-  open: false, node: null, nodeId: null, orderNo: '', saving: false,
+  open: false, nodeId: null, orderNo: '', name: '', saving: false,
   status: 'pending', plan_date: '', operator: '', remark: '', skip_reason: ''
 });
 function openNode(r, cell) {
-  if (!cell.node_id) return;
+  if (!cell || !cell.node_id) { openPeek(r.id); return; }
   dlg.open = true;
   dlg.nodeId = cell.node_id;
-  dlg.node = cell;
   dlg.orderNo = r.order_no;
+  dlg.name = cell.name;
   dlg.status = cell.status;
   dlg.plan_date = cell.plan_date || '';
   dlg.operator = cell.operator || '';
@@ -422,136 +484,160 @@ function openNode(r, cell) {
 async function saveNode() {
   dlg.saving = true;
   try {
-    const body = {
-      status: dlg.status,
-      plan_date: dlg.plan_date || null,
-      operator: dlg.operator || null
-    };
+    const body = { status: dlg.status, plan_date: dlg.plan_date || null, operator: dlg.operator || null };
     if (dlg.status === 'skipped') body.skip_reason = dlg.skip_reason;
-    if (dlg.remark.trim()) {
-      body.remark = ` [${new Date().toISOString().slice(0, 10)} ${dlg.remark.trim()}]`;
-    }
+    if (dlg.remark.trim()) body.remark = ` [${today} ${dlg.remark.trim()}]`;
     await api.updateNode(dlg.nodeId, body);
     dlg.open = false;
     await load();
   } catch (e) { alert(e.message); } finally { dlg.saving = false; }
 }
 
-onMounted(async () => {
-  api.customers().then((r) => { customers.value = r || []; }).catch(() => {});
-  await load();
-});
+onMounted(load);
 </script>
 
 <style scoped>
-/* 看板横向会有 13+ 列，左侧订单列必须固定，否则右滑就不知道在看哪张单 */
-.trk-wrap { overflow-x: auto; border: 1px solid #eef2f7; border-radius: 10px; background: #fff; }
-.trk-table { border-collapse: separate; border-spacing: 0; width: 100%; }
-.trk-table th, .trk-table td { padding: 0; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
-
-.trk-table thead th {
-  background: #f7f9fd; font-size: 11.5px; font-weight: 700; color: #5b6b80;
-  text-align: center; padding: 8px 4px; border-bottom: 1px solid #e4eaf3;
-  position: sticky; top: 0; z-index: 3;
-}
-.trk-col-head { min-width: 78px; }
-.trk-col-name { line-height: 1.3; white-space: nowrap; }
-.trk-col-meta { margin-top: 3px; font-weight: 400; font-size: 10px; }
-.trk-req { color: #8a94a6; }
-.trk-opt { color: #d97706; }
-.trk-bi { font-size: 9px; color: #2563eb; background: #e8f0ff; border-radius: 3px; padding: 0 3px; margin-left: 2px; }
-
-/* 左侧固定列 */
-.trk-fixed {
-  position: sticky; left: 0; z-index: 4;
-  background: #fff; min-width: 296px; max-width: 296px;
-  padding: 10px 12px !important; text-align: left;
-  border-right: 1px solid #e4eaf3;
-}
-/* 款图 + 信息并排；信息列必须 min-width:0，否则单号会把格子撑开 */
-.trk-l { display: flex; gap: 9px; align-items: flex-start; }
-.trk-info { min-width: 0; flex: 1; }
-.trk-thumb {
-  width: 42px; height: 42px; flex: none; border-radius: 7px; overflow: hidden;
-  border: 1px solid #e6ecf5; background: #f4f6fa; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-}
-.trk-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.trk-thumb.empty { cursor: default; }
-.trk-ph {
-  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-  font-size: 15px; font-weight: 700; color: #8a94a6;
-}
-.trk-table thead .trk-fixed { z-index: 5; background: #f7f9fd; }
-.trk-order { display: flex; align-items: center; gap: 6px; }
-.trk-order .mono { font-size: 12.5px; }
-.trk-style { font-size: 12px; color: #33425c; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trk-cus { font-size: 11.5px; color: #8a94a6; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trk-late { color: #d92d45; font-weight: 700; }
-.trk-due { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
-.trk-due b { color: #5b6b80; font-weight: 600; }
-.trk-od {
-  display: inline-block; margin-left: 5px; padding: 0 5px;
-  background: #fdecee; color: #d92d45; border-radius: 4px;
-  font-size: 10.5px; font-weight: 700;
+/* 配色与尺寸对齐参考系统（衣创生产订单） */
+.po-page {
+  --po-blue: #1890ff; --po-line: #eaebed; --po-gray: #808080;
+  --po-orange: #ffa500; --po-text: #606266;
+  background: #f0f2f5; padding: 8px;
 }
 
-/* ---- 统计卡：四张都能点，点一下按该口径筛 ---- */
-.trk-cards { grid-template-columns: repeat(4, 1fr); }
-.stat-card.is-click { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
-.stat-card.is-click:hover { border-color: #b9cdf5; box-shadow: 0 2px 8px rgba(37, 99, 235, .08); }
-.stat-card.is-click.on { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, .12); }
-.stat-card.is-click.danger .value { color: #d92d45; }
-.stat-card.is-click.warn .value { color: #d97706; }
-.trk-card-sub { font-size: 10.5px; color: #98a2b3; margin-top: 3px; }
-.trk-fl { font-size: 12px; color: #8a94a6; white-space: nowrap; }
-.trk-filters { margin-bottom: 8px; }
-.trk-bar { height: 6px; background: #eef1f6; border-radius: 4px; overflow: hidden; margin: 7px 0 3px; }
-.trk-bar-in { height: 100%; background: #16a34a; transition: width .2s; }
-.trk-prog { font-size: 11px; color: #6b7688; }
-.trk-nonodes { color: #b45309; }
+/* 面包屑：参考页顶部是「首页 / 订单 / 生产订单」，没有大标题 */
+.po-crumb { font-size: 12.5px; color: #909399; padding: 2px 4px 8px; }
+.po-crumb b { color: #303133; font-weight: 600; }
 
-/* 节点格 */
-.trk-cell {
-  position: relative; text-align: center; cursor: pointer;
-  min-width: 78px; height: 62px; font-size: 11.5px;
-  border-left: 1px solid #f4f7fb;
+/* ---------- 筛选区 ---------- */
+.po-filter { background: #fff; padding: 10px 12px 4px; border-radius: 3px; }
+.po-frow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.po-fitem { display: flex; align-items: center; gap: 6px; }
+.po-flabel { font-size: 12.5px; color: #606266; white-space: nowrap; }
+.po-finput, .po-fsel {
+  height: 30px; border: 1px solid #dcdfe6; border-radius: 3px;
+  padding: 0 8px; font-size: 12.5px; color: #303133; background: #fff; outline: none;
 }
-.trk-cell:hover { background: #f4f8ff !important; }
-.trk-ico { display: block; font-size: 13px; line-height: 1.2; }
-.trk-st { display: block; font-size: 10.5px; }
-.trk-date { display: block; font-size: 9.5px; color: #8a94a6; }
-.trk-none { font-size: 10.5px; color: #b6bfcc; }
-.trk-norow {
-  background: repeating-linear-gradient(45deg, #fcfcfd, #fcfcfd 6px, #f8f9fb 6px, #f8f9fb 12px);
-  color: #a8b2c1; font-size: 12px; padding: 0 14px !important; text-align: left;
-  border-left: 1px solid #f4f7fb;
+.po-finput:focus, .po-fsel:focus { border-color: var(--po-blue); }
+.po-fsel { cursor: pointer; }
+.po-fsel:disabled { background: #f5f7fa; color: #c0c4cc; }
+.po-fsep { color: #c0c4cc; font-size: 12px; }
+.po-btn {
+  height: 30px; padding: 0 12px; border: 1px solid #dcdfe6; border-radius: 3px;
+  background: #fff; color: #606266; font-size: 12.5px; cursor: pointer;
 }
+.po-btn:hover { border-color: #c6e2ff; color: var(--po-blue); }
+.po-btn-primary { background: var(--po-blue); border-color: var(--po-blue); color: #fff; }
+.po-btn-primary:hover { background: #40a9ff; color: #fff; }
+.po-caret { font-size: 10px; color: #909399; }
+.po-switch { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: #606266; cursor: pointer; }
+.po-reset { font-size: 12.5px; color: var(--po-blue); cursor: pointer; margin-left: 4px; }
 
-.is-pending { background: #fff; color: #98a2b3; }
-.is-doing { background: #eef4ff; color: #2563eb; font-weight: 700; }
-.is-done { background: #f0faf4; color: #15803d; font-weight: 700; }
-.is-skipped { background: #fbfaf6; color: #b45309; }
-.is-missing { background: repeating-linear-gradient(45deg, #fcfcfd, #fcfcfd 5px, #f7f8fa 5px, #f7f8fa 10px); color: #b6bfcc; }
-.trk-extra { border-left: 2px dashed #e4eaf3; }
-
-.trk-more {
-  position: absolute; top: 2px; right: 2px;
-  border: none; background: transparent; color: #b6bfcc;
-  font-size: 13px; line-height: 1; cursor: pointer; padding: 0 3px;
+/* ---------- 展开货期 ---------- */
+.po-expand {
+  text-align: center; font-size: 12.5px; color: var(--po-blue);
+  padding: 3px 0 7px; cursor: pointer; background: #fff;
 }
-.trk-more:hover { color: #2563eb; }
-.trk-arrow { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); color: #d6dde8; font-size: 14px; z-index: 2; }
+.po-expand:hover { text-decoration: underline; }
+.po-duebar { display: flex; gap: 4px; overflow-x: auto; background: #fff; padding: 0 12px 10px; }
+.po-dueday { min-width: 60px; border: 1px solid #ebeef5; border-radius: 3px; padding: 4px 6px; text-align: center; background: #fafafa; }
+.po-dueday.hot { border-color: #fde2e2; background: #fef0f0; }
+.po-dueday.on { border-color: var(--po-blue); background: #ecf5ff; }
+.po-duedate { font-size: 11px; color: #909399; }
+.po-duenum { font-size: 13px; font-weight: 700; color: #303133; }
+.po-dueod { color: #f56c6c; font-size: 11px; font-weight: 400; }
+.po-duenone { font-size: 12px; color: #c0c4cc; padding: 8px 0; }
+
+/* ---------- Tab ---------- */
+.po-tabs { display: flex; gap: 2px; background: #fff; padding: 0 12px; border-bottom: 1px solid var(--po-line); overflow-x: auto; }
+.po-tab { border: none; background: transparent; padding: 9px 14px; font-size: 13px; color: #606266; cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent; }
+.po-tab:hover { color: var(--po-blue); }
+.po-tab.on { color: var(--po-blue); border-bottom-color: var(--po-blue); font-weight: 700; }
+.po-tabnum { display: inline-block; margin-left: 3px; font-size: 11px; font-weight: 700; color: #909399; }
+.po-tabnum.danger { color: #f56c6c; }
+
+/* ---------- 工具行 ---------- */
+.po-tools { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fff; flex-wrap: wrap; }
+.po-view { display: flex; border: 1px solid #dcdfe6; border-radius: 3px; overflow: hidden; }
+.po-vbtn { width: 30px; height: 28px; border: none; background: #fff; color: #909399; cursor: pointer; font-size: 13px; }
+.po-vbtn.on { background: var(--po-blue); color: #fff; }
+.po-spacer { flex: 1; }
+.po-total { font-size: 12.5px; color: #606266; }
+.po-pager { display: flex; gap: 3px; }
+.po-pg { min-width: 26px; height: 26px; border: 1px solid #dcdfe6; border-radius: 3px; background: #fff; color: #606266; font-size: 12px; cursor: pointer; }
+.po-pg.on { background: var(--po-blue); border-color: var(--po-blue); color: #fff; }
+.po-pg:disabled { opacity: .4; cursor: not-allowed; }
+.po-goto { font-size: 12.5px; color: #606266; display: flex; align-items: center; gap: 4px; }
+
+/* ---------- 订单行 ---------- */
+.po-list { background: #fff; padding: 10px; }
+.po-empty { padding: 46px 0; text-align: center; color: #909399; font-size: 13px; }
+.po-item { display: flex; border: 1px solid var(--po-line); border-radius: 3px; margin-bottom: 8px; background: #fff; }
+.po-item:hover { box-shadow: 0 1px 6px rgba(0, 0, 0, .06); }
+
+/* 左：信息 */
+.po-info { width: 388px; flex: none; border-right: 1px solid #f2f3f5; }
+.po-info-content { display: flex; gap: 6px; padding: 8px; }
+.po-pin { color: var(--po-blue); font-size: 10px; line-height: 14px; }
+.po-img { width: 100px; height: 140px; flex: none; position: relative; border-radius: 2px; overflow: hidden; background: #f5f7fa; cursor: pointer; }
+.po-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.po-img.empty { cursor: default; display: flex; align-items: center; justify-content: center; }
+.po-img-ph { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 20px; font-weight: 700; color: #c8d0dc; }
+.po-img-ph em { font-size: 10px; font-style: normal; font-weight: 400; color: #d6dde8; }
+/* 状态是一道压在图片底部的色带 —— 参考系统就是这样，比单独放个标签更省地方 */
+.po-state { position: absolute; left: 0; right: 0; bottom: 0; height: 22px; line-height: 22px; text-align: center; font-size: 12px; color: #fff; background: #ffa500; }
+.po-state.st-production { background: #ffa500; }
+.po-state.st-assigned { background: #909399; }
+.po-state.st-instock { background: #67c23a; }
+.po-state.st-shipped { background: #409eff; }
+.po-state.st-closed { background: #b1b3b8; }
+.po-state.st-cancelled { background: #f56c6c; }
+.po-re { position: absolute; right: 0; top: 0; background: #f56c6c; color: #fff; font-size: 11px; padding: 1px 5px; border-bottom-left-radius: 4px; }
+
+.po-text { flex: 1; min-width: 0; font-size: 12px; line-height: 19px; color: var(--po-text); }
+.po-row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.po-row.clickable { cursor: pointer; }
+.po-row.clickable:hover { color: var(--po-blue); }
+.po-due-row b { color: #303133; }
+.po-left-od { color: #f56c6c; font-weight: 700; margin-left: 4px; }
+.po-left-ok { color: #e6a23c; margin-left: 4px; }
+.po-nodue { color: #f56c6c; }
+.po-tags { display: flex; gap: 4px; margin-top: 2px; flex-wrap: wrap; }
+.po-tag { font-size: 10.5px; line-height: 15px; padding: 0 5px; border-radius: 2px; background: #f0f9eb; color: #67c23a; border: 1px solid #e1f3d8; }
+.po-tag.danger { background: #fef0f0; color: #f56c6c; border-color: #fde2e2; }
+.po-tag.warn { background: #fdf6ec; color: #e6a23c; border-color: #faecd8; }
+
+/* 中：工序 */
+.po-flow { flex: 1; min-width: 0; display: flex; }
+.po-flow-left { flex: 1; min-width: 0; overflow: hidden; }
+.po-flow-scroll { overflow-x: auto; padding: 4px 0 0; }
+.po-flow-list { display: flex; align-items: flex-start; min-height: 148px; }
+.po-flow-none { padding: 46px 16px; color: #c0c4cc; font-size: 12.5px; }
+
+.po-fnode { width: 120px; flex: none; position: relative; text-align: center; }
+.po-fnode-name { height: 58px; display: flex; align-items: flex-end; justify-content: center; padding: 0 4px; }
+.po-fnode-title { font-size: 13px; font-weight: 700; color: var(--po-gray); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.po-fnode-body { height: 84px; padding-top: 5px; }
+.po-fico { font-size: 20px; line-height: 1; font-style: normal; color: var(--po-gray); display: block; }
+.po-fico.is-done { color: #67c23a; }
+.po-fico.is-doing { color: var(--po-blue); }
+.po-fico.is-skipped { color: #e6a23c; }
+.po-fnode-sub { font-size: 12px; color: var(--po-gray); line-height: 19px; }
+.po-fnode-sub.is-done { color: #67c23a; }
+.po-fnode-sub.is-doing { color: var(--po-blue); }
+.po-chat { font-size: 12.5px; color: var(--po-blue); cursor: pointer; line-height: 20px; }
+.po-chat:hover { text-decoration: underline; }
+.po-farrow { position: absolute; right: -5px; top: 96px; color: #c0c4cc; font-size: 15px; z-index: 2; }
+
+/* 右：操作（两列） */
+.po-ops { width: 120px; flex: none; display: flex; flex-wrap: wrap; align-content: flex-start; padding: 8px 6px; }
+.po-op { width: 54px; font-size: 12.5px; color: var(--po-blue); cursor: pointer; line-height: 22px; text-align: center; }
+.po-op:hover { text-decoration: underline; }
+.po-op-more { width: 108px; text-align: left; padding-left: 22px; }
 
 /* 节点弹窗 */
-.nd-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.nd-row.nd-full { display: block; }
-.nd-row label { font-size: 12.5px; color: #5b6b80; min-width: 72px; }
-.nd-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.nd-chip {
-  border: 1px solid #e0e7f1; background: #fff; border-radius: 16px;
-  padding: 4px 12px; font-size: 12px; color: #5b6b80; cursor: pointer;
-}
-.nd-chip.on { border-color: #2563eb; background: #eef4ff; color: #2563eb; font-weight: 700; }
-.nd-hint { font-size: 11.5px; color: #8a94a6; margin-top: 5px; line-height: 1.6; }
+.po-dlg-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.po-dlg-row label { font-size: 12.5px; color: #5b6b80; min-width: 76px; }
+.po-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.po-chip { border: 1px solid #e0e7f1; background: #fff; border-radius: 16px; padding: 4px 12px; font-size: 12px; color: #5b6b80; cursor: pointer; }
+.po-chip.on { border-color: var(--po-blue); background: #ecf5ff; color: var(--po-blue); font-weight: 700; }
 </style>
