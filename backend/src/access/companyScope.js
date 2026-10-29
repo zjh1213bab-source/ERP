@@ -211,7 +211,32 @@ function companyClauseSql(companyId, col = 'company_id') {
   return { sql: ` AND ${col} = ${cid}`, scoped: true };
 }
 
+/**
+ * 通过**父表**判归属：子表没有 `company_id`，父表有
+ *
+ * 例：`goods_receipts.po_id → purchase_orders.company_id`。
+ * 与 `orderOwnedSql` 的区别是父表可配置（不只是 orders）—— 
+ * 采购收货、采购明细、退货这些表都挂采购单，没必要为每张表各写一个函数。
+ */
+function parentClauseSql(companyId, parentTable, col) {
+  if (companyId === null || companyId === undefined || companyId === '') {
+    return { sql: '', scoped: false };
+  }
+  if (!TABLE_RE.test(String(parentTable))) {
+    throw new Error('parentClauseSql 表名非法：' + parentTable);
+  }
+  const cid = Number(companyId);
+  if (!Number.isInteger(cid) || cid <= 0) {
+    throw new Error('parentClauseSql 收到非法主体 id：' + String(companyId));
+  }
+  return {
+    sql: ' AND ' + col + ' IN (SELECT id FROM ' + parentTable + ' WHERE company_id = ' + cid + ')',
+    scoped: true
+  };
+}
+
 module.exports = {
   GROUP_ROLES, of, clause, where, canSee,
-  assertOrder, assertRow, writeCompanyOf, filterCompanyId, orderOwnedSql, companyClauseSql
+  assertOrder, assertRow, writeCompanyOf, filterCompanyId,
+  orderOwnedSql, companyClauseSql, parentClauseSql
 };

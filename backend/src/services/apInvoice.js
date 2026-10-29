@@ -52,14 +52,16 @@ function openAPForPurchase(purchaseId, userId) {
   const due = T.apDueDate(supplier, String(t).slice(0, 10));
 
   /**
-   * 应付跟着采购单走主体：采购单挂的订单属于哪个主体，应付就记哪个主体。
-   * `purchase_orders` 自己没有 `company_id`，而没有关联订单的采购（备货采购）
-   * 归默认主体 1 —— 与表上 `company_id NOT NULL DEFAULT 1` 同口径。
-   * 不显式写这一列会用默认值，等于把分部的采购全记到总部账上。
+   * 应付跟着采购单走主体。
+   *
+   * v1.63 给 `purchase_orders` 加了 `company_id`：采购单自己就能回答"这是哪个主体采的"。
+   * 在这个列存在之前只能顺着订单推，而**备货采购根本不挂订单**（实测 32 张单一张都没挂）
+   * —— 于是分部的采购一律记到总部，谁也查不出来。现在优先用采购单上的主体，
+   * 只有在老数据缺这一列（0/空）时才退回订单主体。
    */
-  const companyId = Number((
-    db.prepare('SELECT company_id FROM orders WHERE id = ?').get(po.order_id || 0) || {}
-  ).company_id) || 1;
+  const companyId = Number(po.company_id)
+    || Number((db.prepare('SELECT company_id FROM orders WHERE id = ?').get(po.order_id || 0) || {}).company_id)
+    || 1;
 
   const info = db
     .prepare(

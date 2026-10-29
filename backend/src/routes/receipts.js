@@ -18,6 +18,39 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const scope = require('../access/companyScope');
+
+/**
+ * 收料单的主体
+ *
+ * goods_receipts 没有 company_id，它通过 po_id 挂在采购单上 —— 采购单这一层
+ * v1.63 才有主体列。所以收料单一律按「父表」判归属：
+ *   `po_id IN (SELECT id FROM purchase_orders WHERE company_id = N)`
+ * 收货是库存与应付的起点，这一层不收窄，分部进来能看到别家到货了什么料、多少钱。
+ */
+const cidOf = (req) => scope.filterCompanyId(req.user);
+const poScope = (cid, col = 'po_id') => scope.parentClauseSql(cid, 'purchase_orders', col).sql;
+
+/** 采购单归属校验（收料动作的前置） */
+function assertPo(req, poId) {
+  const r = scope.assertRow(req.user, 'purchase_orders', poId, '采购单');
+  if (!r.ok) {
+    const e = new Error(r.reason);
+    e.status = r.status;
+    throw e;
+  }
+  return r.row;
+}
+
+/** 收料单归属校验：顺着 po_id 判（跨主体按不存在处理） */
+function grnOr404(req, id) {
+  const g = db.prepare('SELECT * FROM goods_receipts WHERE id = ?').get(Number(id));
+  if (!g) { const e = new Error('收料单不存在'); e.status = 404; throw e; }
+  if (g.po_id && !scope.assertRow(req.user, 'purchase_orders', g.po_id, '采购单').ok) {
+    const e = new Error('收料单不存在'); e.status = 404; throw e;
+  }
+  return g;
+}
 
 const router = express.Router();
 const WRITE = ['admin', 'warehouse', 'production'];   // 仓库点收 / 来料检查
@@ -188,6 +221,9 @@ router.get('/board', authRequired, wrap(async (req, res) => {
 
   const where = [];
   const args = [];
+  // 主体条件放最前，参数顺序跟着它走
+  const poWh = poScope(cidOf(req));
+  if (poWh) where.push(poWh.replace(/^ AND /, ''));
   if (status) { where.push('status = ?'); args.push(status); }
   if (q) { where.push('(grn_no LIKE ? OR po_no LIKE ? OR supplier LIKE ?)'); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   const rows = db.prepare(
@@ -198,16 +234,17 @@ router.get('/board', authRequired, wrap(async (req, res) => {
     inspect_rate: int0(g.receive_qty) > 0 ? Math.round(((int0(g.pass_qty) + int0(g.freeze_qty) + int0(g.reject_qty)) / int0(g.receive_qty)) * 100) : 0
   }));
 
+  // 统计也必须同口径：列表收窄了、卡片还是全集团，两个数字对不上比不显示更糟
   const m = db.prepare(
     `SELECT COUNT(*) c, COALESCE(SUM(receive_qty),0) recv, COALESCE(SUM(pass_qty),0) pass,
             COALESCE(SUM(freeze_qty),0) freeze, COALESCE(SUM(reject_qty),0) reject
-     FROM goods_receipts WHERE substr(receive_date,1,7) = ? AND status != 'cancelled'`
+     FROM goods_receipts WHERE substr(receive_date,1,7) = ? AND status != 'cancelled'${poWh}`
   ).get(month);
   const pendingRows = db.prepare(
-    "SELECT COUNT(*) c, COALESCE(SUM(pending_qty),0) q FROM goods_receipts WHERE status IN ('pending','inspecting','partial')"
+    "SELECT COUNT(*) c, COALESCE(SUM(pending_qty),0) q FROM goods_receipts WHERE status IN ('pending','inspecting','partial')" + poWh
   ).get();
   const diffRows = db.prepare(
-    "SELECT COUNT(*) c FROM goods_receipts WHERE status != 'cancelled' AND (over_qty > 0 OR short_qty > 0)"
+    "SELECT COUNT(*) c FROM goods_receipts WHERE status != 'cancelled' AND (over_qty > 0 OR short_qty > 0)" + poWh
   ).get();
 
   const stat = {
@@ -230,7 +267,7 @@ router.get('/pending', authRequired, wrap(async (req, res) => {
   const rows = db.prepare(
     `SELECT i.material_id, i.material_name, i.unit, COALESCE(SUM(i.pending_qty),0) AS pending_qty
      FROM goods_receipt_items i JOIN goods_receipts g ON g.id = i.grn_id
-     WHERE g.status != 'cancelled' AND i.pending_qty > 0
+     WHERE g.status != 'cancelled' AND i.pending_qty > 0${poScope(cidOf(req), 'g.po_id')}
      GROUP BY i.material_id, i.material_name, i.unit
      ORDER BY pending_qty DESC`
   ).all().map((r) => ({ ...r, pending_qty: round2(r.pending_qty) }));
@@ -239,7 +276,7 @@ router.get('/pending', authRequired, wrap(async (req, res) => {
 
 /** 采购单可收货行（开收料单时的默认值） */
 router.get('/po/:poId', authRequired, wrap(async (req, res) => {
-  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.poId);
+  const po = assertPo(req, req.params.poId);
   if (!po) return fail(res, 404, '采购单不存在');
   const items = db.prepare('SELECT * FROM purchase_items WHERE po_id = ? ORDER BY id').all(po.id).map((it) => ({
     po_item_id: it.id,
@@ -255,6 +292,7 @@ router.get('/po/:poId', authRequired, wrap(async (req, res) => {
 }));
 
 router.get('/:id', authRequired, wrap(async (req, res) => {
+  grnOr404(req, req.params.id);
   const d = full(req.params.id);
   if (!d) return fail(res, 404, '收料单不存在');
   return ok(res, d);
@@ -268,7 +306,7 @@ router.get('/:id', authRequired, wrap(async (req, res) => {
 router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const b = req.body || {};
   const poId = Number(b.po_id);
-  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(poId);
+  const po = assertPo(req, poId);   // 别家的采购单不能点收
   if (!po) return fail(res, 404, '采购单不存在');
   if (!['ordered', 'received'].includes(po.status)) {
     return fail(res, 400, `采购单是「${po.status === 'draft' ? '草稿' : po.status}」，只有已下单的采购单才能点收`);
@@ -349,8 +387,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
 
 /** 补录卷号 / 缸号 / 库位（检验前可改） */
 router.put('/:id/items/:itemId', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const g = db.prepare('SELECT * FROM goods_receipts WHERE id = ?').get(req.params.id);
-  if (!g) return fail(res, 404, '收料单不存在');
+  const g = grnOr404(req, req.params.id);
   if (g.status === 'cancelled') return fail(res, 400, '已作废的收料单不能改');
   const it = db.prepare('SELECT * FROM goods_receipt_items WHERE id = ? AND grn_id = ?').get(req.params.itemId, g.id);
   if (!it) return fail(res, 404, '收料明细不存在');
@@ -371,7 +408,7 @@ router.put('/:id/items/:itemId', authRequired, requireRole(WRITE), wrap(async (r
  * 允许部分检验（本次 < 待检，剩余继续待检）
  */
 router.post('/:id/inspect', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const g = db.prepare('SELECT * FROM goods_receipts WHERE id = ?').get(req.params.id);
+  const g = grnOr404(req, req.params.id);
   if (!g) return fail(res, 404, '收料单不存在');
   if (g.status === 'cancelled') return fail(res, 400, '已作废的收料单不能检验');
   const list = Array.isArray(req.body && req.body.items) ? req.body.items : [];
@@ -445,7 +482,7 @@ router.post('/:id/inspect', authRequired, requireRole(WRITE), wrap(async (req, r
  * body: { action, qty, reason }
  */
 router.post('/:id/items/:itemId/dispose', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const g = db.prepare('SELECT * FROM goods_receipts WHERE id = ?').get(req.params.id);
+  const g = grnOr404(req, req.params.id);
   if (!g) return fail(res, 404, '收料单不存在');
   if (g.status === 'cancelled') return fail(res, 400, '已作废的收料单不能处置');
   const row = db.prepare('SELECT * FROM goods_receipt_items WHERE id = ? AND grn_id = ?').get(req.params.itemId, g.id);
@@ -498,7 +535,7 @@ router.post('/:id/items/:itemId/dispose', authRequired, requireRole(WRITE), wrap
 
 /** 作废（只有没检验过的单能作废，同时回退采购行已收数量） */
 router.post('/:id/cancel', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const g = db.prepare('SELECT * FROM goods_receipts WHERE id = ?').get(req.params.id);
+  const g = grnOr404(req, req.params.id);
   if (!g) return fail(res, 404, '收料单不存在');
   if (g.status === 'cancelled') return fail(res, 400, '已经作废过');
   const rows = db.prepare('SELECT * FROM goods_receipt_items WHERE grn_id = ?').all(g.id);

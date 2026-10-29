@@ -18,6 +18,27 @@ const { qualificationGate } = require('./supplierEvals');
 // 收货收完 → 自动开应付。以前这个函数写在 finance.js 里导出却**从没被调用**，
 // 导致 27 张已收货采购单（31 万）在财务账上完全不存在
 const { openAPForPurchase } = require('../services/apInvoice');
+const scope = require('../access/companyScope');
+
+/**
+ * 采购单的主体
+ *
+ * 采购单**不能顺着订单推主体**：面辅料采购是「给这个厂备货」，实测 32 张单一张都没挂
+ * 销售订单。所以给它单独加了 company_id（v1.63）：写入时落操作人主体，
+ * 读取时按主体过滤 —— 否则分部采购员开的单会记到总部、自己又看不见。
+ */
+const cidOf = (req) => scope.filterCompanyId(req.user);
+
+/** 取一张采购单并校验归属；跨主体按不存在处理（403 会泄露「这单存在」） */
+function poOr404(req, id) {
+  const r = scope.assertRow(req.user, 'purchase_orders', id, '采购单');
+  if (!r.ok) {
+    const e = new Error(r.reason);
+    e.status = r.status;
+    throw e;
+  }
+  return r.row;
+}
 
 const router = express.Router();
 const WRITE = ['admin', 'warehouse'];
@@ -77,6 +98,8 @@ router.get('/', authRequired, wrap(async (req, res) => {
   const { status = '', q = '' } = req.query;
   const where = [];
   const params = [];
+  const cid = cidOf(req);
+  if (cid) { where.push('company_id = ?'); params.push(cid); }
   if (status) { where.push('status = ?'); params.push(status); }
   // 搜索同时覆盖采购单号、供应商、关联订单号 ——
   // 「这张订单的料买齐了吗」是仓库每天真会问的问题
@@ -89,6 +112,7 @@ router.get('/', authRequired, wrap(async (req, res) => {
 }));
 
 router.get('/:id', authRequired, wrap(async (req, res) => {
+  poOr404(req, req.params.id);
   const po = full(req.params.id);
   if (!po) return fail(res, 404, '采购单不存在');
   return ok(res, po);
@@ -108,8 +132,20 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
 
   // 关联销售订单（可选）：填了就必须真实存在且未取消
   const linkOrder = resolveOrder(b);
+  // 挂的订单必须是本主体的 —— 否则分部的采购单挂到总部订单上，两边账都对不上
+  if (linkOrder && !scope.assertOrder(req.user, linkOrder.id).ok) {
+    return fail(res, 404, '关联的订单不存在');
+  }
 
-  let seq = db.prepare('SELECT COUNT(*) AS c FROM purchase_orders').get().c + 1;
+  /**
+   * 单号用「当天最大号 + 1」，**不是 COUNT(*)+1**：
+   * 删过草稿之后 COUNT 会回退，重号靠下面的 while 兜虽然能过，但那是在拿循环掩盖错误的起点。
+   */
+  const ymdNow = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const maxSeq = Number(db.prepare(
+    'SELECT MAX(CAST(substr(po_no, 11) AS INTEGER)) AS m FROM purchase_orders WHERE po_no LIKE ?'
+  ).get('CG' + ymdNow + '%').m) || 0;
+  let seq = maxSeq + 1;
   let poNo = genNo('CG', seq);
   while (db.prepare('SELECT 1 AS x FROM purchase_orders WHERE po_no = ?').get(poNo)) {
     poNo = genNo('CG', ++seq);
@@ -120,9 +156,10 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   try {
     const t = now();
     const info = db.prepare(
-      'INSERT INTO purchase_orders (po_no, supplier, supplier_id, status, order_date, expect_date, remark, total_amount, created_by, created_at, updated_at, order_id, order_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO purchase_orders (po_no, supplier, supplier_id, status, order_date, expect_date, remark, total_amount, created_by, created_at, updated_at, order_id, order_no, company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     ).run(poNo, sup.name, sup.id, 'draft', b.order_date || null, b.expect_date || null, b.remark || null, round2(total), req.user.sub, t, t,
-      linkOrder ? linkOrder.id : null, linkOrder ? linkOrder.order_no : null);
+      linkOrder ? linkOrder.id : null, linkOrder ? linkOrder.order_no : null,
+      linkOrder ? (Number(linkOrder.company_id) || scope.writeCompanyOf(req.user)) : scope.writeCompanyOf(req.user));
     id = Number(info.lastInsertRowid);
     const ins = db.prepare('INSERT INTO purchase_items (po_id, material_id, name, spec, unit, qty, price, amount) VALUES (?,?,?,?,?,?,?,?)');
     items.forEach((it) => {
@@ -148,7 +185,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
  * 不允许挂已取消的订单 —— 那条链路上已经有单据挂着，挂上去只会多一张废单。
  */
 router.post('/:id/link-order', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
+  const po = poOr404(req, req.params.id);
   if (!po) return fail(res, 404, '采购单不存在');
   if (po.status === 'received' || po.status === 'closed') {
     return fail(res, 400, '已收货/已结案的采购单不再改关联订单（料已入库，改挂会让库存归属说不清）');
@@ -161,13 +198,18 @@ router.post('/:id/link-order', authRequired, requireRole(WRITE), wrap(async (req
   }
   const link = resolveOrder(b);
   if (!link) return fail(res, 400, '请指定要关联的订单（订单号或订单 id）；要解除关联请显式传 order_id=0');
+  // 只能挂本主体的订单（跨主体挂单 = 把两边的料与账搅在一起）
+  if (!scope.assertOrder(req.user, link.id).ok) return fail(res, 404, '关联的订单不存在');
+  if (Number(link.company_id) !== Number(po.company_id)) {
+    return fail(res, 400, '采购单属于主体 ' + po.company_id + '，不能关联主体 ' + link.company_id + ' 的订单');
+  }
   db.prepare('UPDATE purchase_orders SET order_id = ?, order_no = ?, updated_at = ? WHERE id = ?')
     .run(link.id, link.order_no, now(), po.id);
   return ok(res, full(po.id));
 }));
 
 router.post('/:id/order', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
+  const po = poOr404(req, req.params.id);
   if (!po) return fail(res, 404, '采购单不存在');
   if (po.status !== 'draft') return fail(res, 400, '只有草稿可下单');
   db.prepare("UPDATE purchase_orders SET status='ordered', updated_at=? WHERE id=?").run(now(), req.params.id);
@@ -179,7 +221,7 @@ router.post('/:id/order', authRequired, requireRole(WRITE), wrap(async (req, res
  * 检验合格的部分才由「原料收货检验」加库存。
  */
 router.post('/:id/receive', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
+  const po = poOr404(req, req.params.id);
   if (!po) return fail(res, 404, '采购单不存在');
   if (!['ordered', 'received'].includes(po.status)) return fail(res, 400, '只有已下单的采购单可收货');
   const list = Array.isArray(req.body && req.body.items) ? req.body.items : [];
@@ -267,7 +309,7 @@ router.post('/:id/receive', authRequired, requireRole(WRITE), wrap(async (req, r
 }));
 
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
+  const po = poOr404(req, req.params.id);
   if (!po) return fail(res, 404, '采购单不存在');
   if (po.status !== 'draft') return fail(res, 400, '只能删除草稿');
   db.prepare('DELETE FROM purchase_items WHERE po_id = ?').run(req.params.id);

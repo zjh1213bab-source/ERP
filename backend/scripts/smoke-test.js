@@ -12315,6 +12315,120 @@ async function req(path, { method = 'GET', body, token } = {}) {
       left === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(uname), '已删');
   }
 
+  // ================= 数据范围：采购与收货（采购单自己带主体） =================
+  {
+    console.log('\n[数据范围：采购与收货]');
+    const { db: MDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const ts = '2026-10-20 09:00:00';
+    const CO2 = 2;
+
+    // 采购单推不出主体（备货采购不挂订单），所以给它单独加了 company_id
+    MDB.prepare("DELETE FROM purchase_orders WHERE po_no IN ('SCOPEPO1','SCOPEPO2')").run();
+    const sup = MDB.prepare("SELECT id, name FROM suppliers WHERE id = 1").get()
+      || MDB.prepare("SELECT id, name FROM suppliers WHERE status <> 'deleted' LIMIT 1").get();
+    const mkPo = (no, companyId, status) => {
+      const info = MDB.prepare(
+        `INSERT INTO purchase_orders (po_no, supplier, supplier_id, status, order_date, expect_date,
+           remark, total_amount, created_by, created_at, updated_at, company_id)
+         VALUES (?,?,?,?, '2026-10-20', '2026-10-30', '范围测试', 500, 'smoke', ?, ?, ?)`
+      ).run(no, sup.name, sup.id, status, ts, ts, companyId);
+      const poId = Number(info.lastInsertRowid);
+      MDB.prepare('INSERT INTO purchase_items (po_id, name, unit, qty, price, amount) VALUES (?,?,?,?,?,?)')
+        .run(poId, '范围测试面料', '米', 100, 5, 500);
+      return poId;
+    };
+    const poOther = mkPo('SCOPEPO1', 1, 'ordered');
+
+    const wname = 'scope_buy';
+    const wpwd = 'ScopeBuy123456';
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(wname);
+    MDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run(wname, hashPassword(wpwd), '范围测试采购', 'warehouse', CO2, ts);
+    require('../src/services/access').clearCache();
+    const bl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: wname, password: wpwd })
+    }).then((r) => r.json());
+    const bTok = bl.data && bl.data.token;
+    ok('分公司采购账号可登录', !!bTok, bl.message || 'ok');
+
+    // ---- 1. 列表 / 详情 ----
+    const list = await req('/api/purchases', { token: bTok });
+    const listNos = (list.json.data || []).map((x) => x.po_no);
+    ok('★ 分公司的采购列表不含总部采购单',
+      list.status === 200 && !listNos.includes('SCOPEPO1'), `看到 ${listNos.length} 张`);
+
+    const peek = await req(`/api/purchases/${poOther}`, { token: bTok });
+    ok('★ 跨主体读采购单详情返回 404（里面有供应商价）', peek.status === 404, `HTTP ${peek.status}`);
+
+    // ---- 2. 跨主体的三个动作 ----
+    const actOrder = await req(`/api/purchases/${poOther}/order`, { method: 'POST', token: bTok });
+    ok('★ 跨主体不能给别家采购单下单', actOrder.status === 404, `HTTP ${actOrder.status}`);
+
+    const actRecv = await req(`/api/purchases/${poOther}/receive`, {
+      method: 'POST', token: bTok, body: { items: [{ id: 1, qty: 1 }] }
+    });
+    ok('★ 跨主体不能给别家采购单点收', actRecv.status === 404, `HTTP ${actRecv.status}`);
+
+    const actDel = await req(`/api/purchases/${poOther}`, { method: 'DELETE', token: bTok });
+    ok('★ 跨主体不能删别家采购单', actDel.status === 404, `HTTP ${actDel.status}`);
+
+    // ---- 3. 新建：主体落在自己这边 ----
+    const made = await req('/api/purchases', {
+      method: 'POST', token: bTok,
+      body: { supplier_id: sup.id, order_date: '2026-10-20', items: [{ name: '范围测试面料', unit: '米', qty: 100, price: 5 }] }
+    });
+    const madeId = made.json.data && made.json.data.id;
+    const madeCo = madeId ? Number(MDB.prepare('SELECT company_id FROM purchase_orders WHERE id = ?').get(madeId).company_id) : null;
+    ok('★ 分公司建的采购单记在自己主体（以前没有这一列，一律记到总部）',
+      made.status === 200 && madeCo === CO2, `HTTP ${made.status} company_id=${madeCo}`);
+
+    // ---- 4. 下单 + 点收：应付必须开在同一个主体 ----
+    const ord = await req(`/api/purchases/${madeId}/order`, { method: 'POST', token: bTok });
+    const itemRow = madeId ? MDB.prepare('SELECT id, qty FROM purchase_items WHERE po_id = ?').get(madeId) : null;
+    const recv = await req(`/api/purchases/${madeId}/receive`, {
+      method: 'POST', token: bTok, body: { items: [{ id: itemRow ? itemRow.id : 0, qty: 100 }] }
+    });
+    const apRow = madeId
+      ? MDB.prepare('SELECT id, company_id, amount FROM ap_invoices WHERE purchase_id = ?').get(madeId)
+      : null;
+    ok('★ 分公司点收后开出的应付记在分公司（否则货在分部、账在总部）',
+      ord.status === 200 && recv.status === 200 && apRow && Number(apRow.company_id) === CO2,
+      `下单 ${ord.status} / 点收 ${recv.status} / 应付主体 ${apRow && apRow.company_id}`);
+
+    // ---- 5. 收货看板 ----
+    const rb = await req('/api/receipts/board', { token: bTok });
+    const rbNos = ((rb.json.data && rb.json.data.rows) || []).map((g) => g.po_no);
+    ok('★ 分公司收货看板不含总部的收料单',
+      rb.status === 200 && !rbNos.includes('SCOPEPO1'), `看到 ${rbNos.length} 张`);
+
+    // ---- 6. 集团管理员仍能看到 ----
+    const adminList = await req('/api/purchases', { token });
+    const adminNos = (adminList.json.data || []).map((x) => x.po_no);
+    ok('★ 集团管理员仍能看到两个主体的采购单',
+      adminNos.includes('SCOPEPO1') && !!madeId, `管理员看到 ${adminNos.length} 张`);
+
+    // ---- 清理 ----
+    const killPo = (poId) => {
+      if (!poId) return;
+      MDB.prepare('DELETE FROM ap_invoices WHERE purchase_id = ?').run(poId);
+      MDB.prepare('DELETE FROM goods_receipt_items WHERE grn_id IN (SELECT id FROM goods_receipts WHERE po_id = ?)').run(poId);
+      MDB.prepare('DELETE FROM goods_receipt_actions WHERE grn_id IN (SELECT id FROM goods_receipts WHERE po_id = ?)').run(poId);
+      MDB.prepare('DELETE FROM goods_receipts WHERE po_id = ?').run(poId);
+      MDB.prepare('DELETE FROM purchase_items WHERE po_id = ?').run(poId);
+      MDB.prepare('DELETE FROM purchase_orders WHERE id = ?').run(poId);
+    };
+    killPo(madeId);
+    killPo(poOther);
+    MDB.prepare('DELETE FROM users WHERE username = ?').run(wname);
+    require('../src/services/access').clearCache();
+    const leftBuy = Number(MDB.prepare("SELECT COUNT(*) c FROM purchase_orders WHERE po_no IN ('SCOPEPO1','SCOPEPO2')").get().c);
+    const leftAp = Number(MDB.prepare("SELECT COUNT(*) c FROM ap_invoices WHERE purchase_id = ?").get(madeId || 0).c);
+    ok('采购与收货范围夹具已清干净',
+      leftBuy === 0 && leftAp === 0 && !MDB.prepare('SELECT 1 x FROM users WHERE username = ?').get(wname), '已删');
+  }
+
   // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
   {
     console.log('\n[启动与配置护栏]');

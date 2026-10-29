@@ -39,7 +39,11 @@ const T = require('./paymentTerms');
  * 好处是：不会因为"查不到主体"就把一笔真实的应付藏起来。
  */
 const ownCompany = (v) => (v === null || v === undefined || !Number(v) ? 1 : Number(v));
-const PO_COMPANY = "(SELECT company_id FROM orders o WHERE o.id = po.order_id)";
+/**
+ * 采购单的归属：v1.63 起 `purchase_orders` 自己就有 `company_id`。
+ * 之前是顺着订单推，而备货采购不挂订单 → 一律算成默认主体 1（分部采购在台账里消失）。
+ */
+const PO_COMPANY = 'po.company_id';
 const PR_COMPANY = "(SELECT company_id FROM payments p WHERE p.id = r.payment_id)";
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;

@@ -185,6 +185,15 @@ function migrate() {
   add('tech_pack_materials', 'material_id', 'INTEGER');
   add('tech_pack_materials', 'use_part', 'TEXT');
 
+  /**
+   * 采购单挂主体。
+   *
+   * 别的域能"顺着订单推主体"，采购推不出来：面辅料采购是给这个厂备货的，
+   * 这个库里 32 张采购单一单都没挂销售订单。没有这一列，采购单就没有主体维度 ——
+   * 列表一按主体筛，分部采购员新开的单会记到总部、自己又看不见。
+   */
+  add('purchase_orders', 'company_id', 'INTEGER NOT NULL DEFAULT 1');
+
   // 领料明细挂到「款 × 颜色」（按色发料；老数据 item_id=0 / colorway='' 按总量核）
   add('material_issue_items', 'item_id', 'INTEGER NOT NULL DEFAULT 0');
   add('material_issue_items', 'colorway', "TEXT NOT NULL DEFAULT ''");
