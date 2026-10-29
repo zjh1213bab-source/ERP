@@ -19,6 +19,7 @@ const scope = require('../access/companyScope');
 
 /**
  * 报工没有自己的 `company_id` —— 它挂在订单上。
+ * （单公司模式下按订单判归属这一段**不生效**：orderOr404 仍查存在性，但不再判主体。）
  * 所以范围一律通过订单判：读不到的订单，它的报工也不存在。
  */
 function orderOr404(user, orderId) {

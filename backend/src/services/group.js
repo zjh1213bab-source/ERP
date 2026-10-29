@@ -27,6 +27,37 @@ const CO_STATUS = { active: '启用', closed: '已注销' };
 /** ==================== 主体 ==================== */
 
 function listCompanies(opt = {}) {
+  /**
+   * 单公司模式：只返回唯一抬头那一条。
+   *
+   * 接口**不删不禁**（用户选了「隐藏入口、接口保留」）—— 页面入口收起来，
+   * 但万一有人直接调接口或以后要把集团模块打开，这里仍能工作。
+   * 只做一件事：让它只吐出一家公司，避免"明明只有一家公司在用，
+   * 页面上却列出 4 个法人主体"这种自相矛盾的画面。
+   *
+   * 历史那几条记录**不删**：它们的 id 还挂在历史单据的 company_id 上，
+   * 删掉会让报表 join 不到名字，变成"主体#2"这种看不懂的东西。
+   */
+  const scope = require('../access/companyScope');
+  if (scope.isSingle()) {
+    const head = scope.header();
+    const wh = ['c.id = ?'];
+    const args = [Number(head.id) || 1];
+    if (opt.status && opt.status !== 'all') { wh.push('c.status=?'); args.push(opt.status); }
+    return db.prepare(
+      `SELECT c.*,
+         (SELECT COUNT(*) FROM gl_vouchers v WHERE v.company_id=c.id AND v.status='posted') AS voucher_count,
+         (SELECT COUNT(*) FROM gl_periods p WHERE p.company_id=c.id AND p.status='closed') AS closed_periods,
+         (SELECT COUNT(*) FROM departments d WHERE d.company_id=c.id) AS dept_count,
+         (SELECT COUNT(*) FROM users u WHERE u.company_id=c.id AND COALESCE(u.active,1)=1) AS user_count
+       FROM companies c WHERE ` + wh.join(' AND ')
+    ).all(...args).map((r) => ({
+      ...r,
+      type_label: TYPE_CN[r.type] || r.type,
+      status_label: CO_STATUS[r.status] || r.status,
+      consolidation_label: r.consolidation ? '纳入合并' : '不合并'
+    }));
+  }
   const wh = [];
   const args = [];
   if (opt.status && opt.status !== 'all') { wh.push('c.status=?'); args.push(opt.status); }

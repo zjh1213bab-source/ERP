@@ -38,6 +38,7 @@ const scope = require('../access/companyScope');
  * 这轮补上写入与过滤。员工档案 v1.64 才有 `company_id`，所以"生成"这一步
  * 只取本主体的在职员工 —— 否则给分部生成工资单会把总部的人也带进去。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 
 /** 取一张工资单并校验归属；跨主体按不存在处理 */

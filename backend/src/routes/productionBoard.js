@@ -14,7 +14,8 @@ router.get('/board', authRequired, wrap(async (req, res) => {
   const { status = '' } = req.query;
   const where = ["o.status IN ('assigned','production','instock')"];
   const params = [];
-  // 主体在最前：后面的参数位置跟着它走（分部的看板不该出现总部的在产单）
+  // 主体条件放最前：后面的参数位置跟着它走。
+  // **单公司模式下 cid 恒为 null，下面这段不生效** —— 判据在 access/companyScope.js 的 of()。
   const cid = scope.filterCompanyId(req.user);
   if (cid) { where.push('o.company_id = ?'); params.push(cid); }
   if (status) { where.push('o.status = ?'); params.push(status); }

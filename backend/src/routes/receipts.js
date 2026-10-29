@@ -28,6 +28,7 @@ const scope = require('../access/companyScope');
  *   `po_id IN (SELECT id FROM purchase_orders WHERE company_id = N)`
  * 收货是库存与应付的起点，这一层不收窄，分部进来能看到别家到货了什么料、多少钱。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 const poScope = (cid, col = 'po_id') => scope.parentClauseSql(cid, 'purchase_orders', col).sql;
 

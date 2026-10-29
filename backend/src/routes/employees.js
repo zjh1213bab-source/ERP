@@ -20,6 +20,7 @@ const scope = require('../access/companyScope');
  * `employees` 加了 `company_id`。不脱敏的底薪就挂在档案上，不分主体的后果是
  * **分部人事能看到总部所有人的工资**（手机身份证早脱敏了，工资没有）。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 
 /** 取一名员工并校验归属；跨主体按不存在处理 */

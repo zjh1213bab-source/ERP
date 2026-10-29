@@ -28,6 +28,7 @@ const scope = require('../access/companyScope');
  * 这一域**不需要加列**：`custody_items` 自带 `company_id`，领用/定责按实物父表判、
  * 清退按员工父表判。三级口径见 services/custody.js 顶部说明。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 
 const router = express.Router();

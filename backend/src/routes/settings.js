@@ -9,10 +9,25 @@ const config = require('../config');
 const { getSettings, saveSettings } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const scope = require('../access/companyScope');
 
 const router = express.Router();
 
-router.get('/', authRequired, wrap(async (req, res) => ok(res, getSettings())));
+/**
+ * 系统设置（汇率等）
+ *
+ * 额外带两个**只读派生值**（不写进 app_config，否则 env 改了也不生效）：
+ *   - single_company：是否单公司模式 —— 前端据此隐藏「集团管理」入口与公司筛选；
+ *   - company_header：唯一公司抬头 —— 单据、报表、打印都用它。
+ *
+ * 为什么不让前端自己判断：模式是后端配置（env），前端猜错就会漏出多主体入口，
+ * 或者在一家公司的库上显示一堆空的分部筛选。
+ */
+router.get('/', authRequired, wrap(async (req, res) => ok(res, {
+  ...getSettings(),
+  single_company: scope.isSingle(),
+  company_header: scope.header()
+})));
 
 /**
  * 局域网访问地址（登录即可读）
@@ -38,6 +53,11 @@ router.get('/lan', authRequired, wrap(async (req, res) => {
 }));
 
 router.put('/', authRequired, requireRole(['admin']), wrap(async (req, res) => {
+  /**
+   * 注意：这里只按**白名单**挑字段存（目前只有 exchangeRate）。
+   * GET 附加的 `single_company` / `company_header` 是配置的投影，不是设置项 ——
+   * 一旦被写进 app_config，下次 env 改了也会被旧值盖住，而没人会想到去查这张表。
+   */
   const b = req.body || {};
   const patch = {};
   if (b.exchangeRate !== undefined) {

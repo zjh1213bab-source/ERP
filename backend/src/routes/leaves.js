@@ -12,6 +12,7 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const scope = require('../access/companyScope');
 
 /** 请假单挂在 `employee_id` 上，按员工主体判归属 */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 const empScope = (cid, col = 'employee_id') => scope.parentClauseSql(cid, 'employees', col).sql;
 

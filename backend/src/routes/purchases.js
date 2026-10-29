@@ -27,6 +27,7 @@ const scope = require('../access/companyScope');
  * 销售订单。所以给它单独加了 company_id（v1.63）：写入时落操作人主体，
  * 读取时按主体过滤 —— 否则分部采购员开的单会记到总部、自己又看不见。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 
 /** 取一张采购单并校验归属；跨主体按不存在处理（403 会泄露「这单存在」） */

@@ -23,6 +23,7 @@ const C = require('../services/collection');
 const scope = require('../access/companyScope');
 
 /** 当前用户能看的主体（null = 集团角色，全集团） */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 
 /** 任务级守卫：不属于本主体的任务当作不存在（与订单域同口径） */

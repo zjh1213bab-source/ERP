@@ -68,6 +68,16 @@ const route = useRoute();
 const router = useRouter();
 
 // 顶部邮件图标：未读 + 待确认 + 待办任务（EM02 / EM15）
+/**
+ * 单公司模式（默认 true，先按单公司渲染，避免首屏闪出多主体入口）
+ *
+ * 后端 /api/settings 返回的 single_company 是唯一判据：前端不猜、不自己配。
+ * 为 true 时隐藏「多主体与集团合并」「长期投资抵消」「分公司经营对比」三个入口 ——
+ * 它们只在一家公司的库上没有意义（进去全是空的分部对比）。
+ * 接口本身保留（集团模块不删），只是不给人看到入口。
+ */
+const singleCompany = ref(true);
+
 const mailUnread = ref(0);
 const mailTitle = computed(() => `内部邮件：未读 ${mailUnread.value} 封`);
 async function loadMailUnread() {
@@ -77,6 +87,15 @@ async function loadMailUnread() {
   } catch (e) { mailUnread.value = 0; }
 }
 onMounted(loadMailUnread);
+onMounted(async () => {
+  try {
+    const s = await api.settings();
+    singleCompany.value = s.single_company !== false;
+  } catch (e) {
+    // 读不到就按单公司处理：多露一个入口比"整站菜单消失"轻得多
+    singleCompany.value = true;
+  }
+});
 watch(() => route.path, () => { loadMailUnread(); });
 
 // 一级=独立页；一级=分组（children 为二级菜单）
@@ -188,9 +207,9 @@ const navModel = [
       { label: '预算管理', to: '/budget' },
       { label: '税票银行与结算', to: '/bank' },
       { label: '税负测算', to: '/tax' },
-      { label: '多主体与集团合并', to: '/group-books' },
-      { label: '长期投资抵消', to: '/investment' },
-      { label: '分公司经营对比', to: '/segments' },
+      { label: '多主体与集团合并', to: '/group-books', groupOnly: true },
+      { label: '长期投资抵消', to: '/investment', groupOnly: true },
+      { label: '分公司经营对比', to: '/segments', groupOnly: true },
       { label: '经营驾驶舱', to: '/cockpit' }
     ]
   },
@@ -239,7 +258,14 @@ const navModel = [
 
 const isAdmin = computed(() => auth.user?.role === 'admin');
 function visibleChildren(item) {
-  return (item.children || []).filter((c) => !c.adminOnly || isAdmin.value);
+  return (item.children || []).filter((c) =>
+    (!c.adminOnly || isAdmin.value)
+    /**
+     * groupOnly = 只对多主体有意义的入口（集团合并 / 内部投资抵消 / 分部对比）。
+     * 单公司模式下隐藏；切回多主体（SINGLE_COMPANY=0）会自动重新出现。
+     */
+    && (!c.groupOnly || !singleCompany.value)
+  );
 }
 const visibleModel = computed(() =>
   navModel.filter((item) => item.to || visibleChildren(item).length > 0)

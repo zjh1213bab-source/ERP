@@ -11,7 +11,37 @@ const MALL_PASS = process.env.MALL_PASS || 'abc123456';
 
 let pass = 0;
 let fail = 0;
+let skipped = 0;      // 单公司模式下被跳过的多主体断言
 const failures = [];
+
+/**
+ * 单公司模式
+ *
+ * 业务上只服务一家公司，多主体隔离在 src/access/companyScope.js 里被总开关关掉了。
+ * 那么「跨主体读不到」这一整类断言在单公司模式下**必然不成立**（不是坏了，是前提没了）。
+ *
+ * 处理方式：**在 ok() 这一层按块跳过**，块里的代码一行不动 ——
+ * 切回多主体（SINGLE_COMPANY=0）时这些断言自动恢复，不需要回头改测试。
+ * 这是"注释掉而不是删掉"在测试里的对应做法。
+ */
+const SCOPE = require('../src/access/companyScope');
+/** 本机配置（兜底用）：脚本可能不是在被测服务同一份 env 下跑 */
+const LOCAL_SINGLE = SCOPE.isSingle();
+/**
+ * 被测服务的模式 —— 登录后从 /api/settings 读，**以它为准**。
+ *
+ * 为什么不能用本机 env：冒烟可以用 BASE 指向另一个实例
+ * （比如用 SINGLE_COMPANY=0 起的多主体实例做回归）。那时本机 env 还是单公司，
+ * 脚本会按单公司跳过 112 条断言 —— 结果"跑过了"，其实一条都没验。
+ * 这种"看起来绿、实际没跑"比红更危险。
+ */
+let serverSingle = null;
+/** 生效中的模式：拿到服务端答复之前先用本机配置 */
+function isSingleMode() {
+  return serverSingle === null ? LOCAL_SINGLE : serverSingle;
+}
+/** 这些块整体验的是多主体隔离 */
+const SCOPE_BLOCK_PREFIX = '数据范围：';
 
 /**
  * 记录本次跑过的用例块（`console.log('\n[块名]')` 形式）
@@ -21,18 +51,42 @@ const failures = [];
  * v1.64 我就为此花了半小时人肉比对。现在块数单独钉一条断言：真丢一整块会立刻破线。
  */
 const blockSeen = new Set();
+/** 当前块名 —— ok() 靠它判断"这条断言属不属于多主体那一类" */
+let currentBlock = '';
 {
   const rawLog = console.log.bind(console);
   console.log = (...args) => {
     if (args.length === 1 && typeof args[0] === 'string') {
       const m = args[0].trim().match(/^\[(.+)\]$/);
-      if (m) blockSeen.add(m[1]);
+      if (m) { blockSeen.add(m[1]); currentBlock = m[1]; }
     }
     rawLog(...args);
   };
 }
 
 function ok(name, cond, extra) {
+  /**
+   * 单公司模式下，多主体块的断言只记"跳过"，不计通过也不计失败。
+   *
+   * 为什么在 ok() 里拦而不是去包每一块：那些块有十几处、嵌套结构复杂，
+   * 手工包 if/else 极易把花括号配错（配错了还可能是"少跑几条"而不是报错）。
+   * 拦在唯一的出口上，块内代码一个字都不用动。
+   */
+  if (isSingleMode() && String(currentBlock).startsWith(SCOPE_BLOCK_PREFIX)) {
+    skipped += 1;
+    return;
+  }
+  /**
+   * 对称的一条：多主体模式下，「单公司模式」块里那几条断言（"别的主体账号也能读到"、
+   * "所有人都看全部"）本来就不该成立 —— 它验的是开关关了之后的行为。
+   *
+   * 两种模式各自只跑属于自己的那一半，全程 0 失败。少这一条的话，
+   * 切回 SINGLE_COMPANY=0 跑冒烟会稳定红 4 条，而人看到红第一个反应是"改坏了"。
+   */
+  if (!isSingleMode() && currentBlock === '单公司模式') {
+    skipped += 1;
+    return;
+  }
   if (cond) {
     pass++;
     console.log(`  ✓ ${name}`);
@@ -67,6 +121,16 @@ async function req(path, { method = 'GET', body, token } = {}) {
   const login = await req('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
   const token = login.json && login.json.data && login.json.data.token;
   ok('管理员登录成功', login.status === 200 && !!token, `HTTP ${login.status}`);
+
+  // 被测服务到底跑在哪种模式（决定后面哪些断言跑、哪些跳过）
+  if (token) {
+    try {
+      const st0 = await req('/api/settings', { token });
+      if (st0.status === 200 && st0.json.data && typeof st0.json.data.single_company === 'boolean') {
+        serverSingle = st0.json.data.single_company;
+      }
+    } catch (e) { /* 读不到就按本机配置 */ }
+  }
 
   // 3. 错误密码应 401
   const bad = await req('/api/auth/login', { method: 'POST', body: { username: USER, password: 'wrong-password' } });
@@ -11712,6 +11776,72 @@ async function req(path, { method = 'GET', body, token } = {}) {
       !MDB.prepare("SELECT 1 x FROM orders WHERE order_no LIKE 'MASG-TEST-%'").get(), '已删');
   }
 
+  // ================= 单公司模式（默认）：开关是否真的生效 =================
+  {
+    console.log('\n[单公司模式]');
+    /**
+     * 这个块在单公司模式下**必须真跑**（不属于"数据范围："那些块）。
+     *
+     * 要证明的只有一件事：开关不是"看起来像"关掉了，而是所有主体过滤真的不生效了。
+     * 判据用"一个绑定在主体 2 的账号能不能看到主体 1 的数据"——
+     * 多主体模式下这是 404，单公司模式下必须能打开。
+     */
+    const head = SCOPE.header();
+    const st = await req('/api/settings', { token });
+    ok('设置接口带开关状态与唯一抬头',
+      st.status === 200 && st.json.data.single_company === true
+      && st.json.data.company_header && Number(st.json.data.company_header.id) === Number(head.id),
+      `single=${st.json.data && st.json.data.single_company} 抬头=${st.json.data && st.json.data.company_header && st.json.data.company_header.name}`);
+
+    // 造一个"绑定在别的主体"的账号 —— 单公司模式下它和总部账号看到的应完全一致
+    const { db: SDB } = require('../src/db');
+    const { hashPassword } = require('../src/auth/password');
+    const otherCo = Number(SDB.prepare('SELECT id FROM companies WHERE id <> ? ORDER BY id LIMIT 1').get(Number(head.id))?.id) || Number(head.id);
+    SDB.prepare("DELETE FROM users WHERE username = 'single_probe'").run();
+    SDB.prepare('INSERT INTO users (username, password_hash, name, role, company_id, active, created_at) VALUES (?,?,?,?,?,1,?)')
+      .run('single_probe', hashPassword('SingleProbe123'), '单公司探针', 'sales', otherCo, '2026-10-20 09:00:00');
+    require('../src/services/access').clearCache();
+    const pl = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'single_probe', password: 'SingleProbe123' })
+    }).then((r) => r.json());
+    const pTok = pl.data && pl.data.token;
+
+    // 总部名下的一张订单：多主体模式下这个账号打开是 404
+    const otherOrder = SDB.prepare('SELECT id FROM orders WHERE company_id = ? ORDER BY id LIMIT 1').get(Number(head.id));
+    if (pTok && otherOrder) {
+      const o = await req('/api/orders/' + otherOrder.id, { token: pTok });
+      ok('★ 单公司模式：绑在别的主体上的账号也能读到「总部」订单（不再 404）',
+        o.status === 200, `HTTP ${o.status}`);
+
+      const list = await req('/api/orders', { token: pTok });
+      const total = (list.json.data || []).length;
+      const admList = await req('/api/orders', { token });
+      ok('★ 单公司模式：两个账号的订单列表条数一致（过滤真的关了）',
+        list.status === 200 && total === (admList.json.data || []).length,
+        `分公司视角 ${total} / 管理员 ${(admList.json.data || []).length}`);
+    } else {
+      ok('单公司模式探针账号可登录', !!pTok, pl.message || '无订单可测');
+    }
+
+    // 写入落抬头：客户端塞 company_id 也不作数
+    const made = await req('/api/customers', {
+      method: 'POST', token: pTok, body: { name: '单公司抬头探针', company_id: otherCo }
+    });
+    const madeId = made.json.data && made.json.data.id;
+    if (madeId) {
+      const co = SDB.prepare('SELECT company_id FROM customers WHERE id = ?').get(madeId);
+      ok('★ 单公司模式：新建数据落唯一抬头（请求体里的 company_id 不作数）',
+        Number(co && co.company_id) === Number(head.id), `实际落 ${co && co.company_id} / 抬头 ${head.id}`);
+      SDB.prepare('DELETE FROM customers WHERE id = ?').run(madeId);
+    }
+
+    SDB.prepare("DELETE FROM users WHERE username = 'single_probe'").run();
+    require('../src/services/access').clearCache();
+    ok('单公司模式探针已清理',
+      !SDB.prepare("SELECT 1 x FROM users WHERE username = 'single_probe'").get(), '已删');
+  }
+
   // ================= 数据范围（公司 company_id） =================
   {
     console.log('\n[数据范围：公司]');
@@ -12966,7 +13096,11 @@ async function req(path, { method = 'GET', body, token } = {}) {
   ok('★ 用例块覆盖数不低于 42（整块被条件跳过会在这里破线）', blockSeen.size >= 42,
     `本次覆盖 ${blockSeen.size} 块`);
 
-  console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项（覆盖 ${blockSeen.size} 个用例块）`);
+  if (skipped > 0) {
+    console.log(`\n单公司模式：跳过 ${skipped} 条多主体范围断言（\`SINGLE_COMPANY=0\` 重启服务后自动恢复）`);
+  }
+  console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项（覆盖 ${blockSeen.size} 个用例块` +
+    (skipped ? `，跳过 ${skipped} 项` : '') + '）');
   if (fail) {
     console.log('\n失败清单：');
     failures.forEach((f) => console.log('  - ' + f));

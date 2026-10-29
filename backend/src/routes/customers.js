@@ -12,6 +12,7 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const privacy = require('../services/privacy');
 const { reqCtx } = require('../utils/reqCtx');
+const scope = require('../access/companyScope');
 
 const router = express.Router();
 const WRITE = ['admin', 'sales'];
@@ -61,8 +62,8 @@ router.post(
     const t = now();
     const info = db
       .prepare(
-        `INSERT INTO customers (code, name, contact, phone, email, level, credit_limit, status, remark, image_url, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO customers (code, name, contact, phone, email, level, credit_limit, status, remark, image_url, created_at, updated_at, company_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         b.code || null,
@@ -76,7 +77,15 @@ router.post(
         b.remark || null,
         b.image_url || null,
         t,
-        t
+        t,
+        /**
+         * 客户档案也要落抬头。
+         *
+         * 这一列一直存在（可空、无默认），但以前**从来没写过** —— 多主体时代是漏的，
+         * 单公司时代则是"新客户没有公司归属"。走 writeCompanyOf：单公司模式恒落唯一抬头，
+         * 多主体模式下按操作人主体（集团角色可显式指定）。
+         */
+        scope.writeCompanyOf(req.user, b.company_id)
       );
     const row = db.prepare('SELECT * FROM customers WHERE id = ?').get(Number(info.lastInsertRowid));
     return ok(res, row);

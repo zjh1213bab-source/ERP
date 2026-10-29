@@ -68,12 +68,79 @@
  * 是 → 接入；天生跨主体的合并报表 → 不接，但要显式收 `company_id` 参数。
  */
 const { db } = require('../db');
+const config = require('../config');
 
-/** 集团级角色：需要跨主体看合并数、做跨主体操作 */
+/**
+ * ## 单公司模式：这个文件里的多主体逻辑**全部被短路**
+ *
+ * 系统实际只服务一家公司，所以默认 SINGLE = true：
+ * 下面每一个函数都保留着完整的多主体实现（不删，删了以后要用得重写），
+ * 但都在开头被这个开关挡掉。**等价于把多公司逻辑注释掉，只留一个总闸。**
+ *
+ * 生效方式（一处开关，8 个域零改动）：
+ *   - `of()` 返回 `cross: true` → `clause()` / `canSee()` / `filterCompanyId()`
+ *     / 三个 SQL 生成器全部退化成"不过滤"（它们本来就以 cross 为唯一判据）；
+ *   - `writeCompanyOf()` 恒返回抬头 id → 新数据统一记到这一家公司；
+ *   - `assertRow()` / `assertOrder()` 仍查库判存在，但不再判归属 → 不再有跨主体 404。
+ *
+ * 为什么敢这么改：隔离逻辑虽然散在 8 个域、几十处调用上，但**判据只有一处**
+ * （就是这个文件的 `of()`）。判据只有一份，开关才可能只有一处。
+ *
+ * 切回多主体：.env 写 `SINGLE_COMPANY=0` 重启即可，数据不用迁
+ * （`company_id` 一直在写，只是不再拿来过滤）。切回后 8 个域的 112 条范围断言重新生效。
+ */
+const SINGLE = !!config.singleCompany;
+
+/** 集团级角色：需要跨主体看合并数、做跨主体操作（单公司模式下不再使用） */
 const GROUP_ROLES = new Set(['admin', 'boss']);
+
+/**
+ * 唯一公司抬头 —— 单据、报表、打印都用它
+ *
+ * 取「总部优先，其次 id 最小」那一条：历史库里可能有 4 个法人主体，
+ * 单公司模式下只有这一个会被当成"本公司"，其余记录保留但不参与任何判断
+ * （不删数据：它们的 id 还挂在历史单据的 `company_id` 上，删了会变成孤儿）。
+ */
+function header() {
+  const r = db.prepare(
+    "SELECT id, code, name, short_name FROM companies ORDER BY (CASE WHEN type='headquarters' THEN 0 ELSE 1 END), id LIMIT 1"
+  ).get();
+  return r || { id: 1, code: null, name: '本公司', short_name: '本公司' };
+}
+
+/** 当前是否单公司模式（前端 / 其他模块据此隐藏集团入口） */
+function isSingle() {
+  return SINGLE;
+}
+
+/**
+ * 公司下拉的取值（驾驶舱、行政运营、CRM 等"选一个主体"的地方共用）
+ *
+ * 单公司模式只返回抬头那一条：**下拉里只有一个选项**，比"隐藏下拉但接口还吐 4 家"
+ * 更不容易出岔 —— 有人直接调接口时看到的也是同一家公司。
+ */
+function listForPicker() {
+  if (SINGLE) {
+    const h = header();
+    const full = db.prepare('SELECT id, code, name, short_name, type FROM companies WHERE id = ?').get(Number(h.id) || 1);
+    return [full || { id: Number(h.id) || 1, code: h.code, name: h.name, short_name: h.short_name, type: 'headquarters' }];
+  }
+  return db.prepare("SELECT id, code, name, short_name, type FROM companies WHERE status='active' ORDER BY id").all();
+}
 
 /** 解析当前用户的可见范围 */
 function of(user) {
+  /**
+   * 单公司模式：所有人都当成"跨主体角色"。
+   *
+   * 这一个 return 撑起了整个开关 —— clause / where / canSee / filterCompanyId
+   * 以及三个 SQL 生成器全部以 cross 为唯一判据，于是它们一起退化成"不过滤"。
+   * 也就是说：**这里改一行，8 个域的范围隔离同时关闭**，各域代码不用动。
+   */
+  if (SINGLE) {
+    const role = String((user && user.role) || '');
+    return { role, companyId: Number(header().id) || 1, cross: true, single: true };
+  }
   const role = String((user && user.role) || '');
   const companyId = user && user.company_id !== undefined && user.company_id !== null
     ? Number(user.company_id) || null
@@ -139,6 +206,10 @@ function assertRow(user, table, id, label = '记录') {
   if (!TABLE_RE.test(String(table))) throw new Error(`assertRow 表名非法：${table}`);
   const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(Number(id));
   if (!row) return { ok: false, reason: `${label}不存在`, status: 404 };
+  /**
+   * 单公司模式下 canSee() 恒为 true（见 of() 的 cross），所以这里只剩"存在性"判断 ——
+   * 调用方那几十处"跨主体返回 404"的分支不会触发，但代码原样保留。
+   */
   if (!canSee(user, row)) return { ok: false, reason: `${label}不存在`, status: 404 };
   return { ok: true, row };
 }
@@ -154,6 +225,11 @@ function assertRow(user, table, id, label = '记录') {
  *   3. 没绑定主体的历史账号回退 1，但启动时上线清单 `users_bound` 会点名。
  */
 function writeCompanyOf(user, explicit) {
+  /**
+   * 单公司模式：不管调用方传什么（包括客户端能改的 `b.company_id`），一律落抬头。
+   * 这条比读过滤更要紧 —— 读过滤错了只是"多看到"，写错了是"账记到不存在的公司名下"。
+   */
+  if (SINGLE) return Number(header().id) || 1;
   const s = of(user);
   const v = Number(explicit);
   if (s.cross && v > 0) return v;
@@ -254,5 +330,7 @@ function parentClauseSql(companyId, parentTable, col) {
 module.exports = {
   GROUP_ROLES, of, clause, where, canSee,
   assertOrder, assertRow, writeCompanyOf, filterCompanyId,
-  orderOwnedSql, companyClauseSql, parentClauseSql
+  orderOwnedSql, companyClauseSql, parentClauseSql,
+  // 单公司模式：开关状态 + 唯一抬头 + 下拉取值
+  isSingle, header, listForPicker
 };

@@ -134,7 +134,8 @@ router.get('/dict', authRequired, requireRole(...READ), (req, res) => {
   ok(res, {
     buckets: C.AGING_BUCKETS.map((b) => ({ key: b.key, label: b.label })),
     overdue_rates: C.DEFAULT_OVERDUE_RATES,
-    companies: db.prepare("SELECT id, code, name, type FROM companies WHERE status='active' ORDER BY id").all(),
+    // 单公司模式下只返回抬头一条（下拉只有一个选项，避免"4 家分公司"的错觉）
+    companies: require('../access/companyScope').listForPicker(),
     today: localDate(),
     categories: [
       { key: 'ar_collect', label: '应收回款', direction: 'in' },

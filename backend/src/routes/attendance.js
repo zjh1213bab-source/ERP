@@ -13,6 +13,7 @@ const scope = require('../access/companyScope');
  * 考勤没有 company_id，挂在 `employee_id` 上 —— 员工档案 v1.64 才有主体，
  * 所以这里一律按「父表」判归属。工时是工资的前置数据，跨主体能看到就等于能看到别人的出勤。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 const empScope = (cid, col = 'employee_id') => scope.parentClauseSql(cid, 'employees', col).sql;
 

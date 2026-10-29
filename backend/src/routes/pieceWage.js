@@ -40,13 +40,16 @@ const operatorOf = (req) => (req.user && (req.user.name || req.user.username)) |
 /**
  * 当前用户能看的主体（null = 集团角色，全集团口径）
  *
- * 这一域怎么分：
+ * 单公司模式（默认）下下面三条**都不生效** —— cidOf 恒为 null，判据在 access/companyScope.js 的 of()。
+ *
+ * 多主体模式下的分法：
  * - **核算单（piece_wage_runs）按主体** —— 那是发钱的实体，v1.65 才加的这一列；
  * - **试算按员工主体** —— 钱发给谁就记谁的账（见 services/pieceWage.preview）；
  * - **工价与计件策略是全集团主数据**（piece_rates / piece_wage_config 没有 company_id）：
  *   同一个款同一个工序在一个集团里只有一个工价，否则同一批货两个分部算出两个工钱。
  *   这一条写进 docs/DB-SCHEMA.md，不要以为漏了。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 
 router.get(

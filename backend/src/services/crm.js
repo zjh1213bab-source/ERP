@@ -115,7 +115,8 @@ const VALID_ORDER_STATUS = ['assigned', 'production', 'instock', 'shipped', 'clo
 
 function dict() {
   return {
-    companies: db.prepare('SELECT id, code, name FROM companies ORDER BY id').all(),
+    // 单公司模式下只返回抬头一条
+    companies: require('../access/companyScope').listForPicker(),
     customers: db.prepare("SELECT id, code, name FROM customers WHERE status<>'disabled' ORDER BY name").all(),
     users: db.prepare("SELECT id, username, name, role FROM users WHERE role IN ('sales','admin','finance') ORDER BY id").all(),
     lead_source: Object.entries(LEAD_SOURCE_LABEL).map(([k, v]) => ({ k, v })),

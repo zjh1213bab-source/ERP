@@ -17,7 +17,8 @@ const assignSvc = require('../services/orderAssign');
 const scope = require('../access/companyScope');
 
 /**
- * 工序节点没有自己的 `company_id` —— 它挂在订单上，归属一律按订单判。
+ * 工序节点没有自己的 `company_id` —— 它挂在订单上，按订单判归属。
+ * ⚠️ 单公司模式（默认）下**只剩存在性判断**：跨主体仍当不存在，但主体本身不参与比较。
  * 别家的节点一律当作不存在（404 而非 403：403 会泄露"这个 id 是真的"）。
  */
 function nodeOr404(req, id) {

@@ -19,6 +19,7 @@ const scope = require('../access/companyScope');
  * 库存这域分两层：**实物存量不分主体**（一个仓里有多少，见 services/matflow 顶部说明），
  * **单据按主体**（领料单 / 退料单 / 盘点单都带 company_id）。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 
 const router = express.Router();

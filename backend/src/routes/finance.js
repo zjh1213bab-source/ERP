@@ -162,7 +162,8 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
   const monthStart = new Date();
   monthStart.setDate(1);
   const ms = monthStart.toISOString().slice(0, 10);
-  // 每一项都要带主体条件：总览数字是"分部的应收"，不是"集团的应收"
+  // 每一项都要带主体条件（多主体模式下：总览数字是"分部的应收"，不是"集团的应收"）。
+  // **单公司模式下这些条件恒为空**，见 access/companyScope.js 的 of()。
   const a = sc(req.user);
 
   const arTotal = sum(`SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS s FROM ar_invoices WHERE ${S.OPEN_SQL}${a.sql}`, ...a.params);

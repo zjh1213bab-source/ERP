@@ -763,7 +763,8 @@ function meta() {
     metrics: Object.entries(METRICS).map(([code, label]) => ({ code, label })),
     severities: Object.entries(SEVERITY).map(([code, label]) => ({ code, label })),
     finding_status: Object.entries(FINDING_STATUS).map(([code, label]) => ({ code, label })),
-    companies: db.prepare("SELECT id, name, short_name FROM companies WHERE status='active' ORDER BY id").all(),
+    // 单公司模式下只返回抬头一条
+    companies: require('../access/companyScope').listForPicker(),
     periods: months,
     runs: periods
   };

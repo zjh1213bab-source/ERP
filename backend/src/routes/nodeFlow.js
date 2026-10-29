@@ -79,7 +79,8 @@ router.post('/templates/:id/apply', authRequired, requireRole(WRITE), wrap(async
 
 /* ---------------- 看板 ---------------- */
 router.get('/board', authRequired, wrap(async (req, res) => ok(res, svc.board({
-    // 分部的看板只列自己主体的单（集团角色传 null = 全集团）
+    // 主体过滤值：单公司模式下恒为 null（不过滤）—— 见 access/companyScope.js 的 of()。
+    // 多主体模式下才是"分部只列自己、集团角色看全集团"。
     companyId: require('../access/companyScope').filterCompanyId(req.user),
   templateId: req.query.template_id || null,
   status: req.query.status || '',

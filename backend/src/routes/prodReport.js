@@ -27,6 +27,7 @@ const scope = require('../access/companyScope');
  * 生产报表全是"捞原始行再算比率"，所以主体必须传进服务层、加在取行的那条查询上。
  * 在路由上算完再过滤是不行的：分母已经变成全集团了。
  */
+// 主体过滤值：**单公司模式下恒为 null（不过滤）**，判据在 access/companyScope.js 的 of()
 const cidOf = (req) => scope.filterCompanyId(req.user);
 const Q = (req) => ({ ...(req.query || {}), companyId: cidOf(req) });
 

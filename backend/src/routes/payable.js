@@ -32,7 +32,8 @@ router.get(
       payable.board({
         q: req.query.q,
         only_overdue: req.query.only_overdue === '1',
-        // 分部只看自己主体的应付；集团角色传 null = 全集团
+        // 主体过滤值。**单公司模式下恒为 null（不过滤）** —— 判据在 access/companyScope.js 的 of()。
+        // 多主体模式（SINGLE_COMPANY=0）下才是"分部只看自己、集团角色看全集团"。
         companyId: scope.filterCompanyId(req.user)
       })
     )
