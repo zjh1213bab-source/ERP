@@ -5102,6 +5102,18 @@ async function req(path, { method = 'GET', body, token } = {}) {
 
       const pd2 = await req('/api/backup/restore/pending', { token });
       ok('撤销后待恢复状态归零', pd2.status === 200 && pd2.json.data.pending === false);
+
+      /**
+       * 撤销会把待恢复文件归档进 data/replaced/（一份 ≈80MB）。
+       * 每次冒烟、每次演练都留一份，138 份就是 6.4GB —— 而且没有任何界面会提醒。
+       * 现在撤销后按保留上限裁（最新 5 份），这里把上限钉住。
+       */
+      const rpDir = require('path').resolve(__dirname, '../data/replaced');
+      const cancelledCount = require('fs').existsSync(rpDir)
+        ? require('fs').readdirSync(rpDir).filter((f) => f.startsWith('restore-cancelled-')).length
+        : 0;
+      ok('★ 撤销恢复后旧副本按上限保留（不无限堆积占满磁盘）', cancelledCount <= 5,
+        `replaced/ 里 restore-cancelled 共 ${cancelledCount} 份（上限 5）`);
     }
 
     // ---- 自清理：删掉本次生成的备份（含回滚点） ----

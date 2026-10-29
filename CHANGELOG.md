@@ -1,5 +1,72 @@
 # 变更日志（CHANGELOG）
 
+## v1.56.1 — 2026-10-29
+
+### 维护：清掉 6.4GB 过程产物，并给「旧副本」加上保留上限
+
+**现象**：`backend/data` 长到 **7.0GB**，而库本身只有 86MB。
+
+拆开看全是过程产物：
+
+| 目录 | 清理前 | 是什么 |
+|---|---|---|
+| `data/replaced/` | **138 个文件 / 6.4GB** | 恢复演练换下来的库副本 |
+| `data/*.db.bak-*` | 5 份 / 398MB | apply 脚本跑前的库快照 |
+| `packages/*.zip` | 20 个 / 777MB | v1.37 → v1.56 的历史发布包 |
+
+#### 根因：撤销恢复只归档、从不清理
+
+`rollbackRestore()` 把待恢复文件改名丢进 `replaced/restore-cancelled-*.db` 就结束 ——
+**每点一次「撤销」留一份 80MB**。做恢复演练时来回取消十几次，一天就能堆 1GB+，
+而没有任何界面会提醒磁盘。136 份 `restore-cancelled-*` 就是这么来的
+（每次冒烟也会跑一遍 prepare + rollback，于是每跑一次多一份）。
+
+修法不是"以后记得手删"，是加保留上限 `pruneReplaced()`：
+
+- `replaced-*` 留 10 份（真回滚要靠它）
+- `restore-cancelled-*` 留 5 份（留痕够查）
+- `restore-failed-*` 留 5 份
+
+在 `applyPendingRestore()` 成功换库后、`rollbackRestore()` 归档后各调一次。
+冒烟里加了一条断言把上限钉住（`restore-cancelled` ≤ 5），不然下次又悄悄长回去。
+
+#### 顺手补一个清理脚本
+
+`backend/scripts/prune-data.js`：默认**只列清单不删**，`--apply` 才真删。
+清 `replaced/`（走同一套保留策略）、旧 `.bak-*`（留最新 1 份）、旧发布包（留最新 2 个）。
+
+**不碰** `data/backups/` 里的备份单据：那些是备份列表页能下载到的文件，
+脚本删了文件不删 `backup_jobs` 记录，页面上就会留下点了没反应的条目 ——
+要清备份走「系统 → 备份」的删除，那里两边一起清。
+
+#### 这次实际清掉的
+
+- `replaced/`：138 → 7 份（保留最新 5 份 cancelled + 2 份 replaced），**释放 5.9GB**
+- `data/*.bak-*`：5 → 1 份，释放 313MB
+- `packages/`：20 个 zip → 2 个（v1.55.0 / v1.56.0），释放 690MB，`SHA256SUMS.txt` 按现存文件重算
+- `data/tmp-drill-audit-*.db-wal`（16MB 演练残留）、`backup-before-invoice-status-*.db`（39MB 过渡快照）
+- 库里的测试残留订单 `TEST-SMOKE-NO-001C`（草稿、无下游单据，连带 1 条明细 + 1 条流转日志）
+
+清理前用 `VACUUM INTO` 打了一份完整备份：`data/backups/pre-cleanup-*.db`（80.6MB）。
+
+**没动**：`audit_logs` 15.2 万行（审计链的证据，删了链校验就不成立）、
+`material_issues` 里 153 条冒烟留下的领料单（已经扣过库存并写了流水，
+删单据不补流水会造成"台账 vs 流水"对不上，风险大于收益）。
+
+### 顺带：VS Code 工作区配置
+
+新增 `.vscode/`（原来没有）：
+
+- `settings.json`：排除 `node_modules`/`dist`/`.npmcache`；`data`/`packages`/`shots` 不进搜索与文件监视
+  （7GB 运行数据不索引，搜索才不卡）；`files.eol: "\n"` 与 `.editorconfig` 对齐，避免每个文件都显示"已修改"
+- `launch.json`：后端断点调试（3000）、Vite 开发（5173）、浏览器直连；另有「全栈」复合配置
+- `tasks.json`：启动后端（默认 build 任务）/ 构建前端 / 冒烟 / RBAC / 页面巡检 / 打包 / 清理 / 重放演示数据
+- `extensions.json`：推荐 Vue - Official、EditorConfig、SQLite Viewer（直接点开 `erp-mindmap.db` 看表）
+
+**验证**：冒烟 **2177 / 2177**（新增 1 条：撤销恢复后旧副本不超上限）；
+`prune-data.js` 预览显示「可清理 0 个」——说明存量已按策略收敛；
+VS Code `--status` 确认工作区为 `erp-mindmap`（1888 文件，识别到 2 个 node 启动配置 + chrome）。
+
 ## v1.56.0 — 2026-10-29
 
 ### 待分配订单点开就能分配本厂 / 外发（按钮真的落账）

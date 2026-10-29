@@ -343,6 +343,11 @@ function rollbackRestore({ operator = '' } = {}) {
     fs.unlinkSync(pending);
   }
   try { fs.unlinkSync(BR.planPath(config.dbPath)); } catch (e) { /* ignore */ }
+  /**
+   * 撤销一次就留下一份 80MB 的库副本。演练时来回取消十几次，`replaced/` 能长到几个 GB，
+   * 而没有任何界面会提醒磁盘 —— 所以每次撤销后按保留上限裁一遍（最新 5 份够查）。
+   */
+  try { BR.pruneReplaced(config.dbPath); } catch (e) { /* 清理失败不影响撤销结果 */ }
   if (plan && plan.source && plan.source.backup_id) {
     db.prepare("UPDATE backup_jobs SET restore_status='rolled_back', restore_at=? WHERE id=?")
       .run(now(), plan.source.backup_id);

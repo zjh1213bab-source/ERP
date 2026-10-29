@@ -1,0 +1,55 @@
+{
+  // 工作区设置：跳色科技 ERP（Vue 3 + Express + SQLite 零依赖 Node 22）
+  // 目标：打开就能跑，不被 7GB 运行数据拖慢搜索与文件监视。
+
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+  "editor.rulers": [120],
+  "editor.trimAutoWhitespace": true,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.encoding": "utf8",
+  // 仓库里是 LF（.editorconfig），Windows 上默认 CRLF 会让每个文件都显示"已修改"
+  "files.eol": "\n",
+
+  // 生成物与依赖：直接不显示，免得在文件树里翻
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    ".npmcache": true
+  },
+
+  // 运行数据（7GB：库副本、备份、发布包、截图）不建索引、不监视、不全库搜索
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "backend/data/**": true,
+    "packages/**": true,
+    "shots/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/package-lock.json": true,
+    "backend/data/**": true,
+    "packages/**": true,
+    "docs/RBAC.md": true
+  },
+  "search.followSymlinks": false,
+
+  // 后端是 CommonJS（require），前端是 ESM —— 混在一棵树里，让 JS 语言服务按 package.json 判断
+  "js/ts.implicitProjectConfig.checkJs": false,
+  "javascript.suggest.autoImports": true,
+  "javascript.preferences.quoteStyle": "single",
+
+  "[vue]": { "editor.defaultFormatter": "Vue.volar" },
+
+  // 终端默认落在仓库根；后端命令都在 backend/ 下跑
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.cwd": "${workspaceFolder}",
+
+  "git.autofetch": false,
+  // 大型 PNG 不进 diff 预览（shots/ 里有几百张 1760px 截图）
+  "git.ignoreLimitWarning": true
+}

@@ -1,0 +1,96 @@
+{
+  // 常用动作都放这里：Ctrl+Shift+B 默认跑「后端：启动服务」
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "后端：启动服务（3000）",
+      "type": "shell",
+      "command": "node src/server.js",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "后端已启动",
+          "endsPattern": "健康检查"
+        }
+      },
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "前端：构建 dist（后端直接托管）",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "前端：Vite 开发（5173）",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "panel": "dedicated" }
+    },
+    {
+      "label": "验证：冒烟测试（全接口）",
+      "type": "shell",
+      "command": "npm run smoke",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "验证：权限审计（RBAC）",
+      "type": "shell",
+      "command": "npm run rbac",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "验证：全站页面巡检",
+      "type": "shell",
+      "command": "node scripts/sweep-pages.js",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "打包：发布 zip",
+      "type": "shell",
+      "command": "npm run pack",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "清理：过程产物预览（不删）",
+      "type": "shell",
+      "command": "node scripts/prune-data.js",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "清理：真的删（旧库副本/旧包）",
+      "type": "shell",
+      "command": "node scripts/prune-data.js --apply",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "演示：重置生产分配数据",
+      "type": "shell",
+      "command": "node scripts/seed-assign-demo.js --reset",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "演示：重置分色领料数据",
+      "type": "shell",
+      "command": "node scripts/seed-issuecolor-demo.js --reset",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    }
+  ]
+}

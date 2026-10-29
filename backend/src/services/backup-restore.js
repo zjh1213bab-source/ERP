@@ -197,11 +197,66 @@ function backupDir(dbPath) {
   return dir;
 }
 
-/** 换下来的旧库放这里（不删） */
+/** 换下来的旧库放这里（**有保留上限**，见 pruneReplaced） */
 function replacedDir(dbPath) {
   const dir = path.join(path.dirname(dbPath), 'replaced');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * 清理 replaced 目录里过期的库副本
+ *
+ * ## 为什么必须有这个
+ *
+ * 「撤销恢复」每点一次就把待恢复文件改名丢进 `replaced/`（`restore-cancelled-*`），
+ * 一份 ≈ 80MB。做恢复演练时反复取消，目录几天就长到 138 个文件 / 6.4GB ——
+ * 全是不再需要的中间态，而磁盘不会被谁提醒。
+ *
+ * ## 保留多少
+ *
+ *   replaced-*           10 份：真正的「换库前原库」，回滚要靠它，多留
+ *   restore-cancelled-*   5 份：只是留痕，最近的够查
+ *   restore-failed-*      5 份：同上
+ *
+ * 按修改时间取最新 N 份，多出来的删掉。删的是**副本**，不是当前库。
+ */
+function pruneReplaced(dbPath, opts = {}) {
+  const limits = Object.assign({
+    'replaced-': 10,
+    'restore-cancelled-': 5,
+    'restore-failed-': 5
+  }, opts.keep || {});
+  const dir = replacedDir(dbPath);
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.db')); } catch (e) { return { deleted: 0, freed: 0 }; }
+
+  const groups = new Map();
+  names.forEach((f) => {
+    const prefix = Object.keys(limits).find((p) => f.startsWith(p));
+    if (!prefix) return;
+    if (!groups.has(prefix)) groups.set(prefix, []);
+    groups.get(prefix).push(f);
+  });
+
+  let deleted = 0;
+  let freed = 0;
+  groups.forEach((files, prefix) => {
+    files
+      .map((f) => ({ f, m: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m)
+      .slice(limits[prefix])
+      .forEach((x) => {
+        const full = path.join(dir, x.f);
+        try {
+          const size = fs.statSync(full).size;
+          fs.unlinkSync(full);
+          deleted += 1;
+          freed += size;
+        } catch (e) { /* 被占用就下次再删，不阻断 */ }
+      });
+  });
+  return { deleted, freed };
 }
 
 function pendingPath(dbPath) {
@@ -266,6 +321,9 @@ function applyPendingRestore({ dbPath }) {
     return { applied: false, error: '替换数据库文件失败：' + e.message, plan };
   }
 
+  // 换库成功后顺手裁一遍旧副本：恢复演练可以来回折腾几十次，不裁就会堆到几个 GB
+  try { pruneReplaced(dbPath); } catch (e) { /* 清理失败不影响恢复结果 */ }
+
   return {
     applied: true,
     replacedFile: target,
@@ -282,6 +340,7 @@ module.exports = {
   openReadonly,
   backupDir,
   replacedDir,
+  pruneReplaced,
   pendingPath,
   planPath,
   applyPendingRestore,

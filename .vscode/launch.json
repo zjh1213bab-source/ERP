@@ -1,0 +1,42 @@
+{
+  // 调试：后端断点 / 前端 HMR / 浏览器直连
+  // 后端零依赖（Node 22 内置 SQLite），不需要 npm install 就能起
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "后端：启动服务（3000，可直接断点）",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/src/server.js",
+      "cwd": "${workspaceFolder}/backend",
+      "env": { "NODE_ENV": "development" },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "restart": true
+    },
+    {
+      "name": "前端：Vite 开发（5173，/api 代理到 3000）",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}/frontend",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "浏览器：打开 3000（调前端用）",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:3000",
+      "webRoot": "${workspaceFolder}/frontend/src"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "全栈：后端 + Vite",
+      "configurations": ["后端：启动服务（3000，可直接断点）", "前端：Vite 开发（5173，/api 代理到 3000）"],
+      "stopAll": true
+    }
+  ]
+}
