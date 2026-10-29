@@ -1,8 +1,8 @@
 /**
  * 数据库结构快照（自动生成，勿手改）
  * ---------------------------------------------
- * 由 scripts/rebuild-schema.js 从实际库导出，包含 791 个对象
- * （359 张表 + 432 个索引）。
+ * 由 scripts/rebuild-schema.js 从实际库导出，包含 792 个对象
+ * （360 张表 + 432 个索引）。
  * 表格改名 / 加列请先改 DDL（db.js 里的 migrate 或本文件重新生成），再刷库。
  */
 module.exports = [
@@ -796,5 +796,6 @@ module.exports = [
   "CREATE INDEX IF NOT EXISTS idx_onl_node ON order_node_logs(node_id, id);",
   "CREATE TABLE IF NOT EXISTS order_material_colors (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  order_material_id INTEGER NOT NULL,\n  colorway TEXT NOT NULL,                     -- 款色（与 order_item_sizes.color 同名）\n  color_no TEXT,                              -- 这个颜色用这个料的色号\n  qty REAL,                                   -- 这个颜色的单件用量（空 = 沿用物料行）\n  note TEXT,\n  created_at TEXT NOT NULL,\n  UNIQUE (order_material_id, colorway)\n);",
   "CREATE INDEX IF NOT EXISTS idx_omc_mat ON order_material_colors(order_material_id);",
-  "CREATE UNIQUE INDEX IF NOT EXISTS uq_issue_item ON material_issue_items(issue_id, material_id, name, item_id, colorway);"
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_issue_item ON material_issue_items(issue_id, material_id, name, item_id, colorway);",
+  "CREATE TABLE IF NOT EXISTS schema_migrations (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    version TEXT NOT NULL,                  -- schema.js 内容指纹（改结构必变）\n    tables INTEGER NOT NULL DEFAULT 0,\n    indexes INTEGER NOT NULL DEFAULT 0,\n    migrated_cols INTEGER NOT NULL DEFAULT 0,\n    note TEXT,\n    applied_at TEXT NOT NULL\n  );"
 ];

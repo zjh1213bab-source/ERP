@@ -229,6 +229,13 @@ const ITEMS = [
     how: '检查配置里的 JWT 密钥是否仍是示例值或长度不足 32 位。'
   },
   {
+    key: 'env_mode', section: 'runtime', kind: 'auto', check: 'env_mode', severity: 'blocker',
+    title: '运行在 production 模式且 CORS 已限定来源',
+    detail: 'NODE_ENV 不是 production 时，启动时的配置自检只会提示、不会拦住 —— 于是"带默认口令上线"这件事没人拦。'
+      + 'CORS 还是 * 时，任何站点都能带着 token 调接口。',
+    how: '检查 NODE_ENV=production 且 CORS_ORIGIN 已设为具体域名（不是 *）。'
+  },
+  {
     key: 'upload_writable', section: 'runtime', kind: 'auto', check: 'upload_writable', severity: 'required',
     title: '上传目录存在且可写',
     detail: '款图、面单、验货照片全落在这里。目录不可写时上传按钮会转圈，用户以为网络慢。',
@@ -529,8 +536,20 @@ CHECKS.secret_changed = () => {
   return { status: 'pass', result: `JWT 密钥非默认值，长度 ${s.length} 位` };
 };
 
-CHECKS.upload_writable = () => {
-  let dir = null;
+CHECKS.env_mode = () => {
+  const issues = config.securityAudit();
+  const fatal = issues.filter((i) => i.level === 'fatal');
+  const notProd = !config.isProd;
+  const cors = String(config.corsOrigin || '');
+  const bits = [];
+  if (notProd) bits.push('NODE_ENV 不是 production（启动自检只会提示，不会拦）');
+  if (!cors || cors === '*') bits.push('CORS_ORIGIN 为 *（任何站点都能带 token 调接口）');
+  fatal.forEach((i) => { if (i.key !== 'NODE_ENV' && i.key !== 'CORS_ORIGIN') bits.push(i.msg); });
+  if (bits.length) return { status: 'fail', result: bits.join('；') };
+  return { status: 'pass', result: `production 模式；CORS 限定 ${cors}；环境变量密钥与口令均已替换` };
+};
+
+CHECKS.upload_writable = () => {  let dir = null;
   try { dir = require('../routes/uploads').UPLOAD_DIR; } catch (e) { dir = path.resolve(__dirname, '../../data/uploads'); }
   if (!fs.existsSync(dir)) return { status: 'fail', result: `上传目录不存在：${dir}` };
   let writable = false;

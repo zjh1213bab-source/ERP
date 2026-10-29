@@ -11,6 +11,35 @@ const config = require('./config');
 const { db } = require('./db'); // 初始化数据库 + 建表 + 播种
 const auditLog = require('./services/auditLog'); // 操作日志（哈希链 + 业务语义）
 
+/**
+ * 启动前的配置自检
+ *
+ * 生产环境（NODE_ENV=production）只要还有示例密钥 / 默认口令 / 通配 CORS，
+ * 就直接拒绝启动 —— 这三样凑齐等于"后台对外开放，且谁都能自签管理员 token"。
+ *
+ * 开发环境不拦，但把清单打出来：让人在第一次 `npm start` 就看到自己正跑在默认值上，
+ * 而不是等上线那天由别人发现。
+ */
+{
+  const issues = config.securityAudit();
+  const fatal = issues.filter((i) => i.level === 'fatal');
+  if (fatal.length && config.isProd) {
+    console.error('\n[启动中止] 生产环境配置不合规（拒绝在默认密钥/口令/CORS 下运行）：');
+    fatal.forEach((i) => console.error(`  · ${i.msg}`));
+    console.error('\n  改 backend/.env 后重启：');
+    console.error('    JWT_SECRET=$(openssl rand -hex 32)');
+    console.error('    ADMIN_PASSWORD=<新口令>');
+    console.error('    CORS_ORIGIN=https://erp.example.com');
+    console.error('    NODE_ENV=production\n');
+    process.exit(1);
+  }
+  if (issues.length) {
+    console.warn('\n[安全提示] 当前配置可直接开发，但**不要这样上线**：');
+    issues.forEach((i) => console.warn(`  · ${i.msg}`));
+    console.warn('');
+  }
+}
+
 const authRoutes = require('./routes/auth');
 const mindmapRoutes = require('./routes/mindmap'); // 业务蓝图（原脑图）
 const customerRoutes = require('./routes/customers');
@@ -181,7 +210,28 @@ app.use((req, res, next) => {
 
 // ---------- 基础 ----------
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, service: 'erp-system', uptime: process.uptime() });
+  /**
+   * 健康检查要能回答三件事：还活着 / 跑的哪套结构 / 配置能不能上线
+   *
+   * 只回 `ok: true` 的检查等于没检查 —— 结构残缺、密钥还是示例值时它也返回 200。
+   * 这里把结构版本与规模一并带出，排障第一句"你那边多少张表"就有据可查。
+   */
+  let schema = null;
+  let driver = null;
+  try {
+    const mod = require('./db');
+    schema = mod.schemaInfo();
+    driver = mod.driver;
+  } catch (e) { /* 结构自检失败不影响存活探针，schema 留空 */ }
+  res.json({
+    ok: true,
+    service: 'erp-system',
+    uptime: process.uptime(),
+    driver,
+    schema,
+    /** 生产配置是否已换成真密钥/真口令/指定 CORS（false 时不要对外发布） */
+    config_ok: config.fatalIssues().length === 0
+  });
 });
 
 // ---------- 业务路由 ----------

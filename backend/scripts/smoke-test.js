@@ -10475,10 +10475,17 @@ async function req(path, { method = 'GET', body, token } = {}) {
     };
     cleanSmoke();
 
+    // 预期条数从模块算，不写死：加一条检查项就要回来改数字的话，
+    // 改几次之后就会变成「数字对不上就顺手改小」——那这条断言等于没有
+    const GLM = require('../src/services/goLive');
+    const AUTO_N = GLM.ITEMS.filter((x) => x.kind === 'auto').length;
+    const MANUAL_N = GLM.ITEMS.filter((x) => x.kind === 'manual').length;
+    const TOTAL_N = GLM.ITEMS.length;
+
     const meta = await req('/api/go-live/meta', { token });
-    ok('清单字典：六大块 / 26 项 / 自动 16 人工 10',
-      meta.status === 200 && meta.json.data.item_count === 26
-      && meta.json.data.auto_count === 16 && meta.json.data.manual_count === 10
+    ok(`清单字典：六大块 / ${TOTAL_N} 项 / 自动 ${AUTO_N} 人工 ${MANUAL_N}`,
+      meta.status === 200 && meta.json.data.item_count === TOTAL_N
+      && meta.json.data.auto_count === AUTO_N && meta.json.data.manual_count === MANUAL_N
       && (meta.json.data.sections || []).length === 6,
       `HTTP ${meta.status} ${meta.json.data ? meta.json.data.item_count + ' 项' : ''}`);
 
@@ -10487,7 +10494,7 @@ async function req(path, { method = 'GET', body, token } = {}) {
     });
     ok('生成一轮评估（自动项立即跑完并落库）',
       made.status === 200 && !!made.json.data.round_no
-      && made.json.data.sections.reduce((a, x) => a + x.items.length, 0) === 26,
+      && made.json.data.sections.reduce((a, x) => a + x.items.length, 0) === TOTAL_N,
       `HTTP ${made.status} ${made.json.data ? made.json.data.round_no : ''}`);
     const rid = made.json.data.id;
     GDB.prepare('UPDATE golive_rounds SET demo_tag = ? WHERE id = ?').run(MARK, rid);
@@ -10564,9 +10571,9 @@ async function req(path, { method = 'GET', body, token } = {}) {
       `HTTP ${signGo2.status} ${signGo2.json.message || ''}`);
 
     const snap = signGo2.json.data.snapshot;
-    ok('★ 签署冻结快照（全部 26 项的结论/证据/判定人一起存）',
-      snap && snap.items.length === 26 && !!snap.frozen_at
-      && snap.counts.pass + snap.counts.fail + snap.counts.warn + snap.counts.na + snap.counts.pending === 26,
+    ok(`★ 签署冻结快照（全部 ${TOTAL_N} 项的结论/证据/判定人一起存）`,
+      snap && snap.items.length === TOTAL_N && !!snap.frozen_at
+      && snap.counts.pass + snap.counts.fail + snap.counts.warn + snap.counts.na + snap.counts.pending === TOTAL_N,
       snap ? `冻结 ${snap.items.length} 项，通过 ${snap.counts.pass}` : '没有快照');
 
     ok('快照里带上证据（事后能复核「当时凭的什么」）',
@@ -11679,6 +11686,68 @@ async function req(path, { method = 'GET', body, token } = {}) {
     });
     ok('生产分配夹具已清干净',
       !MDB.prepare("SELECT 1 x FROM orders WHERE order_no LIKE 'MASG-TEST-%'").get(), '已删');
+  }
+
+  // ================= 启动与配置护栏（结构失败必须停、默认值必须被识别） =================
+  {
+    console.log('\n[启动与配置护栏]');
+    const { execFileSync } = require('child_process');
+    const os = require('os');
+    const fsx = require('fs');
+    const px = require('path');
+
+    // ---- 1. 健康检查要能回答"跑的哪套结构" ----
+    const h = await req('/api/health');
+    const sc = h.json.schema || {};
+    ok('★ 健康检查带结构版本与规模（不只是"活着"）',
+      h.status === 200 && !!sc.version && Number(sc.tables) > 350 && Number(sc.indexes) > 300,
+      `版本 ${sc.version} / ${sc.tables} 表 / ${sc.indexes} 索引`);
+
+    ok('★ 健康检查标记出「配置还不能上线」（开发默认值）',
+      h.json.config_ok === false, `config_ok=${h.json.config_ok}`);
+
+    const GL = require('../src/services/goLive');
+    const envCheck = GL.CHECKS.env_mode();
+    ok('★ 上线清单能拦住「非 production 模式 + 通配 CORS」', envCheck.status === 'fail',
+      String(envCheck.result).slice(0, 60));
+
+    // ---- 2. 破损库必须拒绝启动（不是"警告后继续跑"）----
+    const tmpDir = fsx.mkdtempSync(px.join(os.tmpdir(), 'erp-badschema-'));
+    const badDb = px.join(tmpDir, 'broken.db');
+    fsx.writeFileSync(badDb, Buffer.from('这个文件不是 SQLite 数据库'.repeat(200)));
+    let brokenExit = 0;
+    let brokenOut = '';
+    try {
+      execFileSync(process.execPath, ['-e', "require('./src/db')"], {
+        cwd: px.resolve(__dirname, '..'),
+        env: { ...process.env, DB_PATH: badDb },
+        stdio: 'pipe', timeout: 30000
+      });
+    } catch (e) {
+      brokenExit = e.status === undefined ? 1 : e.status;
+      brokenOut = String((e.stderr || '') + (e.stdout || ''));
+    }
+    try { fsx.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+    ok('★ 结构建不起来时进程退出（不是带着残库继续跑）', brokenExit !== 0, `exit=${brokenExit}`);
+    ok('★ 退出时说明是"结构不完整"并给出排查方向', /数据库结构不完整/.test(brokenOut),
+      brokenOut.split('\n').filter((l) => l.includes('结构不完整'))[0] || brokenOut.slice(0, 60));
+
+    // ---- 3. 生产环境默认值必须拒绝启动 ----
+    let prodExit = 0;
+    let prodOut = '';
+    try {
+      execFileSync(process.execPath, ['src/server.js'], {
+        cwd: px.resolve(__dirname, '..'),
+        env: { ...process.env, NODE_ENV: 'production', JWT_SECRET: '', ADMIN_PASSWORD: '', CORS_ORIGIN: '' },
+        stdio: 'pipe', timeout: 30000
+      });
+    } catch (e) {
+      prodExit = e.status === undefined ? 1 : e.status;
+      prodOut = String((e.stderr || '') + (e.stdout || ''));
+    }
+    ok('★ 生产环境用示例密钥/默认口令/通配 CORS 时拒绝启动', prodExit !== 0, `exit=${prodExit}`);
+    ok('★ 拒绝启动时直接给出该改的三个环境变量', /JWT_SECRET/.test(prodOut) && /CORS_ORIGIN/.test(prodOut) && /ADMIN_PASSWORD/.test(prodOut),
+      prodOut.includes('启动中止') ? '已打印启动中止与修复命令' : prodOut.slice(0, 60));
   }
 
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);

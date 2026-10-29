@@ -61,6 +61,15 @@ const db = new DatabaseCtor(config.dbPath);
 try {
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
+  /**
+   * 写锁等待 5 秒，别一撞就报 database is locked
+   *
+   * 单进程时用不上；但 PM2 cluster / 多实例共用一个库文件时，
+   * 两个进程同时 `BEGIN IMMEDIATE`（比如两个人同时报工），
+   * 没这个设置就会立刻抛 SQLITE_BUSY —— 用户看到的是 500「服务器内部错误」。
+   * WAL 下写者是串行的，让它排队等一下才是对的。
+   */
+  db.exec('PRAGMA busy_timeout = 5000;');
 } catch (e) {
   /* ignore */
 }
@@ -78,25 +87,77 @@ function cols(table) {
 }
 
 // ---------- 建表 ----------
-function createSchema() {
-  SCHEMA.forEach((sql) => {
+/**
+ * 建表失败**必须让启动停下来**
+ *
+ * 原先是 `catch { console.warn('建表跳过', ...) }`。后果很隐蔽：
+ * 服务照常起来、健康检查返回 200，只有真正点到那张表的功能时才 500 ——
+ * 而那时候人已经在用了，日志里也只剩一句几十字截断的 warn。
+ *
+ * 这里改成：先把所有语句跑一遍（一条坏 DDL 不能掩盖后面的），
+ * 收齐失败原因，最后统一报错并终止启动。
+ *
+ * 顺序也很关键：**表 → 补列 → 索引/视图**。
+ * schema.js 里索引和表是混排的，而老库靠 `migrate()` 补的列如果还没补上，
+ * 建索引就会报 "no such column"。先跑表再补列再建索引，老库升级才不会误判成结构损坏。
+ */
+const IS_TABLE = /^\s*CREATE\s+TABLE/i;
+const SCHEMA_TABLES = SCHEMA.filter((sql) => IS_TABLE.test(String(sql)));
+const SCHEMA_OTHER = SCHEMA.filter((sql) => !IS_TABLE.test(String(sql)));   // 索引 / 视图
+
+const schemaFailures = [];
+function runSchema(sqls, kind) {
+  sqls.forEach((sql) => {
     try {
       db.exec(sql);
     } catch (e) {
-      console.warn('[db] 建表跳过：', String(sql).slice(0, 60), '→', e.message);
+      schemaFailures.push({ kind, sql: String(sql).replace(/\s+/g, ' ').slice(0, 100), msg: e.message });
     }
   });
+}
+
+function createTables() {
+  runSchema(SCHEMA_TABLES, '建表');
+}
+
+function createIndexes() {
+  runSchema(SCHEMA_OTHER, '索引/视图');
+}
+
+/** 结构问题汇总成一段人能看懂的话；没问题返回 null */
+function schemaError() {
+  if (!schemaFailures.length) return null;
+  const detail = schemaFailures.slice(0, 8)
+    .map((f) => `  · [${f.kind}] ${f.sql} … → ${f.msg}`)
+    .join('\n');
+  const more = schemaFailures.length > 8 ? `\n  …还有 ${schemaFailures.length - 8} 条` : '';
+  return `数据库结构不完整（${schemaFailures.length} 条失败），拒绝启动：\n${detail}${more}\n`
+    + '  排查方向：库文件是否损坏 / schema.js 与实际库是否脱节（`node scripts/rebuild-schema.js`）/ 老库是否需要先跑 apply-*.js';
 }
 
 /**
  * 补列迁移：旧库文件升级用。新库由 schema.js 一次建全，这里全部空转。
  */
 function migrate() {
+  let added = 0;
+  /**
+   * 补列：失败也要记下来。
+   * 原来一律 `catch { /* ignore *\/ }`，于是「列没加上」和「列已经存在」长得一样，
+   * 直到某个查询报 no such column 才发现 —— 而那可能是一周以后。
+   */
   const add = (table, col, ddl) => {
     const c = cols(table);
-    if (c.length && !c.includes(col)) {
-      try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); } catch (e) { /* ignore */ }
+    if (!c.length || c.includes(col)) return;
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+      added += 1;
+    } catch (e) {
+      if (/duplicate column/i.test(e.message)) return;
+      schemaFailures.push({ kind: '补列', sql: `ALTER TABLE ${table} ADD COLUMN ${col}`, msg: e.message });
     }
+  };
+  const exec = (label, sql) => {
+    try { db.exec(sql); } catch (e) { schemaFailures.push({ kind: '补数据', sql: label, msg: e.message }); }
   };
 
   // 订单
@@ -138,32 +199,31 @@ function migrate() {
     } catch (e) { return ''; }
   })();
   if (issueIdx && !(issueIdx.includes('item_id') && issueIdx.includes('colorway'))) {
-    try {
-      db.exec('DROP INDEX IF EXISTS uq_issue_item');
-      db.exec('CREATE UNIQUE INDEX uq_issue_item ON material_issue_items(issue_id, material_id, name, item_id, colorway)');
-    } catch (e) { /* 老库有重复行时建不上：留给 apply-issuecolor-ddl.js 处理 */ }
+    exec('重建索引 uq_issue_item', 'DROP INDEX IF EXISTS uq_issue_item');
+    exec('重建索引 uq_issue_item', 'CREATE UNIQUE INDEX uq_issue_item ON material_issue_items(issue_id, material_id, name, item_id, colorway)');
   }
 
   // 往来账原币字段（历史数据按 CNY 处理）
   ['ar_invoices', 'ap_invoices'].forEach((tb) => {
     const c = cols(tb);
     if (!c.length) return;
-    if (!c.includes('currency')) db.exec(`ALTER TABLE ${tb} ADD COLUMN currency TEXT NOT NULL DEFAULT 'CNY'`);
+    if (!c.includes('currency')) add(tb, 'currency', "TEXT NOT NULL DEFAULT 'CNY'");
     if (!c.includes('amount_orig')) {
-      db.exec(`ALTER TABLE ${tb} ADD COLUMN amount_orig REAL NOT NULL DEFAULT 0`);
-      db.exec(`UPDATE ${tb} SET amount_orig = amount WHERE amount_orig = 0`);
+      add(tb, 'amount_orig', 'REAL NOT NULL DEFAULT 0');
+      exec(`${tb}.amount_orig 回填`, `UPDATE ${tb} SET amount_orig = amount WHERE amount_orig = 0`);
     }
-    if (!c.includes('rate')) db.exec(`ALTER TABLE ${tb} ADD COLUMN rate REAL NOT NULL DEFAULT 1`);
+    if (!c.includes('rate')) add(tb, 'rate', 'REAL NOT NULL DEFAULT 1');
   });
   const pc = cols('payments');
   if (pc.length) {
-    if (!pc.includes('currency')) db.exec("ALTER TABLE payments ADD COLUMN currency TEXT NOT NULL DEFAULT 'CNY'");
+    if (!pc.includes('currency')) add('payments', 'currency', "TEXT NOT NULL DEFAULT 'CNY'");
     if (!pc.includes('amount_orig')) {
-      db.exec('ALTER TABLE payments ADD COLUMN amount_orig REAL NOT NULL DEFAULT 0');
-      db.exec('UPDATE payments SET amount_orig = amount WHERE amount_orig = 0');
+      add('payments', 'amount_orig', 'REAL NOT NULL DEFAULT 0');
+      exec('payments.amount_orig 回填', 'UPDATE payments SET amount_orig = amount WHERE amount_orig = 0');
     }
-    if (!pc.includes('rate')) db.exec('ALTER TABLE payments ADD COLUMN rate REAL NOT NULL DEFAULT 1');
+    if (!pc.includes('rate')) add('payments', 'rate', 'REAL NOT NULL DEFAULT 1');
   }
+  return added;
 }
 
 /** 最小播种：汇率设置 + 管理员账号（已有则跳过） */
@@ -191,9 +251,78 @@ function seed() {
   }
 }
 
-createSchema();
-migrate();
+/**
+ * 启动序列：表 → 补列 → 索引/视图 → 校验 → 播种 → 记台账
+ *
+ * 校验放在最后、播种之前：结构不对就不要往里写数据。
+ */
+createTables();
+const migratedCols = migrate();
+createIndexes();
+
+const bootError = schemaError();
+if (bootError) {
+  // 这里必须硬失败。服务带着残缺结构起来，比直接起不来危险得多：
+  // 健康检查照常 200，人却要到点某个功能时才发现 500。
+  console.error('\n[db] ' + bootError + '\n');
+  process.exit(1);
+}
+
 seed();
+
+/**
+ * 结构台账：记下「这个库是用哪份 schema 快照打开的」
+ *
+ * 版本号取 schema.js 内容的指纹 —— 改表结构必然换指纹，不用人手工维护版本号
+ * （手工版本号的下场是：谁忘了 +1，事后就永远说不清这个库是哪一版结构）。
+ * 同指纹且没有补列时不重复写，避免每次重启都堆一行。
+ */
+function schemaStats() {
+  const tables = db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get().c;
+  const indexes = db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'").get().c;
+  return { tables: Number(tables) || 0, indexes: Number(indexes) || 0 };
+}
+
+function schemaFingerprint() {
+  return require('crypto').createHash('sha256').update(SCHEMA.join('\n')).digest('hex').slice(0, 12);
+}
+
+function markSchemaState() {
+  db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version TEXT NOT NULL,                  -- schema.js 内容指纹（改结构必变）
+    tables INTEGER NOT NULL DEFAULT 0,
+    indexes INTEGER NOT NULL DEFAULT 0,
+    migrated_cols INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    applied_at TEXT NOT NULL
+  )`);
+  const st = schemaStats();
+  const fp = schemaFingerprint();
+  const last = db.prepare('SELECT version FROM schema_migrations ORDER BY id DESC LIMIT 1').get();
+  const snapshotChanged = !last || last.version !== fp;
+  if (snapshotChanged || migratedCols > 0) {
+    db.prepare('INSERT INTO schema_migrations (version, tables, indexes, migrated_cols, note, applied_at) VALUES (?,?,?,?,?,?)')
+      .run(fp, st.tables, st.indexes, migratedCols, snapshotChanged ? 'schema 快照变更' : '老库补列', now());
+  }
+  return { version: fp, ...st, migrated_cols: migratedCols };
+}
+
+const schemaState = markSchemaState();
+console.log(`[db] 结构版本 ${schemaState.version}（表 ${schemaState.tables} / 索引 ${schemaState.indexes}`
+  + `${schemaState.migrated_cols ? ` / 本次补列 ${schemaState.migrated_cols}` : ''}）`);
+
+/** 给 /api/health 与上线自检用：一眼看出跑的是哪份结构 */
+function schemaInfo() {
+  const last = db.prepare('SELECT * FROM schema_migrations ORDER BY id DESC LIMIT 1').get() || {};
+  return {
+    version: schemaState.version,
+    tables: schemaState.tables,
+    indexes: schemaState.indexes,
+    last_migration_at: last.applied_at || null,
+    last_migration_note: last.note || null
+  };
+}
 
 /** 把「本次启动应用了恢复」这件事记进 backup_jobs（表可能还不存在，忽略异常） */
 function logRestoreApplied(r) {
@@ -275,4 +404,4 @@ function saveSettings(patch) {
   return next;
 }
 
-module.exports = { db, driver, now, cols, getMindmap, saveMindmap, getSettings, saveSettings };
+module.exports = { db, driver, now, cols, getMindmap, saveMindmap, getSettings, saveSettings, schemaInfo };

@@ -148,10 +148,61 @@ pm2 startup
 
 ---
 
-## 9. 备份与迁移 MySQL
+## 9. 备份与数据库边界
 
-- **备份**：复制 `backend/data/erp-mindmap.db`。WAL 模式下建议 `pm2 stop erp-mindmap-api` 后复制 `.db`、`.db-wal`、`.db-shm` 三个文件，再 `pm2 start`。
-- **迁移 MySQL**：数据仅一张 KV 表 `app_config`（脑图为 JSON 字符串），只需改写 `backend/src/db.js` 中的 `getMindmap / saveMindmap` 两个函数，业务与接口代码完全不变。
+### 9.1 备份
+
+- **停机备份（最稳）**：`pm2 stop erp-mindmap-api` → 复制 `backend/data/erp-mindmap.db`（WAL 模式下 `.db-wal`、`.db-shm` 也一起带走）→ `pm2 start`。
+- **不停机备份**：用系统自带的「系统 → 备份」，它走 `VACUUM INTO` 生成一致性快照（不会拷到写了一半的页），还能一键恢复。
+- **别只拷 `.db`**：WAL 模式下最近的写入还在 `.db-wal` 里，只拷主文件会丢掉最后一段数据。
+
+### 9.2 本期数据库边界：**就是 SQLite，单实例**
+
+当前版本是**单机单实例**形态：一个 `backend/data/erp-mindmap.db` 文件，WAL 模式，靠进程内的序列化 + SQLite 写锁保证一致性。首期正式部署请按这个边界来：
+
+| 边界 | 说明 |
+|---|---|
+| 部署形态 | 一个后端进程（PM2 单实例）。**不要用 `pm2 start ... -i max` 起多进程**，多实例虽然能跑（写了 `busy_timeout`、关键写操作走 `BEGIN IMMEDIATE`），但没有做跨实例的集成验证 |
+| 容量参考 | 库文件 86MB 对应约 68 张订单 / 15 万条审计日志 / 616 张领料单；单表百万行以内、并发十几个写请求，SQLite 完全够用 |
+| 备份 | 见 9.1，文件级备份即可，不需要 binlog / 主从 |
+
+### 9.3 为什么不能"改两个函数就迁 MySQL"
+
+早期版本（纯脑图工具）数据只有 `app_config` 一张 KV 表，那时这句话是对的。**现在它已经严重错误**，按它规划迁库会直接踩坑：
+
+| 项目 | 当前实际 |
+|---|---|
+| 业务表 | **359 张**（+ `schema_migrations` 结构台账 = 360） |
+| 索引 | **432 个** |
+| 代码里的 SQL 调用 | `db.prepare` **4655 处**、`db.exec` **632 处** |
+| 显式事务 | **204 处** `BEGIN / COMMIT`（全项目禁用 `db.transaction()`，事务语义按 SQLite 写的） |
+| SQLite 专有语法 | `AUTOINCREMENT` 358、`IFNULL` 169、`ON CONFLICT … DO UPDATE` 13、`julianday` 6、`PRAGMA` 5、`VACUUM INTO` 5、`strftime` 4、`date('now')` 3 |
+
+也就是说：迁移不是"换个驱动"，而是**改 4655 处 SQL + 359 张表 DDL + 204 处事务语义**，其中至少这几类必须逐个改并回归：
+
+- `AUTOINCREMENT` → `AUTO_INCREMENT`；`PRAGMA table_info` → `information_schema`
+- `ON CONFLICT … DO UPDATE` → `ON DUPLICATE KEY UPDATE`（13 处，多为幂等写入）
+- `julianday / strftime / date('now')` → `DATEDIFF / DATE_FORMAT / NOW()`（日期运算口径会变，超期、账期、账龄都受影响）
+- `VACUUM INTO`（备份实现）→ `mysqldump`，备份/恢复/演练三条流程要重写
+- `BEGIN IMMEDIATE`（写锁）→ `SELECT … FOR UPDATE` 或串行化隔离级别，报工、领料、盘点这些"累计上限"逻辑要重新验证并发
+- `REAL` 金额精度、布尔 0/1、`IFNULL(x,'')` 与空串语义，逐一核对
+
+**真要做，按这个顺序，别跳步**：
+
+1. 先抽数据访问层（现在 SQL 散在 122 个路由文件里），至少把 359 张表的读写收敛到 `services/`；
+2. 建 MySQL 结构 + 双写/影子读，用同一批业务场景比对两边结果；
+3. 把上表那 5 类语法逐个替换，每类补冒烟断言；
+4. 全量迁移 + 对账（订单金额、库存、借贷平衡、应收应付四本账必须一致）；
+5. 灰度切换 + 保留 SQLite 回退窗口。
+
+### 9.4 多公司不是多租户
+
+库里有 4 个 `companies`、72 张表带 `company_id`，但那是**集团内多主体（分部/子公司）**的口径，用于合并报表与分部对比；**不是租户隔离**：登录不按公司限制，业务查询里的 `company_id` 大多是"算哪个主体的账"的参数，不是"只能看自己公司"的门禁。
+
+所以：
+
+- ✅ 一个实例服务一家集团（含旗下多个法人主体）——符合当前设计；
+- ❌ 不要把一个实例当 SaaS 给多家互不相干的客户用 —— 需要另做租户隔离改造（72 张表的查询 + 权限层 + 上传文件隔离），不在本期范围。
 
 ---
 
