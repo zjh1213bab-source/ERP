@@ -1154,7 +1154,7 @@ function note(id, opt = {}) {
   const txt = String(opt.note || '').trim();
   if (txt.length < 2) throw bad('备注不能为空');
   const t = new Date().toISOString();
-  db.prepare('UPDATE exception_items SET note = TRIM(IFNULL(note,"") || char(10) || ?), updated_at=? WHERE id=?')
+  db.prepare("UPDATE exception_items SET note = TRIM(IFNULL(note,'') || char(10) || ?), updated_at=? WHERE id=?")
     .run(`[${localNow().slice(0, 16)} ${opt.operator || '系统'}] ${txt}`, t, id);
   logAct(id, 'note', r.status, r.status, opt.operator || null, null, txt);
   return get(id);

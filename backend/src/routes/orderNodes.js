@@ -2,6 +2,7 @@
  * 生产工序节点（order_nodes）—— 对齐衣创 node_list
  * GET   /api/order-nodes?order_id=
  * POST  /api/order-nodes/init { order_id }     初始化默认 13 道工序
+ * GET   /api/order-nodes/:id/panel            点开这个节点的弹窗内容（按 panel 类型分化）
  * PATCH /api/order-nodes/:id { status, plan_date, actual_date, operator, remark }
  * DELETE /api/order-nodes/:id
  */
@@ -11,6 +12,7 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { ensureNodes } = require('../services/production');
 const nodeFlow = require('../services/nodeFlow');
+const nodePanel = require('../services/nodePanel');
 
 const router = express.Router();
 const WRITE = ['admin', 'production'];
@@ -20,6 +22,16 @@ router.get('/', authRequired, wrap(async (req, res) => {
   if (!order_id) return fail(res, 400, '缺少 order_id');
   return ok(res, db.prepare('SELECT * FROM order_nodes WHERE order_id = ? ORDER BY seq, id').all(order_id));
 }));
+
+/**
+ * 点开一个格子看到什么
+ *
+ * 内容按节点的 `panel` 属性区分：采购类摊开物料需求明细，其余给备注、
+ * 现场凭证与时间线。**样式和字段都在这一份数据里定**，前端只负责画，
+ * 避免「看板一个样、手机端一个样」。
+ */
+router.get('/:id/panel', authRequired, wrap(async (req, res) =>
+  ok(res, nodePanel.panel(req.params.id))));
 
 router.post('/init', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const { order_id } = req.body || {};
@@ -39,8 +51,15 @@ router.post('/init', authRequired, requireRole(WRITE), wrap(async (req, res) => 
  * 顺带修掉一个真问题：原来这里的状态白名单是 `['pending','doing','done']`，
  * 没有 `skipped`，于是「这单不做水洗」只能被标成「已完成」—— 等于教人作假。
  */
-router.patch('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) =>
-  ok(res, nodeFlow.setNode(req.params.id, req.body || {}))));
+router.patch('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  /**
+   * `actor` 是**谁在操作**，与 `operator`（这一工序的责任人）不是一回事：
+   * 跟单把节点标成已完成时，责任人仍然是车间的张师傅。
+   * 时间线要记的是前者，否则「已完成」会显示成「张师傅标的」，查不到真凶。
+   */
+  const body = Object.assign({}, req.body || {}, { actor: (req.user && req.user.username) || null });
+  return ok(res, nodeFlow.setNode(req.params.id, body));
+}));
 
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = db.prepare('SELECT 1 AS x FROM order_nodes WHERE id = ?').get(req.params.id);

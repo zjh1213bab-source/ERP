@@ -79,6 +79,21 @@ const BUILTIN_CODES = {
 
 const BUILTIN_ORDER = Object.keys(BUILTIN_CODES);
 
+/** 状态中文：日志里写「待开始 → 已完成」，而不是 pending → done */
+const STATUS_LABEL = { pending: '待开始', doing: '进行中', done: '已完成', skipped: '不适用' };
+
+/**
+ * 写一条节点操作记录
+ *
+ * 单独抽出来是为了「一处实现」：setNode（人工点）、markDoneByCode（单据反推）
+ * 两条路径都要记，各写一遍必然有一条漏记，于是正好在没人注意的那条漏。
+ */
+function logNode(nodeId, orderId, action, detail, operator) {
+  db.prepare(
+    'INSERT INTO order_node_logs (node_id, order_id, action, detail, operator, created_at) VALUES (?,?,?,?,?,?)'
+  ).run(nodeId, orderId, action, detail || null, operator || null, now());
+}
+
 /**
  * 有代码逻辑挂在上面的内置节点 —— 只有这几个不能停用
  *
@@ -266,10 +281,21 @@ function saveItem(templateId, b) {
       if (!still) throw bad('这是流程里最后一个看板列，不能隐藏 —— 全隐藏后看板会是空表。要精简请改流程本身。');
     }
 
+    /**
+     * `panel`：这点开的弹窗用哪种面板。
+     *
+     * 采购类节点背后有一张物料需求表可以摊开，其他节点只有备注和凭证。
+     * 做成属性而不是按 code 判断，因为「面料采购」在真实数据里往往是业务
+     * 自己加的自定义节点（code 是 c_new_2 这种自动编号）。
+     */
+    const PANELS = ['generic', 'purchase_fabric', 'purchase_accessory', 'purchase_all'];
+    const panel = b.panel !== undefined ? String(b.panel) : String(row.panel || 'generic');
+    if (!PANELS.includes(panel)) throw bad('弹窗类型只能是：通用 / 面料采购明细 / 辅料采购明细 / 面辅料采购明细');
+
     db.prepare(
       `UPDATE node_template_items
           SET name = ?, seq = ?, required = ?, role = ?, color = ?, status = ?, note = ?,
-              visible = ?, updated_at = ?
+              visible = ?, panel = ?, updated_at = ?
         WHERE id = ?`
     ).run(
       name,
@@ -280,6 +306,7 @@ function saveItem(templateId, b) {
       status,
       b.note !== undefined ? b.note : row.note,
       visible,
+      panel,
       t,
       b.id
     );
@@ -297,8 +324,8 @@ function saveItem(templateId, b) {
   const code = nextCustomCode(templateId);
   const info = db.prepare(
     `INSERT INTO node_template_items
-      (template_id, code, name, seq, required, role, color, builtin, status, note, visible, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,0,'active',?,?,?,?)`
+      (template_id, code, name, seq, required, role, color, builtin, status, note, visible, panel, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,0,'active',?,?,?,?,?)`
   ).run(
     templateId,
     code,
@@ -310,6 +337,8 @@ function saveItem(templateId, b) {
     b.note || null,
     // 新建的默认占列；要「仅扫码」显式传 visible:0
     b.visible !== undefined ? (b.visible ? 1 : 0) : 1,
+    ['generic', 'purchase_fabric', 'purchase_accessory', 'purchase_all'].includes(String(b.panel))
+      ? String(b.panel) : 'generic',
     t,
     t
   );
@@ -428,6 +457,9 @@ function markDoneByCode(orderId, code, { date = null, operator = null } = {}) {
   db.prepare(
     "UPDATE order_nodes SET status = 'done', actual_date = COALESCE(?, actual_date), operator = COALESCE(?, operator) WHERE id = ?"
   ).run(date || localDate(new Date().toISOString()), operator, node.id);
+  // 单据动作也要留痕：否则看板上这一步「自己变绿了」，没人知道是谁触发的
+  logNode(node.id, node.order_id, 'status',
+    `${STATUS_LABEL[node.status] || node.status} → 已完成（单据动作自动回写）`, operator);
   return true;
 }
 
@@ -594,7 +626,9 @@ function board({
   const where = [...baseWhere];
   const args = [...baseArgs];
   if (q) {
-    where.push('(o.order_no LIKE ? OR o.style_name LIKE ? OR o.cus_order_no LIKE ? OR IFNULL(c.name,"") LIKE ?)');
+    // 注意引号：SQL 里只能用单引号。写成 IFNULL(c.name,"") 时 SQLite 把 "" 当列名，
+    // 报 `no such column: ""` —— 于是**搜索框一输入就 500**，而页面上只是列表没变化。
+    where.push("(o.order_no LIKE ? OR o.style_name LIKE ? OR o.cus_order_no LIKE ? OR IFNULL(c.name,'') LIKE ?)");
     args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
   if (customerId) { where.push('o.customer_id = ?'); args.push(Number(customerId)); }
@@ -798,17 +832,38 @@ function setNode(nodeId, b) {
   if (status === 'done' && !actual) actual = new Date().toISOString().slice(0, 10);
   if (status !== 'done') actual = b.actual_date !== undefined ? b.actual_date : null;
 
+  const nextPlan = b.plan_date !== undefined ? b.plan_date : row.plan_date;
+  const nextOperator = b.operator !== undefined ? b.operator : row.operator;
+  const nextRemark = b.remark !== undefined ? b.remark : row.remark;
+  const nextSkip = status === 'skipped' ? String(b.skip_reason || '').trim() : null;
+
   db.prepare(
     'UPDATE order_nodes SET status = ?, plan_date = ?, actual_date = ?, operator = ?, remark = ?, skip_reason = ? WHERE id = ?'
-  ).run(
-    status,
-    b.plan_date !== undefined ? b.plan_date : row.plan_date,
-    actual,
-    b.operator !== undefined ? b.operator : row.operator,
-    b.remark !== undefined ? b.remark : row.remark,
-    status === 'skipped' ? String(b.skip_reason || '').trim() : null,
-    nodeId
-  );
+  ).run(status, nextPlan, actual, nextOperator, nextRemark, nextSkip, nodeId);
+
+  /**
+   * 逐项记变更 —— 只记真的变了的那几项。
+   *
+   * 记「保存了一次」没有意义：看板上要回答的是「这一步谁在什么时候做完的」，
+   * 所以按字段拆开写，同一个动作里改了状态又加了备注就记两条。
+   */
+  const actor = b.actor || null;
+  if (status !== row.status) {
+    logNode(nodeId, row.order_id, 'status',
+      `${STATUS_LABEL[row.status] || row.status} → ${STATUS_LABEL[status] || status}`, actor);
+  }
+  if (nextPlan !== row.plan_date) {
+    logNode(nodeId, row.order_id, 'plan', `计划完成 ${row.plan_date || '未填'} → ${nextPlan || '未填'}`, actor);
+  }
+  if (nextOperator !== row.operator) {
+    logNode(nodeId, row.order_id, 'operator', `责任人 ${row.operator || '未填'} → ${nextOperator || '未填'}`, actor);
+  }
+  if (nextRemark !== row.remark) {
+    logNode(nodeId, row.order_id, 'remark', String(nextRemark || '').slice(-200), actor);
+  }
+  if (nextSkip !== row.skip_reason) {
+    logNode(nodeId, row.order_id, 'skip', `标记不适用：${nextSkip || '（清除）'}`, actor);
+  }
   void t;
   return db.prepare('SELECT * FROM order_nodes WHERE id = ?').get(nodeId);
 }

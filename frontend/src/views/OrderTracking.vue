@@ -195,14 +195,21 @@
           <div class="po-flow-left">
             <div class="po-flow-scroll">
               <div class="po-flow-list">
+                <!-- 整格可点：点开这一步的弹窗（采购类看明细，其余看备注/凭证/操作记录）。
+                     「沟通」单独一个按钮，stop 掉冒泡，仍然是原来的留言弹窗 ——
+                     两件事：查看这一环节的状态与证据 / 跟这一环节的人说话。 -->
                 <div v-for="(cell, i) in r.cells" :key="cell.code" class="po-fnode">
-                  <div class="po-fnode-name">
-                    <div class="po-fnode-title" :title="cell.name">{{ cell.name }}</div>
-                  </div>
-                  <div class="po-fnode-body">
-                    <i class="po-fico" :class="'is-' + cell.status">{{ ico(cell.status) }}</i>
-                    <div class="po-fnode-sub" :class="'is-' + cell.status">{{ subOf(cell) }}</div>
-                    <div class="po-chat" @click.stop="openNode(r, cell)">沟通</div>
+                  <div class="po-fnode-in" :class="{ clickable: !!cell.node_id }"
+                    :title="cell.node_id ? '点开看这一步的明细与记录' : '这单还没生成工序'"
+                    @click.stop="openPanel(r, cell)">
+                    <div class="po-fnode-name">
+                      <div class="po-fnode-title">{{ cell.name }}</div>
+                    </div>
+                    <div class="po-fnode-body">
+                      <i class="po-fico" :class="'is-' + cell.status">{{ ico(cell.status) }}</i>
+                      <div class="po-fnode-sub" :class="'is-' + cell.status">{{ subOf(cell) }}</div>
+                      <div class="po-chat" @click.stop="openNode(r, cell)">沟通</div>
+                    </div>
                   </div>
                   <span v-if="i < r.cells.length - 1" class="po-farrow">»</span>
                 </div>
@@ -224,6 +231,9 @@
         </div>
       </div>
     </div>
+
+    <!-- ================= 工序节点面板（按节点类型分化） ================= -->
+    <NodePanel v-model:open="panelOpen" :node-id="panelNodeId" @changed="load" />
 
     <!-- ================= 订单信息看板 ================= -->
     <OrderPeek v-model:open="peekOpen" :order-id="peekId" />
@@ -275,6 +285,7 @@ import { api } from '../api';
 import { openImage } from '../store/viewer';
 import { can } from '../store/permissions';
 import OrderPeek from '../components/OrderPeek.vue';
+import NodePanel from '../components/NodePanel.vue';
 
 const loading = ref(false);
 const board = ref({ template: null, columns: [], rows: [], stats: {}, summary: {} });
@@ -459,7 +470,16 @@ const peekOpen = ref(false);
 const peekId = ref(null);
 function openPeek(id) { if (!id) return; peekId.value = id; peekOpen.value = true; }
 
-/* ---- 节点弹窗 ---- */
+/* ---- 节点面板：点格子打开，内容由后端按节点的 panel 类型决定 ---- */
+const panelOpen = ref(false);
+const panelNodeId = ref(null);
+function openPanel(r, cell) {
+  if (!cell || !cell.node_id) { openPeek(r.id); return; }
+  panelNodeId.value = cell.node_id;
+  panelOpen.value = true;
+}
+
+/* ---- 节点弹窗（沟通留言，保留原样） ---- */
 function firstOpenCell(r) {
   return (r.cells || []).find((c) => c.status === 'doing')
     || (r.cells || []).find((c) => c.status === 'pending')
@@ -614,6 +634,9 @@ onMounted(load);
 .po-flow-none { padding: 46px 16px; color: #c0c4cc; font-size: 12.5px; }
 
 .po-fnode { width: 120px; flex: none; position: relative; text-align: center; }
+.po-fnode-in { border-radius: 4px; padding-top: 2px; }
+.po-fnode-in.clickable { cursor: pointer; }
+.po-fnode-in.clickable:hover { background: #f7fbff; box-shadow: inset 0 0 0 1px #d6e8ff; }
 .po-fnode-name { height: 58px; display: flex; align-items: flex-end; justify-content: center; padding: 0 4px; }
 .po-fnode-title { font-size: 13px; font-weight: 700; color: var(--po-gray); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .po-fnode-body { height: 84px; padding-top: 5px; }

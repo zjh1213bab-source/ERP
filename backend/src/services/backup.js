@@ -194,7 +194,7 @@ function pruneOld(kind) {
     if (r.file_path && fs.existsSync(r.file_path)) {
       try { fs.unlinkSync(r.file_path); } catch (e) { /* ignore */ }
     }
-    db.prepare('UPDATE backup_jobs SET verify_note = COALESCE(verify_note, "") || " [已按保留策略清理文件]" WHERE id = ?')
+    db.prepare("UPDATE backup_jobs SET verify_note = COALESCE(verify_note, '') || ' [已按保留策略清理文件]' WHERE id = ?")
       .run(r.id);
   });
 }

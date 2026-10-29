@@ -71,6 +71,7 @@
                 <th style="width: 90px">code</th>
                 <th style="width: 72px">必经</th>
                 <th style="width: 78px">看板</th>
+                <th style="width: 116px">点开的弹窗</th>
                 <th style="width: 96px">负责人</th>
                 <th style="width: 74px">状态</th>
                 <th style="width: 190px">操作</th>
@@ -102,6 +103,17 @@
                       : '当前在看板上占一列 · 点一下改为仅扫码'"
                     @click="toggleVisible(it)">{{ Number(it.visible) === 0 ? '仅扫码' : '显示' }}</button>
                 </td>
+                <td>
+                  <!-- 点开这个格子弹什么：采购类摊开物料明细，其余给备注/凭证/操作记录。
+                       做成可选属性而非按 code 判断 —— 「面料采购」在真实数据里是业务加的自定义节点 -->
+                  <select class="nf-panel" :value="it.panel || 'generic'" :disabled="!canWrite"
+                    @change="setPanel(it, $event.target.value)">
+                    <option value="generic">通用</option>
+                    <option value="purchase_fabric">面料采购明细</option>
+                    <option value="purchase_accessory">辅料采购明细</option>
+                    <option value="purchase_all">面辅料明细</option>
+                  </select>
+                </td>
                 <td class="tiny">{{ roleLabel(it.role) }}</td>
                 <td>
                   <span v-if="it.status === 'off'" class="tag red" style="font-size: 10px">已停用</span>
@@ -120,7 +132,7 @@
                 </td>
               </tr>
               <tr v-if="!cur.items.length">
-                <td colspan="8" class="empty-cell">这个流程还没有节点</td>
+                <td colspan="9" class="empty-cell">这个流程还没有节点</td>
               </tr>
             </tbody>
           </table>
@@ -318,6 +330,18 @@ async function toggleVisible(it) {
   } catch (e) { alert(e.message); }
 }
 
+/* ---------------- 点开的弹窗类型 ---------------- */
+/** 采购类节点摊开物料明细，其余给备注/凭证/操作记录 */
+async function setPanel(it, panel) {
+  try {
+    await api.updateNodeFlowItem(it.id, { panel });
+    await reload();
+  } catch (e) {
+    alert(e.message);
+    await reload();
+  }
+}
+
 /* ---------------- 停用 / 启用 ---------------- */
 async function toggleStatus(it) {
   try {
@@ -445,6 +469,10 @@ void router;
 .nf-req-tgl.opt { border-color: #fadfae; background: #fff7ea; color: #b45309; }
 /* 仅扫码：用灰蓝，和「可选」的橙色区分开 —— 两个概念，别长得一样 */
 .nf-req-tgl.scan { border-color: #ccd7e6; background: #f2f6fc; color: #5b6b80; }
+.nf-panel {
+  height: 26px; border: 1px solid #e0e7f1; border-radius: 4px; background: #fff;
+  font-size: 11.5px; color: #33425c; padding: 0 4px; max-width: 108px;
+}
 .nf-req-tgl:disabled { opacity: .75; cursor: not-allowed; }
 .nf-bi { font-size: 9px; color: #2563eb; background: #e8f0ff; border-radius: 3px; padding: 0 3px; margin-left: 4px; }
 .nf-off { opacity: .5; }

@@ -3620,7 +3620,8 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 | POST | /api/node-flow/templates/:id/apply | node.flow | 应用到已有订单：`{dry_run, order_ids, include_status}` |
 | GET | /api/node-flow/board | 登录 | 看板：`?template_id=&status=&q=&limit=` |
 | GET | /api/node-flow/builtin | 登录 | 内置 13 个节点的 code 清单 |
-| PATCH | /api/order-nodes/:id | production | 推进节点：`{status, plan_date, operator, remark, skip_reason, actual_date}` |
+| GET | /api/order-nodes/:id/panel | 登录 | 点开这个节点的弹窗内容（按 `panel` 类型分化，见下） |
+| PATCH | /api/order-nodes/:id | production | 推进节点：`{status, plan_date, operator, remark, skip_reason, actual_date}`；每次改动写 `order_node_logs` |
 
 ### 规则
 
@@ -3638,6 +3639,48 @@ ADMIN_PASS=你的密码 BASE=http://127.0.0.1:3000 node scripts/backup-cron.js
 | `apply` 默认 `dry_run=true` | 先看「会往哪些单补哪些节点」再按确认 |
 | 必经节点不能标不适用 | `required=1` 时 `status='skipped'` → 400；真的不做要改模板 |
 | 标不适用必须写原因 | `skip_reason` 至少 1 字；否则等于把这一步悄悄抹掉 |
+
+### 节点弹窗（`GET /api/order-nodes/:id/panel`）
+
+点开一个格子弹什么，由节点在模板里的 `panel` 决定 —— 不是按 `code` 判断，
+因为「面料采购」在真实数据里往往是业务加的自定义节点（code 是 `c_new_2`）。
+
+| `panel` | 返回 | 前端画什么 |
+|---|---|---|
+| `generic` | `purchase: null` | 关联单据 / 备注 / 上传凭证 / 操作记录 |
+| `purchase_fabric` | `purchase.lines` 只含 `mat_type='fabric'` | 采购明细表 + 汇总 |
+| `purchase_accessory` | 只含 `accessory` | 同上 |
+| `purchase_all` | 面料 + 辅料 | 同上 |
+
+```json
+{
+  "node": { "id": 676, "name": "面料采购", "status": "pending", "status_label": "待开始" },
+  "order": { "order_no": "SO202610260009", "style_name": "秋装女士针织衫", "delivery_date": "2026-11-25" },
+  "kind": "purchase_fabric",
+  "panel_label": "面料采购明细",
+  "item": { "code": "c_new_2", "required": 1, "visible": 1 },
+  "purchase": {
+    "lines": [{
+      "material_name": "600 32S精梳拉架", "colorway": "彩色", "color_no": "79",
+      "spec_info": "幅宽180cm 克重190g", "unit": "米",
+      "need_qty": 700.4, "unit_price": 32.8, "amount": 22973.12,
+      "stock_qty": 1180, "alloc_qty": 0, "gap_qty": 700.4, "gap_amount": 22973.12,
+      "supplier": "蒙特布料", "status_label": "缺料"
+    }],
+    "summary": { "line_count": 1, "total_amount": 22973.12, "gap_lines": 1, "gap_amount": 22973.12, "calc_at": "..." }
+  },
+  "traces": [{ "label": "裁床单", "items": [{ "no": "CY202610270005", "status": "done" }] }],
+  "photos": [{ "id": 12, "url": "/uploads/xx.png", "uploader": "admin", "at": "..." }],
+  "timeline": [{ "kind": "log", "action": "status", "detail": "待开始 → 已完成", "operator": "admin", "at": "..." }]
+}
+```
+
+| 口径 | 说明 |
+|---|---|
+| `amount` | `need_qty × unit_price` 现算。**不用 `gap_amount`** —— 那是缺口金额，齐套时恒为 0 |
+| `stock_qty` | `materials.stock_qty`（仓库实有），与 `alloc_qty`（本单已分配）分开显示 |
+| `timeline` | 三处合成、时间倒序：`order_node_logs` + `attachments(node_id)` + `production_reports` |
+| `operator` | 日志里的 operator 是**操作人**（谁点的保存），不是这一工序的责任人 |
 
 ### 看板返回结构
 

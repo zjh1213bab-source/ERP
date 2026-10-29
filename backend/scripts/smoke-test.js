@@ -11061,6 +11061,114 @@ async function req(path, { method = 'GET', body, token } = {}) {
       '已删');
   }
 
+  // ================= 工序节点弹窗：按类型分化 + 操作记录 =================
+  {
+    console.log('\n[工序节点弹窗]');
+    const fs4 = require('fs');
+    const path4 = require('path');
+    const { db: PDB2 } = require('../src/db');
+
+    // ---------- 1. 采购类节点：摊开物料明细 ----------
+    const pick = PDB2.prepare(`
+      SELECT r.order_id, o.order_no, COUNT(*) AS lines
+        FROM material_requirements r JOIN orders o ON o.id = r.order_id
+       GROUP BY r.order_id ORDER BY lines DESC LIMIT 1`).get();
+    const buyNode = pick && PDB2.prepare(`
+      SELECT n.id FROM order_nodes n
+        JOIN node_template_items t ON t.template_id = n.template_id AND t.code = n.code
+       WHERE n.order_id = ? AND t.panel = 'purchase_fabric'`).get(pick.order_id);
+    const bp = buyNode ? await req(`/api/order-nodes/${buyNode.id}/panel`, { token }) : null;
+    ok('★ 采购节点弹窗摊开物料明细（需求/单价/金额/库存/缺口/供应商）',
+      !!bp && bp.status === 200 && bp.json.data.kind === 'purchase_fabric'
+      && bp.json.data.purchase.lines.length > 0
+      && bp.json.data.purchase.lines.every((l) => l.material_name && 'need_qty' in l && 'amount' in l && 'stock_qty' in l && 'supplier' in l),
+      bp && bp.json.data ? `${pick.order_no} ${bp.json.data.purchase.lines.length} 行 / 合计 ${bp.json.data.purchase.summary.total_amount}` : '没有可测的采购节点');
+
+    ok('★ 明细金额按「需求 × 单价」现算，不取缺口金额（齐套时缺口恒为 0）',
+      !!bp && bp.json.data.purchase.lines.every((l) => Math.abs(l.amount - Math.round(l.need_qty * l.unit_price * 100) / 100) < 0.01),
+      bp && bp.json.data.purchase.lines[0] ? `${bp.json.data.purchase.lines[0].need_qty} × ${bp.json.data.purchase.lines[0].unit_price} = ${bp.json.data.purchase.lines[0].amount}` : '?');
+
+    // ---------- 2. 通用节点：没有明细表，只有备注/凭证/时间线 ----------
+    const genNode = pick && PDB2.prepare(`
+      SELECT n.id, n.name FROM order_nodes n
+        JOIN node_template_items t ON t.template_id = n.template_id AND t.code = n.code
+       WHERE n.order_id = ? AND t.panel = 'generic' AND t.visible = 1 LIMIT 1`).get(pick.order_id);
+    const gp = genNode ? await req(`/api/order-nodes/${genNode.id}/panel`, { token }) : null;
+    ok('★ 其他节点不摊明细表，只给备注 / 凭证 / 操作记录',
+      !!gp && gp.status === 200 && gp.json.data.kind === 'generic'
+      && gp.json.data.purchase === null && Array.isArray(gp.json.data.timeline),
+      gp && gp.json.data ? `${genNode.name}: purchase=${gp.json.data.purchase} 时间线 ${gp.json.data.timeline.length}` : '没有通用节点');
+
+    // ---------- 3. 改一次节点，时间线要留下「谁、从什么改到什么」 ----------
+    const mk2 = await req('/api/orders', {
+      method: 'POST', token,
+      body: { order_no: 'PNL-TEST-1', type: 'custom', items: [{ product_name: '弹窗烟测', colors: [{ color: '黑', sizes: [{ size: 'M', qty: 1, usd_price: 1 }] }] }] }
+    });
+    const pid = mk2.json.data && mk2.json.data.id;
+    await req('/api/order-nodes/init', { method: 'POST', token, body: { order_id: pid } });
+    const lay = PDB2.prepare("SELECT id FROM order_nodes WHERE order_id = ? AND code = 'layout'").get(pid);
+    await req(`/api/order-nodes/${lay.id}`, {
+      method: 'PATCH', token, body: { status: 'done', plan_date: '2026-10-30', operator: '张师傅' }
+    });
+    const lp = await req(`/api/order-nodes/${lay.id}/panel`, { token });
+    const tl = (lp.json.data && lp.json.data.timeline) || [];
+    const stLog = tl.find((x) => x.action === 'status');
+    ok('★ 节点改动留痕：时间线记「待开始 → 已完成」与操作人',
+      !!stLog && /待开始.*已完成/.test(stLog.detail) && stLog.operator === 'admin',
+      stLog ? `${stLog.detail} / ${stLog.operator}` : '没有状态记录');
+
+    const planLog = tl.find((x) => x.action === 'plan');
+    ok('计划时间改动也单独留一条（同一个动作改了几项就记几条）',
+      !!planLog && /2026-10-30/.test(planLog.detail), planLog ? planLog.detail : '没有计划记录');
+
+    ok('只改了状态就不该冒出「备注」记录（没有变化的东西不记）',
+      !tl.some((x) => x.action === 'remark'), tl.map((x) => x.action).join(','));
+
+    // ---------- 4. 弹窗类型不能乱传 ----------
+    const det = await req(`/api/node-flow/templates/${(PDB2.prepare("SELECT template_id FROM order_nodes WHERE order_id = ? AND code = 'layout'").get(pid) || {}).template_id}`, { token });
+    const layItem = (det.json.data.items || []).find((x) => x.code === 'layout');
+    const badPanel = await req(`/api/node-flow/items/${layItem.id}`, {
+      method: 'PUT', token, body: { panel: 'whatever' }
+    });
+    ok('弹窗类型只能是预设的几种（不能由前端传什么就渲染什么）', badPanel.status === 400, `HTTP ${badPanel.status}`);
+
+    const okPanel = await req(`/api/node-flow/items/${layItem.id}`, {
+      method: 'PUT', token, body: { panel: 'purchase_all' }
+    });
+    ok('弹窗类型可以改成采购面板（业务新加「里布采购」节点也能配）',
+      okPanel.status === 200 && okPanel.json.data.panel === 'purchase_all', okPanel.json.data ? okPanel.json.data.panel : '?');
+    await req(`/api/node-flow/items/${layItem.id}`, { method: 'PUT', token, body: { panel: 'generic' } });
+
+    // ---------- 5. 回归：看板搜索（原来 SQL 里用双引号，一搜就 500） ----------
+    const qs = await req(`/api/node-flow/board?q=${encodeURIComponent(pick.order_no)}`, { token });
+    ok('★ 看板按 PO 号搜索能用（原来 SQL 写成 IFNULL(c.name,"") 导致一搜就 500）',
+      qs.status === 200 && (qs.json.data.rows || []).length === 1
+      && qs.json.data.rows[0].order_no === pick.order_no,
+      `HTTP ${qs.status} 命中 ${(qs.json.data && qs.json.data.rows || []).length} 条`);
+
+    // ---------- 6. 源码级：SQL 里不许再出现双引号字符串 ----------
+    const files = ['src/services/nodeFlow.js', 'src/services/backup.js', 'src/services/exceptions.js'];
+    // 先剔掉注释行：注释里为了说明「这样写是错的」会原样带上这段 SQL，
+    // 不剔就会把说明文字当成真代码报出来
+    const strip = (src) => src.split('\n').filter((ln) => !/^\s*(\/\/|\*|\/\*)/.test(ln)).join('\n');
+    const dq = files.filter((f) => /IFNULL\([A-Za-z_.]+, *""|COALESCE\([A-Za-z_.]+, *""/.test(
+      strip(fs4.readFileSync(path4.join(__dirname, '..', f), 'utf8'))
+    ));
+    ok('★ 没有残留的 IFNULL(x,"") 写法（SQLite 把双引号当列名，运行时才报错）',
+      dq.length === 0, dq.join(',') || '无');
+
+    // ---------- 清理 ----------
+    if (pid) {
+      PDB2.prepare('DELETE FROM order_node_logs WHERE order_id = ?').run(pid);
+      PDB2.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(pid);
+      PDB2.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(pid);
+      PDB2.prepare('DELETE FROM order_items WHERE order_id = ?').run(pid);
+      PDB2.prepare('DELETE FROM orders WHERE id = ?').run(pid);
+    }
+    ok('节点弹窗夹具已清干净',
+      !PDB2.prepare("SELECT 1 x FROM orders WHERE order_no = 'PNL-TEST-1'").get(), '已删');
+  }
+
   console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项`);
   if (fail) {
     console.log('\n失败清单：');

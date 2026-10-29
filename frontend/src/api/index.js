@@ -140,6 +140,8 @@ export const api = {  // 登录
   orderNodes: (orderId) => req(`/api/order-nodes?order_id=${orderId}`),
   initNodes: (orderId) => req('/api/order-nodes/init', { method: 'POST', body: { order_id: orderId } }),
   updateNode: (id, d) => req(`/api/order-nodes/${id}`, { method: 'PATCH', body: d }),
+  /** 点开一个工序格子：内容按节点的 panel 类型分化（采购明细 / 备注+凭证+时间线） */
+  nodePanel: (id) => req(`/api/order-nodes/${id}/panel`),
 
   // 工序流程模板（节点可自定义）
   // 模板 = 新订单的「配方」；改模板不影响已下单，要让存量跟上得显式 apply
