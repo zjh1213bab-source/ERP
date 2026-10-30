@@ -525,24 +525,14 @@
                 <div class="fitem"><label>产品/款号 *</label><input class="input" v-model="tpForm.product_name" /></div>
                 <div class="fitem"><label>版本</label><input class="input" v-model="tpForm.version" /></div>
                 <div class="fitem full">
-                  <label>选择面料 *（勾选）</label>
-                  <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px">
-                    <label v-for="m in fabrics" :key="m.id" style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
-                      <input type="checkbox" :value="m.id" v-model="tpForm.fabric_ids" /> {{ m.name }} <span style="color:#8a94a6">{{ m.spec || '' }}</span>
-                    </label>
-                    <span v-if="!fabrics.length" style="color:#8a94a6;font-size:12.5px">面料库为空，请到系统设置添加</span>
-                  </div>
-                  <input class="input" v-model="tpForm.fabric_info" placeholder="面料补充说明（可空）" />
+                  <label>选择面料 *</label>
+                  <MaterialPickerField v-model="tpForm.fabric_ids" type="fabric" />
+                  <input class="input" v-model="tpForm.fabric_info" placeholder="面料补充说明（可空）" style="margin-top: 6px" />
                 </div>
                 <div class="fitem full">
-                  <label>选择辅料 *（勾选）</label>
-                  <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px">
-                    <label v-for="m in accessories" :key="m.id" style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
-                      <input type="checkbox" :value="m.id" v-model="tpForm.accessory_ids" /> {{ m.name }} <span style="color:#8a94a6">{{ m.spec || '' }}</span>
-                    </label>
-                    <span v-if="!accessories.length" style="color:#8a94a6;font-size:12.5px">辅料库为空，请到系统设置添加</span>
-                  </div>
-                  <input class="input" v-model="tpForm.accessory_info" placeholder="辅料补充说明（可空）" />
+                  <label>选择辅料 *</label>
+                  <MaterialPickerField v-model="tpForm.accessory_ids" type="accessory" />
+                  <input class="input" v-model="tpForm.accessory_info" placeholder="辅料补充说明（可空）" style="margin-top: 6px" />
                 </div>
                 <div class="fitem full"><label>工艺工序 *</label><textarea v-model="tpForm.craft_info" rows="2" placeholder="印花/绣花/水洗/车缝等"></textarea></div>
                 <div class="fitem full"><label>客户要求 *</label><textarea v-model="tpForm.customer_req" rows="2" placeholder="尺码表/包装/标签/测试要求"></textarea></div>
@@ -1022,6 +1012,7 @@ import CreditBlockModal from '../components/CreditBlockModal.vue';
 import { auth } from '../store/auth';
 import { can } from '../store/permissions';
 import TechPackDetail from '../components/TechPackDetail.vue';
+import MaterialPickerField from '../components/MaterialPickerField.vue';
 import OrderNoTrace from '../components/OrderNoTrace.vue';
 
 const route = useRoute();

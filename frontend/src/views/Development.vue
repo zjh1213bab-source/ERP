@@ -103,25 +103,19 @@
                 </label>
               </div>
             </div>
+            <!--
+              面料/辅料不再平铺成几十个复选框（档案一多就找不到东西、也看不出选过哪些），
+              改成"已选标签 + 弹窗选择"：弹窗里可按名称/简称/供应商/类型筛选，表格多选。
+            -->
             <div class="fitem full">
-              <label>面料 *（勾选）</label>
-              <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px">
-                <label v-for="m in fabrics" :key="m.id" style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
-                  <input type="checkbox" :value="m.id" v-model="form.fabric_ids" /> {{ m.name }} <span style="color: #8a94a6">{{ m.spec || '' }}</span>
-                </label>
-                <span v-if="!fabrics.length" style="color: #8a94a6; font-size: 12.5px">面料库为空，请到系统设置添加</span>
-              </div>
-              <input class="input" v-model="form.fabric_info" placeholder="面料补充说明（可空）" />
+              <label>面料 *</label>
+              <MaterialPickerField v-model="form.fabric_ids" type="fabric" />
+              <input class="input" v-model="form.fabric_info" placeholder="面料补充说明（可空）" style="margin-top: 6px" />
             </div>
             <div class="fitem full">
-              <label>辅料 *（勾选）</label>
-              <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px">
-                <label v-for="m in accessories" :key="m.id" style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
-                  <input type="checkbox" :value="m.id" v-model="form.accessory_ids" /> {{ m.name }} <span style="color: #8a94a6">{{ m.spec || '' }}</span>
-                </label>
-                <span v-if="!accessories.length" style="color: #8a94a6; font-size: 12.5px">辅料库为空，请到系统设置添加</span>
-              </div>
-              <input class="input" v-model="form.accessory_info" placeholder="辅料补充说明（可空）" />
+              <label>辅料 *</label>
+              <MaterialPickerField v-model="form.accessory_ids" type="accessory" />
+              <input class="input" v-model="form.accessory_info" placeholder="辅料补充说明（可空）" style="margin-top: 6px" />
             </div>
             <div class="fitem full"><label>工艺工序 *</label><textarea v-model="form.craft_info" rows="3" placeholder="印花 / 绣花 / 水洗 / 车缝 / 锁眼 / 整烫…"></textarea></div>
             <div class="fitem full"><label>客户要求 *</label><textarea v-model="form.customer_req" rows="3" placeholder="尺码表 / 包装 / 标签 / 测试要求 / 交期"></textarea></div>
@@ -146,6 +140,7 @@ import { useRoute } from 'vue-router';
 import { api } from '../api';
 import { can } from '../store/permissions';
 import TechPackDetail from '../components/TechPackDetail.vue';
+import MaterialPickerField from '../components/MaterialPickerField.vue';
 
 const route = useRoute();
 
@@ -154,8 +149,6 @@ const q = ref('');
 const view = ref('card');
 const tab = ref('all');
 const orders = ref([]);
-const fabrics = ref([]);
-const accessories = ref([]);
 const detailId = ref(null);
 
 const showModal = ref(false);
@@ -210,10 +203,9 @@ async function load() {
   catch (e) { alert(e.message); }
 }
 async function loadRefs() {
-  const [os, ms] = await Promise.all([api.orders({}), api.materials({})]);
-  orders.value = os;
-  fabrics.value = ms.filter((m) => m.type === 'fabric' && m.status === 'active');
-  accessories.value = ms.filter((m) => m.type === 'accessory' && m.status === 'active');
+  // 物料档案不再在这里预载：选择器自己按需取（还要按类型分、按搜索词过服务端），
+  // 页面进来就拉全量档案只是浪费一次请求
+  orders.value = await api.orders({});
 }
 
 function openCreate() { form.value = blank(); showModal.value = true; }

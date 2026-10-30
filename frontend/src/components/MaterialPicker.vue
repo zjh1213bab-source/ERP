@@ -117,7 +117,13 @@ import { api } from '../api';
 const props = defineProps({
   open: { type: Boolean, default: false },
   type: { type: String, default: '' },       // 预筛类型：fabric / accessory / ''
-  mode: { type: String, default: 'pick' }    // pick = 加入本单；base = 用作新档案的基础资料
+  mode: { type: String, default: 'pick' },   // pick = 加入本单；base = 用作新档案的基础资料
+  /**
+   * 已经选中的 id：打开时回填勾选状态
+   *
+   * 有了它，二次打开弹窗不会"看不出哪些已经加过"，也不会重复加入同一条。
+   */
+  selected: { type: Array, default: () => [] }
 });
 const emit = defineEmits(['close', 'picked', 'base', 'blank']);
 
@@ -126,6 +132,14 @@ const suppliers = ref([]);
 const kw = ref({ name: '', short: '', supplier: '', type: props.type || '' });
 const picked = ref(new Set());
 const copying = ref(0);
+/**
+ * 看过的行（id → 行），跨多次查询累积
+ *
+ * 原来 `confirm()` 只在**当前筛选结果**里找已勾的 id —— 先搜"棉"勾两条、再搜"涤"
+ * 勾一条，点确定只会带出后面那条，前面两条静默丢了。物料多的时候这是必然发生的操作路径。
+ * 现在按 id 从 `seen` 里取，勾过的都在。
+ */
+const seen = ref(new Map());
 
 const allChecked = computed(() => list.value.length > 0 && list.value.every((m) => picked.value.has(m.id)));
 
@@ -134,6 +148,9 @@ async function load() {
     const all = await api.materials({ type: kw.value.type });
     // 供应商下拉用全量档案去重，避免筛选后越选越少
     suppliers.value = [...new Set(all.map((m) => m.supplier).filter(Boolean))].sort();
+    const next = new Map(seen.value);
+    all.forEach((m) => next.set(m.id, m));
+    seen.value = next;
     const name = kw.value.name.trim().toLowerCase();
     const short = kw.value.short.trim().toLowerCase();
     list.value = all.filter((m) => {
@@ -160,7 +177,10 @@ function toggleAll(on) {
 }
 
 function confirm() {
-  const rows = list.value.filter((m) => picked.value.has(m.id));
+  // 按 id 从 seen 里取，**不按当前筛选列表取** —— 否则先搜 A 勾、再搜 B 勾，
+  // 确定时只会带出 B 那几条，A 的两条静默消失（物料多时这是必经路径）
+  const ids = [...picked.value];
+  const rows = ids.map((id) => seen.value.get(id)).filter(Boolean);
   emit('picked', rows);
   picked.value = new Set();
   emit('close');
@@ -209,7 +229,12 @@ function close() {
 }
 
 watch(() => props.open, (v) => {
-  if (v) { picked.value = new Set(); kw.value.type = props.type || ''; load(); }
+  if (v) {
+    // 回填已选（父组件传进来的），再拉一次档案（别人可能刚新建过）
+    picked.value = new Set((props.selected || []).map(Number).filter(Boolean));
+    kw.value.type = props.type || '';
+    load();
+  }
 });
 </script>
 
