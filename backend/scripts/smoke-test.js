@@ -122,6 +122,20 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
   const token = login.json && login.json.data && login.json.data.token;
   ok('管理员登录成功', login.status === 200 && !!token, `HTTP ${login.status}`);
 
+  /**
+   * 登录被限流 → 直接停，别让两千条断言跟着红
+   *
+   * 冒烟一次要登录几十次（每个块各登一次，还故意试错密码）。**60 秒内连跑两次**
+   * 就会撞上 `LOGIN_ATTEMPT_MAX`（默认 120/分钟/IP），此时后续每条断言都会因为
+   * "拿不到 token"变红 —— 而代码一行没改。那种红最费时间：清单很长、全是 401。
+   * 这里明确说清原因和怎么恢复，比让人去逐条排查强。
+   */
+  if (login.status === 429) {
+    console.log('\n登录被限流（429）：多半是 60 秒内重复跑了冒烟。');
+    console.log(`等 60 秒再跑，或用更大的 LOGIN_ATTEMPT_MAX 启动被测服务（当前 BASE=${BASE}）。`);
+    process.exit(2);
+  }
+
   // 被测服务到底跑在哪种模式（决定后面哪些断言跑、哪些跳过）
   if (token) {
     try {
@@ -7367,11 +7381,17 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     ok('日清清单可读', dl.status === 200, `HTTP ${dl.status}`);
     ok('七类归口都返回（六类业务 + 流程与审批）', (d0.summary || []).length >= 7, `实际 ${(d0.summary || []).length} 类`);
 
-    const covRules = (d0.coverage && d0.coverage.rules) || [];
-    const skipNoReason = covRules.filter((c) => c.skipped > 0 && !c.skip_reason);
-    ok('跳过的规则都写清了原因', covRules.length > 0 && skipNoReason.length === 0, skipNoReason.map((c) => c.rule).join(','));
-    ok('覆盖率里显式说明未覆盖的类别', ((d0.coverage && d0.coverage.category_gaps) || []).length > 0
-      && /暂无自动检测规则/.test(JSON.stringify(d0.coverage.category_gaps || [])));
+    /**
+     * 覆盖率只来自"当天那次扫描"，**没有任何扫描就没有覆盖率**
+     *
+     * 这条原来写成"读 daily 的 coverage 必须非空"，等于假设今天已经跑过一次扫描 ——
+     * 换一天（新的一天第一次跑冒烟）就必然红两条，而代码一点没变。
+     * 现在改成断言"没扫过时要明说 pending"，覆盖率本身在下面扫描之后断言。
+     */
+    const dOld = await req('/api/exceptions/daily?day=1999-01-01', { token });
+    ok('★ 没扫描时明确告知「今日尚未扫描」（coverage=null + pending 标记）',
+      dOld.status === 200 && dOld.json.data.coverage === null && dOld.json.data.coverage_pending === true,
+      `coverage=${JSON.stringify(dOld.json.data && dOld.json.data.coverage)} pending=${dOld.json.data && dOld.json.data.coverage_pending}`);
 
     const allowWhy = ['已升级', '严重级', '过预计解决日', '超时未认领'];
     const badWhy = (d0.must || []).filter((x) => !allowWhy.includes(x.why));
@@ -7395,6 +7415,28 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
 
     const scan1 = await req('/api/exceptions/scan', { method: 'POST', token, body: {} });
     ok('扫描可执行', scan1.status === 200, `HTTP ${scan1.status}`);
+
+    /**
+     * 覆盖率断言必须基于**这次扫描的返回值**，不能读 daily 里上一次的批次 ——
+     * 否则"今天还没扫"的那一天会稳定红两条（换日复现，代码没动）。
+     */
+    const scanCov = (scan1.json.data && scan1.json.data.coverage) || [];
+    const skipNoReason = scanCov.filter((c) => c.skipped > 0 && !c.skip_reason);
+    ok('★ 跳过的规则都写清了原因（扫描结果自带口径）',
+      scanCov.length > 0 && skipNoReason.length === 0,
+      `${scanCov.length} 条规则，缺原因：${skipNoReason.map((c) => c.rule).join(',') || '无'}`);
+    const scanGaps = (scan1.json.data && scan1.json.data.category_gaps) || [];
+    ok('★ 覆盖率里显式说明未覆盖的类别',
+      scanGaps.length > 0 && /暂无自动检测规则/.test(JSON.stringify(scanGaps)),
+      JSON.stringify(scanGaps).slice(0, 80));
+
+    // 扫完之后 daily 应该能读到同一份覆盖率（且不再标 pending）
+    const dAfter = await req('/api/exceptions/daily', { token });
+    ok('扫描后 daily 带出同一份覆盖率（pending 标记消失）',
+      dAfter.status === 200 && dAfter.json.data.coverage_pending === false
+      && ((dAfter.json.data.coverage && dAfter.json.data.coverage.rules) || []).length === scanCov.length,
+      `pending=${dAfter.json.data && dAfter.json.data.coverage_pending}`);
+
     const mine = db.prepare("SELECT * FROM exception_items WHERE source_no='EXSMOKE0001' ORDER BY id").all();
     ok('过交期订单被检出', mine.length === 1 && mine[0].rule_code === 'order_overdue', `条数 ${mine.length}`);
     ok('检出的异常是严重级', mine.length === 1 && mine[0].severity === 'serious');

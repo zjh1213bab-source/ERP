@@ -35,6 +35,17 @@
     </div>
 
     <!-- 覆盖率：没算进去的部分必须说出来，否则「0 异常」会被当成「没问题」 -->
+    <!--
+      没扫过 ≠ 没有缺口：coverage 为 null 时如果什么都不显示，人会以为"今天没问题"，
+      实际是"今天还没扫"。所以这里单独提示一句，并把"重新扫描"指出来。
+    -->
+    <div class="cov pending" v-if="daily.coverage === null || daily.coverage === undefined">
+      <div class="cov-head">
+        今天还没扫描 —— 下面的清单可能为空，<b>但不代表没有异常</b>，也不代表判定覆盖率没有缺口。
+        <template v-if="canWrite">点右上角「重新扫描」生成今日清单与覆盖率说明。</template>
+        <template v-else>请联系有权限的同事执行一次扫描。</template>
+      </div>
+    </div>
     <div class="cov" v-if="gaps.length">
       <div class="cov-head">判定覆盖率提示 —— 下面这些<b>没有算进异常数</b>，不代表没问题</div>
       <ul>

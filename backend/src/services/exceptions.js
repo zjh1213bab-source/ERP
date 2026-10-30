@@ -932,7 +932,19 @@ function daily(opt = {}) {
     doing,
     auto_resolved_today: autoToday,
     summary: categoryCount(co),
+    /**
+     * 覆盖率**只来自当天已生成的那次扫描**，不现算
+     *
+     * 现算等于把 11 条规则全跑一遍（重查询 + 建单副作用），一个 GET 不该干这个；
+     * 而且"这次看到的覆盖率"必须与"这批清单"是同一次扫描的产物，否则
+     * 清单里 3 条、覆盖率说扫了 500 张单，对不上。
+     *
+     * 但**没扫过 ≠ 没有缺口**：`coverage: null` 时页面如果什么都不显示，
+     * 人会以为"今天没异常"（实际是"今天没扫"）。所以额外给一个 `coverage_pending`，
+     * 前端据此提示"今日尚未扫描"，而不是静默留白。
+     */
     coverage: batch ? JSON.parse(batch.coverage || '{}') : null,
+    coverage_pending: !batch,
     batch: batch || null
   };
 }

@@ -104,7 +104,16 @@ const cfg = {
    *   failMax    —— 同账号连续失败几次开始锁，之后逐次翻倍
    */
   loginLimit: {
-    attemptMax: Number(process.env.LOGIN_ATTEMPT_MAX) || 120,   // 每 IP 每窗口总尝试上限
+    /**
+     * 每 IP 每窗口总尝试上限（防 CPU 洪水，不是防猜密码 —— 那个由下面两条管）
+     *
+     * 给到 240 是因为**一次冒烟就要登录上百次**（每个块各登一次，还故意试错密码）：
+     * 120 的额度跑一趟没问题，但 60 秒内跑第二趟就会撞上限，两千条断言跟着变红 ——
+     * 而代码一行没改。这个额度只用来兜住"几十并发打 scrypt"的洪水，
+     * 240 次/分钟约等于单核 16% 的持续开销，仍是有界的。
+     */
+    attemptMax: Number(process.env.LOGIN_ATTEMPT_MAX) || 240,
+    // ↑ 每 IP 每窗口总尝试上限
     failIpMax: Number(process.env.LOGIN_FAIL_IP_MAX) || 20,     // 每 IP 每窗口失败上限
     windowMs: (Number(process.env.LOGIN_WINDOW_SEC) || 60) * 1000,
     failMax: Number(process.env.LOGIN_FAIL_MAX) || 5,           // 同账号连续失败几次开始锁
