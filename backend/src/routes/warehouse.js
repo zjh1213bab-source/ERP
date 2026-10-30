@@ -15,6 +15,7 @@
  */
 const express = require('express');
 const { db } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { applyStock, addLedger, getStock, round2 } = require('../services/stockOps');
@@ -31,10 +32,12 @@ const ASN_STATUS = {
   receiving: '点收中', done: '已完成', cancelled: '已取消'
 };
 
-const seqOf = (table, prefix) => {
-  const c = db.prepare(`SELECT COUNT(*) c FROM ${table}`).get().c + 1;
-  return genNo(prefix, c);
-};
+/**
+ * 单号：交给 utils/docNo（当日最大号 +1，遇到手填单号也不会算出 NaN）。
+ * 原来是 `COUNT(*)+1` —— 删过一张单，下一次就撞 UNIQUE 报 500，而且只在偶发时炸。
+ * 加列名参数是因为 ASN / 收料 / 上架 / 集包 / 运费单各自的单号列名不一样。
+ */
+const seqOf = (table, col, prefix) => nextNo(prefix, table, col);
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 /** ==================== 库位 ==================== */
@@ -140,7 +143,7 @@ router.post('/asns', authRequired, requireRole(...WRITE), wrap(async (req, res) 
     if (num(it.expect_qty) <= 0) return fail(res, 400, `款 ${it.style_no} 的预报数量必须大于 0`);
   }
   const t = localNow();
-  const asnNo = seqOf('wh_asns', 'ASN');
+  const asnNo = seqOf('wh_asns', 'asn_no', 'ASN');
   const total = round2(items.reduce((a, i) => a + num(i.expect_qty), 0));
 
   db.exec('BEGIN');
@@ -244,7 +247,7 @@ router.post('/asns/:id/receive', authRequired, requireRole(...WRITE), wrap(async
   }
 
   const t = localNow();
-  const rcvNo = seqOf('wh_receipts', 'RCV');
+  const rcvNo = seqOf('wh_receipts', 'rcv_no', 'RCV');
   let sumR = 0; let sumD = 0; let sumS = 0; let sumO = 0;
 
   db.exec('BEGIN');
@@ -367,7 +370,7 @@ router.post('/receipts/:id/putaway', authRequired, requireRole(...WRITE), wrap(a
   }
 
   const t = localNow();
-  const putNo = seqOf('wh_putaways', 'PUT');
+  const putNo = seqOf('wh_putaways', 'put_no', 'PUT');
   let addedSellable = 0;
 
   db.exec('BEGIN');
@@ -547,7 +550,7 @@ router.post('/bundles/:id/kit', authRequired, requireRole(...WRITE), wrap(async 
   if (lacks.length) return fail(res, 400, '组件不齐套：' + lacks.join('；'));
 
   const t = localNow();
-  const opNo = seqOf('wh_bundle_ops', 'KT');
+  const opNo = seqOf('wh_bundle_ops', 'op_no', 'KT');
   const st = db.prepare('SELECT * FROM wh_bundle_stock WHERE bundle_id=? AND warehouse=?').get(bd.id, bd.warehouse);
   const before = round2(st ? num(st.qty) : 0);
 
@@ -596,7 +599,7 @@ router.post('/bundles/:id/unbundle', authRequired, requireRole(...WRITE), wrap(a
   if (!items.length) return fail(res, 400, '套装没有组件');
 
   const t = localNow();
-  const opNo = seqOf('wh_bundle_ops', 'UB');
+  const opNo = seqOf('wh_bundle_ops', 'op_no', 'UB');
 
   db.exec('BEGIN');
   try {
@@ -717,7 +720,7 @@ router.post('/freight/bills', authRequired, requireRole(...WRITE), wrap(async (r
   const lines = Array.isArray(b.items) ? b.items : [];
   if (!b.carrier) return fail(res, 400, '承运商必填');
   if (!lines.length) return fail(res, 400, '账单至少要有一行明细');
-  const billNo = b.bill_no || seqOf('wh_freight_bills', 'YF');
+  const billNo = b.bill_no || seqOf('wh_freight_bills', 'bill_no', 'YF');
   const dup = db.prepare('SELECT id FROM wh_freight_bills WHERE bill_no=?').get(billNo);
   if (dup) return fail(res, 400, `账单号 ${billNo} 已存在`);
 

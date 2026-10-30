@@ -5,7 +5,7 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const scope = require('../access/companyScope');
 const { ensureFlow } = require('./patternFlows');
 const { saveMaterials } = require('../services/techPackMaterials');
-const { nextNo } = require('../services/noSeries');
+const { nextNo } = require('../utils/docNo');
 
 const router = express.Router();
 const READ = ['admin', 'boss', 'sales', 'tech', 'warehouse'];
@@ -55,7 +55,7 @@ router.post('/', authRequired, requireRole(REQUEST), wrap(async (req, res) => {
   if (referenceImageUrl && !/^\/uploads\/[a-f0-9]{20}\.(png|jpg|webp|gif)$/i.test(referenceImageUrl)) return fail(res, 400, '客户参考图片地址无效，请重新上传');
   const user = actor(req), ts = now();
   // 单号取「当日最大号 +1」（COUNT(*)+1 在删过记录后会撞号 → UNIQUE 报 500）
-  const no = nextNo('material_dev_requests', 'request_no', 'MD');
+  const no = nextNo('MD', 'material_dev_requests', 'request_no');
   const info = db.prepare(`INSERT INTO material_dev_requests(request_no,company_id,order_id,order_no,style_name,material_type,material_name,customer_requirements,requested_spec,requested_color,requester_id,requester_name,status,created_by,created_at,updated_at,pre_order_id,reference_image_url)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'search_required',?,?,?,?,?)`).run(no, preOrder.company_id || 1, 0, preOrder.pre_order_no, preOrder.style_name || '', type, String(b.material_name).trim(), String(b.customer_requirements).trim(), b.requested_spec || '', b.requested_color || '', user.id, user.name, user.id, ts, ts, preOrderId, referenceImageUrl || null);
   event(info.lastInsertRowid, null, 'request_created', user, '业务确认订单后发起新品寻样');

@@ -12,6 +12,7 @@
  */
 const express = require('express');
 const { db, now } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { qualificationGate } = require('./supplierEvals');
@@ -236,8 +237,7 @@ router.post('/:id/receive', authRequired, requireRole(WRITE), wrap(async (req, r
   db.exec('BEGIN');
   try {
     // 收料单头
-    const seq = Number(db.prepare('SELECT COUNT(*) AS c FROM goods_receipts WHERE grn_no LIKE ?').get(`GRN${ymd}%`).c) + 1;
-    grnNo = genNo('GRN', seq);
+    grnNo = nextNo('GRN', 'goods_receipts', 'grn_no');
     const gh = db.prepare(
       `INSERT INTO goods_receipts (grn_no, po_id, po_no, supplier, supplier_id, receive_date, warehouse, status,
         receive_by, receive_at, remark, created_by, created_at, updated_at)

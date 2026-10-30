@@ -12,6 +12,7 @@
  */
 const crypto = require('crypto');
 const { db } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { localNow, localDate } = require('./sla');
 
 const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
@@ -106,8 +107,7 @@ function importLines(accountId, lines, { source_name, operator } = {}) {
   if (!acc) throw new Error('银行账户不存在');
 
   const d = localDate().replace(/-/g, '');
-  const seqN = db.prepare('SELECT COUNT(*) c FROM bank_imports WHERE import_no LIKE ?').get(`IMP${d}%`).c + 1;
-  const importNo = `IMP${d}${String(seqN).padStart(4, '0')}`;
+  const importNo = nextNo('IMP', 'bank_imports', 'import_no');
   const t = localNow();
 
   const ins = db.prepare(
@@ -352,8 +352,7 @@ function preview(accountId, period, statementBalanceInput) {
 function createRecon(accountId, period, { statement_balance, note, operator } = {}) {
   const pv = preview(accountId, period, statement_balance);
   const d = localDate().replace(/-/g, '');
-  const seqN = db.prepare('SELECT COUNT(*) c FROM bank_reconciliations WHERE recon_no LIKE ?').get(`DZ${d}%`).c + 1;
-  const no = `DZ${d}${String(seqN).padStart(4, '0')}`;
+  const no = nextNo('DZ', 'bank_reconciliations', 'recon_no');
   const t = localNow();
 
   db.exec('BEGIN');

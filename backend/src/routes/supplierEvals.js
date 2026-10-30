@@ -28,6 +28,7 @@
  */
 const express = require('express');
 const { db, now } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 
@@ -343,8 +344,7 @@ router.post('/collect', authRequired, requireRole(WRITE), wrap(async (req, res) 
 
   const t = now();
   const ymd = t.slice(0, 10).replace(/-/g, '');
-  const seq = Number(db.prepare('SELECT COUNT(*) c FROM supplier_evaluations WHERE ev_no LIKE ?').get(`SE${ymd}%`).c) + 1;
-  const evNo = `SE${ymd}${String(seq).padStart(4, '0')}`;
+  const evNo = nextNo('SE', 'supplier_evaluations', 'ev_no');
 
   const info = db.prepare(
     `INSERT INTO supplier_evaluations (ev_no, supplier_id, supplier_name, period_start, period_end,
@@ -466,8 +466,7 @@ router.post('/:id/decide', authRequired, requireRole(WRITE), wrap(async (req, re
     if (!actionReq) return fail(res, 400, '请写明整改要求（怎么改、改到什么程度）');
     const t = now();
     const ymd = t.slice(0, 10).replace(/-/g, '');
-    const seq = Number(db.prepare('SELECT COUNT(*) c FROM supplier_rectifications WHERE rect_no LIKE ?').get(`ZG${ymd}%`).c) + 1;
-    const rectNo = `ZG${ymd}${String(seq).padStart(4, '0')}`;
+    const rectNo = nextNo('ZG', 'supplier_rectifications', 'rect_no');
     db.prepare(
       `INSERT INTO supplier_rectifications (rect_no, ev_id, supplier_id, supplier_name, issue, action, due_date, status, created_by, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?, 'open', ?, ?, ?)`

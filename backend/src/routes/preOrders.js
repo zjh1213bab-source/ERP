@@ -3,7 +3,7 @@ const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const scope = require('../access/companyScope');
-const { nextNo } = require('../services/noSeries');
+const { nextNo } = require('../utils/docNo');
 
 const router = express.Router();
 const READ = ['admin', 'boss', 'sales', 'tech', 'warehouse'];
@@ -27,7 +27,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const user = req.user;
   const ts = now();
   // 单号取「当日最大号 +1」（不是 COUNT(*)+1：删过一条就会撞号 → UNIQUE 报 500，已实测复现）
-  const no = nextNo('pre_orders', 'pre_order_no', 'PD');
+  const no = nextNo('PD', 'pre_orders', 'pre_order_no');
   const info = db.prepare(`INSERT INTO pre_orders(pre_order_no,company_id,customer_name,style_name,expected_qty,target_date,requirements,status,created_by,created_by_name,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,'open',?,?,?,?)`).run(no, scope.writeCompanyOf(user), customerName, String(b.style_name || '').trim(), Math.max(0, Number(b.expected_qty) || 0), b.target_date || null, String(b.requirements || '').trim(), Number(user.sub || user.id) || null, user.name || user.username || '', ts, ts);
   return ok(res, db.prepare('SELECT * FROM pre_orders WHERE id=?').get(info.lastInsertRowid));

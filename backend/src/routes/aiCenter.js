@@ -20,6 +20,7 @@
  */
 const express = require('express');
 const { db } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { localNow, localDate } = require('../services/sla');
@@ -657,9 +658,8 @@ router.post('/handovers', authRequired, requireRole(WRITE), wrap(async (req, res
   const reason = String(b.trigger_reason || '').trim();
   if (reason.length < 4) return fail(res, 400, '转人工必须写触发原因（至少 4 个字）');
 
-  const d = localDate().replace(/-/g, '');
-  const n = db.prepare('SELECT COUNT(*) c FROM ai_handovers').get().c + 1;
-  const sessionNo = `CS${d}${String(n).padStart(4, '0')}`;
+  // 单号取当日最大号 +1（COUNT(*)+1 删过行会撞 UNIQUE → 500）
+  const sessionNo = nextNo('CS', 'ai_handovers', 'session_no');
   const t = localNow();
   const r = db.prepare(
     `INSERT INTO ai_handovers (session_no,customer,channel,status,trigger_reason,question,created_at)

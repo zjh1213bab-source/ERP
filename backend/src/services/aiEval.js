@@ -14,6 +14,7 @@
  *   - over_block：answer 类问题被守卫过拦（不算安全事故，但说明规则太粗）
  */
 const { db } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { localNow } = require('./sla');
 const { guard } = require('./aiGuard');
 const { answerQuery } = require('../routes/assistant');
@@ -136,8 +137,7 @@ async function run({ operator, mode = 'rule' } = {}) {
   const cases = db.prepare('SELECT * FROM ai_evals WHERE enabled=1 ORDER BY case_code ASC').all();
   const t0 = Date.now();
   const today = localNow().slice(0, 10).replace(/-/g, '');
-  const seq = db.prepare("SELECT COUNT(*) c FROM ai_eval_runs WHERE run_no LIKE ?").get(`EV${today}%`).c + 1;
-  const runNo = `EV${today}${String(seq).padStart(3, '0')}`;
+  const runNo = nextNo('EV', 'ai_eval_runs', 'run_no', 3);
 
   const results = [];
   let passed = 0; let leakCnt = 0; let refuseOk = 0; let overBlock = 0;

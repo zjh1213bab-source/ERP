@@ -21,6 +21,7 @@
  */
 const express = require('express');
 const { db, now } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 
@@ -84,14 +85,7 @@ function jobFamilyOf(position) {
   return '通用';
 }
 
-function templateNo(seq) {
-  return genNo('KPI', seq);
-}
-
-function nextSeq(table, prefixLen) {
-  const n = db.prepare(`SELECT COUNT(*) c FROM ${table}`).get().c + 1;
-  return n;
-}
+/** 模板号 / 申诉号：统一走 utils/docNo（当日最大号 +1），不再各算一份序号 */
 
 /** 该员工当前适用的已批准模板：岗位优先，其次岗位族，最后部门兜底 */
 function templateFor(emp) {
@@ -375,7 +369,7 @@ router.post('/templates', authRequired, requireRole(WRITE), wrap(async (req, res
     `INSERT INTO kpi_templates (template_no, name, job_family, job_title, department_id, base_score,
        cycle_type, version, status, created_by, created_at, updated_at)
      VALUES (?,?,?,?,?,?, 'weekly', 1, 'draft', ?,?,?)`
-  ).run(templateNo(nextSeq('kpi_templates')), String(b.name).trim(), fam, b.job_title || null,
+  ).run(nextNo('KPI', 'kpi_templates', 'template_no'), String(b.name).trim(), fam, b.job_title || null,
     b.department_id || null, base, req.user.username, t, t);
   return ok(res, { id: Number(info.lastInsertRowid), notice: '已建草稿，接着配置指标并提交审批' });
 }));
@@ -540,7 +534,7 @@ router.post('/templates/:id/new-version', authRequired, requireRole(WRITE), wrap
       `INSERT INTO kpi_templates (template_no, name, job_family, job_title, department_id, base_score,
          cycle_type, version, parent_id, status, remark, created_by, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?, 'draft', ?,?,?,?)`
-    ).run(templateNo(nextSeq('kpi_templates')), t.name, t.job_family, t.job_title, t.department_id,
+    ).run(nextNo('KPI', 'kpi_templates', 'template_no'), t.name, t.job_family, t.job_title, t.department_id,
       t.base_score, t.cycle_type, Number(t.version) + 1, t.id, t.remark, req.user.username, t2, t2);
     newId = Number(info.lastInsertRowid);
     const ins = db.prepare(
@@ -1030,7 +1024,7 @@ router.post('/appeals', authRequired, wrap(async (req, res) => {
     return fail(res, 400, '周期已冻结。确实要申诉请带上 allow_after_freeze=true（系统会保留原记录并标争议中，不会篡改定版分数）');
   }
   const t = now();
-  const appealNo = genNo('AP', nextSeq('kpi_appeals'));
+  const appealNo = nextNo('AP', 'kpi_appeals', 'appeal_no');
   const info = db.prepare(
     `INSERT INTO kpi_appeals (appeal_no, item_id, score_id, employee_id, employee_name, cycle_id, cycle_no,
        reason_type, reason, evidence, original_score, decision, status, submitted_at)

@@ -9,6 +9,7 @@
  */
 const express = require('express');
 const { db } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { applyStock, addLedger, round2 } = require('../services/stockOps');
@@ -304,8 +305,7 @@ router.post('/returns', authRequired, requireRole(...WRITE), wrap(async (req, re
   const type = b.type || 'customer';
   if (!RETURN_TYPE[type]) return fail(res, 400, '退货类型不合法');
   const t = localNow();
-  const seq = db.prepare('SELECT COUNT(*) c FROM stock_returns').get().c + 1;
-  const no = genNo('RT', seq);
+  const no = nextNo('RT', 'stock_returns', 'return_no');
   const total = round2(items.reduce((a, i) => a + num(i.qty_apply), 0));
 
   db.exec('BEGIN');

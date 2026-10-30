@@ -13,6 +13,7 @@
  */
 const express = require('express');
 const { db, now } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const privacy = require('../services/privacy');
@@ -37,12 +38,7 @@ function addDays(dateStr, n) {
   d.setDate(d.getDate() + n);
   return localDate(d);
 }
-function nextNo(table, col, prefix) {
-  let seq = Number(db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c) + 1;
-  let no = genNo(prefix, seq);
-  while (db.prepare(`SELECT 1 AS x FROM ${table} WHERE ${col} = ?`).get(no)) no = genNo(prefix, ++seq);
-  return no;
-}
+// 单号统一用 utils/docNo.nextNo（原来这里有一份 COUNT(*)+1 的副本）
 
 const CONTRACT_TYPE = { lease: '租赁', property: '物业', canteen: '食堂', insurance: '保险', service: '服务采购', other: '其他' };
 const CONTRACT_STATUS = { draft: '草稿', active: '履约中', renewed: '已续签', terminated: '已终止', archived: '已归档' };
@@ -302,7 +298,7 @@ router.post('/contracts', authRequired, requireRole(WRITE), wrap(async (req, res
          deposit, deposit_return_date, sign_date, start_date, end_date, renewal_notice_days, current_version,
          seal_id, status, remark, created_by, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?, 'active', ?,?,?,?)`
-    ).run(nextNo('admin_contracts', 'contract_no', 'XZ'), String(b.name).trim(), b.type,
+    ).run(nextNo('XZ', 'admin_contracts', 'contract_no'), String(b.name).trim(), b.type,
       b.company || null, String(b.counterparty).trim(), String(b.owner).trim(),
       round2(amt), b.currency || 'CNY', round2(b.deposit) || 0, b.deposit_return_date || null,
       b.sign_date || null, b.start_date, b.end_date, Number(b.renewal_notice_days) || 30,
@@ -672,7 +668,7 @@ router.post('/seal-usages', authRequired, requireRole(WRITE), wrap(async (req, r
     `INSERT INTO seal_usages (usage_no, seal_id, applicant, purpose, doc_name, doc_version, kind, contract_id,
        doc_hash, status, remark, created_at, updated_at, expect_return_date)
      VALUES (?,?,?,?,?,?,?,?,?, 'pending', ?,?,?,?)`
-  ).run(nextNo('seal_usages', 'usage_no', 'YY'), seal.id, a.name, purpose,
+  ).run(nextNo('YY', 'seal_usages', 'usage_no'), seal.id, a.name, purpose,
     b.doc_name || null, b.doc_version || null, kind, contractId, docHash,
     b.remark || null, t, t, kind === 'borrow' ? b.expect_return_date : null);
   return ok(res, {

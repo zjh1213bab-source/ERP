@@ -22,6 +22,7 @@
  */
 const express = require('express');
 const { db, now } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 // 床日口径只维护一份（后勤页与行政运营报表共用）
@@ -32,13 +33,6 @@ const WRITE = ['admin', 'hr', 'warehouse'];
 const today = () => new Date().toISOString().slice(0, 10);
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const daysBetween = (a, b) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
-
-function nextNo(table, col, prefix) {
-  let seq = Number(db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c) + 1;
-  let no = genNo(prefix, seq);
-  while (db.prepare(`SELECT 1 AS x FROM ${table} WHERE ${col} = ?`).get(no)) no = genNo(prefix, ++seq);
-  return no;
-}
 
 const ROOM_GENDER = { male: '男', female: '女' };
 const AREA = { dorm: '宿舍', fire: '消防', office: '办公', production: '生产辅助' };
@@ -721,7 +715,7 @@ router.post('/seal-usages', authRequired, requireRole(WRITE), wrap(async (req, r
   const r = db.prepare(
     `INSERT INTO seal_usages (usage_no, seal_id, applicant, purpose, doc_name, doc_version, status, remark, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)`
-  ).run(nextNo('seal_usages', 'usage_no', 'YY'), seal.id, b.applicant || req.user.username,
+  ).run(nextNo('YY', 'seal_usages', 'usage_no'), seal.id, b.applicant || req.user.username,
     b.purpose, b.doc_name || null, b.doc_version || null, 'pending', b.remark || null, t, t);
   return ok(res, { id: Number(r.lastInsertRowid) });
 }));
@@ -803,7 +797,7 @@ router.post('/safety-checks', authRequired, requireRole(WRITE), wrap(async (req,
     const r = db.prepare(
       `INSERT INTO safety_checks (check_no, area, facility, items, inspector, checked_at, result, issues_count, photo, remark, created_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(nextNo('safety_checks', 'check_no', 'XJ'), b.area, b.facility || null,
+    ).run(nextNo('XJ', 'safety_checks', 'check_no'), b.area, b.facility || null,
       JSON.stringify(items), b.inspector || req.user.username, b.checked_at || t, result,
       ngItems.length, b.photo || null, b.remark || null, t);
     checkId = Number(r.lastInsertRowid);
@@ -816,7 +810,7 @@ router.post('/safety-checks', authRequired, requireRole(WRITE), wrap(async (req,
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
       );
       ngItems.forEach((it) => {
-        insRepair.run(nextNo('repairs', 'repair_no', 'BX'), checkId, b.area,
+        insRepair.run(nextNo('BX', 'repairs', 'repair_no'), checkId, b.area,
           it.item, it.note || `${it.item} 巡检不合格`, it.severity || 'minor', b.photo || null,
           'reported', b.inspector || req.user.username, t, it.down_impact || null, t, t);
       });
@@ -854,7 +848,7 @@ router.post('/repairs', authRequired, requireRole(WRITE), wrap(async (req, res) 
     `INSERT INTO repairs (repair_no, order_id, area, facility, description, severity, photo, status, reporter,
        reported_at, due_date, down_impact, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(nextNo('repairs', 'repair_no', 'BX'), b.order_id || null, b.area || null, b.facility,
+  ).run(nextNo('BX', 'repairs', 'repair_no'), b.order_id || null, b.area || null, b.facility,
     b.description || null, b.severity || 'minor', b.photo || null, 'reported',
     b.reporter || req.user.username, t, b.due_date || null, b.down_impact || null, t, t);
   return ok(res, { id: Number(r.lastInsertRowid) });

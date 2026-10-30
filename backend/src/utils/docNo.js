@@ -10,9 +10,20 @@
  * 各写一份迟早出现「一边 4 位序号、一边 5 位」。
  */
 const { db } = require('../db');
-const { genNo } = require('./http');
 
-function nextNo(prefix, table, column = 'bill_no') {
+/** 表名/列名白名单：这两个值会拼进 SQL，只允许标识符形态（本项目铁律） */
+const IDENT_RE = /^[a-z][a-z0-9_]{1,48}$/i;
+
+/**
+ * @param {string} prefix  单号前缀（如 'PD'）
+ * @param {string} table   表名
+ * @param {string} column  单号列名
+ * @param {number} [width=4] 序号补零宽度（有个别单据是 3 位，如 AI 评测批次 EV）
+ */
+function nextNo(prefix, table, column = 'bill_no', width = 4) {
+  if (!IDENT_RE.test(String(table)) || !IDENT_RE.test(String(column))) {
+    throw new Error(`nextNo 表名/列名非法：${table}.${column}`);
+  }
   const d = new Date();
   const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
     + `${String(d.getDate()).padStart(2, '0')}`;
@@ -44,7 +55,7 @@ function nextNo(prefix, table, column = 'bill_no') {
     const n = Number(m[1]);
     if (Number.isFinite(n) && n > max) max = n;
   });
-  return genNo(prefix, max + 1);
+  return `${head}${String(max + 1).padStart(width, '0')}`;
 }
 
 module.exports = { nextNo };

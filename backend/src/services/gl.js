@@ -60,8 +60,18 @@ function shiftPeriod(period, delta) {
 function nextVoucherNo(period, companyId) {
   const co = companyOf(companyId);
   const ym = String(period).replace('-', '');
-  const n = db.prepare('SELECT COUNT(*) c FROM gl_vouchers WHERE company_id=? AND period=?').get(co, period).c + 1;
-  return `记-${ym}-${String(n).padStart(4, '0')}`;
+  /**
+   * 取「该主体 + 该期间」已有凭证号的最大序号 +1。
+   * 不能用 COUNT(*)+1：作废或删除过一张，下一张就撞 UNIQUE(company_id, voucher_no)。
+   * 也不能直接套 utils/docNo —— 凭证号按主体+期间编号、带中文前缀，不是按天递增。
+   */
+  const rows = db.prepare('SELECT voucher_no FROM gl_vouchers WHERE company_id=? AND period=?').all(co, period);
+  let max = 0;
+  rows.forEach((r) => {
+    const m = /-(\d+)$/.exec(String(r.voucher_no || ''));
+    if (m && Number(m[1]) > max) max = Number(m[1]);
+  });
+  return `记-${ym}-${String(max + 1).padStart(4, '0')}`;
 }
 
 /** 下一笔分录行号 */

@@ -14,6 +14,7 @@
  */
 const express = require('express');
 const { db, now, getSettings } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { round2, applyStock, addLedger, availableQty } = require('../services/stockOps');
@@ -44,13 +45,6 @@ function csv(res, filename, header, rows) {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
   res.send('\ufeff' + lines.join('\r\n'));
-}
-
-function nextNo(table, col, prefix) {
-  let seq = Number(db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c) + 1;
-  let no = genNo(prefix, seq);
-  while (db.prepare(`SELECT 1 AS x FROM ${table} WHERE ${col} = ?`).get(no)) no = genNo(prefix, ++seq);
-  return no;
 }
 
 function rate() {
@@ -287,7 +281,7 @@ router.post('/retail-orders', authRequired, requireRole(WRITE), wrap(async (req,
     ? Number(b.paid_amount) || 0
     : round2(goods - discount + tax + ship);
 
-  const retailNo = nextNo('retail_orders', 'retail_no', 'RT');
+  const retailNo = nextNo('RT', 'retail_orders', 'retail_no');
   let newId = null;
   try {
     db.exec('BEGIN');
@@ -365,7 +359,7 @@ router.post('/retail-orders/import', authRequired, requireRole(WRITE), wrap(asyn
       const shop = db.prepare('SELECT * FROM channel_shops WHERE id = ?').get(g.shop_id);
       const goods = g.items.reduce((s, i) => s + i.price * i.qty, 0);
       const paid = g.paid_amount === null || g.paid_amount === undefined ? goods : g.paid_amount;
-      const no = nextNo('retail_orders', 'retail_no', 'RT');
+      const no = nextNo('RT', 'retail_orders', 'retail_no');
       const r = db.prepare(
         `INSERT INTO retail_orders (retail_no, channel_order_no, shop_id, company, mode, order_date, currency, rate,
            goods_amount, discount, tax, shipping_fee, paid_amount, pay_status, receiver, remark, created_by, created_at, updated_at)
@@ -491,7 +485,7 @@ router.post('/quotas', authRequired, requireRole(WRITE), wrap(async (req, res) =
     const q = db.prepare('SELECT * FROM channel_quotas WHERE id = ?').get(exist.id);
     return ok(res, { ...q, ...quotaCalc(q, shop), created: false });
   }
-  const planNo = nextNo('channel_quotas', 'plan_no', 'QP');
+  const planNo = nextNo('QP', 'channel_quotas', 'plan_no');
   const r = db.prepare(
     `INSERT INTO channel_quotas (plan_no, shop_id, style_no, product_name, owner, channel_limit, reserved,
        pre_sale_date, status, remark, created_by, created_at, updated_at)
@@ -687,7 +681,7 @@ router.post('/after-sales', authRequired, requireRole(WRITE), wrap(async (req, r
   const t = now();
   // 仅退款无需退回实物；退货/换货才建「待退回」
   const returnStatus = type === 'refund' ? 'not_required' : 'pending';
-  const no = nextNo('retail_after_sales', 'no', 'AS');
+  const no = nextNo('AS', 'retail_after_sales', 'no');
   const r = db.prepare(
     `INSERT INTO retail_after_sales (no, retail_id, item_id, type, reason, refund_amount, return_qty,
        refund_status, return_status, remark, created_by, created_at, updated_at)
@@ -892,7 +886,7 @@ router.post('/settlements/generate', authRequired, requireRole(WRITE), wrap(asyn
   const otherFee = round2(Number(b.other_fee) || 0);
   const net = round2(orderAmount - refundAmount - platformFee - adFee - fulfillFee - otherFee);
   const contribution = round2(net - costAmount);
-  const batchNo = nextNo('channel_settlements', 'batch_no', 'JS');
+  const batchNo = nextNo('JS', 'channel_settlements', 'batch_no');
   const t = now();
 
   let sid = null;

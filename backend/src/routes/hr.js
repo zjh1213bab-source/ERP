@@ -16,6 +16,7 @@
  */
 const express = require('express');
 const { db, now } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 
@@ -32,13 +33,6 @@ const DELIVERY = { pending: '未交付', delivered: '已交付' };
 const CONTRACT_STATUS = { active: '有效', renewed: '已续签', expired: '已到期', terminated: '已解除' };
 const ADJ_TYPE = { annual: '年度调薪', regular: '转正调薪', promote: '晋升调薪', adjust: '个别调整' };
 const ADJ_STATUS = { draft: '草稿', approved: '已批准', effective: '已生效', cancelled: '已取消' };
-
-function nextNo(table, col, prefix) {
-  let seq = Number(db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c) + 1;
-  let no = genNo(prefix, seq);
-  while (db.prepare(`SELECT 1 AS x FROM ${table} WHERE ${col} = ?`).get(no)) no = genNo(prefix, ++seq);
-  return no;
-}
 
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const daysBetween = (a, b) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
@@ -182,7 +176,7 @@ router.post('/recruitments', authRequired, requireRole(WRITE), wrap(async (req, 
     `INSERT INTO hr_recruitments (req_no, position, department_id, headcount, hired, requirement, channel,
        salary_range, owner, status, opened_at, remark, created_by, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(nextNo('hr_recruitments', 'req_no', 'ZP'), b.position, b.department_id || null, head, 0,
+  ).run(nextNo('ZP', 'hr_recruitments', 'req_no'), b.position, b.department_id || null, head, 0,
     b.requirement || null, b.channel || null, b.salary_range || null, b.owner || req.user.username,
     b.status || 'open', b.opened_at || t.slice(0, 10), b.remark || null, req.user.username, t, t);
   return ok(res, recruitView(db.prepare('SELECT * FROM hr_recruitments WHERE id = ?').get(r.lastInsertRowid)));
@@ -311,7 +305,7 @@ router.post('/candidates/:id/hire', authRequired, requireRole(WRITE), wrap(async
       `INSERT INTO employee_movements (mov_no, employee_id, type, effective_date, to_department_id, to_position,
          reason, status, applied_at, created_by, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(nextNo('employee_movements', 'mov_no', 'YD'), empId, 'onboard', hireDate, deptId || null, position,
+    ).run(nextNo('YD', 'employee_movements', 'mov_no'), empId, 'onboard', hireDate, deptId || null, position,
       '招聘入职', 'effective', t, req.user.username, t, t);
 
     db.exec('COMMIT');
@@ -387,7 +381,7 @@ router.post('/movements', authRequired, requireRole(WRITE), wrap(async (req, res
     `INSERT INTO employee_movements (mov_no, employee_id, type, effective_date, from_department_id, to_department_id,
        from_position, to_position, reason, handover, status, created_by, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(nextNo('employee_movements', 'mov_no', 'YD'), emp.id, b.type, b.effective_date,
+  ).run(nextNo('YD', 'employee_movements', 'mov_no'), emp.id, b.type, b.effective_date,
     b.type === 'onboard' ? null : emp.department_id, b.to_department_id || null,
     b.type === 'onboard' ? null : emp.position, b.to_position || null,
     b.reason || null, handover.length ? JSON.stringify(handover) : null,
@@ -533,7 +527,7 @@ router.post('/contracts', authRequired, requireRole(WRITE), wrap(async (req, res
     `INSERT INTO labor_contracts (contract_no, employee_id, type, sign_date, start_date, end_date, probation_end,
        delivery_status, delivery_evidence, attachment, renewal_of, status, remark, created_by, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(b.contract_no || nextNo('labor_contracts', 'contract_no', 'HT'), emp.id, b.type || 'fixed',
+  ).run(b.contract_no || nextNo('HT', 'labor_contracts', 'contract_no'), emp.id, b.type || 'fixed',
     b.sign_date || null, b.start_date, b.end_date || null, b.probation_end || null,
     b.delivery_status || 'pending', b.delivery_evidence || null, b.attachment || null,
     b.renewal_of || null, 'active', b.remark || null, req.user.username, t, t);
@@ -603,7 +597,7 @@ router.post('/contracts/:id/renew', authRequired, requireRole(WRITE), wrap(async
       `INSERT INTO labor_contracts (contract_no, employee_id, type, sign_date, start_date, end_date, probation_end,
          delivery_status, renewal_of, status, remark, created_by, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(nextNo('labor_contracts', 'contract_no', 'HT'), old.employee_id, b2.type, b.sign_date || null,
+    ).run(nextNo('HT', 'labor_contracts', 'contract_no'), old.employee_id, b2.type, b.sign_date || null,
       b2.start_date, b2.end_date, b2.probation_end, 'pending', old.id, 'active',
       b.remark || `续签自 ${old.contract_no}`, req.user.username, t, t);
     newId = Number(r.lastInsertRowid);
@@ -682,7 +676,7 @@ router.post('/adjustments', authRequired, requireRole(WRITE), wrap(async (req, r
     `INSERT INTO salary_adjustments (adj_no, employee_id, type, before_salary, after_salary, effective_date,
        reason, status, remark, created_by, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(nextNo('salary_adjustments', 'adj_no', 'TX'), emp.id, b.type || 'annual', round2(before), round2(after),
+  ).run(nextNo('TX', 'salary_adjustments', 'adj_no'), emp.id, b.type || 'annual', round2(before), round2(after),
     b.effective_date, b.reason || null, 'draft', b.remark || null, req.user.username, t, t);
   return ok(res, adjView(db.prepare('SELECT * FROM salary_adjustments WHERE id = ?').get(r.lastInsertRowid)));
 }));

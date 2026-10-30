@@ -13,6 +13,7 @@
  */
 const express = require('express');
 const { db } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { RULES, FIXERS, byCode, orderQty, r2, num } = require('../services/dqRules');
@@ -100,8 +101,7 @@ router.post(
     else if (scope === 'balance' || scope === 'quality') picked = picked.filter((r) => r.kind === scope);
     if (!picked.length) return fail(res, 400, '没有可执行的勾稽规则');
 
-    const seq = db.prepare('SELECT COUNT(*) c FROM dq_runs').get().c + 1;
-    const runNo = genNo('GJ', seq);
+    const runNo = nextNo('GJ', 'dq_runs', 'run_no');
     const operator = req.user?.name || req.user?.username || 'system';
 
     const runId = db

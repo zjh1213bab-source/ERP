@@ -15,6 +15,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const { db, now } = require('../db');
+const { nextNo } = require('../utils/docNo');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const mall = require('../services/mall');
@@ -33,13 +34,6 @@ const CHANGE_STATUS = {
 const CHANGE_TYPE = { craft: '工艺', qty: '数量', price: '价格', delivery: '交期', material: '面辅料' };
 const DELIVERY_KIND = { etd: '预计出厂', eta_wh: '预计到仓', eta_customer: '预计送达' };
 const DELIVERY_STATUS = { pending: '待客户确认', confirmed: '客户已确认', rejected: '客户不接受' };
-
-function nextNo(table, col, prefix) {
-  let seq = Number(db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c) + 1;
-  let no = genNo(prefix, seq);
-  while (db.prepare(`SELECT 1 AS x FROM ${table} WHERE ${col} = ?`).get(no)) no = genNo(prefix, ++seq);
-  return no;
-}
 
 /** 内容校验值：把影响外观与规格的字段一起算，任何一项变了都必须重新确认 */
 function contentHash(seal) {
@@ -141,7 +135,7 @@ router.post('/seals', authRequired, requireRole(WRITE), wrap(async (req, res) =>
   const version = b.version || 'V' + (cnt + 1);
 
   const t = now();
-  const sealNo = nextNo('sample_seals', 'seal_no', 'SY');
+  const sealNo = nextNo('SY', 'sample_seals', 'seal_no');
   const attachments = JSON.stringify(Array.isArray(b.attachments) ? b.attachments : []);
   const hash = contentHash({ style_no: styleNo, sample_name: b.sample_name, version, attachments, remark: b.remark });
 
@@ -308,7 +302,7 @@ router.post('/changes', authRequired, requireRole(WRITE), wrap(async (req, res) 
     ? Number(b.remaining_qty) || 0 : Math.max(0, total - delivered);
 
   const t = now();
-  const no = nextNo('order_changes', 'change_no', 'BG');
+  const no = nextNo('BG', 'order_changes', 'change_no');
   const r = db.prepare(
     `INSERT INTO order_changes (change_no, order_id, type, title, before_json, after_json,
        affected_in_production, affected_materials, delivered_qty, remaining_qty, cost_delta, price_delta,
