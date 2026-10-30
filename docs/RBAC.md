@@ -564,6 +564,15 @@
 | mallAdmin | PUT | `/products/:id` | ✅ | — | ✅ | — | — | — | — | — |
 | mallAdmin | DELETE | `/products/:id` | ✅ | — | ✅ | — | — | — | — | — |
 | mallAdmin | POST | `/products/:id/status` | ✅ | — | ✅ | — | — | — | — | — |
+| materialDevelopment | GET | `/` | ✅ | ✅ | ✅ | ✅ | — | ✅ | — | — |
+| materialDevelopment | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| materialDevelopment | GET | `/:id` | ✅ | ✅ | ✅ | ✅ | — | ✅ | — | — |
+| materialDevelopment | POST | `/:id/pattern-review` | ✅ | — | — | ✅ | — | — | — | — |
+| materialDevelopment | PUT | `/:id/resubmit-pattern-review` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| materialDevelopment | POST | `/:id/start-search` | ✅ | — | — | — | — | ✅ | — | — |
+| materialDevelopment | POST | `/rounds/:roundId/approve` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| materialDevelopment | POST | `/rounds/:roundId/reject` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| materialDevelopment | POST | `/rounds/:roundId/return` | ✅ | — | — | — | — | ✅ | — | — |
 | materials | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | materials | PUT | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | materials | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
@@ -722,6 +731,9 @@
 | org | POST | `/scopes/:id/approve` | ✅ | — | — | — | — | — | ✅ | — |
 | org | POST | `/scopes/:id/reject` | ✅ | — | — | — | — | — | ✅ | — |
 | org | POST | `/scopes/sweep` | ✅ | — | — | — | — | — | ✅ | — |
+| patternFlows | POST | `/:flowId/changes` | ✅ | — | ✅ | — | — | — | — | — |
+| patternFlows | POST | `/changes/:id/recheck` | ✅ | — | — | ✅ | — | — | — | — |
+| patternFlows | POST | `/changes/:id/review` | ✅ | — | — | ✅ | — | — | — | — |
 | payable | GET | `/:supplierId` | ✅ | ✅ | — | — | — | — | ✅ | — |
 | payable | PUT | `/:supplierId` | ✅ | — | — | — | — | — | ✅ | — |
 | payable | GET | `/board` | ✅ | ✅ | — | — | — | — | ✅ | — |
@@ -776,6 +788,9 @@
 | pieceWage | POST | `/runs/:id/confirm` | ✅ | — | — | — | — | — | ✅ | — |
 | pieceWage | GET | `/runs/:id/payslips` | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | pieceWage | POST | `/runs/:id/void` | ✅ | — | — | — | — | — | ✅ | — |
+| preOrders | GET | `/` | ✅ | ✅ | ✅ | ✅ | — | ✅ | — | — |
+| preOrders | POST | `/` | ✅ | — | ✅ | — | — | — | — | — |
+| preOrders | PUT | `/:id` | ✅ | — | ✅ | — | — | — | — | — |
 | priceTiers | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | priceTiers | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | pricing | POST | `/books` | ✅ | — | ✅ | — | — | — | ✅ | — |

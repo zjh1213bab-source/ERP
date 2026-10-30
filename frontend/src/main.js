@@ -4,6 +4,7 @@ import router from './router';
 import { fmtTime, fmtTimeSec, fmtDate } from './utils/time';
 import './assets/main.css';
 import './assets/erp.css';
+import './store/theme';
 
 const app = createApp(App);
 

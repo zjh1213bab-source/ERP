@@ -9,8 +9,10 @@ const Scan = () => import('./views/Scan.vue');
 const Customers = () => import('./views/Customers.vue');
 const Products = () => import('./views/Products.vue');
 const Orders = () => import('./views/Orders.vue');
+const PreOrders = () => import('./views/PreOrders.vue');
 const Quotations = () => import('./views/Quotations.vue');
 const Development = () => import('./views/Development.vue');
+const MaterialDevelopment = () => import('./views/MaterialDevelopment.vue');
 const Materials = () => import('./views/Materials.vue');
 const MaterialEdit = () => import('./views/MaterialEdit.vue');
 const Finance = () => import('./views/Finance.vue');
@@ -173,11 +175,13 @@ const routes = [
       { path: 'customers', component: Customers, meta: { title: '客户管理' } },
       { path: 'products', component: Products, meta: { title: '产品管理' } },
       { path: 'orders', component: Orders, meta: { title: '销售订单' } },
+      { path: 'pre-orders', component: PreOrders, meta: { title: '预下单' } },
       { path: 'quotations', component: Quotations, meta: { title: '报价单' } },
       { path: 'mall-admin', component: MallAdmin, meta: { title: '客户商城' } },
       { path: 'channel', component: Channel, meta: { title: '零售与渠道' } },
       { path: 'confirm-center', component: ConfirmCenter, meta: { title: '客户确认' } },
       { path: 'development', component: Development, meta: { title: '开发管理' } },
+      { path: 'material-development', component: MaterialDevelopment, meta: { title: '面辅料新品开发' } },
       { path: 'pattern-board', component: PatternBoard, meta: { title: '打版流程' } },
       { path: 'sample-archive', component: SampleArchive, meta: { title: '样衣管理' } },
       { path: 'finance', component: Finance, meta: { title: '往来账' } },

@@ -1,5 +1,5 @@
 <template>
-  <div class="erp-shell">
+    <div class="erp-shell" :style="navPaletteStyle">
     <!-- 侧边栏 -->
     <aside class="erp-sidebar" :class="{ open: navOpen }">
       <div class="brand">
@@ -26,7 +26,27 @@
           </div>
         </template>
       </nav>
-      <div class="side-foot">100-500人企业版 · v1.0</div>
+      <div class="side-foot">
+        <span>100-500人企业版 · v1.0</span>
+        <button class="nav-palette-trigger" type="button" :aria-expanded="navPaletteOpen" aria-label="自定义导航配色" title="自定义导航配色" @click.stop="navPaletteOpen = !navPaletteOpen">🎨</button>
+        <div v-if="navPaletteOpen" class="nav-palette" role="dialog" aria-label="导航配色设置" @click.stop>
+          <div class="nav-palette-head">
+            <strong>导航配色</strong>
+            <button type="button" class="nav-palette-close" aria-label="关闭配色设置" @click="navPaletteOpen = false">×</button>
+          </div>
+          <div class="nav-palette-options">
+            <button v-for="preset in navPalettePresets" :key="preset.id" type="button" class="nav-palette-option" :class="{ selected: navPaletteId === preset.id }" :aria-label="`${preset.label}导航配色`" :title="preset.label" @click="selectNavPalette(preset.id)">
+              <span class="nav-swatch" :style="{ '--swatch': preset.bg, '--swatch-accent': preset.accent }"><i></i></span>
+              <span>{{ preset.label }}</span>
+            </button>
+          </div>
+          <label class="nav-custom-option" :class="{ selected: navPaletteId === 'custom' }">
+            <span class="nav-swatch custom" :style="{ '--swatch': customNavColor, '--swatch-accent': '#315ee8' }"><i></i></span>
+            <span>自定义颜色</span>
+            <input type="color" :value="customNavColor" aria-label="选择自定义导航背景色" @input="updateCustomNavColor">
+          </label>
+        </div>
+      </div>
     </aside>
 
     <!-- 主区 -->
@@ -41,6 +61,10 @@
           📧
           <span v-if="mailUnread > 0" class="mb-badge">{{ mailUnread > 99 ? '99+' : mailUnread }}</span>
         </router-link>
+        <button class="theme-toggle" type="button" @click="toggleTheme" :aria-label="theme.mode === 'dark' ? '切换浅色模式' : '切换深色模式'" :title="theme.mode === 'dark' ? '切换浅色模式' : '切换深色模式'">
+          <span class="theme-toggle-icon">{{ theme.mode === 'dark' ? '☀' : '☾' }}</span>
+          <span class="theme-toggle-label">{{ theme.mode === 'dark' ? '浅色' : '深色' }}</span>
+        </button>
         <div class="userbox">
           <span class="tag blue">{{ roleLabel }}</span>
           <span>{{ auth.user?.name || auth.user?.username }}</span>
@@ -62,6 +86,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { auth, clearAuth, ROLE_LABELS } from '../store/auth';
 import { api } from '../api';
 import { myRoles } from '../store/permissions';
+import { theme, toggleTheme } from '../store/theme';
 
 
 const route = useRoute();
@@ -131,6 +156,7 @@ const navModel = [
       { label: '销售与客户', to: '/sales' },
       { label: '客户进度发布', to: '/customer-progress' },
       { label: '售后与对账资料', to: '/after-sales' },
+      { label: '预下单', to: '/pre-orders' },
       { label: '销售订单', to: '/orders' }
     ]
   },
@@ -138,6 +164,7 @@ const navModel = [
     key: 'tech', label: '技术开发', icon: '🧵',
     children: [
       { label: '开发管理', to: '/development' },
+      { label: '面辅料新品开发', to: '/material-development' },
       { label: '研发立项与 SKU 配码', to: '/dev-master' },
       { label: '供方协同与技术复审', to: '/sup-review' },
       { label: '打版流程', to: '/pattern-board' },
@@ -273,6 +300,41 @@ const visibleModel = computed(() =>
 
 const navOpen = ref(false); // 移动端抽屉开关
 const openMap = reactive({});
+const navPalettePresets = [
+  { id: 'navy', label: '海军蓝', bg: '#10203f', accent: '#2b6de5' },
+  { id: 'graphite', label: '石墨灰', bg: '#272d38', accent: '#5388f4' },
+  { id: 'forest', label: '森林绿', bg: '#173b35', accent: '#27a47e' },
+  { id: 'violet', label: '暮紫', bg: '#302341', accent: '#8a67e8' },
+  { id: 'ocean', label: '深海蓝', bg: '#17364b', accent: '#28a3c7' }
+];
+const savedNavPalette = localStorage.getItem('erp_nav_palette') || 'navy';
+const navPaletteId = ref(navPalettePresets.some((preset) => preset.id === savedNavPalette) || savedNavPalette === 'custom' ? savedNavPalette : 'navy');
+const customNavColor = ref(localStorage.getItem('erp_nav_custom_color') || '#26394b');
+const navPaletteOpen = ref(false);
+const navPaletteStyle = computed(() => {
+  const preset = navPalettePresets.find((item) => item.id === navPaletteId.value);
+  const bg = navPaletteId.value === 'custom' ? customNavColor.value : (preset?.bg || '#10203f');
+  const rgb = bg.match(/[\da-f]{2}/gi)?.slice(0, 3).map((part) => parseInt(part, 16)) || [16, 32, 63];
+  const light = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000 > 155;
+  return {
+    '--nav-bg': bg,
+    '--nav-ink': light ? '#182230' : '#f8fbff',
+    '--nav-text': light ? '#40516a' : '#c9d6ee',
+    '--nav-muted': light ? '#65758c' : '#9aacc8',
+    '--nav-accent': preset?.accent || '#315ee8',
+    '--nav-accent-ink': '#ffffff',
+    '--nav-hover': light ? 'rgba(20, 35, 61, .08)' : 'rgba(255, 255, 255, .08)'
+  };
+});
+function selectNavPalette(id) {
+  navPaletteId.value = id;
+  localStorage.setItem('erp_nav_palette', id);
+}
+function updateCustomNavColor(event) {
+  customNavColor.value = event.target.value;
+  localStorage.setItem('erp_nav_custom_color', customNavColor.value);
+  selectNavPalette('custom');
+}
 function openGroupForPath(path) {
   navModel.forEach((item) => {
     if (item.children && item.children.some((c) => path.startsWith(c.to))) openMap[item.key] = true;

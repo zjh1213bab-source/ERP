@@ -21,9 +21,10 @@ function buildSnapshot(techPackId) {
   const materials = db.prepare('SELECT * FROM tech_pack_materials WHERE tech_pack_id = ? ORDER BY sort, id').all(techPackId);
   const sizes = db.prepare('SELECT * FROM tech_pack_sizes WHERE tech_pack_id = ? ORDER BY sort, id').all(techPackId);
   const requirements = db.prepare('SELECT * FROM tech_pack_requirements WHERE tech_pack_id = ? ORDER BY sort, id').all(techPackId);
-  const order = db.prepare(
+  const order = tp.order_id ? db.prepare(
     `SELECT o.*, c.name AS customer_name FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?`
-  ).get(tp.order_id);
+  ).get(tp.order_id) : null;
+  const preOrder = tp.pre_order_id ? db.prepare('SELECT * FROM pre_orders WHERE id=?').get(tp.pre_order_id) : null;
 
   return {
     product_name: tp.product_name,
@@ -39,7 +40,7 @@ function buildSnapshot(techPackId) {
     materials,
     sizes,
     requirements,
-    order: order ? { order_no: order.order_no, customer_name: order.customer_name, delivery_date: order.delivery_date } : null
+    order: order ? { order_no: order.order_no, customer_name: order.customer_name, delivery_date: order.delivery_date } : preOrder ? { order_no: preOrder.pre_order_no, customer_name: preOrder.customer_name, delivery_date: preOrder.target_date, is_pre_order: true } : null
   };
 }
 
@@ -68,13 +69,14 @@ function archiveFromFlow(flow, operator, opt = {}) {
 
   const info = db.prepare(
     `INSERT INTO sample_archives
-     (archive_no, tech_pack_id, order_id, style_no, sample_name, version, pattern_size, customer,
+     (archive_no, tech_pack_id, order_id, pre_order_id, style_no, sample_name, version, pattern_size, customer,
       snapshot, image_url, status, locked_at, created_by, remark, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,'locked',?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,'locked',?,?,?,?)`
   ).run(
     genArchiveNo(),
     flow.tech_pack_id,
-    flow.order_id,
+    flow.order_id || null,
+    tp ? (tp.pre_order_id || null) : null,
     tp ? (tp.customer_style_no || tp.product_name) : null,
     snap.product_name,
     version,

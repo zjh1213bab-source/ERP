@@ -50,6 +50,7 @@
               <strong class="pstyle" :title="f.customer_style_no || f.product_name">{{ f.customer_style_no || f.product_name }}</strong>
               <span class="tag" :class="stageTag(f.stage_map[s.key])">{{ stageStatusLabel(f.stage_map[s.key]) }}</span>
             </div>
+            <div v-if="f.change_hold" class="change-hold-badge">业务信息变更审核中 · 流程暂停</div>
             <div class="pline">版号：{{ f.version }} · {{ f.product_name }}</div>
             <div class="pline">打板尺码：{{ f.stage_map[s.key] && f.stage_map[s.key].pattern_size || f.order_no || '-' }}</div>
             <div class="pline">客户：{{ f.customer_name || '-' }}</div>
@@ -76,7 +77,7 @@
               <strong class="pstyle">{{ f.customer_style_no || f.product_name }}</strong>
               <span class="tag green">已完成</span>
             </div>
-            <div class="pline">订单：{{ f.order_no || '-' }}</div>
+            <div class="pline">{{ f.pre_order_no ? '预下单：' : '订单：' }}{{ f.pre_order_no || f.order_no || '-' }}</div>
             <div class="pline">客户：{{ f.customer_name || '-' }}</div>
             <div class="pline muted">完成：{{ $fmtDate(f.finished_at) }}</div>
             <div class="pacts">
@@ -111,6 +112,22 @@
               {{ i + 1 }}. {{ s.label }}
             </span>
           </div>
+
+          <section v-if="cur.flow.change_requests && cur.flow.change_requests.length" class="change-panel">
+            <div class="change-panel-head"><strong>业务信息修改审核</strong><span>批准修改后还需完成修改后复核，流程才会恢复</span></div>
+            <article v-for="change in cur.flow.change_requests" :key="change.id" class="change-item">
+              <div class="change-item-top"><b>{{ changeFieldLabel(change.field_key) }}</b><span class="tag" :class="changeStatusTag(change.status)">{{ changeStatusLabel(change.status) }}</span></div>
+              <div class="change-reason">{{ change.reason }} · 申请人 {{ change.applicant || '—' }}</div>
+              <div class="change-value"><small>申请修改为</small><p>{{ change.proposed_value }}</p></div>
+              <div v-if="change.review_note" class="change-note">审核意见：{{ change.review_note }}</div>
+              <div v-if="change.recheck_note" class="change-note">复核意见：{{ change.recheck_note }}</div>
+              <div class="change-actions">
+                <template v-if="change.status === 'pending' && can('pattern.review')"><button class="btn btn-sm btn-primary" :disabled="busy" @click="reviewChange(change,true)">同意修改</button><button class="btn btn-sm btn-ghost" :disabled="busy" @click="reviewChange(change,false)">驳回</button></template>
+                <template v-if="change.status === 'awaiting_recheck' && can('pattern.review')"><button class="btn btn-sm btn-primary" :disabled="busy" @click="recheckChange(change,true)">修改后审核通过，继续打版</button><button class="btn btn-sm btn-ghost" :disabled="busy" @click="recheckChange(change,false)">修改后复核不通过</button></template>
+              </div>
+            </article>
+          </section>
+          <div v-if="cur.flow.change_hold" class="change-pause-note">当前流程已暂停。所有阶段的保存、完成和归档操作都会等待审核结束。</div>
 
           <div class="form-grid">
             <div class="fitem"><label>负责人 / 版师</label>
@@ -419,7 +436,10 @@
           </template>
 
           <!-- 已归档时只说「锁定」，不要误报成「没权限」 -->
-          <div v-if="!canEdit && cur.flow.status !== 'done'" class="tip-warn">
+          <div v-if="cur.flow.change_hold" class="tip-warn">
+            业务信息修改正在审核；同意修改后还需再次审核，通过前打版流程暂停。
+          </div>
+          <div v-else-if="!canEdit && cur.flow.status !== 'done'" class="tip-warn">
             你的角色（{{ roleLabel }}）在这个阶段没有填写权限，当前仅可查看。
           </div>
           <div v-if="cur.flow.status === 'done'" class="tip-warn">
@@ -428,6 +448,7 @@
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" @click="closeStage">关闭</button>
+          <button v-if="can('order.create') && cur.flow.status === 'running'" class="btn btn-ghost" :disabled="busy || cur.flow.change_hold" @click="openChangeRequest">申请修改业务信息</button>
           <button v-if="canEdit && cur.flow.status !== 'done'" class="btn btn-ghost" @click="reopen">退回重做</button>
           <button v-if="canEdit && cur.flow.status !== 'done'" class="btn btn-ghost" :disabled="busy" @click="save">保存</button>
           <button v-if="canEdit && cur.flow.status !== 'done'" class="btn btn-primary" :disabled="busy || stageDone" @click="done">
@@ -437,6 +458,20 @@
             完成打版并归档样衣
           </button>
         </div>
+      </div>
+    </div>
+    <div v-if="changeOpen && cur" class="modal-mask" @click.self="changeOpen = false">
+      <div class="modal">
+        <div class="modal-head"><h3>申请修改打版信息</h3><button class="x" @click="changeOpen = false">×</button></div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="fitem full"><label>申请修改的信息项</label><select class="input" v-model="changeForm.field_key"><option v-for="field in changeFields" :key="field.key" :value="field.key">{{ field.label }}</option></select></div>
+            <div class="fitem full"><label>修改原因 *</label><textarea v-model="changeForm.reason" rows="2" placeholder="如：客户确认后调整面料成分或尺码要求"></textarea></div>
+            <div class="fitem full"><label>修改后的内容 *</label><textarea v-model="changeForm.proposed_value" rows="4" placeholder="填写审核通过后要采用的新内容"></textarea></div>
+          </div>
+          <p class="tip-warn">提交后立即暂停打版。技术同意修改后，系统应用新内容并再次等待技术复核。</p>
+        </div>
+        <div class="modal-foot"><button class="btn btn-ghost" @click="changeOpen = false">取消</button><button class="btn btn-primary" :disabled="busy" @click="submitChangeRequest">提交审核</button></div>
       </div>
     </div>
   </div>
@@ -481,6 +516,13 @@ const q = ref('');
 const show = ref('running');
 const cur = ref(null);
 const form = ref(blankForm());
+const changeOpen = ref(false);
+const changeForm = ref({ field_key: 'customer_req', reason: '', proposed_value: '' });
+const changeFields = [
+  { key: 'customer_req', label: '客户要求' }, { key: 'fabric_info', label: '面料信息' },
+  { key: 'accessory_info', label: '辅料信息' }, { key: 'craft_info', label: '工艺要求' },
+  { key: 'size_spec', label: '尺码规格' }
+];
 const busy = ref(false);
 const dirty = ref(false);
 let formSilent = false;
@@ -537,11 +579,11 @@ const filtered = computed(() => {
 });
 
 const stageFields = computed(() => (cur.value ? STAGE_FIELDS[cur.value.stage] || [] : []));
-const canEdit = computed(() => !!(cur.value && cur.value.flow.status !== 'done' && can('pattern.' + cur.value.stage)));
+const canEdit = computed(() => !!(cur.value && cur.value.flow.status !== 'done' && !cur.value.flow.change_hold && can('pattern.' + cur.value.stage)));
 const canFinish = computed(() => {
   if (!cur.value) return false;
   const f = cur.value.flow;
-  if (f.status === 'done') return false;
+  if (f.status === 'done' || f.change_hold) return false;
   const allDone = stages.value.every((s) => f.stage_map[s.key].status === 'done');
   return allDone && can('pattern.audit');
 });
@@ -553,6 +595,9 @@ function blankForm() {
 const stageLabel = (k) => (stages.value.find((s) => s.key === k) || {}).label || k;
 const stageTag = (d) => (d && d.status === 'done' ? 'green' : d && d.status === 'doing' ? 'orange' : 'gray');
 const stageStatusLabel = (d) => (d && d.status === 'done' ? '已完成' : d && d.status === 'doing' ? '进行中' : '待开始');
+const changeFieldLabel = (key) => (changeFields.find((f) => f.key === key) || {}).label || key;
+const changeStatusLabel = (s) => ({ pending: '待审核修改', awaiting_recheck: '修改后待复核', released: '复核通过', rejected: '已驳回' }[s] || s);
+const changeStatusTag = (s) => ({ pending: 'orange', awaiting_recheck: 'purple', released: 'green', rejected: 'red' }[s] || 'gray');
 
 const runningFlows = computed(() => filtered.value.filter((f) => f.status === 'running'));
 /** 每列只放「当前阶段正好停在这一步」的流程，避免同一单子重复出现在后续列 */
@@ -829,6 +874,48 @@ async function done() {
   } catch (e) { alert(e.message); } finally { busy.value = false; }
 }
 
+function openChangeRequest() {
+  changeForm.value = { field_key: 'customer_req', reason: '', proposed_value: '' };
+  changeOpen.value = true;
+}
+async function refreshCurrentFlow() {
+  const flowId = cur.value?.flow?.id, stageKey = cur.value?.stage;
+  await load();
+  const latest = flows.value.find((f) => f.id === flowId);
+  if (latest) openStage(latest, stageKey);
+}
+async function submitChangeRequest() {
+  if (!changeForm.value.reason.trim() || !changeForm.value.proposed_value.trim()) return alert('请填写修改原因和修改后的内容');
+  busy.value = true;
+  try {
+    await api.createPatternChangeRequest(cur.value.flow.id, changeForm.value);
+    changeOpen.value = false;
+    dirty.value = false;
+    await refreshCurrentFlow();
+    alert('修改申请已提交，打版流程已暂停，等待技术审核');
+  } catch (e) { alert(e.message); } finally { busy.value = false; }
+}
+async function reviewChange(change, approve) {
+  const note = window.prompt(approve ? '审核意见（可空）' : '请填写驳回原因：');
+  if (note === null || (!approve && !note.trim())) return;
+  busy.value = true;
+  try {
+    await api.reviewPatternChangeRequest(change.id, { approve, note: note.trim() });
+    await refreshCurrentFlow();
+    alert(approve ? '修改已同意并应用，流程继续暂停，等待修改后复核' : '修改申请已驳回，原打版信息保留');
+  } catch (e) { alert(e.message); } finally { busy.value = false; }
+}
+async function recheckChange(change, approve) {
+  const note = window.prompt(approve ? '修改后复核意见（可空）' : '请填写复核未通过原因：');
+  if (note === null || (!approve && !note.trim())) return;
+  busy.value = true;
+  try {
+    await api.recheckPatternChangeRequest(change.id, { approve, note: note.trim() });
+    await refreshCurrentFlow();
+    alert(approve ? '修改后复核通过，打版流程已恢复' : '修改后复核未通过，系统已恢复原信息');
+  } catch (e) { alert(e.message); } finally { busy.value = false; }
+}
+
 async function reopen() {
   if (!cur.value) return;
   const label = stageLabel(cur.value.stage);
@@ -1019,4 +1106,5 @@ onMounted(() => { load(); loadCraftTypes(); });
   margin-top: 10px; background: #fff8e6; border: 1px solid #ffe0a3; color: #b26a00;
   border-radius: 8px; padding: 8px 10px; font-size: 12px;
 }
+.change-hold-badge{margin:7px 0;padding:6px 8px;border-radius:6px;background:#fff4df;color:#9b6208;font-size:10.5px}.change-panel{border:1px solid #f0dba9;background:#fffdf7;border-radius:10px;padding:11px 12px;margin:0 0 13px}.change-panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.change-panel-head strong{font-size:12px;color:#73520b}.change-panel-head span{font-size:10px;color:#927c51}.change-item{border-top:1px solid #f3e9d1;padding:9px 0}.change-item-top{display:flex;justify-content:space-between;align-items:center}.change-item-top b{font-size:11px}.change-reason,.change-note{font-size:10.5px;color:#677386;margin-top:5px}.change-value{margin-top:6px;padding:7px 9px;border-radius:7px;background:#fff;color:#303b4c}.change-value small{font-size:9px;color:#8792a3}.change-value p{margin:3px 0 0;font-size:11px;white-space:pre-wrap}.change-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:8px}.change-pause-note{padding:8px 10px;border-radius:7px;background:#fff4df;color:#9b6208;font-size:11px;margin-bottom:10px}
 </style>

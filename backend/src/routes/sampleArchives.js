@@ -37,10 +37,11 @@ router.get('/', authRequired, wrap(async (req, res) => {
     const kw = `%${q}%`;
     params.push(kw, kw, kw, kw);
   }
-  const sql = `SELECT a.*, o.order_no,
+  const sql = `SELECT a.*, COALESCE(o.order_no,p.pre_order_no) AS order_no,
       (SELECT COUNT(*) FROM sample_change_requests r WHERE r.archive_id = a.id AND r.status='pending') AS pending_changes
     FROM sample_archives a
     LEFT JOIN orders o ON o.id = a.order_id ` +
+    'LEFT JOIN pre_orders p ON p.id = a.pre_order_id ' +
     (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') +
     'ORDER BY a.id DESC';
   const rows = db.prepare(sql).all(...params);
@@ -63,7 +64,8 @@ router.get('/changes', authRequired, wrap(async (req, res) => {
 router.get('/:id', authRequired, wrap(async (req, res) => {
   const row = withSnapshot(db.prepare('SELECT * FROM sample_archives WHERE id = ?').get(req.params.id));
   if (!row) return fail(res, 404, '样衣档案不存在');
-  row.changes = db.prepare('SELECT * FROM sample_change_requests WHERE archive_id = ? ORDER BY id DESC').all(req.params.id);
+  row.changes = db.prepare(`SELECT c.*,n.archive_no AS new_archive_no FROM sample_change_requests c
+    LEFT JOIN sample_archives n ON n.id=c.new_archive_id WHERE c.archive_id=? ORDER BY c.id DESC`).all(req.params.id);
   return ok(res, row);
 }));
 

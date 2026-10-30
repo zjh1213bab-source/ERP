@@ -175,6 +175,13 @@ function migrate() {
   add('materials', 'stock_qty', 'REAL DEFAULT 0');
 
   // 开发单
+  add('tech_packs', 'pre_order_id', 'INTEGER');
+  add('sample_archives', 'pre_order_id', 'INTEGER');
+  add('material_dev_requests', 'pattern_review_status', "TEXT NOT NULL DEFAULT 'blocked'");
+  add('material_dev_requests', 'tech_pack_id', 'INTEGER');
+  add('material_dev_requests', 'pre_order_id', 'INTEGER');
+  add('material_dev_requests', 'reference_image_url', 'TEXT');
+  add('material_dev_rounds', 'candidate_image_url', 'TEXT');
   [
     'customer_style_no', 'designer', 'pattern_maker', 'pattern_no', 'category', 'label_name',
     'series', 'wave', 'sales_owner', 'po_no', 'brand', 'colors', 'size_range', 'delivery_date'

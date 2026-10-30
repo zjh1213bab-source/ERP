@@ -105,6 +105,9 @@ export const api = {  // 登录
   deleteProduct: (id) => req(`/api/products/${id}`, { method: 'DELETE' }),
 
   // 订单
+  preOrders: (params) => req('/api/pre-orders' + qs(params)),
+  createPreOrder: (d) => req('/api/pre-orders', { method: 'POST', body: d }),
+  updatePreOrder: (id, d) => req(`/api/pre-orders/${id}`, { method: 'PUT', body: d }),
   orders: (params) => req('/api/orders' + qs(params)),
   order: (id) => req(`/api/orders/${id}`),
   /** 局域网地址：单据二维码要用它，否则用 127.0.0.1 打开时二维码手机扫了打不开 */
@@ -133,6 +136,15 @@ export const api = {  // 登录
     req(`/api/orders/${id}/rollback`, { method: 'POST', body: { to, reason } }),
 
   // 技术资料 / 开发单
+  materialDevRequests: (params) => req('/api/material-development' + qs(params)),
+  createMaterialDevRequest: (d) => req('/api/material-development', { method: 'POST', body: d }),
+  materialDevRequest: (id) => req(`/api/material-development/${id}`),
+  startMaterialDevSearch: (id, d = {}) => req(`/api/material-development/${id}/start-search`, { method: 'POST', body: d }),
+  returnMaterialDevCandidate: (roundId, d) => req(`/api/material-development/rounds/${roundId}/return`, { method: 'POST', body: d }),
+  rejectMaterialDevCandidate: (roundId, rejection_reason) => req(`/api/material-development/rounds/${roundId}/reject`, { method: 'POST', body: { rejection_reason } }),
+  approveMaterialDevCandidate: (roundId, d = {}) => req(`/api/material-development/rounds/${roundId}/approve`, { method: 'POST', body: d }),
+  reviewMaterialDevForPattern: (id, d) => req(`/api/material-development/${id}/pattern-review`, { method: 'POST', body: d }),
+  resubmitMaterialDevForPattern: (id, d) => req(`/api/material-development/${id}/resubmit-pattern-review`, { method: 'PUT', body: d }),
   techpacks: (orderId) => req(`/api/techpacks?order_id=${orderId}`),
   techpacksAll: (params) => req('/api/techpacks/all' + qs(params)),
   createTechpack: (d) => req('/api/techpacks', { method: 'POST', body: d }),
@@ -1065,6 +1077,9 @@ export const api = {  // 登录
   // 打版流程
   patternBoard: () => req('/api/pattern-flows/board'),
   patternByTechpack: (tpId) => req(`/api/pattern-flows/by-techpack/${tpId}`),
+  createPatternChangeRequest: (flowId, d) => req(`/api/pattern-flows/${flowId}/changes`, { method: 'POST', body: d }),
+  reviewPatternChangeRequest: (id, d) => req(`/api/pattern-flows/changes/${id}/review`, { method: 'POST', body: d }),
+  recheckPatternChangeRequest: (id, d) => req(`/api/pattern-flows/changes/${id}/recheck`, { method: 'POST', body: d }),
   ensurePatternFlow: (tech_pack_id) => req('/api/pattern-flows/ensure', { method: 'POST', body: { tech_pack_id } }),
   savePatternStage: (flowId, stage, d) => req(`/api/pattern-flows/${flowId}/stage/${stage}`, { method: 'PUT', body: d }),
   donePatternStage: (flowId, stage) => req(`/api/pattern-flows/${flowId}/stage/${stage}/done`, { method: 'POST' }),

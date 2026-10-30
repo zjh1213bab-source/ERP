@@ -340,6 +340,10 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '技术资料不存在');
   if (row.status === 'confirmed') return fail(res, 400, '已确认的开发单不可修改，请新建版本');
+  const patternFlow = db.prepare('SELECT current_stage,status FROM pattern_flows WHERE tech_pack_id=?').get(row.id);
+  if (patternFlow && patternFlow.status !== 'done' && patternFlow.current_stage !== 'material') {
+    return fail(res, 409, '打版流程已开始；业务信息修改请从打版流程提交申请并通过修改后复核');
+  }
   const b = req.body || {};
   db.prepare(
     `UPDATE tech_packs SET product_name=?, version=?, fabric_info=?, accessory_info=?, craft_info=?, customer_req=?, fabric_ids=?, accessory_ids=?, size_spec=?, image_url=?, remark=?, updated_at=? WHERE id=?`

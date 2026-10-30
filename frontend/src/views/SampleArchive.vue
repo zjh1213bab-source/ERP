@@ -136,6 +136,7 @@
             <div><label>设计师</label><div>{{ snap.designer || '-' }}</div></div>
             <div><label>版师</label><div>{{ snap.pattern_maker || '-' }}</div></div>
             <div><label>客户</label><div>{{ detail.customer || '-' }}</div></div>
+            <div><label>{{ snap.order && snap.order.is_pre_order ? '预下单编号' : '订单编号' }}</label><div>{{ snap.order && snap.order.order_no || '-' }}</div></div>
             <div><label>归档人</label><div>{{ detail.created_by || '-' }}</div></div>
           </div>
 
@@ -189,6 +190,7 @@
             <span class="tag" :class="changeTag(c.status)">{{ changeLabel(c.status) }}</span>
             {{ c.reason }}
             <span class="sub-line">{{ c.applicant }} · {{ $fmt(c.created_at) }}</span>
+            <span v-if="c.new_archive_no" class="sub-line">修改完成并归档为：{{ c.new_archive_no }}</span>
           </div>
           <div v-if="!(detail.changes || []).length" class="sub-line">暂无变更记录</div>
         </div>

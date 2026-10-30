@@ -18,7 +18,7 @@
 const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
-const { authRequired } = require('../middleware/auth');
+const { authRequired, requireRole } = require('../middleware/auth');
 const { archiveFromFlow } = require('../services/sampleArchive');
 const { saveMaterials } = require('../services/techPackMaterials');
 
@@ -35,6 +35,14 @@ const STAGE_DEF = [
 ];
 const STAGE_KEYS = STAGE_DEF.map((s) => s.key);
 const stageDef = (k) => STAGE_DEF.find((s) => s.key === k);
+const CHANGE_FIELDS = {
+  customer_req: '客户要求', fabric_info: '面料信息', accessory_info: '辅料信息',
+  craft_info: '工艺要求', size_spec: '尺码规格'
+};
+
+function changeHold(flowId) {
+  return db.prepare("SELECT * FROM pattern_change_requests WHERE flow_id=? AND status IN ('pending','awaiting_recheck') ORDER BY id DESC").all(flowId);
+}
 
 function canWrite(user, stage) {
   const d = stageDef(stage);
@@ -90,12 +98,14 @@ function safeJson(s) {
 function boardRows() {
   const rows = db.prepare(
     `SELECT pf.*, tp.product_name, tp.version, tp.stage AS tp_stage, tp.status AS tp_status,
-            tp.image_url, tp.customer_style_no, tp.category,
-            o.order_no, o.style_name, o.delivery_date, o.type AS order_type, o.status AS order_status,
-            c.name AS customer_name
+            tp.image_url, tp.customer_style_no, tp.category,tp.pre_order_id,
+            COALESCE(o.order_no,p.pre_order_no) AS order_no,p.pre_order_no,
+            COALESCE(o.style_name,p.style_name) AS style_name, o.delivery_date, o.type AS order_type, o.status AS order_status,
+            COALESCE(c.name,p.customer_name) AS customer_name
      FROM pattern_flows pf
      JOIN tech_packs tp ON tp.id = pf.tech_pack_id
      LEFT JOIN orders o ON o.id = pf.order_id
+     LEFT JOIN pre_orders p ON p.id = tp.pre_order_id
      LEFT JOIN customers c ON c.id = o.customer_id
      ORDER BY pf.id DESC`
   ).all();
@@ -105,6 +115,8 @@ function boardRows() {
       ...r,
       stages: flow.stages,
       stage_map: flow.stage_map,
+      change_requests: db.prepare('SELECT * FROM pattern_change_requests WHERE flow_id=? ORDER BY id DESC').all(r.id),
+      change_hold: changeHold(r.id).length > 0,
       total: STAGE_KEYS.length,
       done_count: flow.stages.filter((s) => s.status === 'done').length
     };
@@ -119,6 +131,75 @@ router.get('/by-techpack/:tpId', authRequired, wrap(async (req, res) => {
   const flow = db.prepare('SELECT * FROM pattern_flows WHERE tech_pack_id = ?').get(req.params.tpId);
   if (!flow) return ok(res, null);
   return ok(res, loadFlow(flow.id));
+}));
+
+router.post('/:flowId/changes', authRequired, requireRole(['admin', 'sales']), wrap(async (req, res) => {
+  const flow = db.prepare('SELECT * FROM pattern_flows WHERE id=?').get(req.params.flowId);
+  if (!flow || flow.status === 'done') return fail(res, 404, '进行中的打版流程不存在');
+  if (changeHold(flow.id).length) return fail(res, 409, '该流程已有待审核或待复核的修改申请');
+  const b = req.body || {};
+  if (!CHANGE_FIELDS[b.field_key]) return fail(res, 400, '请选择可申请修改的信息项');
+  if (b.proposed_value === undefined) return fail(res, 400, '请填写修改后的内容');
+  const reason = String(b.reason || '').trim();
+  if (!reason) return fail(res, 400, '请填写修改原因');
+  const tp = db.prepare('SELECT * FROM tech_packs WHERE id=?').get(flow.tech_pack_id);
+  const ts = now();
+  const info = db.prepare(`INSERT INTO pattern_change_requests(flow_id,field_key,before_value,proposed_value,reason,applicant,status,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,'pending',?,?)`).run(flow.id, b.field_key, tp[b.field_key] || '', String(b.proposed_value), reason, req.user.name || req.user.username, ts, ts);
+  return ok(res, db.prepare('SELECT * FROM pattern_change_requests WHERE id=?').get(Number(info.lastInsertRowid)));
+}));
+
+router.post('/changes/:id/review', authRequired, requireRole(['admin', 'tech']), wrap(async (req, res) => {
+  const change = db.prepare('SELECT * FROM pattern_change_requests WHERE id=?').get(req.params.id);
+  if (!change) return fail(res, 404, '打版修改申请不存在');
+  if (change.status !== 'pending') return fail(res, 409, '该修改申请已审核');
+  if (change.applicant === (req.user.name || req.user.username) && req.user.role !== 'admin') return fail(res, 403, '申请人不能审核自己的修改');
+  const approve = !!req.body?.approve, note = String(req.body?.note || '').trim();
+  if (!approve && !note) return fail(res, 400, '请填写驳回原因');
+  const ts = now(), user = req.user.name || req.user.username;
+  /**
+   * 字段名要拼进 SQL，用前**再校验一次**白名单。
+   * 写入时（POST /:flowId/changes）已经校验过，但库里的历史行、手工改库、
+   * 或以后新增的写入路径都可能带进意外的列名 —— 那时拼进 SQL 就是列名注入。
+   * 一次判断一行代码，把这类风险彻底关掉。
+   */
+  if (!CHANGE_FIELDS[change.field_key]) return fail(res, 409, '该修改申请的信息项已失效，请重新提交');
+  // 事务用 BEGIN/COMMIT（项目铁律：node:sqlite 回退驱动没有 db.transaction）
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (approve) db.prepare(`UPDATE tech_packs SET ${change.field_key}=?,updated_at=? WHERE id=(SELECT tech_pack_id FROM pattern_flows WHERE id=?)`).run(change.proposed_value, ts, change.flow_id);
+    db.prepare('UPDATE pattern_change_requests SET status=?,reviewed_by=?,reviewed_at=?,review_note=?,updated_at=? WHERE id=?')
+      .run(approve ? 'awaiting_recheck' : 'rejected', user, ts, note || null, ts, change.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return ok(res, db.prepare('SELECT * FROM pattern_change_requests WHERE id=?').get(change.id));
+}));
+
+router.post('/changes/:id/recheck', authRequired, requireRole(['admin', 'tech']), wrap(async (req, res) => {
+  const change = db.prepare('SELECT * FROM pattern_change_requests WHERE id=?').get(req.params.id);
+  if (!change) return fail(res, 404, '打版修改申请不存在');
+  if (change.status !== 'awaiting_recheck') return fail(res, 409, '该修改尚未进入修改后复核');
+  const approve = !!req.body?.approve, note = String(req.body?.note || '').trim();
+  if (!approve && !note) return fail(res, 400, '请填写复核未通过的原因');
+  const user = req.user.name || req.user.username;
+  if (approve && change.reviewed_by === user && req.user.role !== 'admin') return fail(res, 403, '修改后复核需由另一位技术审核人完成');
+  const ts = now();
+  // 同上：列名白名单再校验一次 + 用 BEGIN/COMMIT 而不是 db.transaction
+  if (!CHANGE_FIELDS[change.field_key]) return fail(res, 409, '该修改申请的信息项已失效，请重新提交');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (!approve) db.prepare(`UPDATE tech_packs SET ${change.field_key}=?,updated_at=? WHERE id=(SELECT tech_pack_id FROM pattern_flows WHERE id=?)`).run(change.before_value, ts, change.flow_id);
+    db.prepare('UPDATE pattern_change_requests SET status=?,rechecked_by=?,rechecked_at=?,recheck_note=?,updated_at=? WHERE id=?')
+      .run(approve ? 'released' : 'rejected', user, ts, note || null, ts, change.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return ok(res, db.prepare('SELECT * FROM pattern_change_requests WHERE id=?').get(change.id));
 }));
 
 /** 确保流程存在（幂等），供开发单创建时内部调用 */
@@ -152,6 +233,7 @@ router.put('/:flowId/stage/:stage', authRequired, wrap(async (req, res) => {
   const flow = db.prepare('SELECT * FROM pattern_flows WHERE id = ?').get(flowId);
   if (!flow) return fail(res, 404, '流程不存在');
   if (flow.status === 'done') return fail(res, 400, '流程已完成，样衣已归档锁定；如需修改请提交变更需求');
+  if (changeHold(flow.id).length) return fail(res, 409, '业务信息修改正在审核；修改后复核通过前不能继续打版');
   if (!canWrite(req.user, stage)) {
     return fail(res, 403, `你的角色无权填写「${stageDef(stage).label}」阶段`);
   }
@@ -195,6 +277,7 @@ router.put('/:flowId/materials', authRequired, wrap(async (req, res) => {
   const flow = db.prepare('SELECT * FROM pattern_flows WHERE id = ?').get(req.params.flowId);
   if (!flow) return fail(res, 404, '流程不存在');
   if (flow.status === 'done') return fail(res, 400, '流程已完成，样衣已归档锁定；如需调整物料请提交变更需求');
+  if (changeHold(flow.id).length) return fail(res, 409, '业务信息修改正在审核；修改后复核通过前不能继续打版');
   if (flow.current_stage !== 'material') {
     return fail(res, 400, `面辅料确认已完成，当前在「${STAGE_DEF.find((s) => s.key === flow.current_stage)?.label || flow.current_stage}」阶段；如需改物料请退回该阶段`);
   }
@@ -222,6 +305,7 @@ router.put('/:flowId/materials', authRequired, wrap(async (req, res) => {
   const flow = db.prepare('SELECT * FROM pattern_flows WHERE id = ?').get(flowId);
   if (!flow) return fail(res, 404, '流程不存在');
   if (flow.status === 'done') return fail(res, 400, '流程已完成');
+  if (changeHold(flow.id).length) return fail(res, 409, '业务信息修改正在审核；修改后复核通过前不能继续打版');
   if (!canWrite(req.user, stage)) {
     return fail(res, 403, `你的角色无权完成「${stageDef(stage).label}」阶段`);
   }
@@ -262,6 +346,7 @@ router.post('/:flowId/stage/:stage/reopen', authRequired, wrap(async (req, res) 
   const flow = db.prepare('SELECT * FROM pattern_flows WHERE id = ?').get(flowId);
   if (!flow) return fail(res, 404, '流程不存在');
   if (flow.status === 'done') return fail(res, 400, '流程已完成，样衣已归档，请走样衣变更流程');
+  if (changeHold(flow.id).length) return fail(res, 409, '业务信息修改正在审核；修改后复核通过前不能继续打版');
   if (!canWrite(req.user, stage)) return fail(res, 403, '你的角色无权退回该阶段');
 
   const idx = STAGE_KEYS.indexOf(stage);
@@ -293,6 +378,7 @@ router.post('/:flowId/finish', authRequired, wrap(async (req, res) => {
   const flow = db.prepare('SELECT * FROM pattern_flows WHERE id = ?').get(req.params.flowId);
   if (!flow) return fail(res, 404, '流程不存在');
   if (flow.status === 'done') return fail(res, 400, '流程已完成');
+  if (changeHold(flow.id).length) return fail(res, 409, '业务信息修改正在审核；修改后复核通过前不能继续打版');
 
   const left = db.prepare("SELECT stage FROM pattern_stages WHERE flow_id=? AND status!='done'").all(flow.id);
   if (left.length) {
@@ -313,6 +399,13 @@ router.post('/:flowId/finish', authRequired, wrap(async (req, res) => {
 
   // 归档（独立事务，失败不影响流程完成，但要报错提示）
   archive = archiveFromFlow(flow, req.user.username);
+  if (archive) {
+    const change = db.prepare(`SELECT c.id FROM sample_change_requests c
+      JOIN sample_archives old ON old.id=c.archive_id
+      WHERE old.tech_pack_id=? AND c.status='approved' AND c.new_archive_id IS NULL
+      ORDER BY c.id DESC LIMIT 1`).get(flow.tech_pack_id);
+    if (change) db.prepare('UPDATE sample_change_requests SET new_archive_id=? WHERE id=?').run(archive.id, change.id);
+  }
   syncTpStage(flow.tech_pack_id, 'confirmed');
   return ok(res, { flow: loadFlow(flow.id), archive });
 }));
