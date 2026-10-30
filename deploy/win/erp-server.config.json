@@ -1,0 +1,8 @@
+{
+  "appDir": "D:\\wk\\2026-10-26-09-45-32\\erp-mindmap\\backend",
+  "nodeExe": "C:\\Users\\admin\\.workbuddy\\binaries\\node\\versions\\22.22.2-6\\node.exe",
+  "entry": "src/server.js",
+  "port": 3000,
+  "logDir": "data\\logs",
+  "stopFile": "data\\logs\\erp-server.stop"
+}
