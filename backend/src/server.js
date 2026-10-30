@@ -218,6 +218,41 @@ app.use((req, res, next) => {
   next();
 });
 
+/**
+ * 这个进程跑的是哪一份代码
+ *
+ * 起因：后端改完必须重启才生效，但「重启了没有」「重启出来的是不是新代码」从外部看不见 ——
+ * 实操里就出过：停计划任务只杀了守护进程，node 活着继续占端口，再启一次被单实例保护拦下，
+ * 等于什么都没换，而 /api/health 依旧 200，看上去一切正常。
+ * 所以把 pid、启动时间、源码最新修改时间一起报出来：拿 code_stamp 跟磁盘上的
+ * 最新 mtime 一比，就知道「改完到底生效了没有」。
+ *
+ * 只在第一次调用时扫一遍（进程生命周期内不变），几百个文件、毫秒级。
+ */
+let CODE_STAMP = null;
+function codeStamp() {
+  if (CODE_STAMP) return CODE_STAMP;
+  let newest = 0;
+  let files = 0;
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!e.name.endsWith('.js')) continue;
+      files += 1;
+      try {
+        const m = fs.statSync(full).mtimeMs;
+        if (m > newest) newest = m;
+      } catch { /* 单个文件读不到不影响整体判断 */ }
+    }
+  };
+  walk(__dirname);
+  CODE_STAMP = { newest_at: newest ? new Date(newest).toISOString() : null, files };
+  return CODE_STAMP;
+}
+
 // ---------- 基础 ----------
 app.get('/api/health', (req, res) => {
   /**
@@ -239,6 +274,10 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     driver,
     schema,
+    /** 是哪个进程、什么时候起的、起的时候源码最新到哪个时间点（判断"新代码生效了吗"） */
+    pid: process.pid,
+    started_at: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+    code_stamp: codeStamp(),
     /** 生产配置是否已换成真密钥/真口令/指定 CORS（false 时不要对外发布） */
     config_ok: config.fatalIssues().length === 0
   });

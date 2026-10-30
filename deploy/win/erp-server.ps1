@@ -49,6 +49,9 @@ $entry = $cfg.entry
 $port = [int]$cfg.port
 $logDir = Join-Path $appDir $cfg.logDir
 $stopFile = Join-Path $appDir $cfg.stopFile
+# 重载标记：普通权限就能创建，守护看到后结束 node 再拉起 → 不用管理员、不用停计划任务也能换代码
+if ($cfg.reloadFile) { $reloadFile = Join-Path $appDir $cfg.reloadFile }
+else { $reloadFile = Join-Path $appDir 'data\logs\erp-server.reload' }
 $mainLog = Join-Path $logDir ('erp-server-' + (Get-Date -Format 'yyyyMMdd') + '.log')
 
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
@@ -125,6 +128,42 @@ if (Test-Path $stopFile) {
   Remove-Item -Path $stopFile -Force -ErrorAction SilentlyContinue
 }
 
+<#
+  找出「正在监听本项目端口、而且确实是本项目 node」的进程号
+
+  为什么需要它：node 是 Start-Process 起的独立进程，Windows 不会因为父进程
+  （本守护）退出就把它带走。所以「停计划任务」只杀守护、node 照样活着占端口，
+  下一次启动会撞上单实例保护 —— 结果就是「重启了，但跑的还是旧代码」。
+  有了这个函数，新守护遇到这种"被留下的 node"会**接管**（继续守着它），
+  而不是直接退出（退出等于服务在线却没人守，下次 node 一崩就真停了）。
+
+  身份判断不靠命令行（Start-Process 传的是相对路径 src/server.js，命令行里没有
+  项目目录），而是问它一句 /api/health：回 erp-system 才是我们的服务。
+#>
+function Get-ProjectNodePid([int]$p) {
+  try {
+    $conn = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $conn) { return 0 }
+    $owner = [int]$conn.OwningProcess
+    $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $owner) -ErrorAction SilentlyContinue
+    if (-not $proc -or $proc.Name -ne 'node.exe') { return 0 }
+    $r = Invoke-WebRequest -Uri ('http://127.0.0.1:' + $p + '/api/health') -UseBasicParsing -TimeoutSec 3
+    if ($r.Content -notlike '*erp-system*') { return 0 }
+    return $owner
+  } catch { return 0 }
+}
+
+# 结束 node 并等它真的退出（只看 Stop-Process 返回不算数，进程可能还在收尾）
+function Stop-NodePid([int]$id) {
+  if (-not $id) { return }
+  try { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } catch { }
+  for ($i = 0; $i -lt 15; $i++) {
+    Start-Sleep -Milliseconds 300
+    if (-not (Get-Process -Id $id -ErrorAction SilentlyContinue)) { return }
+  }
+  Write-Log ('结束 node pid=' + $id + ' 超时（可能仍在退出）')
+}
+
 Rotate-LogIfBig
 Clear-OldRunLogs
 Repair-ProxyEnvDuplicate
@@ -132,6 +171,7 @@ Write-Log ('=== 守护启动  pid=' + $PID + '  node=' + $nodeExe + '  app=' + $
 
 $consecutiveFail = 0
 $lastStartTime = Get-Date
+$nodePid = 0
 $nodeProc = $null
 
 try {
@@ -141,33 +181,63 @@ try {
       break
     }
 
-    # 单实例保护：端口已在监听说明有别的实例在跑（可能是手动起的），不要抢
-    if (Test-PortListening $port) {
-      Write-Log ('端口 ' + $port + ' 已在监听，本守护退出（避免两个实例抢同一份 SQLite）')
+    # 上一轮留下的重载标记（此时没有 node 在跑）直接清掉，否则一起来就白重启一次
+    if (Test-Path $reloadFile) { Remove-Item $reloadFile -Force -ErrorAction SilentlyContinue }
+
+    $nodeProc = $null
+    $adopted = $false
+    $existing = Get-ProjectNodePid $port
+
+    if ($existing -gt 0) {
+      # 接管：上一任守护被系统结束、node 被留下的情况。继续守着它，别再起第二个
+      $nodePid = [int]$existing
+      $adopted = $true
+      $lastStartTime = Get-Date
+      Write-Log ('端口 ' + $port + ' 已有本项目 node（pid=' + $nodePid + '），接管守护（不再启动第二个）')
+    } elseif (Test-PortListening $port) {
+      Write-Log ('端口 ' + $port + ' 被其它程序占用（不是本项目 node），本守护退出')
       break
+    } else {
+      $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+      $runOut = Join-Path $logDir ('run-' + $stamp + '.out.log')
+      $runErr = Join-Path $logDir ('run-' + $stamp + '.err.log')
+
+      $lastStartTime = Get-Date
+      Write-Log ('启动 node（第 ' + ($consecutiveFail + 1) + ' 次尝试）端口=' + $port + ' 输出：' + (Split-Path $runOut -Leaf))
+
+      # 端口必须以配置为准：node 读的是环境变量 PORT。
+      # 不传下去就会变成「守护盯着配置里的端口、node 却听默认 3000」的两套真理 ——
+      # 表现是守护一直报"启动成功"然后 1 秒后 node 因 EADDRINUSE 退出，日志里看不出是端口问题。
+      [Environment]::SetEnvironmentVariable('PORT', [string]$port, 'Process')
+      $nodeProc = Start-Process -FilePath $nodeExe `
+        -ArgumentList $entry `
+        -WorkingDirectory $appDir `
+        -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $runOut `
+        -RedirectStandardError $runErr
+
+      $nodePid = [int]$nodeProc.Id
+      Write-Log ('node 已启动 pid=' + $nodePid)
     }
 
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $runOut = Join-Path $logDir ('run-' + $stamp + '.out.log')
-    $runErr = Join-Path $logDir ('run-' + $stamp + '.err.log')
-
-    $lastStartTime = Get-Date
-    Write-Log ('启动 node（第 ' + ($consecutiveFail + 1) + ' 次尝试）输出：' + (Split-Path $runOut -Leaf))
-    $nodeProc = Start-Process -FilePath $nodeExe `
-      -ArgumentList $entry `
-      -WorkingDirectory $appDir `
-      -PassThru -WindowStyle Hidden `
-      -RedirectStandardOutput $runOut `
-      -RedirectStandardError $runErr
-
-    Write-Log ('node 已启动 pid=' + $nodeProc.Id)
-
-    # 主循环：等 node 退出；期间每秒检查一次停止标记，保证停得掉
-    while (-not $nodeProc.HasExited) {
+    # 主循环：每秒看一眼 node 还在不在；顺带响应停止 / 重载标记
+    $reloaded = $false
+    while ($true) {
       Start-Sleep -Seconds 1
+      if (-not (Get-Process -Id $nodePid -ErrorAction SilentlyContinue)) {
+        Write-Log ('node 已退出 pid=' + $nodePid)
+        break
+      }
       if (Test-Path $stopFile) {
         Write-Log '收到停止标记，结束 node'
-        try { Stop-Process -Id $nodeProc.Id -Force -ErrorAction SilentlyContinue } catch { }
+        Stop-NodePid $nodePid
+        break
+      }
+      if (Test-Path $reloadFile) {
+        Write-Log '收到重载标记：结束 node 并立即重启（加载最新代码）'
+        Stop-NodePid $nodePid
+        Remove-Item $reloadFile -Force -ErrorAction SilentlyContinue
+        $reloaded = $true
         break
       }
       Rotate-LogIfBig
@@ -175,8 +245,15 @@ try {
 
     if (Test-Path $stopFile) { Write-Log '守护退出（已按停止标记收尾）'; break }
 
+    if ($reloaded) {
+      Write-Log '重载：立即重启'
+      continue
+    }
+
     $code = 'n/a'
-    try { if ($null -ne $nodeProc.ExitCode) { $code = $nodeProc.ExitCode } } catch { }
+    if (-not $adopted -and $nodeProc) {
+      try { if ($null -ne $nodeProc.ExitCode) { $code = $nodeProc.ExitCode } } catch { }
+    }
     # 被 Stop-Process 强杀时 ExitCode 可能为空，别在日志里留一个「exitCode= 」的空洞
     $uptimeSec = [int]((Get-Date) - $lastStartTime).TotalSeconds
     Write-Log ('node 已退出 exitCode=' + $code + ' 运行 ' + $uptimeSec + ' 秒')
@@ -195,8 +272,6 @@ try {
     Start-Sleep -Seconds $delay
   }
 } finally {
-  if ($nodeProc -and -not $nodeProc.HasExited) {
-    try { Stop-Process -Id $nodeProc.Id -Force -ErrorAction SilentlyContinue } catch { }
-  }
+  Stop-NodePid $nodePid
   Write-Log '=== 守护结束 ==='
 }

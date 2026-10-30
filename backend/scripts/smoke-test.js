@@ -141,6 +141,23 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
   const health = await req('/api/health');
   ok('健康检查返回 ok', health.status === 200 && health.json.ok === true, `HTTP ${health.status}`);
 
+  /**
+   * 健康检查必须能回答「这个进程跑的是哪份代码」
+   *
+   * 起因：改完后端，停计划任务只杀了守护、node 留在原地，再启一次被单实例保护拦下，
+   * 等于没重启；而 health 照样 200，从外部完全看不出跑的还是旧代码。
+   * 所以 pid / started_at / code_stamp 是排障必需品 —— 少了它们，上面那件事只能靠猜。
+   */
+  {
+    const h = health.json;
+    const stamp = h.code_stamp || {};
+    ok('★ 健康检查带 pid / started_at / code_stamp（能判断是否加载了新代码）',
+      Number(h.pid) > 0 && !!h.started_at && !!stamp.newest_at && Number(stamp.files) > 0,
+      `pid=${h.pid} started_at=${h.started_at || '-'} code_stamp=${stamp.newest_at || '-'} files=${stamp.files || 0}`);
+    // started_at 与 uptime 必须自洽：对不上说明这个字段是编的，排障时反而误导人
+    const drift = Math.abs((Date.now() - Date.parse(h.started_at)) / 1000 - Number(h.uptime));
+    ok('started_at 与 uptime 自洽（≤5s 偏差）', drift <= 5, `偏差 ${drift.toFixed(1)}s`);
+  }
   // 2. 登录
   const login = await req('/api/auth/login', { method: 'POST', body: { username: USER, password: PASS } });
   const token = login.json && login.json.data && login.json.data.token;

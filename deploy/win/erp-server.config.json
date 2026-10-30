@@ -4,5 +4,6 @@
   "entry": "src/server.js",
   "port": 3000,
   "logDir": "data\\logs",
-  "stopFile": "data\\logs\\erp-server.stop"
+  "stopFile": "data\\logs\\erp-server.stop",
+  "reloadFile": "data\\logs\\erp-server.reload"
 }

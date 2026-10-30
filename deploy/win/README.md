@@ -11,7 +11,31 @@
 | `erp-server.config.json` | 配置：应用目录、node 路径、端口、日志目录、停止标记路径 |
 | `start-erp.cmd` | **手动启动**（前台可见，能看日志滚动；关窗口即停）——调试用 |
 | `stop-erp.cmd` | **停止**：写停止标记 → 等守护收尾 → 兜底按命令行结束本项目 node，并确认端口释放 |
+| `restart-erp.cmd` | **真正的重启（要管理员）**：停任务 → 杀掉占用端口的 node → 启任务 → 校验是否加载了最新代码 |
+| `reload-erp.cmd` | **换代码（不要管理员）**：写重载标记，守护自己结束 node 再拉起 |
 | `install-autostart.ps1` | 把自启项写进「启动文件夹」；`-Uninstall` 取消自启 |
+
+## 改完代码怎么让它生效
+
+后端改完**必须重启进程**才生效。这里的坑很具体：
+
+> node 是守护用 `Start-Process` 起的**独立进程**，Windows 不会因为父进程（守护）退出就把它带走。
+> 所以「停计划任务」只杀掉守护，node 继续活着占端口；紧接着「启动计划任务」，
+> 新守护发现端口被占 → 立刻退出。**净效果：什么都没换，跑的还是旧代码**，而 `/api/health` 依旧 200。
+
+正确做法：
+
+```bat
+:: 普通权限、守护在跑时（最常见）
+deploy\win\reload-erp.cmd
+
+:: 守护没在跑、或改了本目录的守护脚本本身（要管理员）
+deploy\win\restart-erp.cmd
+```
+
+两个脚本最后都会打印 `/api/health` 里的 `pid` / `started_at` / `code_stamp`，并跟磁盘上源码的
+最新修改时间比对，直接给出「✓ 已加载最新代码」或「✗ 仍是旧代码」。**不用再靠猜。**
+
 
 ## 两种部署方式
 
@@ -60,6 +84,12 @@ deploy\win\start-erp.cmd
 # 停止
 deploy\win\stop-erp.cmd
 
+# 换代码后重启（普通权限；守护在跑就行）
+deploy\win\reload-erp.cmd
+
+# 真正的重启 / 救活（要管理员；会杀掉占端口的 node 再启任务）
+deploy\win\restart-erp.cmd
+
 # 安装 / 取消「登录自动启动」
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart.ps1 -Uninstall
@@ -77,6 +107,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart
 | `run-<时间戳>.out.log` | 该次 node 的标准输出（启动横幅等） |
 | `run-<时间戳>.err.log` | 该次 node 的错误输出 —— **起不来看这里** |
 | `erp-server.stop` | 停止标记（`stop-erp.cmd` 写，守护读到就退出；下次启动自动清掉） |
+| `erp-server.reload` | 重载标记（`reload-erp.cmd` 写，守护读到就换掉 node；处理完自己删掉） |
 
 单次 `run-*.log` 保留 3 天，主日志超过 10MB 自动转存一份 `erp-server-prev.log`。
 
@@ -103,8 +134,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart
    「禁止运行脚本」，那是正常的，请走 `.cmd`。
 3. **node 路径写死在 `erp-server.config.json`**。升级 node（或换机器）后要改这一项，
    否则守护会在日志里报「node 不存在」并退出。
-4. **单实例保护**：端口已被占用时守护直接退出，不会起第二个实例抢同一份 SQLite。
-   所以「重启服务」的正确姿势是先 `stop-erp.cmd` 再启动，不要直接再点一次启动。
+4. **单实例保护分两种**：端口被**本项目** node 占用时，守护会**接管**（继续守着它，
+   不再起第二个）——这修掉了「停任务只杀守护、node 被留下、再启一次直接退出，等于没重启」的问题；
+   端口被**别的程序**占用时守护才退出（不误伤别人的服务）。
+   所以「重启服务」不要用「停任务再启任务」，用 `restart-erp.cmd`。
 5. 当前会话里如果用脚本去「隐藏启动」，在某些受限环境会被安全策略拦（不允许脚本派生
    powershell 子进程）—— 这跟登录/开机时由系统触发是两回事，系统触发不受影响。
 6. **`param()` 默认值里不能写 `$PSScriptRoot`**：用 `powershell -File` 调用它时是空字符串，
