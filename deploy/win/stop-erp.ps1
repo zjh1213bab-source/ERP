@@ -8,9 +8,15 @@
   最后把停止标记删掉，否则下次启动会立刻又退出。
 #>
 [CmdletBinding()]
-param([string]$ConfigPath = (Join-Path $PSScriptRoot 'erp-server.config.json'))
+param(
+  # 默认空 → 用 $MyInvocation 解析目录（param 默认值里的 $PSScriptRoot 在 -File 调用时为空）
+  [string]$ConfigPath = ''
+)
 
 $ErrorActionPreference = 'Continue'
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+  $ConfigPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'erp-server.config.json'
+}
 if (-not (Test-Path $ConfigPath)) { Write-Host "找不到配置：$ConfigPath"; exit 1 }
 $cfg = Get-Content -Path $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $appDir = $cfg.appDir

@@ -13,6 +13,44 @@
 | `stop-erp.cmd` | **停止**：写停止标记 → 等守护收尾 → 兜底按命令行结束本项目 node，并确认端口释放 |
 | `install-autostart.ps1` | 把自启项写进「启动文件夹」；`-Uninstall` 取消自启 |
 
+## 两种部署方式
+
+### 方式 A：计划任务（推荐，需要管理员）—— 真正的「开机即启」
+
+不需要任何登录，机器一开机服务就跑；node 挂了由守护拉起，守护本身挂了由任务每分钟重试。
+
+```powershell
+# 管理员窗口（以管理员身份运行 PowerShell / 命令提示符）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\wk\2026-10-26-09-45-32\erp-mindmap\deploy\win\install-startup-task.ps1
+
+# 卸载（只删任务，不动数据与代码）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\wk\2026-10-26-09-45-32\erp-mindmap\deploy\win\install-startup-task.ps1 -Uninstall
+```
+
+任务名 `ErpServer`，配置：触发=**系统启动**，身份=**SYSTEM**，动作=`powershell -File erp-server.ps1`，
+失败每分钟重试（最多 99 次），不限运行时长，已在跑就不再起第二个。
+
+**几个容易误判的点**：
+
+- 安装后打印的「上次结果码 **267009**」= `0x41301` = **任务正在运行**，不是错误码；
+- 在**普通（非管理员）窗口**里用 `Get-ScheduledTask -TaskName ErpServer` 会报"找不到" ——
+  那是**权限不够看不到**，不是没装上（任务文件 ACL 只给管理员/SYSTEM）。要查请在管理员窗口查；
+- 想确认"服务是不是任务起的"，看进程树：`node ← powershell ← svchost.exe(承载 Schedule 服务)`；
+- 因为 node 由 **SYSTEM** 运行，`stop-erp.cmd` 需要**以管理员身份**运行才杀得掉；
+- 任务只在启动时触发，手动停掉后**不会**被自动拉起（等下次开机）。要立刻再起：
+  管理员窗口 `Start-ScheduledTask -TaskName ErpServer`。
+
+### 方式 B：启动文件夹（无需管理员）—— 登录后才起
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart.ps1 -Uninstall
+```
+
+写入 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\ERP-Server.cmd`。
+**限制**：必须有人登录才会启动；如果已经装了方式 A，这一项是重复的（我们的守护有单实例保护，
+第二个会自己退出，但日志会刷一行"端口已在监听"），建议只保留一种。
+
 ## 常用命令
 
 ```powershell
@@ -68,4 +106,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart
 4. **单实例保护**：端口已被占用时守护直接退出，不会起第二个实例抢同一份 SQLite。
    所以「重启服务」的正确姿势是先 `stop-erp.cmd` 再启动，不要直接再点一次启动。
 5. 当前会话里如果用脚本去「隐藏启动」，在某些受限环境会被安全策略拦（不允许脚本派生
-   powershell 子进程）—— 这跟登录时由系统触发是两回事，登录自启不受影响。
+   powershell 子进程）—— 这跟登录/开机时由系统触发是两回事，系统触发不受影响。
+6. **`param()` 默认值里不能写 `$PSScriptRoot`**：用 `powershell -File` 调用它时是空字符串，
+   会抛「Join-Path : 无法将参数绑定到参数"Path"，因为该参数为空字符串」。本目录脚本统一改成
+   进脚本第一行 `Split-Path -Parent $MyInvocation.MyCommand.Path`（两种调用方式都可靠）。
+7. 启动文件夹里还留着一个更早的 `start-erp-auto.vbs`（调 `deploy\start-erp-auto.bat`）。
+   它自己会检查端口：忙就跳过，所以和计划任务不冲突，可当兜底保留 ——
+   但它**没有自动重启**能力，正式部署以方式 A 为准。

@@ -24,12 +24,18 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$ConfigPath = (Join-Path $PSScriptRoot 'erp-server.config.json'),
+  # 默认空 → 下面用 $MyInvocation 解析目录。
+  # param 默认值里不能写 $PSScriptRoot：用 powershell -File 调用时它是空字符串，
+  # 会直接抛「Join-Path : 无法将参数绑定到参数"Path"，因为该参数为空字符串」。
+  [string]$ConfigPath = '',
   [int]$RestartDelaySec = 3,
   [int]$MaxDelaySec = 60
 )
 
 $ErrorActionPreference = 'Stop'
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) { $ConfigPath = Join-Path $scriptDir 'erp-server.config.json' }
 
 function Get-Cfg {
   if (-not (Test-Path $ConfigPath)) { throw "找不到配置文件：$ConfigPath" }

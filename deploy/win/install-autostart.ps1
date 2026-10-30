@@ -19,12 +19,15 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$ConfigPath = (Join-Path $PSScriptRoot 'erp-server.config.json'),
+  # 默认空 → 用 $MyInvocation 解析目录（param 默认值里的 $PSScriptRoot 在 -File 调用时为空）
+  [string]$ConfigPath = '',
   [switch]$SkipStart,
   [switch]$Uninstall
 )
 
 $ErrorActionPreference = 'Stop'
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) { $ConfigPath = Join-Path $scriptDir 'erp-server.config.json' }
 $startupDir = [Environment]::GetFolderPath('Startup')
 $cmdPath = Join-Path $startupDir 'ERP-Server.cmd'
 $oldVbs = Join-Path $startupDir 'ERP-Server.vbs'   # 早期版本用 VBS（已被安全策略禁用）
@@ -41,7 +44,7 @@ $cfg = Get-Content -Path $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not (Test-Path $cfg.nodeExe)) { throw ('node 不存在：' + $cfg.nodeExe + ' —— 改 erp-server.config.json 的 nodeExe') }
 if (-not (Test-Path (Join-Path $cfg.appDir $cfg.entry))) { throw ('入口不存在：' + $cfg.appDir + '\' + $cfg.entry) }
 
-$ps1 = Join-Path $PSScriptRoot 'erp-server.ps1'
+$ps1 = Join-Path $scriptDir 'erp-server.ps1'
 if (-not (Test-Path $ps1)) { throw ('缺少守护脚本：' + $ps1) }
 
 if (-not (Test-Path $startupDir)) { New-Item -ItemType Directory -Path $startupDir -Force | Out-Null }
