@@ -277,6 +277,21 @@
 | GET | /api/pattern-flows/:flowId/materials | 登录 | 面辅料确认阶段的物料清单（读开发单 tech_pack_materials） |
 | PUT | /api/pattern-flows/:flowId/materials | admin,tech | 保存物料清单（仅面辅料确认阶段、流程未完成时可写） |
 | POST | /api/pattern-flows/:flowId/finish | admin,finance,production | 完成打版并归档样衣 |
+| POST | /api/pattern-flows/:flowId/changes | admin,sales | 提交业务信息修改申请 `{field_key,proposed_value,reason}`。`field_key` 只能取 customer_req / fabric_info / accessory_info / craft_info / size_spec；同一流程同时只允许一条在审 |
+| POST | /api/pattern-flows/changes/:id/review | admin,tech | 审核修改申请 `{approve,note}`：同意后状态转 `awaiting_recheck`（此时字段已写回开发单，但流程仍暂停） |
+| POST | /api/pattern-flows/changes/:id/recheck | admin,tech | 修改后复核 `{approve,note}`：通过转 `released` 解除暂停，不通过则把字段回滚成修改前的值 |
+| GET | /api/pre-orders?status=&q= | admin,boss,sales,tech,warehouse | 预下单列表（正式订单之外，客户意向阶段） |
+| POST | /api/pre-orders | admin,sales | 新建预下单 `{customer_name,style_name,expected_qty,target_date,requirements}`（单号 PD+日期+序号） |
+| PUT | /api/pre-orders/:id | admin,sales | 修改预下单（跨主体返回 404） |
+| GET | /api/material-development?status=&q= | admin,boss,sales,tech,warehouse | 面辅料新品开发申请列表（含寻样轮次、事件、准入审核记录） |
+| POST | /api/material-development | admin,sales,tech | 发起寻样 `{pre_order_id,material_type,material_name,customer_requirements,requested_spec,requested_color,reference_image_url}` |
+| GET | /api/material-development/:id | 同上 | 单条详情（含 rounds / events / pattern_reviews） |
+| POST | /api/material-development/:id/start-search | admin,warehouse | 采购开始新一轮寻样（同一申请同时只能有一轮在找） |
+| POST | /api/material-development/rounds/:roundId/return | admin,warehouse | 回传候选 `{candidate_name,candidate_spec,candidate_color,candidate_supplier,candidate_price,candidate_note,candidate_image_url}` |
+| POST | /api/material-development/rounds/:roundId/reject | admin,sales,tech | 业务判定不符合要求（必填原因），申请回到待寻样 |
+| POST | /api/material-development/rounds/:roundId/approve | admin,sales,tech | 业务确认可用 `{add_to_material_archive}`：可选同时进面辅料档案，随后转技术准入 |
+| POST | /api/material-development/:id/pattern-review | admin,tech | 打版准入审核 `{approve,note}`：通过则自动建开发单（`order_id=0` + `pre_order_id`）、写面辅料明细、起打版流程并跳到制版 |
+| PUT | /api/material-development/:id/resubmit-pattern-review | admin,sales,tech | 被退回后补充资料重新提交准入审核 |
 | GET | /api/sample-archives?q=&status= | 登录 | 样衣档案列表 |
 | GET | /api/sample-archives/:id | 登录 | 样衣详情（含快照与变更记录） |
 | POST | /api/sample-archives/:id/change-request | 登录 | 提交更改需求（同一时间只允许一条待审） |

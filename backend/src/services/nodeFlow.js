@@ -676,7 +676,9 @@ function board({
            o.order_date, o.delivery_date, o.total_usd, o.image_url, o.manager, o.customer_id,
            /* 款图两处可放：订单自己的 image_url，或打版（技术资料）里的图。
               大多数单实际上只填了打版那张 —— 所以不能只看订单表，否则看板上
-              十张有九张是空白占位。取最新一版有图的。 */
+              十张有九张是空白占位。取最新一版有图的。
+              注意：这里按订单维度取，**预下单驱动的开发单（order_id=0）本来就没有订单节点流**，
+              不需要加 pre_order 兜底 —— 加了反而会把预订单的图挂到不存在的订单上。 */
            (SELECT tp.image_url FROM tech_packs tp
              WHERE tp.order_id = o.id AND IFNULL(tp.image_url, '') <> ''
              ORDER BY tp.id DESC LIMIT 1) AS tech_image_url,

@@ -376,6 +376,169 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     }
   }
 
+  /**
+   * 5.5.3 预下单与面辅料新品开发（v1.68.6）
+   *
+   * 这条链路有四步状态机和三种角色：业务发起 → 采购多轮寻样 → 业务确认 → 技术准入 → 自动建开发单并起打版流程。
+   * 断言重点不是"能跑通"，而是三类会静默出错的地方：
+   *   1. 单号用 COUNT(*)+1 → 删过一条就撞 UNIQUE（这里专门删一条再建来验）
+   *   2. 变更申请审核期间还能继续打版 → 等于审核形同虚设
+   *   3. 字段名拼进 SQL → 列名注入面
+   */
+  {
+    console.log('\n[预下单与面辅料新品开发]');
+    const { db: MDB } = require('../src/db');
+    const tag = String(Date.now()).slice(-6);
+    const preName = '烟测预下单客户-' + tag;
+    const matName = '烟测寻样面料-' + tag;
+
+    // 夹具自清：先按名字把上一轮可能的残留清掉（本块自己造的自己删，不碰别人）
+    const mVacuum = () => {
+      MDB.prepare('SELECT id, tech_pack_id FROM material_dev_requests WHERE material_name = ?').all(matName)
+        .forEach((r) => {
+          MDB.prepare('DELETE FROM material_dev_events WHERE request_id = ?').run(r.id);
+          MDB.prepare('DELETE FROM material_dev_pattern_reviews WHERE request_id = ?').run(r.id);
+          MDB.prepare('DELETE FROM material_dev_rounds WHERE request_id = ?').run(r.id);
+          MDB.prepare('DELETE FROM material_dev_requests WHERE id = ?').run(r.id);
+          if (r.tech_pack_id) {
+            MDB.prepare('DELETE FROM pattern_change_requests WHERE flow_id IN (SELECT id FROM pattern_flows WHERE tech_pack_id = ?)').run(r.tech_pack_id);
+            MDB.prepare('DELETE FROM pattern_stages WHERE flow_id IN (SELECT id FROM pattern_flows WHERE tech_pack_id = ?)').run(r.tech_pack_id);
+            MDB.prepare('DELETE FROM pattern_flows WHERE tech_pack_id = ?').run(r.tech_pack_id);
+            MDB.prepare('DELETE FROM tech_pack_materials WHERE tech_pack_id = ?').run(r.tech_pack_id);
+            MDB.prepare('DELETE FROM tech_pack_sizes WHERE tech_pack_id = ?').run(r.tech_pack_id);
+            MDB.prepare('DELETE FROM tech_pack_requirements WHERE tech_pack_id = ?').run(r.tech_pack_id);
+            MDB.prepare('DELETE FROM tech_packs WHERE id = ?').run(r.tech_pack_id);
+          }
+        });
+      MDB.prepare('DELETE FROM pre_orders WHERE customer_name LIKE ?').run(preName + '%');
+    };
+    mVacuum();
+
+    const po1 = await req('/api/pre-orders', {
+      method: 'POST', token, body: { customer_name: preName, style_name: '烟测款', expected_qty: 50 }
+    });
+    ok('预下单可新建（PD + 日期 + 序号）',
+      po1.status === 200 && /^PD\d{12}$/.test(String(po1.json.data && po1.json.data.pre_order_no)),
+      `HTTP ${po1.status} ${po1.json.data && po1.json.data.pre_order_no}`);
+
+    const mkDev = await req('/api/material-development', {
+      method: 'POST', token,
+      body: {
+        pre_order_id: po1.json.data.id, material_type: 'fabric', material_name: matName,
+        customer_requirements: '克重 220g，手感柔软', requested_spec: '220g/㎡'
+      }
+    });
+    const devId = mkDev.status === 200 ? mkDev.json.data.id : null;
+    ok('新品寻样申请可提交（待采购寻样）',
+      mkDev.status === 200 && mkDev.json.data.status === 'search_required', `HTTP ${mkDev.status}`);
+    ok('★ 寻样申请不占用正式订单（order_id=0，靠 pre_order_id 关联预下单）',
+      mkDev.json.data && mkDev.json.data.order_id === 0, `order_id=${mkDev.json.data && mkDev.json.data.order_id}`);
+
+    const st1 = await req(`/api/material-development/${devId}/start-search`, { method: 'POST', token, body: {} });
+    const roundId = st1.json.data && st1.json.data.rounds && st1.json.data.rounds[0] && st1.json.data.rounds[0].id;
+    ok('采购开始寻样（生成第 1 轮）', st1.status === 200 && !!roundId, `HTTP ${st1.status} round=${roundId}`);
+    const st2 = await req(`/api/material-development/${devId}/start-search`, { method: 'POST', token, body: {} });
+    ok('同一申请不能同时开两轮寻样', st2.status === 409, `HTTP ${st2.status}`);
+
+    const cand = await req(`/api/material-development/rounds/${roundId}/return`, {
+      method: 'POST', token,
+      body: { candidate_name: '烟测候选-' + tag, candidate_spec: '220g/㎡', candidate_supplier: '烟测市场', candidate_price: 24.5 }
+    });
+    ok('采购回传候选 → 待业务确认', cand.status === 200 && cand.json.data.status === 'awaiting_business', `HTTP ${cand.status}`);
+
+    const appr = await req(`/api/material-development/rounds/${roundId}/approve`, {
+      method: 'POST', token, body: { add_to_material_archive: false }
+    });
+    ok('业务确认可用 → 转技术准入审核',
+      appr.status === 200 && appr.json.data.pattern_review_status === 'pending', `HTTP ${appr.status}`);
+
+    const gate = await req(`/api/material-development/${devId}/pattern-review`, {
+      method: 'POST', token, body: { approve: true, note: '烟测准入' }
+    });
+    const newTp = gate.json.data && gate.json.data.tech_pack_id;
+    const newFlow = gate.json.data && gate.json.data.pattern_flow_id;
+    ok('技术准入通过 → 自动建开发单并起打版流程',
+      gate.status === 200 && !!newTp && !!newFlow, `HTTP ${gate.status} tp=${newTp} flow=${newFlow}`);
+
+    const tpRow = MDB.prepare('SELECT order_id, pre_order_id FROM tech_packs WHERE id = ?').get(newTp);
+    ok('开发单挂在预下单上（pre_order_id 有值、order_id 仍是 0）',
+      !!tpRow && tpRow.pre_order_id === po1.json.data.id && tpRow.order_id === 0, JSON.stringify(tpRow));
+    const flowRow = MDB.prepare('SELECT current_stage, status FROM pattern_flows WHERE id = ?').get(newFlow);
+    ok('打版流程自动跳到制版阶段',
+      !!flowRow && flowRow.current_stage === 'pattern' && flowRow.status === 'running', JSON.stringify(flowRow));
+
+    const board2 = await req('/api/pattern-flows/board', { token });
+    const onBoard2 = ((board2.json.data && board2.json.data.flows) || []).find((f) => f.id === newFlow);
+    ok('★ 预订单开发单在打版看板显示预下单号（不是空单号）',
+      !!onBoard2 && onBoard2.order_no === po1.json.data.pre_order_no, onBoard2 ? `order_no=${onBoard2.order_no}` : '没上板');
+
+    /**
+     * order_id=0 的兜底：凡是"按订单显示单号/客户"的地方都要能落到预下单，
+     * 否则开发管理、技术确认待办里这张单就是"单号空白 + 客户空白"，
+     * 人只会以为数据丢了。
+     */
+    const devList = await req('/api/techpacks/all?q=' + encodeURIComponent(po1.json.data.pre_order_no), { token });
+    const listed = (devList.json.data || []).find((t) => t.id === newTp);
+    ok('★ 开发管理能按预下单号搜到该开发单（单号/客户不空白）',
+      !!listed && listed.order_no === po1.json.data.pre_order_no && listed.customer_name === preName,
+      listed ? `order_no=${listed.order_no} customer=${listed.customer_name}` : '搜不到');
+
+    const fullDev = await req(`/api/techpacks/${newTp}/full`, { token });
+    ok('★ 开发单明细把预下单补成"像订单一样"的壳（打印/详情不用各页判断）',
+      fullDev.status === 200 && fullDev.json.data.order && fullDev.json.data.order.is_pre_order === 1
+      && fullDev.json.data.order.order_no === po1.json.data.pre_order_no,
+      fullDev.json.data && fullDev.json.data.order ? `order_no=${fullDev.json.data.order.order_no}` : 'order 为空');
+
+    const pend = await req('/api/approvals/pending', { token });
+    const inPending = (pend.json.data && pend.json.data.techpacks || []).find((t) => t.id === newTp);
+    ok('技术确认待办里预订单开发单也带单号', !inPending || inPending.order_no === po1.json.data.pre_order_no,
+      inPending ? `order_no=${inPending.order_no}` : '(不在待办，跳过口径)');
+
+    // 预订单开发单同样要过 v1.68.5 的确认闸门（没有正式订单也不能免检）
+    const preConfirm = await req(`/api/techpacks/${newTp}/confirm`, { method: 'POST', token });
+    ok('★ 预订单开发单确认同样受工序闸门约束（不能因为没有订单就免检）',
+      preConfirm.status === 400 && String(preConfirm.json.message).includes('车缝'),
+      `HTTP ${preConfirm.status} ${String(preConfirm.json.message).slice(0, 26)}`);
+
+    // 单号不重号：删掉当天一条再建（COUNT(*)+1 会在这里撞 UNIQUE → 500）
+    const po2 = await req('/api/pre-orders', { method: 'POST', token, body: { customer_name: preName + '-B' } });
+    MDB.prepare('DELETE FROM pre_orders WHERE id = ?').run(po1.json.data.id);
+    const po3 = await req('/api/pre-orders', { method: 'POST', token, body: { customer_name: preName + '-C' } });
+    ok('★ 删过一条后新建预下单不撞号（最大号+1，不是 COUNT(*)+1）',
+      po2.status === 200 && po3.status === 200 && po3.json.data.pre_order_no !== po2.json.data.pre_order_no,
+      `HTTP ${po3.status} ${po3.json.data ? po3.json.data.pre_order_no : String(po3.json.message).slice(0, 30)}`);
+
+    // 变更申请：中途改业务信息必须走审核；审核期间流程暂停
+    const chg = await req(`/api/pattern-flows/${newFlow}/changes`, {
+      method: 'POST', token, body: { field_key: 'customer_req', proposed_value: '克重改 240g', reason: '客户调整' }
+    });
+    ok('打版中途改业务信息要提交变更申请',
+      chg.status === 200 && chg.json.data.status === 'pending', `HTTP ${chg.status}`);
+    const holdSave = await req(`/api/pattern-flows/${newFlow}/stage/pattern`, {
+      method: 'PUT', token, body: { owner: '烟测版师' }
+    });
+    ok('★ 变更审核期间不允许继续打版（流程暂停）', holdSave.status === 409, `HTTP ${holdSave.status}`);
+    const rv = await req(`/api/pattern-flows/changes/${chg.json.data.id}/review`, {
+      method: 'POST', token, body: { approve: true, note: '同意' }
+    });
+    ok('技术审核通过 → 待修改后复核',
+      rv.status === 200 && rv.json.data.status === 'awaiting_recheck', `HTTP ${rv.status}`);
+    const rc = await req(`/api/pattern-flows/changes/${chg.json.data.id}/recheck`, {
+      method: 'POST', token, body: { approve: true, note: '复核通过' }
+    });
+    ok('修改后复核通过 → 解除暂停', rc.status === 200 && rc.json.data.status === 'released', `HTTP ${rc.status}`);
+    const badField = await req(`/api/pattern-flows/${newFlow}/changes`, {
+      method: 'POST', token, body: { field_key: 'id; DROP TABLE x--', proposed_value: 'y', reason: 'z' }
+    });
+    ok('★ 变更申请的字段名走白名单（列名注入面已关）', badField.status === 400, `HTTP ${badField.status}`);
+
+    mVacuum();
+    const leftDev = MDB.prepare(
+      'SELECT (SELECT COUNT(*) FROM pre_orders WHERE customer_name LIKE ?) a, (SELECT COUNT(*) FROM material_dev_requests WHERE material_name = ?) b'
+    ).get(preName + '%', matName);
+    ok('新品开发夹具已清干净', leftDev.a === 0 && leftDev.b === 0, `预下单残留=${leftDev.a} / 申请残留=${leftDev.b}`);
+  }
+
   // 5.6 面辅料档案
   const matFab = await req('/api/materials?type=fabric', { token });
   ok('面辅料档案按类型筛选', matFab.status === 200 && Array.isArray(matFab.json.data), `HTTP ${matFab.status}`);

@@ -204,6 +204,11 @@ function sweepExpired(operator) {
 /** 关联开发单（只读，用来判断技术是否确认；不负责推进技术状态） */
 function techStateOf(styleNo) {
   if (!styleNo) return null;
+  /**
+   * 走订单明细反查：这是"这款以前下过单吗、当时技术确认到哪一步"的场景，
+   * 预下单驱动的开发单（order_id=0）**没有 order_items**，本来就查不到 —— 这是正确的，
+   * 别为了"看起来有数据"把 pre_orders 拼进来：预订单还没成交，不能当历史技术状态用。
+   */
   return db.prepare(
     `SELECT tp.id, tp.status, tp.stage, tp.version
      FROM tech_packs tp

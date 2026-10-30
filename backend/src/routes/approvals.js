@@ -14,11 +14,15 @@ const { myTasks, actTask } = require('../services/approvals');
 const router = express.Router();
 
 router.get('/pending', authRequired, wrap(async (req, res) => {
+  // 预下单驱动的开发单没有正式订单（order_id=0），单号/客户从预下单兜底，否则待办里一片空白
   const techpacks = db.prepare(
-    `SELECT tp.id, tp.order_id, tp.product_name, tp.version, tp.stage, tp.status, tp.updated_at,
-            o.order_no, o.style_name, c.name AS customer_name
+    `SELECT tp.id, tp.order_id, tp.pre_order_id, tp.product_name, tp.version, tp.stage, tp.status, tp.updated_at,
+            COALESCE(o.order_no, p.pre_order_no) AS order_no,
+            COALESCE(o.style_name, p.style_name) AS style_name,
+            COALESCE(c.name, p.customer_name) AS customer_name
      FROM tech_packs tp
      LEFT JOIN orders o ON o.id = tp.order_id
+     LEFT JOIN pre_orders p ON p.id = tp.pre_order_id
      LEFT JOIN customers c ON c.id = o.customer_id
      WHERE tp.status = 'draft'
      ORDER BY tp.id DESC`

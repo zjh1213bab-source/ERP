@@ -1,5 +1,78 @@
 # 变更日志（CHANGELOG）
 
+## v1.68.6 — 2026-10-30
+
+### 一、新功能
+
+| 模块 | 说明 |
+|---|---|
+| **预下单** | 客户需求阶段的意向单（`PD+日期+序号`），独立于正式销售订单；面辅料新品开发从这里关联。页面「销售与客户 → 预下单」 |
+| **面辅料新品开发** | 业务发起寻样 → 采购多轮市场寻样 → 业务确认候选 → 技术准入 → **自动生成开发单并推进打版流程**；全程 `material_dev_events` 留痕；候选可一键进面辅料档案。页面「技术开发 → 面辅料新品开发」 |
+| **打版变更申请** | 打版流程已开始后，改业务信息（客户要求/面辅料/工艺/尺码）必须走「申请 → 技术审核 → **修改后复核**」。审核期间流程暂停：保存、完成、退回、物料、归档全部拦住（`changeHold`），复核通过才放行 |
+| **深色主题 + 导航配色** | `store/theme.js` + CSS 变量化；侧栏 5 套配色 + 自定义取色 |
+
+新增 6 张表：`pre_orders`、`material_dev_requests`、`material_dev_rounds`、`material_dev_events`、`material_dev_pattern_reviews`、`pattern_change_requests`；`tech_packs` / `sample_archives` 各加 `pre_order_id`。
+
+### 二、代码检查修掉的问题（都能在开发机上"静默通过"，到别处才炸）
+
+1. **`db.transaction()` ×4 → `BEGIN IMMEDIATE/COMMIT/ROLLBACK`**
+   `node:sqlite` 回退驱动没有这个方法（实测 `typeof … .transaction === 'undefined'`）。
+   `db.js` 在 better-sqlite3 装不上时会自动回退，那时"确认可用""准入审核"直接 TypeError 500。
+2. **单号 `COUNT(*)+1` ×2 → `services/noSeries.nextNo()`**
+   实测复现：删一条再建 → `UNIQUE constraint failed: pre_orders.pre_order_no` → **HTTP 500**。
+   新写 `services/noSeries.js`（当日**最大号**+1、跳过已占用、表/列名白名单）。
+   顺带记：铁律只落在 services 层，routes 里还有约 14 处裸 `COUNT(*)+1`（已在报告里列出）。
+3. **列名拼进 SQL**：`UPDATE tech_packs SET ${change.field_key}=?` 在两处补白名单复检
+   （历史行/手工改库可带进意外列名），非法字段返回 409。
+4. **`assertRow` 的 status 被压成 400** → 按实际状态返回（不存在/跨主体 404）。
+
+### 三、`order_id = 0` 的兜底（预下单开发单没有正式订单）
+
+保留 `order_id=0` 作为"无订单"的哨兵（改 NULL 要重建表，风险不值），但把**读的地方**补齐：
+
+- `GET /api/techpacks/all`：单号/款名/客户用 `COALESCE(orders, pre_orders)`，**搜索也能用预下单号命中**；
+- `GET /api/techpacks/:id/full`：`tp.order` 补一个"像订单一样"的壳（`is_pre_order=1`），
+  打印工艺单、详情弹窗、裁床/首件读 `tp.order.order_no` 的地方不用各写一遍；
+- `GET /api/approvals/pending`：技术确认待办里带预下单号与客户名。
+
+**两处刻意不改**（代码里写了原因，避免后人"顺手补上"）：`services/nodeFlow.js` 的订单款图子查询、
+`services/mkt.js` 的按款号反查技术状态 —— 前者是订单维度视图，后者查的是"这款以前成过单吗"，
+把预下单拼进去会把未成交的单当历史数据。
+
+**顺带补的一个洞**：`confirmBlocks()` 原来只按 `orders.type` 判断要不要做确认前校验，
+`order_id=0` 时查不到订单 → **预订单开发单可以完全免检通过**（面辅料/客户要求/车缝工序都不校验）。
+现在"有预下单也算定制单"，与 v1.68.5 的闸门口径一致。
+
+### 四、新模块纳入冒烟（原来 0 条断言）
+
+新增第 50 个用例块「预下单与面辅料新品开发」，22 条断言，覆盖正常链路 + 三类会静默出错的点：
+
+- 状态机：重复开寻样 409、候选未回传不能确认、准入前不能审核；
+- **单号不重号**（专门删一条再建，`COUNT(*)+1` 会在这里撞 UNIQUE）；
+- **变更审核期间不能继续打版**、复核后恢复；
+- **字段名白名单**（`field_key='id; DROP TABLE x--'` 被拒）；
+- `order_id=0` 的三处可见性（列表搜索、明细壳、待办单号）+ 预订单开发单同样受工序闸门约束；
+- 夹具自建自清，跑完断言无残留。
+
+### 五、验证
+
+| 项 | 结果 |
+|---|---|
+| 冒烟（单公司） | **2257 / 0**（50 个用例块，跳过 112 条多主体断言） |
+| 冒烟（`SINGLE_COMPANY=0`） | **2368 / 0**（跳过 5 条单公司断言） |
+| RBAC 审计 | 1107 接口 / 166 权限点 / 0 问题 |
+| 页面巡检 | `/pre-orders`、`/material-development`、`/pattern-board`、`/sample-archive` 0 异常 |
+| 数据体检 | L1 残留 0、无孤儿 |
+| 前端构建 | 通过 |
+
+### 已知遗留（下一步）
+
+- `tech_packs.order_id` 仍是 `NOT NULL DEFAULT 0`，29 处读它 —— 已兜底但语义债还在，要不要改 NULL 待定；
+- routes 层约 14 处 `COUNT(*)+1` 待迁到 `noSeries.nextNo()`；
+- 新模块列表接口 N+1（每条再查 rounds/events/reviews）+ 无分页；
+- 深色主题只验了构建与 4 页渲染，未逐页验对比度；
+- `pre_orders` 没有作废/删除，录错只能进库清。
+
 ## v1.68.5 — 2026-10-30
 
 ### 开发单确认多一道闸：定制订单必须至少 1 道车缝工序

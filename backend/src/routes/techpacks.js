@@ -79,8 +79,15 @@ function sewingCountOf(tpId) {
  * 返回空数组表示可以确认。
  */
 function confirmBlocks(row) {
-  const order = db.prepare('SELECT type FROM orders WHERE id = ?').get(row.order_id);
-  if (!order || order.type !== 'custom') return [];
+  /**
+   * 主体类型：有正式订单就按订单的 type，**没有订单但有预下单（order_id=0）也按定制单算**。
+   *
+   * 预下单驱动的开发单本来就是"客户要打样的款"，不按定制算会出现一个洞：
+   * 面辅料/客户要求/车缝工序一道都不校验就能确认，等于把 v1.68.5 的闸门绕过去了。
+   */
+  const order = row.order_id ? db.prepare('SELECT type FROM orders WHERE id = ?').get(row.order_id) : null;
+  const isCustom = order ? order.type === 'custom' : !!row.pre_order_id;
+  if (!isCustom) return [];
 
   const blocks = [];
   const { missing } = missingOf(row);
@@ -119,12 +126,21 @@ router.get('/all', authRequired, wrap(async (req, res) => {
   const params = [];
   if (status) { where.push('tp.status = ?'); params.push(status); }
   if (q) {
-    where.push('(tp.product_name LIKE ? OR o.order_no LIKE ? OR o.style_name LIKE ? OR c.name LIKE ?)');
-    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+    // 搜索要连**预下单号/预下单客户**一起命中：预订单开发单没有正式订单号，
+    // 只搜 o.order_no 的话在开发管理里怎么搜都搜不到它
+    where.push('(tp.product_name LIKE ? OR o.order_no LIKE ? OR o.style_name LIKE ? OR c.name LIKE ?'
+      + ' OR p.pre_order_no LIKE ? OR p.customer_name LIKE ?)');
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
-  const sql = `SELECT tp.*, o.order_no, o.style_name, o.type AS order_type, o.status AS order_status, c.name AS customer_name
+  const sql = `SELECT tp.*,
+      COALESCE(o.order_no, p.pre_order_no) AS order_no,
+      COALESCE(o.style_name, p.style_name) AS style_name,
+      o.type AS order_type, o.status AS order_status,
+      COALESCE(c.name, p.customer_name) AS customer_name,
+      p.pre_order_no
     FROM tech_packs tp
     LEFT JOIN orders o ON o.id = tp.order_id
+    LEFT JOIN pre_orders p ON p.id = tp.pre_order_id
     LEFT JOIN customers c ON c.id = o.customer_id ` +
     (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') +
     'ORDER BY tp.id DESC';
@@ -148,6 +164,29 @@ function loadFull(id) {
     `SELECT o.*, c.name AS customer_name FROM orders o
      LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?`
   ).get(tp.order_id) || null;
+  /**
+   * 预下单驱动的开发单没有正式订单（`order_id = 0`），这里补一个「像订单一样」的壳。
+   *
+   * 为什么不在前端各页判断：打印工艺单、详情弹窗、后续裁床/首件都读 `tp.order.order_no`，
+   * 每处写一遍 `|| pre_order` 一定漏一两处，表现就是"单号空白、客户空白"。
+   * 统一在这里兜住，读法不变；`is_pre_order` 让需要区分的地方能区分。
+   */
+  if (!tp.order && tp.pre_order_id) {
+    const po = db.prepare('SELECT * FROM pre_orders WHERE id = ?').get(tp.pre_order_id);
+    if (po) {
+      tp.order = {
+        id: 0,
+        order_no: po.pre_order_no,
+        style_name: po.style_name,
+        customer_id: null,
+        customer_name: po.customer_name,
+        delivery_date: po.target_date,
+        type: 'custom',
+        status: 'pre_order',
+        is_pre_order: 1
+      };
+    }
+  }
   /**
    * 确认前还差什么 —— 跟着明细一起返回
    *
