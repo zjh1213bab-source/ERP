@@ -132,6 +132,8 @@
                 </button>
                 <span v-if="!canCraft" class="craft-tip">工序与工价由技术岗填写，这里只读</span>
                 <span v-else-if="craftsDirty && craftsOpen" class="craft-dirty">工序有改动，保存后生效</span>
+                <!-- 定制订单确认前必须有车缝工序（后端 confirmBlocks 同一口径），提前在这里说 -->
+                <span v-if="craftsOpen && !sewingCount" class="craft-miss">确认前需至少 1 道车缝工序</span>
               </div>
               <div v-if="craftsOpen" class="craft-wrap">
                 <CraftEditor v-model="crafts" :disabled="!canCraft" @change="craftsDirty = true" />
@@ -140,7 +142,7 @@
             <div class="fitem full"><label>客户要求 *</label><textarea v-model="form.customer_req" rows="3" placeholder="尺码表 / 包装 / 标签 / 测试要求 / 交期"></textarea></div>
             <div class="fitem full"><label>备注</label><input class="input" v-model="form.remark" /></div>
           </div>
-          <p style="font-size: 11.5px; color: #8a94a6; margin: 10px 0 0">带 * 为业务确认前必填项（定制订单）。确认后锁定，需新建版本修改。</p>
+          <p style="font-size: 11.5px; color: #8a94a6; margin: 10px 0 0">带 * 为业务确认前必填项（定制订单，工序明细需至少 1 道车缝）。确认后锁定，需新建版本修改。</p>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" @click="showModal = false">取消</button>
@@ -183,6 +185,8 @@ const canWrite = computed(() => can('development.write'));
 /** 工序/工价是技术岗的活：与打版页 craft 阶段、接口 requireRole(['admin','tech']) 同一口径 */
 const canCraft = computed(() => can('craft.write'));
 const craftCount = computed(() => (crafts.value.sewing || []).length + (crafts.value.finish || []).length);
+/** 车缝道数：后端确认校验要求 ≥1（只看有名称的行，与 normCraftRows 的过滤一致） */
+const sewingCount = computed(() => (crafts.value.sewing || []).filter((r) => String(r.name || '').trim()).length);
 const canReview = computed(() => can('development.review'));
 
 const STAGES = [
@@ -369,13 +373,7 @@ onMounted(async () => {
 .craft-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
 .craft-tip { font-size: 11.5px; color: #8a94a6; }
 .craft-dirty { font-size: 11.5px; color: #d46b08; }
-.craft-wrap { margin-top: 8px; padding: 8px; border: 1px dashed #d9e2ef; border-radius: 10px; background: #fbfcff; }
-</style>
-
-<style scoped>
-/* 工艺工序：说明 + 可展开的明细表 */
-.craft-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
-.craft-tip { font-size: 11.5px; color: #8a94a6; }
-.craft-dirty { font-size: 11.5px; color: #d46b08; }
+/* 缺车缝工序时的提醒（后端确认校验的同一口径） */
+.craft-miss { font-size: 11.5px; color: #c0392b; }
 .craft-wrap { margin-top: 8px; padding: 8px; border: 1px dashed #d9e2ef; border-radius: 10px; background: #fbfcff; }
 </style>

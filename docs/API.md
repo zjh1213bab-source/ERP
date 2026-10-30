@@ -42,7 +42,7 @@
 |---|---|---|---|
 | GET | /api/techpacks/all | 登录 | 全量（含订单/客户） |
 | GET | /api/techpacks?order_id= | 登录 | 按订单 |
-| GET | /api/techpacks/:id/full | 登录 | 完整明细（头部 + 面辅料 + 成衣尺寸 + 生产要求 + 订单） |
+| GET | /api/techpacks/:id/full | 登录 | 完整明细（头部 + 面辅料 + 成衣尺寸 + 生产要求 + 订单 + `confirm_blocks`）。`confirm_blocks` 是确认前还差什么，已确认的单恒为空数组 |
 | GET | /api/techpacks/by-order/:orderId/current | 登录 | 该订单当前生效的开发单（已确认优先、款名匹配优先），打印总单用 |
 | PUT | /api/techpacks/:id/detail | admin,tech,sales | 整份保存明细（头部 + 三块明细，事务内全量替换；确认后锁定） |
 | POST | /api/techpacks/:id/sizes/from-order | admin,tech,sales | 按订单尺码生成成衣尺寸骨架 `{overwrite,parts}` |
@@ -51,9 +51,10 @@
 | GET | /api/techpacks/:id/crafts | 登录 | 工序明细（车缝 / 后整两组：类别·名称·单价·倍率·负责人·备注）。**与「订单工序」页是同一份数据**（打版流程 craft 阶段的 `data`） |
 | PUT | /api/techpacks/:id/crafts | admin,tech | 保存工序明细 `{sewing:[],finish:[],process_note?}`。只替换传了的那一组，**空行自动丢弃**；已确认的开发单、已完成的打版流程会被拒绝。工序与工价是技术岗的活，业务角色只读 |
 | PUT | /api/techpacks/:id | 同上 | 修改（确认后锁定） |
-| POST | /api/techpacks/:id/confirm | admin,tech | 确认（定制单必填校验） |
+| POST | /api/techpacks/:id/confirm | admin,tech | 确认。定制订单确认前校验：面料 / 辅料 / 工艺说明或生产要求 / 客户要求 + **至少 1 道车缝工序**（与 `stage=confirmed` 共用 `confirmBlocks()`） |
+| GET | /api/techpacks/:id/confirm-check | 登录 | 确认前检查：`{ok, blocks:[{key,label,detail,where}], message}`。与确认接口同一份判断，页面据此提前列缺口 |
 | POST | /api/techpacks/:id/reject | admin,tech | 驳回 |
-| POST | /api/techpacks/:id/stage | admin,tech,sales | 打版流程 `{stage}` |
+| POST | /api/techpacks/:id/stage | admin,tech,sales | 打版流程 `{stage}`（推到 `confirmed` 时与 `/confirm` 走**同一份**确认前校验；推回 `draft` 可解除已确认） |
 | DELETE | /api/techpacks/:id | admin,tech | 删除（草稿） |
 
 ## 工艺 / 面辅料用量 / 工序 / 报工

@@ -46,6 +46,72 @@ function missingOf(row) {
   return { missing, sizeCount };
 }
 
+/**
+ * 工序明细里的车缝道数（0 = 没填）
+ *
+ * 数据只有一份：打版流程 craft 阶段的 `data.sewing`（见下方 crafts 接口的说明）。
+ * 没有流程、没有 craft 阶段、`data` 是坏 JSON —— 对"确认前的齐备性"来说都和"没填"是同一件事，
+ * 一律返回 0，不去猜。
+ */
+function sewingCountOf(tpId) {
+  const { stage } = craftStageOf(tpId);
+  return normCraftRows(readCraftData(stage).sewing).length;
+}
+
+/**
+ * 确认前的阻断项 —— **唯一一份实现**
+ *
+ * ## 为什么必须抽成一个函数
+ *
+ * 把开发单置为"已确认"有**两条路**：
+ *   1. `POST /:id/confirm`   —— 订单页 / 审批页的「确认」按钮
+ *   2. `POST /:id/stage`     —— 打版流程推到最后一步 `confirmed`
+ * 校验各写一份，结果一定是"这条拦、那条漏"（本仓库已经在"单张 vs 批量"上踩过一次：
+ * 单张拦住了、批量漏了，而且漏的时候页面还显示成功）。所以两条路都调这一个函数。
+ *
+ * ## 口径
+ *
+ * - 只针对**定制订单**：现货订单的开发单是轻量资料，不卡工序，卡了会挡住正常发货节奏；
+ * - 字段齐备性沿用 `missingOf`（面料 / 辅料 / 工艺说明或生产要求 / 客户要求）；
+ * - 工序明细：**至少 1 道车缝**。没有车缝工序 = 工价算不出、报工没法按工序报、
+ *   外发/自产的工钱都对不上 —— 这时候"确认"等于把问题推给生产车间。
+ *
+ * 返回空数组表示可以确认。
+ */
+function confirmBlocks(row) {
+  const order = db.prepare('SELECT type FROM orders WHERE id = ?').get(row.order_id);
+  if (!order || order.type !== 'custom') return [];
+
+  const blocks = [];
+  const { missing } = missingOf(row);
+  if (missing.length) {
+    blocks.push({
+      key: 'fields',
+      label: '必填项缺失',
+      detail: missing.join('、'),
+      where: '开发单基本资料'
+    });
+  }
+  if (sewingCountOf(row.id) === 0) {
+    blocks.push({
+      key: 'craft_sewing',
+      label: '工序明细未填',
+      detail: '至少 1 道车缝工序',
+      where: '工艺工序 → 展开填写工序明细（与打版「工艺/工序明细」同一份数据）'
+    });
+  }
+  return blocks;
+}
+
+/** 阻断项拼成人话：接口报错与页面提示共用一份措辞，避免两边说法不一致 */
+function blockMessage(blocks) {
+  return (
+    '定制订单的开发单还不能确认：' +
+    blocks.map((b) => `${b.label}（${b.detail}）`).join('；') +
+    '。请补充后再确认。'
+  );
+}
+
 // 开发管理：全量列表（关联订单/客户）
 router.get('/all', authRequired, wrap(async (req, res) => {
   const { status = '', q = '' } = req.query;
@@ -82,6 +148,14 @@ function loadFull(id) {
     `SELECT o.*, c.name AS customer_name FROM orders o
      LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?`
   ).get(tp.order_id) || null;
+  /**
+   * 确认前还差什么 —— 跟着明细一起返回
+   *
+   * 放这里而不是让页面另发一次请求：详情弹窗、订单页、打印源都用 `loadFull`，
+   * 一次带出来就不会出现"页面显示可以确认、点了却被接口拒绝"。
+   * 已确认的单不再算（它已经过了校验，再算只会显示一堆历史提示）。
+   */
+  tp.confirm_blocks = tp.status === 'confirmed' ? [] : confirmBlocks(tp);
   return tp;
 }
 
@@ -385,17 +459,31 @@ router.put('/:id/crafts', authRequired, requireRole(REVIEW), wrap(async (req, re
   });
 }));
 
-router.post('/:id/confirm', authRequired, requireRole(REVIEW), wrap(async (req, res) => {  const row = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
+/**
+ * 确认前检查（只读）
+ *
+ * 页面在点「确认」之前先问一次，把缺什么直接列出来 —— 而不是让人点了才收到一句报错。
+ * 与 `POST /:id/confirm`、`POST /:id/stage` 用的是同一个 `confirmBlocks()`，
+ * 所以"检查说没问题、点确认却被拒"这种情况不会发生。
+ */
+router.get('/:id/confirm-check', authRequired, wrap(async (req, res) => {
+  const row = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
+  if (!row) return fail(res, 404, '技术资料不存在');
+  const blocks = confirmBlocks(row);
+  return ok(res, {
+    ok: blocks.length === 0,
+    blocks,
+    message: blocks.length ? blockMessage(blocks) : ''
+  });
+}));
+
+router.post('/:id/confirm', authRequired, requireRole(REVIEW), wrap(async (req, res) => {
+  const row = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '技术资料不存在');
 
-  // 定制订单开发流程校验：面辅料 / 工艺 / 客户要求 必填
-  const order = db.prepare('SELECT type FROM orders WHERE id = ?').get(row.order_id);
-  if (order && order.type === 'custom') {
-    const { missing } = missingOf(row);
-    if (missing.length) {
-      return fail(res, 400, '定制订单的开发单必填项缺失：' + missing.join('、') + '，请补充后再确认');
-    }
-  }
+  // 确认前校验（定制订单）：字段齐备 + 至少 1 道车缝工序。两条确认路径共用同一份判断
+  const blocks = confirmBlocks(row);
+  if (blocks.length) return fail(res, 400, blockMessage(blocks));
 
   const t = now();
   db.prepare("UPDATE tech_packs SET status='confirmed', confirmed_by=?, confirmed_at=?, updated_at=? WHERE id=?")
@@ -420,13 +508,9 @@ router.post('/:id/stage', authRequired, requireRole(WRITE), wrap(async (req, res
   if (!row) return fail(res, 404, '技术资料不存在');
 
   if (stage === 'confirmed') {
-    const order = db.prepare('SELECT type FROM orders WHERE id = ?').get(row.order_id);
-    if (order && order.type === 'custom') {
-      const { missing } = missingOf(row);
-      if (missing.length) {
-        return fail(res, 400, '定制订单的开发单必填项缺失：' + missing.join('、') + '，请补充后再确认');
-      }
-    }
+    // 与 POST /:id/confirm 完全同一份校验（两条路都会把开发单置为已确认）
+    const blocks = confirmBlocks(row);
+    if (blocks.length) return fail(res, 400, blockMessage(blocks));
     const t = now();
     db.prepare("UPDATE tech_packs SET stage='confirmed', status='confirmed', confirmed_by=?, confirmed_at=?, updated_at=? WHERE id=?")
       .run(req.user.username, t, t, req.params.id);

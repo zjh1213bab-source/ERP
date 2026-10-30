@@ -139,6 +139,8 @@ export const api = {  // 登录
   updateTechpack: (id, d) => req(`/api/techpacks/${id}`, { method: 'PUT', body: d }),
   deleteTechpack: (id) => req(`/api/techpacks/${id}`, { method: 'DELETE' }),
   confirmTechpack: (id) => req(`/api/techpacks/${id}/confirm`, { method: 'POST' }),
+  /** 确认前检查：返回还差什么（与确认接口同一份判断，避免"检查说没问题、点了却被拒"） */
+  techpackConfirmCheck: (id) => req(`/api/techpacks/${id}/confirm-check`),
   rejectTechpack: (id) => req(`/api/techpacks/${id}/reject`, { method: 'POST' }),
   techpackStage: (id, stage) => req(`/api/techpacks/${id}/stage`, { method: 'POST', body: { stage } }),
   techpackFull: (id) => req(`/api/techpacks/${id}/full`),

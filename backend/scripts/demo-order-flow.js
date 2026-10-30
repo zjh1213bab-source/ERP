@@ -200,6 +200,21 @@ async function main() {
     customer_req: '缩水率 ≤3%，色牢度 4 级以上，交付前做 AQL2.5 抽检',
     size_spec: 'S/M/L 三码，按客户提供尺寸表'
   });
+  // 工序明细（v1.68.5 起：定制订单确认前必须有车缝工序）。
+  // 写的是打版 craft 阶段那份数据，页面上「工艺/工序明细」看到的就是这几行。
+  await call('PUT', `/api/techpacks/${tp.id}/crafts`, {
+    sewing: [
+      { category: '车缝', name: '合肩', price: 1.2, ratio: 1.5, owner: '李伟', remark: '四线包缝，缝份 1cm' },
+      { category: '车缝', name: '上袖', price: 1.8, ratio: 1.5, owner: '李伟', remark: '袖山吃势均匀' },
+      { category: '车缝', name: '门襟', price: 1.5, ratio: 1.2, owner: '王芳', remark: '5 扣位等距' },
+      { category: '车缝', name: '下摆收口', price: 0.9, ratio: 1.2, owner: '王芳' }
+    ],
+    finish: [
+      { category: '后整', name: '整烫', price: 0.8, ratio: 1.2, owner: '张敏' },
+      { category: '后整', name: '包装', price: 0.4, ratio: 1, owner: '张敏' }
+    ],
+    process_note: '12 针横机全成形；缩水率 ≤3%，成衣水洗后复测尺寸'
+  });
   await call('POST', `/api/techpacks/${tp.id}/confirm`, {});
   await call('POST', `/api/orders/${orderId}/transition`, { to: 'tech', note: '开发单 V1 已确认，面料辅料工艺齐备，转技术确认完成' });
   log('   开发单 ' + tp.version + ' 已确认 → 订单状态「技术确认」');

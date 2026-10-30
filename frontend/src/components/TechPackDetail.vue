@@ -16,6 +16,25 @@
         <div v-if="loading" class="tp-loading">加载中…</div>
 
         <template v-else-if="tp">
+          <!--
+            确认前还差什么 —— 由后端 confirmBlocks() 算出（与确认接口同一份判断）。
+            只在草稿状态下显示；已确认的单后端直接返回空数组。
+            写清楚"缺哪项、去哪补"，否则只会看到一句"不能确认"，人不知道该动哪里。
+          -->
+          <div v-if="tp.confirm_blocks && tp.confirm_blocks.length" class="tp-gate">
+            <div class="g-head">
+              还不能确认 —— 差 {{ tp.confirm_blocks.length }} 项
+              <span class="g-sub">（定制订单确认前必填，确认后明细锁定）</span>
+            </div>
+            <ul>
+              <li v-for="b in tp.confirm_blocks" :key="b.key">
+                <span class="g-label">{{ b.label }}</span>
+                <span class="g-detail">{{ b.detail }}</span>
+                <span class="g-where">→ {{ b.where }}</span>
+              </li>
+            </ul>
+          </div>
+
           <!-- ---------- 头部信息 ---------- -->
           <div class="tp-head">
             <div class="tp-img">
@@ -583,6 +602,18 @@ defineExpose({ reload: () => tp.value && load(tp.value.id) });
 </script>
 
 <style scoped>
+/* 确认前缺口提示条：橙色，放在明细最上面，一眼能看到"还差什么" */
+.tp-gate {
+  margin: 0 0 12px; padding: 9px 12px; border: 1px solid #ffe1b8; background: #fffbf3;
+  border-radius: 8px; font-size: 12.5px; color: #8a5a10;
+}
+.tp-gate .g-head { font-weight: 600; color: #d46b08; }
+.tp-gate .g-sub { font-weight: 400; color: #a8763a; font-size: 11.5px; }
+.tp-gate ul { margin: 6px 0 0; padding-left: 18px; }
+.tp-gate li { line-height: 1.7; }
+.tp-gate .g-label { font-weight: 600; }
+.tp-gate .g-detail { color: #7a4a08; }
+.tp-gate .g-where { color: #a8763a; font-size: 11.5px; margin-left: 4px; }
 .modal.xwide.tp-modal { width: 1420px; max-width: 96vw; }
 .tp-loading { padding: 40px; text-align: center; color: #8a94a6; }
 

@@ -137,7 +137,13 @@ async function act(t, approve) {
 function openOrder(id) { if (id) router.push('/orders?order=' + id); }
 
 async function confirmTp(t) {
-  try { await api.confirmTechpack(t.id); await load(); } catch (e) { alert(e.message); }
+  try {
+    // 与「订单页」同一条路：先取确认前检查，有缺口就把清单列出来（后端同一份判断）
+    const chk = await api.techpackConfirmCheck(t.id);
+    if (chk && !chk.ok) return alert(chk.message);
+    await api.confirmTechpack(t.id);
+    await load();
+  } catch (e) { alert(e.message); }
 }
 async function rejectTp(t) {
   if (!confirm(`驳回开发单「${t.product_name}」？`)) return;

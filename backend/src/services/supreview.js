@@ -491,7 +491,16 @@ function createReview(techPackId, body, operator) {
   return packDetail(techPackId);
 }
 
-/** 核准技术包：三道门都过了才写 tech_packs.status = confirmed */
+/**
+ * 核准技术包：三道门都过了才写 tech_packs.status = confirmed
+ *
+ * ⚠️ 这里**刻意不校验"至少 1 道车缝工序"**（该判断在 `routes/techpacks.js` 的
+ * `confirmBlocks()`，由「开发单确认」与「打版流程推到已完成」两条路共用）。
+ * 原因不是漏了：供方协同发生在打版流程的 **material 阶段**（面辅料确认），
+ * 而工序明细要到 **craft 阶段**才存在。若在这里也要求车缝工序，
+ * 等于"面辅料核准前先把工艺填好"，把正常业务顺序倒过来、卡住 A1→A3。
+ * 也就是说这是两个里程碑的两个判断，不是同一个判断的两份实现。
+ */
 function approvePack(techPackId, body, operator) {
   const d = packDetail(techPackId);
   if (!d.can_approve) {

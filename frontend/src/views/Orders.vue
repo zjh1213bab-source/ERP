@@ -1650,8 +1650,17 @@ async function addTechpack() {
   } catch (e) { alert(e.message); } finally { tpBusy.value = false; }
 }
 async function confirmTp(id) {
-  try { await api.confirmTechpack(id); techpacks.value = await api.techpacks(detail.value.id); }
-  catch (e) { alert(e.message); }
+  try {
+    /**
+     * 先问一次"还差什么"（定制订单：面辅料/客户要求/至少 1 道车缝工序）。
+     * 检查与确认走的是后端同一个 confirmBlocks()，所以不会出现"检查说没问题、点了却被拒"；
+     * 有缺口时把清单直接列出来，比点完等一句报错更容易知道该去哪补。
+     */
+    const chk = await api.techpackConfirmCheck(id);
+    if (chk && !chk.ok) return alert(chk.message);
+    await api.confirmTechpack(id);
+    techpacks.value = await api.techpacks(detail.value.id);
+  } catch (e) { alert(e.message); }
 }
 /** 开发明细保存后刷新列表（状态/确认人可能变） */
 async function reloadTechpacks() {

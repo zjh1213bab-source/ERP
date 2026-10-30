@@ -264,6 +264,77 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     }
   }
 
+  // 5.5.2 确认前闸门：定制订单必须至少 1 道车缝工序（v1.68.5）
+  // 两条路（/confirm 与 /stage -> confirmed）共用同一个 confirmBlocks()，
+  // 各写一份必然"这条拦、那条漏"—— 这里两条都验，就是为了挡住那种回归。
+  {
+    const allOrders = (await req('/api/orders', { token })).json.data || [];
+    const customOrder = allOrders.find((o) => o.type === 'custom');
+    if (!customOrder) {
+      ok('确认前闸门（跳过：没有定制订单）', true);
+    } else {
+      const gname = 'SMOKE-GATE-' + String(Date.now()).slice(-6);
+      const mk = await req('/api/techpacks', {
+        method: 'POST', token,
+        body: {
+          order_id: customOrder.id, product_name: gname,
+          fabric_info: '冒烟面料', accessory_info: '冒烟辅料',
+          craft_info: '冒烟工艺说明', customer_req: '冒烟客户要求'
+        }
+      });
+      const gid = mk.status === 200 ? mk.json.data.id : null;
+      ok('闸门夹具：定制订单开发单（字段齐、只差工序）', !!gid, `HTTP ${mk.status}`);
+
+      const chk = await req(`/api/techpacks/${gid}/confirm-check`, { token });
+      const bKeys = ((chk.json.data && chk.json.data.blocks) || []).map((b) => b.key);
+      ok('★ 没填车缝时：确认前检查报「工序明细未填」',
+        chk.status === 200 && chk.json.data.ok === false && bKeys.includes('craft_sewing'),
+        `blocks=${bKeys.join(',')}`);
+
+      const c1 = await req(`/api/techpacks/${gid}/confirm`, { method: 'POST', token });
+      ok('★ 没填车缝时：确认接口拒绝并说明要补什么',
+        c1.status === 400 && String(c1.json.message).includes('车缝'),
+        `HTTP ${c1.status} ${String(c1.json.message).slice(0, 26)}`);
+
+      const s1 = await req(`/api/techpacks/${gid}/stage`, { method: 'POST', token, body: { stage: 'confirmed' } });
+      ok('★ 没填车缝时：流程推到「已完成」同样被拒（两条路同一份判断）', s1.status === 400, `HTTP ${s1.status}`);
+
+      await req(`/api/techpacks/${gid}/crafts`, {
+        method: 'PUT', token, body: { sewing: [{ category: '车缝', name: '合肩', price: 1 }] }
+      });
+      const chk2 = await req(`/api/techpacks/${gid}/confirm-check`, { token });
+      ok('★ 补 1 道车缝后：确认前检查放行',
+        chk2.status === 200 && chk2.json.data.ok === true, JSON.stringify(chk2.json.data.blocks));
+
+      const c2 = await req(`/api/techpacks/${gid}/confirm`, { method: 'POST', token });
+      ok('补工序后确认成功（闸门不是死锁）',
+        c2.status === 200 && c2.json.data.status === 'confirmed', `HTTP ${c2.status}`);
+
+      const stockOrder = allOrders.find((o) => o.type === 'stock');
+      if (stockOrder) {
+        const mk2 = await req('/api/techpacks', {
+          method: 'POST', token,
+          body: {
+            order_id: stockOrder.id, product_name: gname + '-S',
+            fabric_info: 'x', accessory_info: 'x', craft_info: 'x', customer_req: 'x'
+          }
+        });
+        const sid = mk2.status === 200 ? mk2.json.data.id : null;
+        const chk3 = await req(`/api/techpacks/${sid}/confirm-check`, { token });
+        ok('★ 现货订单不卡工序（只卡定制单）',
+          chk3.status === 200 && chk3.json.data.ok === true, JSON.stringify(chk3.json.data.blocks));
+        await req(`/api/techpacks/${sid}`, { method: 'DELETE', token });
+      } else {
+        ok('现货订单不卡工序（跳过：没有现货订单）', true);
+      }
+
+      // 已确认的开发单不能直接删 → 先回草稿（这本身也是既有口径，顺带验一次）
+      await req(`/api/techpacks/${gid}/stage`, { method: 'POST', token, body: { stage: 'draft' } });
+      const del = await req(`/api/techpacks/${gid}`, { method: 'DELETE', token });
+      ok('闸门夹具已清理（已确认单先回草稿再删）', del.status === 200, `HTTP ${del.status}`);
+    }
+  }
+
   // 5.6 面辅料档案
   const matFab = await req('/api/materials?type=fabric', { token });
   ok('面辅料档案按类型筛选', matFab.status === 200 && Array.isArray(matFab.json.data), `HTTP ${matFab.status}`);
