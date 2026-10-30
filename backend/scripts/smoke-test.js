@@ -212,6 +212,58 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
   const curTp = await req('/api/techpacks/by-order/1/current', { token });
   ok('订单当前生效开发单', curTp.status === 200, `HTTP ${curTp.status}`);
 
+  // 5.5.1 工序明细（开发单「工艺工序」的展开填写）
+  // 关键点：它写的必须是**打版流程 craft 阶段那份数据**，不能再存第二份，否则工价两套。
+  {
+    const anyOrders = (await req('/api/orders', { token })).json.data || [];
+    const oid = anyOrders[0] && anyOrders[0].id;
+    if (oid) {
+      const mkTp = await req('/api/techpacks', {
+        method: 'POST', token,
+        body: { order_id: oid, product_name: 'SMOKE-CRAFT-' + String(Date.now()).slice(-6) }
+      });
+      const tpId = mkTp.status === 200 ? mkTp.json.data.id : null;
+      const e0 = await req(`/api/techpacks/${tpId}/crafts`, { token });
+      ok('工序明细：新开发单是空表', e0.status === 200 && (e0.json.data.sewing || []).length === 0,
+        `HTTP ${e0.status}`);
+
+      const w1 = await req(`/api/techpacks/${tpId}/crafts`, {
+        method: 'PUT', token,
+        body: {
+          sewing: [{ category: '车缝', name: '四线合肩', price: 0.45, ratio: 1 }, { category: '车缝', name: '', price: 9 }],
+          finish: [{ category: '后整', name: '整烫', price: 0.25, ratio: 1 }]
+        }
+      });
+      ok('★ 工序明细可保存（空行被丢弃）',
+        w1.status === 200 && w1.json.data.sewing.length === 1 && w1.json.data.finish.length === 1,
+        `车缝 ${w1.json.data ? w1.json.data.sewing.length : '?'} / 后整 ${w1.json.data ? w1.json.data.finish.length : '?'}`);
+
+      const pf = await req(`/api/pattern-flows/by-techpack/${tpId}`, { token });
+      const craftStage = ((pf.json.data || {}).stages || []).find((s) => s.stage === 'craft') || {};
+      const cd = craftStage.data || {};
+      ok('★ 工序存的是打版流程 craft 阶段那份数据（不是第二份）',
+        (cd.sewing || []).length === 1 && (cd.finish || []).length === 1,
+        `craft.sewing=${(cd.sewing || []).length}`);
+
+      const w2 = await req(`/api/techpacks/${tpId}/crafts`, {
+        method: 'PUT', token, body: { sewing: [{ category: '车缝', name: '锁眼', price: 0.1, ratio: 1 }] }
+      });
+      ok('★ 只更新一组时另一组不被清空',
+        w2.status === 200 && (w2.json.data.finish || []).length === 1,
+        `后整 ${w2.json.data ? (w2.json.data.finish || []).length : '?'}`);
+
+      const got = await req(`/api/techpacks/${tpId}/crafts`, { token });
+      ok('工序回读与写入一致（名称/单价/倍率）',
+        got.status === 200 && got.json.data.sewing[0].name === '锁眼'
+        && Number(got.json.data.sewing[0].price) === 0.1,
+        JSON.stringify(got.json.data && got.json.data.sewing && got.json.data.sewing[0]));
+
+      await req(`/api/techpacks/${tpId}`, { method: 'DELETE', token });
+    } else {
+      ok('工序明细（跳过：没有可用订单）', true);
+    }
+  }
+
   // 5.6 面辅料档案
   const matFab = await req('/api/materials?type=fabric', { token });
   ok('面辅料档案按类型筛选', matFab.status === 200 && Array.isArray(matFab.json.data), `HTTP ${matFab.status}`);

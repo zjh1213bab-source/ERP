@@ -1047,6 +1047,7 @@
 | techpacks | PUT | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | techpacks | DELETE | `/:id` | ✅ | — | — | ✅ | — | — | — | — |
 | techpacks | POST | `/:id/confirm` | ✅ | — | — | ✅ | — | — | — | — |
+| techpacks | PUT | `/:id/crafts` | ✅ | — | — | ✅ | — | — | — | — |
 | techpacks | PUT | `/:id/detail` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | techpacks | POST | `/:id/new-version` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | techpacks | POST | `/:id/reject` | ✅ | — | — | ✅ | — | — | — | — |

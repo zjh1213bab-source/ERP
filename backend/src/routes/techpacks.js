@@ -286,8 +286,106 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   return ok(res, db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id));
 }));
 
-router.post('/:id/confirm', authRequired, requireRole(REVIEW), wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
+/**
+ * 工序明细（开发单里「工艺工序」的"展开填写"）
+ * ============================================================
+ * ## 为什么读写的是打版流程的 craft 阶段
+ *
+ * 工序在系统里本来就有一份主数据：打版流程「工艺/工序明细」阶段的
+ * `data.sewing` / `data.finish` —— 就是订单工序页面那张表（类别 / 名称 / 单价 /
+ * 倍率 / 负责人 / 备注 / 开放单价）。
+ *
+ * 如果开发单再存一份自己的工序表，**立刻就是两份真相**：开发单改完打版页不知道，
+ * 打版页改完开发单又盖回去，最后没人知道哪份对、工价按哪份算。
+ * 所以这里只做**同一份数据的另一个入口**：按 tech_pack 找到流程 → 定位 craft 阶段 → 读/写它的 data。
+ *
+ * ## 为什么权限是 admin/tech 而不是"能建开发单的人"
+ *
+ * 建开发单允许 sales（业务先立项），但**工序与工价是技术岗的活** ——
+ * 与打版页 `STAGE_DEF.craft.roles = ['admin','tech']` 保持同一口径。
+ * 同一件事两套权限，最后一定出现"页面能改、接口不让改"（或反过来）这种半截状态。
+ */
+const CRAFT_GROUPS = ['sewing', 'finish'];
+/** 单组最多 300 行：够任何一款衣服用，同时挡住"贴一万行进库"这种误操作 */
+const CRAFT_MAX_ROWS = 300;
+
+function craftStageOf(tpId) {
+  const flow = db.prepare('SELECT * FROM pattern_flows WHERE tech_pack_id = ?').get(Number(tpId));
+  if (!flow) return { flow: null, stage: null };
+  const stage = db.prepare("SELECT * FROM pattern_stages WHERE flow_id = ? AND stage = 'craft'").get(flow.id);
+  return { flow, stage };
+}
+
+/** 行归一：只留认识的字段、丢掉空行、数字转干净（前端传什么脏值都进不来） */
+function normCraftRows(list) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, CRAFT_MAX_ROWS).map((r) => ({
+    category: String((r && r.category) || '').slice(0, 24),
+    name: String((r && r.name) || '').trim().slice(0, 60),
+    price: Math.round((Number(r && r.price) || 0) * 100) / 100,
+    ratio: Number(r && r.ratio) || 0,
+    owner: String((r && r.owner) || '').slice(0, 24),
+    remark: String((r && r.remark) || '').slice(0, 120),
+    open_price: Math.round((Number(r && r.open_price) || 0) * 100) / 100
+  })).filter((r) => r.name);
+}
+
+function readCraftData(stage) {
+  if (!stage || !stage.data) return {};
+  try { return JSON.parse(stage.data) || {}; } catch (e) { return {}; }
+}
+
+/** 读：开发单的工序明细（没有流程时返回空表，不自动建流程） */
+router.get('/:id/crafts', authRequired, wrap(async (req, res) => {
+  const tp = db.prepare('SELECT id FROM tech_packs WHERE id = ?').get(req.params.id);
+  if (!tp) return fail(res, 404, '开发单不存在');
+  const { flow, stage } = craftStageOf(tp.id);
+  const data = readCraftData(stage);
+  return ok(res, {
+    flow_id: flow ? flow.id : null,
+    flow_status: flow ? flow.status : null,
+    stage_status: stage ? stage.status : null,
+    sewing: normCraftRows(data.sewing),
+    finish: normCraftRows(data.finish),
+    process_note: data.process_note || ''
+  });
+}));
+
+/** 写：只替换 sewing / finish（可选 process_note），**保留 data 里其它键** */
+router.put('/:id/crafts', authRequired, requireRole(REVIEW), wrap(async (req, res) => {
+  const tp = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
+  if (!tp) return fail(res, 404, '开发单不存在');
+  if (tp.status === 'confirmed') return fail(res, 400, '已确认的开发单不可修改，请新建版本');
+
+  const flow = ensureFlow(tp.id, req.user.sub);
+  if (!flow) return fail(res, 404, '开发单不存在');
+  if (flow.status === 'done') {
+    return fail(res, 400, '打版流程已完成、样衣已归档锁定；要改工序请提交变更需求');
+  }
+
+  let stage = db.prepare("SELECT * FROM pattern_stages WHERE flow_id = ? AND stage = 'craft'").get(flow.id);
+  if (!stage) {
+    db.prepare("INSERT INTO pattern_stages (flow_id, stage, status, updated_at) VALUES (?,?,'pending',?)")
+      .run(flow.id, 'craft', now());
+    stage = db.prepare("SELECT * FROM pattern_stages WHERE flow_id = ? AND stage = 'craft'").get(flow.id);
+  }
+
+  const data = readCraftData(stage);
+  const b = req.body || {};
+  CRAFT_GROUPS.forEach((k) => { if (b[k] !== undefined) data[k] = normCraftRows(b[k]); });
+  if (b.process_note !== undefined) data.process_note = String(b.process_note || '').slice(0, 500);
+
+  db.prepare('UPDATE pattern_stages SET data = ?, operator = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(data), req.user.username, now(), stage.id);
+
+  return ok(res, {
+    sewing: normCraftRows(data.sewing),
+    finish: normCraftRows(data.finish),
+    process_note: data.process_note || ''
+  });
+}));
+
+router.post('/:id/confirm', authRequired, requireRole(REVIEW), wrap(async (req, res) => {  const row = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '技术资料不存在');
 
   // 定制订单开发流程校验：面辅料 / 工艺 / 客户要求 必填

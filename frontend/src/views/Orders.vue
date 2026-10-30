@@ -534,7 +534,13 @@
                   <MaterialPickerField v-model="tpForm.accessory_ids" type="accessory" />
                   <input class="input" v-model="tpForm.accessory_info" placeholder="辅料补充说明（可空）" style="margin-top: 6px" />
                 </div>
-                <div class="fitem full"><label>工艺工序 *</label><textarea v-model="tpForm.craft_info" rows="2" placeholder="印花/绣花/水洗/车缝等"></textarea></div>
+                <div class="fitem full">
+                  <label>工艺工序 *</label>
+                  <textarea v-model="tpForm.craft_info" rows="2" placeholder="印花/绣花/水洗/车缝等"></textarea>
+                  <div style="font-size: 11.5px; color: #8a94a6; margin-top: 4px">
+                    工序明细（类别 / 单价 / 倍率 / 负责人）在「开发管理 → 编辑开发单 → 展开填写工序明细」里填，与「订单工序」页是同一份数据。
+                  </div>
+                </div>
                 <div class="fitem full"><label>客户要求 *</label><textarea v-model="tpForm.customer_req" rows="2" placeholder="尺码表/包装/标签/测试要求"></textarea></div>
                 <div class="fitem full"><label>尺码规格说明</label><input class="input" v-model="tpForm.size_spec" /></div>
               </div>

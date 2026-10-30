@@ -117,7 +117,26 @@
               <MaterialPickerField v-model="form.accessory_ids" type="accessory" />
               <input class="input" v-model="form.accessory_info" placeholder="辅料补充说明（可空）" style="margin-top: 6px" />
             </div>
-            <div class="fitem full"><label>工艺工序 *</label><textarea v-model="form.craft_info" rows="3" placeholder="印花 / 绣花 / 水洗 / 车缝 / 锁眼 / 整烫…"></textarea></div>
+            <!--
+              工艺工序：一段说明 + 可展开的工序明细表
+              「展开填写」里的表格与「订单工序」页是**同一份数据**（打版流程 craft 阶段），
+              所以这里填完，去打版页能看到；打版页改了，这里再打开也是改后的。
+            -->
+            <div class="fitem full">
+              <label>工艺工序 *</label>
+              <textarea v-model="form.craft_info" rows="2" placeholder="工艺要点 / 特殊要求（可空）"></textarea>
+              <div class="craft-bar">
+                <button type="button" class="btn btn-ghost btn-sm" @click="toggleCrafts">
+                  {{ craftsOpen ? '收起工序明细' : '展开填写工序明细' }}
+                  <template v-if="craftCount">（{{ craftCount }} 道）</template>
+                </button>
+                <span v-if="!canCraft" class="craft-tip">工序与工价由技术岗填写，这里只读</span>
+                <span v-else-if="craftsDirty && craftsOpen" class="craft-dirty">工序有改动，保存后生效</span>
+              </div>
+              <div v-if="craftsOpen" class="craft-wrap">
+                <CraftEditor v-model="crafts" :disabled="!canCraft" @change="craftsDirty = true" />
+              </div>
+            </div>
             <div class="fitem full"><label>客户要求 *</label><textarea v-model="form.customer_req" rows="3" placeholder="尺码表 / 包装 / 标签 / 测试要求 / 交期"></textarea></div>
             <div class="fitem full"><label>备注</label><input class="input" v-model="form.remark" /></div>
           </div>
@@ -141,6 +160,7 @@ import { api } from '../api';
 import { can } from '../store/permissions';
 import TechPackDetail from '../components/TechPackDetail.vue';
 import MaterialPickerField from '../components/MaterialPickerField.vue';
+import CraftEditor from '../components/CraftEditor.vue';
 
 const route = useRoute();
 
@@ -152,10 +172,17 @@ const orders = ref([]);
 const detailId = ref(null);
 
 const showModal = ref(false);
+const crafts = ref({ sewing: [], finish: [] });
+const craftsOpen = ref(false);
+const craftsDirty = ref(false);
+const craftsLoadedFor = ref(null);
 const saving = ref(false);
 const form = ref(blank());
 
 const canWrite = computed(() => can('development.write'));
+/** 工序/工价是技术岗的活：与打版页 craft 阶段、接口 requireRole(['admin','tech']) 同一口径 */
+const canCraft = computed(() => can('craft.write'));
+const craftCount = computed(() => (crafts.value.sewing || []).length + (crafts.value.finish || []).length);
 const canReview = computed(() => can('development.review'));
 
 const STAGES = [
@@ -208,7 +235,41 @@ async function loadRefs() {
   orders.value = await api.orders({});
 }
 
-function openCreate() { form.value = blank(); showModal.value = true; }
+/**
+ * 工序明细：展开时才去取（新建的开发单还没有 id，必然是空表）
+ *
+ * 为什么不打开弹窗就拉：工序表只在用户点「展开填写」时才有意义；
+ * 每次都拉一遍等于给列表翻页加一次多余请求。
+ */
+async function toggleCrafts() {
+  if (craftsOpen.value) { craftsOpen.value = false; return; }
+  craftsOpen.value = true;
+  await loadCrafts(form.value.id);
+}
+
+async function loadCrafts(id) {
+  if (!id) { crafts.value = { sewing: [], finish: [] }; craftsLoadedFor.value = 'new'; return; }
+  if (craftsLoadedFor.value === id) return;
+  try {
+    const d = await api.techpackCrafts(id);
+    crafts.value = { sewing: d.sewing || [], finish: d.finish || [] };
+    craftsLoadedFor.value = id;
+  } catch (e) {
+    crafts.value = { sewing: [], finish: [] };
+    craftsLoadedFor.value = id;
+    alert('工序明细读取失败：' + e.message);
+  }
+}
+
+/** 打开弹窗时重置工序状态：换了一条单子，不能把上一条的工序带过去 */
+function resetCrafts() {
+  crafts.value = { sewing: [], finish: [] };
+  craftsOpen.value = false;
+  craftsDirty.value = false;
+  craftsLoadedFor.value = null;
+}
+
+function openCreate() { form.value = blank(); resetCrafts(); showModal.value = true; }
 function openDetail(r) { detailId.value = r.id; }
 function onVersionCreated(id) { detailId.value = id; load(); }
 function openEdit(r) {
@@ -217,6 +278,7 @@ function openEdit(r) {
     fabric_ids: r.fabric_ids ? String(r.fabric_ids).split(',').filter(Boolean).map(Number) : [],
     accessory_ids: r.accessory_ids ? String(r.accessory_ids).split(',').filter(Boolean).map(Number) : []
   };
+  resetCrafts();
   showModal.value = true;
 }
 
@@ -239,8 +301,34 @@ async function save() {
   };
   saving.value = true;
   try {
-    if (form.value.id) await api.updateTechpack(form.value.id, payload);
-    else await api.createTechpack(payload);
+    let tpId = form.value.id;
+    if (tpId) {
+      await api.updateTechpack(tpId, payload);
+    } else {
+      // 新建时必须先拿到 id 才能写工序（工序挂在开发单的打版流程上）
+      const created = await api.createTechpack(payload);
+      tpId = created && created.id;
+    }
+
+    /**
+     * 工序明细单独提交，且**只在展开过、且改过**的时候提交
+     *
+     * 两个原因：
+     *   1. 没展开就没有加载，此时提交会把已有工序覆盖成空表；
+     *   2. 工序写的是打版流程 craft 阶段的那份数据 —— 没改就别碰，
+     *      免得把技术岗刚在打版页填的工价盖掉。
+     * 失败时开发单已经保存了，必须说清楚"哪一半成功了"，否则用户会以为全丢了。
+     */
+    if (craftsOpen.value && craftsDirty.value && tpId && canCraft.value) {
+      try {
+        const out = await api.saveTechpackCrafts(tpId, crafts.value);
+        crafts.value = { sewing: out.sewing || [], finish: out.finish || [] };
+        craftsDirty.value = false;
+      } catch (e) {
+        alert('开发单已保存，但工序明细没保存成功：' + e.message + '\n（可稍后在「打版流程 → 工艺/工序明细」里补填）');
+      }
+    }
+
     showModal.value = false;
     await load();
   } catch (e) { alert(e.message); } finally { saving.value = false; }
@@ -275,3 +363,19 @@ onMounted(async () => {
   await load();
 });
 </script>
+
+<style scoped>
+/* 工艺工序：说明 + 可展开的明细表 */
+.craft-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+.craft-tip { font-size: 11.5px; color: #8a94a6; }
+.craft-dirty { font-size: 11.5px; color: #d46b08; }
+.craft-wrap { margin-top: 8px; padding: 8px; border: 1px dashed #d9e2ef; border-radius: 10px; background: #fbfcff; }
+</style>
+
+<style scoped>
+/* 工艺工序：说明 + 可展开的明细表 */
+.craft-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+.craft-tip { font-size: 11.5px; color: #8a94a6; }
+.craft-dirty { font-size: 11.5px; color: #d46b08; }
+.craft-wrap { margin-top: 8px; padding: 8px; border: 1px dashed #d9e2ef; border-radius: 10px; background: #fbfcff; }
+</style>

@@ -142,6 +142,9 @@ export const api = {  // 登录
   rejectTechpack: (id) => req(`/api/techpacks/${id}/reject`, { method: 'POST' }),
   techpackStage: (id, stage) => req(`/api/techpacks/${id}/stage`, { method: 'POST', body: { stage } }),
   techpackFull: (id) => req(`/api/techpacks/${id}/full`),
+  /** 工序明细：与「订单工序」页（打版流程 craft 阶段）是同一份数据 */
+  techpackCrafts: (id) => req(`/api/techpacks/${id}/crafts`),
+  saveTechpackCrafts: (id, d) => req(`/api/techpacks/${id}/crafts`, { method: 'PUT', body: d }),
   techpackCurrent: (orderId) => req(`/api/techpacks/by-order/${orderId}/current`),
   saveTechpackDetail: (id, d) => req(`/api/techpacks/${id}/detail`, { method: 'PUT', body: d }),
   techpackSizesFromOrder: (id, d) => req(`/api/techpacks/${id}/sizes/from-order`, { method: 'POST', body: d || {} }),

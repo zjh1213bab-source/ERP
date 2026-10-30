@@ -48,6 +48,8 @@
 | POST | /api/techpacks/:id/sizes/from-order | admin,tech,sales | 按订单尺码生成成衣尺寸骨架 `{overwrite,parts}` |
 | POST | /api/techpacks/:id/new-version | admin,tech,sales | 新建版本（复制头部与全部明细，旧版本保留） |
 | POST | /api/techpacks | admin,tech,sales | 新建 |
+| GET | /api/techpacks/:id/crafts | 登录 | 工序明细（车缝 / 后整两组：类别·名称·单价·倍率·负责人·备注）。**与「订单工序」页是同一份数据**（打版流程 craft 阶段的 `data`） |
+| PUT | /api/techpacks/:id/crafts | admin,tech | 保存工序明细 `{sewing:[],finish:[],process_note?}`。只替换传了的那一组，**空行自动丢弃**；已确认的开发单、已完成的打版流程会被拒绝。工序与工价是技术岗的活，业务角色只读 |
 | PUT | /api/techpacks/:id | 同上 | 修改（确认后锁定） |
 | POST | /api/techpacks/:id/confirm | admin,tech | 确认（定制单必填校验） |
 | POST | /api/techpacks/:id/reject | admin,tech | 驳回 |
