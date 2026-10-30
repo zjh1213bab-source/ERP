@@ -520,6 +520,14 @@ const PARENT_PAIRS = [
   ['order_item_sizes', 'item_id', 'order_items'],
   ['mall_inquiry_items', 'inquiry_id', 'mall_inquiries'],
   ['tech_pack_materials', 'tech_pack_id', 'tech_packs'],
+  // 开发单的完整子树：v1.68.5 之前 `DELETE /api/techpacks/:id` 只删了上面三张明细表，
+  // 打版流程与供方协同四张表没删 —— 库里积了 130 条孤儿流程 / 36 条孤儿阶段，
+  // 而且这个扫描清单里没有它们，所以"无孤儿"一直是假绿。缺一条就漏一类，全部登记。
+  ['pattern_flows', 'tech_pack_id', 'tech_packs'],
+  ['pattern_stages', 'flow_id', 'pattern_flows'],
+  ['tech_assignments', 'tech_pack_id', 'tech_packs'],
+  ['supplier_confirms', 'tech_pack_id', 'tech_packs'],
+  ['tech_reviews', 'tech_pack_id', 'tech_packs'],
   ['dev_tasks', 'project_id', 'dev_projects'],
   ['dev_milestones', 'project_id', 'dev_projects'],
   ['gl_entries', 'voucher_id', 'gl_vouchers'],

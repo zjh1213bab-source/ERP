@@ -97,6 +97,30 @@ function ok(name, cond, extra) {
   }
 }
 
+/**
+ * 直接把开发单连整棵子树删掉（冒烟夹具专用）
+ *
+ * 这个库 360 张表零外键：`DELETE FROM tech_packs` 只删本体，打版流程 / 阶段 /
+ * 供方协同三张表会静默变成孤儿。每跑一次冒烟就多一条，而"孤儿检查"清单
+ * 以前也没登记这几张表 —— 于是看着一直是"无孤儿"（v1.68.5 才发现积了 130 条）。
+ * 凡是夹具要删开发单，一律走这里，别再各写一遍 DELETE。
+ */
+function purgeTechPacks(DBH, whereSql, params) {
+  const ids = DBH.prepare(`SELECT id FROM tech_packs WHERE ${whereSql}`).all(...(params || [])).map((r) => r.id);
+  ids.forEach((id) => {
+    DBH.prepare('DELETE FROM pattern_stages WHERE flow_id IN (SELECT id FROM pattern_flows WHERE tech_pack_id = ?)').run(id);
+    DBH.prepare('DELETE FROM pattern_flows WHERE tech_pack_id = ?').run(id);
+    DBH.prepare('DELETE FROM tech_assignments WHERE tech_pack_id = ?').run(id);
+    DBH.prepare('DELETE FROM supplier_confirms WHERE tech_pack_id = ?').run(id);
+    DBH.prepare('DELETE FROM tech_reviews WHERE tech_pack_id = ?').run(id);
+    DBH.prepare('DELETE FROM tech_pack_materials WHERE tech_pack_id = ?').run(id);
+    DBH.prepare('DELETE FROM tech_pack_sizes WHERE tech_pack_id = ?').run(id);
+    DBH.prepare('DELETE FROM tech_pack_requirements WHERE tech_pack_id = ?').run(id);
+    DBH.prepare('DELETE FROM tech_packs WHERE id = ?').run(id);
+  });
+  return ids.length;
+}
+
 async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
   const headers = { 'Content-Type': 'application/json', ...(extra || {}) };
   if (token) headers.Authorization = 'Bearer ' + token;
@@ -332,6 +356,23 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       await req(`/api/techpacks/${gid}/stage`, { method: 'POST', token, body: { stage: 'draft' } });
       const del = await req(`/api/techpacks/${gid}`, { method: 'DELETE', token });
       ok('闸门夹具已清理（已确认单先回草稿再删）', del.status === 200, `HTTP ${del.status}`);
+
+      /**
+       * ★ 删开发单必须连打版流程一起删
+       *
+       * 这个库零外键，DELETE 少删一张子表不会报错，只会在库里慢慢堆孤儿。
+       * v1.68.5 之前就漏了 pattern_flows / pattern_stages：每跑一次冒烟留 3~4 条，
+       * 累计 130 条孤儿流程（而"孤儿检查"清单里也没有它们，所以一直是假绿）。
+       *
+       * 只验**这一单**的流程与阶段（全库口径放到收尾自检，那里才没有别的块在跑）。
+       */
+      const { db: HDB } = require('../src/db');
+      const leftFlow = HDB.prepare('SELECT COUNT(*) c FROM pattern_flows WHERE tech_pack_id = ?').get(gid).c;
+      const leftStage = HDB.prepare(
+        'SELECT COUNT(*) c FROM pattern_stages WHERE flow_id NOT IN (SELECT id FROM pattern_flows)'
+      ).get().c;
+      ok('★ 删开发单时打版流程与阶段一起删干净（不留孤儿）',
+        leftFlow === 0, `该单残留流程=${leftFlow} / 全库无主阶段=${leftStage}`);
     }
   }
 
@@ -10284,7 +10325,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       RDB.prepare("DELETE FROM mall_prices WHERE mall_product_id IN (SELECT id FROM mall_products WHERE style_no LIKE 'RSMK-%')").run();
       RDB.prepare("DELETE FROM mall_products WHERE style_no LIKE 'RSMK-%'").run();
       RDB.prepare("DELETE FROM stock_items WHERE style_no LIKE 'RSMK-%'").run();
-      RDB.prepare("DELETE FROM tech_packs WHERE product_name LIKE '%烟测再购%'").run();
+      purgeTechPacks(RDB, "product_name LIKE '%烟测再购%'");
       RDB.prepare("DELETE FROM customers WHERE name LIKE '%烟测再购客户%'").run();
     };
     cleanSmoke();
@@ -10479,8 +10520,13 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       // bank_imports / cost_pools / SKU 套装…）。这里用同一个体检脚本收口，
       // 而不是再手写一遍 DELETE —— 判据只有一份，才不会再出现「改了 A 忘了 B」。
       const swept = A.clean({ includeFinance: true, skipBackup: true });
+      // 先记下"修之前有多少孤儿"：静默修掉等于把「删父行没删子行」藏起来，
+      // 下次换个人换台机器又是同一处漏。修可以自动，但"有没有漏"必须说出来。
+      const orphBefore = A.findOrphans();
       // 顺手把孤儿也补了：删父行没删子行的地方（历史遗留 + 上面补的那几处之外）
       const orph = A.fixOrphans(false);
+      ok('★ 冒烟全程没有留下孤儿行（删父行必删子行）', orphBefore.length === 0,
+        orphBefore.map((o) => `${o.child}.${o.col}→${o.parent} ${o.rows} 行`).join('；'));
       const sc = A.scan();
       const rows = sc.l1.reduce((a, x) => a + x.rows, 0);
       const list = sc.l1.map((x) => `${x.table}(${x.rows})`).join(', ');
@@ -11137,9 +11183,8 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     [idA, idB].forEach((id) => {
       if (!id) return;
       PDB.prepare('DELETE FROM order_nodes WHERE order_id = ?').run(id);
-      PDB.prepare('DELETE FROM tech_pack_materials WHERE tech_pack_id IN (SELECT id FROM tech_packs WHERE order_id = ?)').run(id);
-      PDB.prepare('DELETE FROM tech_pack_sizes WHERE tech_pack_id IN (SELECT id FROM tech_packs WHERE order_id = ?)').run(id);
-      PDB.prepare('DELETE FROM tech_packs WHERE order_id = ?').run(id);
+      // 开发单连子表一起删：漏了 pattern_flows / pattern_stages 就会留孤儿（见 purgeTechPacks 注释）
+      purgeTechPacks(PDB, 'order_id = ?', [id]);
       PDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(id);
       PDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
       PDB.prepare('DELETE FROM orders WHERE id = ?').run(id);

@@ -593,8 +593,25 @@ router.delete('/:id', authRequired, requireRole(REVIEW), wrap(async (req, res) =
   const row = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '技术资料不存在');
   if (row.status === 'confirmed') return fail(res, 400, '已确认的开发单不可删除');
+  /**
+   * 子表必须手工删干净 —— 这个库 360 张表零外键，漏一步只会在库里留孤儿，
+   * 不会报错（v1.68.5 之前就漏了 pattern_flows / pattern_stages，
+   * 累计 130 条孤儿流程，正是"删父行前先删子行"那条教训）。
+   *
+   * 顺序：孙子（pattern_stages）→ 子（pattern_flows / 供方协同三张）→ 本体。
+   * `sample_archives` / `sample_seals` **不删**：它们是带快照的历史记录，
+   * 开发单删了也要能追溯当时封样确认的是什么内容。
+   */
   db.exec('BEGIN');
+  let flowsDeleted = 0;
   try {
+    const flows = db.prepare('SELECT id FROM pattern_flows WHERE tech_pack_id = ?').all(req.params.id);
+    flowsDeleted = flows.length;
+    flows.forEach((f) => db.prepare('DELETE FROM pattern_stages WHERE flow_id = ?').run(f.id));
+    db.prepare('DELETE FROM pattern_flows WHERE tech_pack_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM tech_assignments WHERE tech_pack_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM supplier_confirms WHERE tech_pack_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM tech_reviews WHERE tech_pack_id = ?').run(req.params.id);
     db.prepare('DELETE FROM tech_pack_materials WHERE tech_pack_id = ?').run(req.params.id);
     db.prepare('DELETE FROM tech_pack_sizes WHERE tech_pack_id = ?').run(req.params.id);
     db.prepare('DELETE FROM tech_pack_requirements WHERE tech_pack_id = ?').run(req.params.id);
@@ -604,7 +621,7 @@ router.delete('/:id', authRequired, requireRole(REVIEW), wrap(async (req, res) =
     db.exec('ROLLBACK');
     throw e;
   }
-  return ok(res, { id: Number(req.params.id) });
+  return ok(res, { id: Number(req.params.id), flows_deleted: flowsDeleted });
 }));
 
 module.exports = router;
