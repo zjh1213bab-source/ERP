@@ -98,6 +98,7 @@ function withDynamicPages(base) {
   };
 
   let good = 0; const bad = [];
+  let navChecked = false;
   for (const p of list) {
     errs = [];
     await send('Page.navigate', { url: BASE + p });
@@ -121,6 +122,18 @@ function withDynamicPages(base) {
       '})()'
     ].join(''));
     if (clip) problems.push(`底部被裁(露出${clip.h}px/需要${clip.need}px,缺${clip.cut}px)`);
+    /**
+     * 菜单重名：同一个二级菜单 label 出现两次，几乎只有一种原因 ——
+     * 分组改造时复制粘贴没删干净（「数据导出与订阅」就重复过一项，肉眼扫 100 个菜单项很难发现）。
+     * 侧栏在所有页面上都有，查一次就够，不按页重复报。
+     */
+    if (!navChecked) {
+      navChecked = true;
+      const dup = await ev(
+        "(()=>{const a=[...document.querySelectorAll('.erp-nav .sub')].map(x=>x.textContent.trim());return a.filter((x,i)=>a.indexOf(x)!==i)})()"
+      );
+      if (dup && dup.length) problems.push('菜单重名: ' + dup.join(','));
+    }
     if (!len || len < 40) problems.push('页面空白(len=' + len + ')');
     if (problems.length) bad.push(p + ' -> ' + problems.slice(0, 2).join(' / '));
     else good++;

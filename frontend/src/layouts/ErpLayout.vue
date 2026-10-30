@@ -146,18 +146,31 @@ const navModel = [
   {
     key: 'sales', label: '销售', icon: '🛒',
     children: [
-      { label: '产品管理', to: '/products' },
       { label: '报价单', to: '/quotations' },
       { label: '客户确认', to: '/confirm-center' },
-      { label: '客户商城', to: '/mall-admin' },
-      { label: '零售与渠道', to: '/channel' },
-      { label: '营销与素材', to: '/marketing' },
       { label: '客户营销与消息', to: '/notify' },
       { label: '销售与客户', to: '/sales' },
       { label: '客户进度发布', to: '/customer-progress' },
-      { label: '售后与对账资料', to: '/after-sales' },
       { label: '预下单', to: '/pre-orders' },
       { label: '销售订单', to: '/orders' }
+    ]
+  },
+  /**
+   * 零售与营销：从「销售」里拆出来的低频模块
+   *
+   * 拆的原因：销售原来挂了 12 项，日常在用的其实只有报价 → 确认 → 下单这条线，
+   * 产品档案、商城、渠道、素材、售后资料都属于"偶尔才进一次"，混在一起让常用项
+   * 被稀释、每次找单都得扫一遍全表。拆成独立模块后，销售只留主链路。
+   * 路由与接口一律没动（只动菜单归组），所以权限、收藏、外部链接、页面内跳转都不受影响。
+   */
+  {
+    key: 'retail', label: '零售与营销', icon: '🏷️',
+    children: [
+      { label: '产品管理', to: '/products' },
+      { label: '客户商城', to: '/mall-admin' },
+      { label: '零售与渠道', to: '/channel' },
+      { label: '营销与素材', to: '/marketing' },
+      { label: '售后与对账资料', to: '/after-sales' }
     ]
   },
   {
@@ -273,7 +286,6 @@ const navModel = [
       { label: '外部接口', to: '/integration' },
       { label: '权限复核', to: '/access-review', roles: ['admin', 'hr'] },
       { label: '上线检查清单', to: '/go-live' },
-      { label: '数据导出与订阅', to: '/export-center' },
       { label: '数据导出与订阅', to: '/export-center' },
       { label: '备份与恢复', to: '/backup', adminOnly: true },
       { label: '移动工作台', to: '/m' },
