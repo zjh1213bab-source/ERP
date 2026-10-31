@@ -17,7 +17,9 @@
     "reset:data:apply": "node scripts/reset-business-data.js --apply",
     "verify:data": "node scripts/audit-demo-data.js --verify",
     "test:race": "node scripts/test-report-race.js",
-    "prune:data": "node scripts/prune-data.js"
+    "prune:data": "node scripts/prune-data.js",
+    "check:schema": "node scripts/check-schema-complete.js",
+    "handoff": "node scripts/make-handoff-pack.js"
   },
   "engines": {
     "node": ">=18"
