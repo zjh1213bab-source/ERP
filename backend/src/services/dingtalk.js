@@ -66,10 +66,32 @@ const ERR_HINT = {
   60020: '服务器出口 IP 不在应用白名单：钉钉后台 → 应用 → 安全设置 → 服务器出口 IP',
   40089: 'AppKey 与 AppSecret 不匹配（确认属于同一个应用；Secret 不能用控制台的遮罩值）',
   40014: 'access_token 无效（已自动重取重试一次仍失败）',
-  88: 'access_token 无效',
+  // 88 只是钉钉的「通用包装码」，真正原因在 errmsg 的 subcode 里，
+  // 所以它自己不带提示 —— 否则权限问题会被写成「access_token 无效」，把人带去查 token。
   90018: '参数不合法：检查日期窗口是否超过 7 天、userIds 是否超过 50 个',
   90007: '参数不合法（业务参数校验失败）'
 };
+
+/**
+ * 从 errmsg 里抠出真实错误码。
+ * 钉钉很多接口先回 `errcode=88 / ding talk error[subcode=60011,submsg=...]`，
+ * subcode 才是可处置的原因（88 本身不表达任何东西）。
+ */
+function pickCode(json) {
+  const msg = String(json.errmsg || '');
+  const m = msg.match(/subcode\s*=\s*(\d+)/i);
+  const sub = m ? Number(m[1]) : null;
+  const code = Number(json.errcode);
+  // 业务码优先：只有通用码（88 / 500）才看 subcode
+  const effective = sub && [88, 500, -1].includes(code) ? sub : code;
+  const submsgM = msg.match(/submsg\s*=\s*([^\]]+)/i);
+  return {
+    code,
+    subcode: sub,
+    effective,
+    submsg: submsgM ? submsgM[1].trim() : null
+  };
+}
 
 async function httpJson(url, { method = 'GET', body } = {}) {
   const ctrl = new AbortController();
@@ -87,10 +109,14 @@ async function httpJson(url, { method = 'GET', body } = {}) {
       throw bad(`钉钉返回非 JSON（HTTP ${res.status}）：${String(text).slice(0, 140)}`, 502);
     }
     if (json && json.errcode && Number(json.errcode) !== 0) {
-      const code = Number(json.errcode);
-      const hint = ERR_HINT[code];
-      const err = bad(`钉钉接口报错 ${code}：${json.errmsg || '(无描述)'}${hint ? '　→ ' + hint : ''}`, 502);
+      const { code, subcode, effective, submsg } = pickCode(json);
+      const hint = ERR_HINT[effective];
+      // 报「真实原因」而不是包装码：88 对使用者毫无意义
+      const head = effective !== code ? `${effective}` + (submsg ? `：${submsg}` : '') : `${code}：${json.errmsg || '(无描述)'}`;
+      const err = bad(`钉钉接口报错 ${head}${hint ? '　→ ' + hint : ''}`, 502);
       err.errcode = code;
+      err.subcode = subcode;
+      err.effective = effective;
       throw err;
     }
     return json;
@@ -102,8 +128,8 @@ async function httpJson(url, { method = 'GET', body } = {}) {
   }
 }
 
-/** token 失效类错误码：清缓存重取一次即可，不必报警 */
-const TOKEN_ERRORS = new Set([40014, 40001, 88, 42001, 41001]);
+/** token 失效类错误码：清缓存重取一次即可，不必报警。注意 88 是通用包装码，要看 subcode */
+const TOKEN_ERRORS = new Set([40014, 40001, 42001, 41001, 88]);
 
 async function getToken(force = false) {
   assertReady();
@@ -125,7 +151,14 @@ async function postWithToken(path, body) {
   try {
     return await doCall();
   } catch (e) {
-    if (e.errcode && TOKEN_ERRORS.has(Number(e.errcode))) {
+    /*
+     * 只有「确实是 token 问题」才重取：
+     * 88 是通用包装码，权限没开也会包成 88 —— 那种情况重取 token 是白花一次配额，
+     * 还会把「缺权限」误导成「token 失效」。所以 88 要看 subcode。
+     */
+    const biz = Number(e.effective || e.errcode);
+    const isTokenErr = TOKEN_ERRORS.has(Number(e.errcode)) && (biz === 88 || TOKEN_ERRORS.has(biz));
+    if (isTokenErr) {
       resetToken();
       return doCall();
     }
