@@ -538,7 +538,11 @@ const PARENT_PAIRS = [
   ['payroll_check_items', 'run_id', 'payroll_check_runs'],
   ['commitment_nodes', 'commitment_id', 'commitments'],
   ['cost_entries', 'cost_object_id', 'cost_objects'],
-  ['cost_snapshots', 'cost_object_id', 'cost_objects']
+  ['cost_snapshots', 'cost_object_id', 'cost_objects'],
+  // 产品颜色/尺码（v1.68.17）：产品的子表。删产品目前只停用不删行，但导数据/清库会按父行清，
+  // 照样得登记 —— 清单缺一条，"无孤儿"就又是假绿。
+  ['product_colors', 'product_id', 'products'],
+  ['product_sizes', 'product_id', 'products']
 ];
 
 /** 扫孤儿：子表的 xxx_id 指向了不存在的父行 */

@@ -19,8 +19,17 @@
 |---|---|---|---|
 | GET/POST | /api/customers | 读:登录 / 写:admin,sales | 列表/新增 |
 | GET/PUT/DELETE | /api/customers/:id | 同上 | 详情/修改/停用 |
-| GET/POST | /api/products | 读:登录 / 写:admin,sales,tech | 列表/新增 |
-| GET/PUT/DELETE | /api/products/:id | 同上 | 详情/修改/停用 |
+| GET/POST | /api/products | 读:登录 / 写:admin,sales,tech | 列表（带 `colors` / `sizes` / `image_url`，`?q=` 也能按颜色名搜）/ 新增 |
+| GET/PUT/DELETE | /api/products/:id | 同上 | 详情（带颜色尺码）/ 修改 / 停用 |
+
+产品变体（v1.68.17）：
+
+| 字段 | 规则 |
+|---|---|
+| `image_url` | 主图。只接受 `/uploads/...` 或 `http(s)://`；`data:` / `javascript:` 一律 400 |
+| `colors[]` | `{ name, image_url }`，一款多色（印花001、印花002…）。**同款同名（TRIM+不分大小写）直接 400**，最多 60 个 |
+| `sizes[]` | 字符串数组或 `{ size }`。**重复自动去重**（`S,M,L,L` → 3 个），最多 30 个 |
+| 缺省语义 | `colors`/`sizes`/`image_url` **不传＝保留原值**，传空数组/空串＝清空。老调用方只改名字不会把变体抹掉 |
 
 ## 订单
 | 方法 | 路径 | 角色 | 说明 |

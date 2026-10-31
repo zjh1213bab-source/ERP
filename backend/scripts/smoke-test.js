@@ -226,6 +226,79 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     ok(`GET ${ep}`, r.status === 200 && r.json.ok === true, `HTTP ${r.status}`);
   }
 
+  /**
+   * 5.4 产品：主图 / 颜色（一款多色）/ 尺码
+   *
+   * 这三样是下单选择器的唯一数据来源，错了会直接串到订单行上，所以每条都要有断言：
+   *   - 颜色重名必须拦（两行不同图争同一个名字，下单时选「印花001」分不清是哪张）
+   *   - 尺码重复要去重（手输 S,M,L,S 很常见）
+   *   - 不传 colors/sizes 时不能清空（老页面只改名字不该把变体抹掉）
+   *   - 图片地址只认 /uploads 与 http(s)（data: 会把 base64 撑进库）
+   * 夹具自建自清，图片地址用假路径 /uploads/smoke.png，不产生真实文件。
+   */
+  {
+    const stamp = String(Date.now()).slice(-6);
+    const nm = `冒烟多色款-${stamp}`;
+    const mk = await req('/api/products', {
+      method: 'POST', token,
+      body: {
+        name: nm, sku: `SMK-${stamp}`, price: 10, image_url: '/uploads/smoke.png',
+        colors: [{ name: '印花001', image_url: '/uploads/smoke.png' }, { name: '印花002' }],
+        sizes: ['S', 'M', 'L', 'L', 'XL']
+      }
+    });
+    const pid = mk.json.data && mk.json.data.id;
+    ok('产品：可建主图 + 多颜色 + 尺码', mk.status === 200, `HTTP ${mk.status}`);
+    ok('产品：尺码重复被去重（S,M,L,L,XL → 4 个）',
+      mk.json.data && mk.json.data.sizes.length === 4, JSON.stringify((mk.json.data || {}).sizes));
+    ok('产品：颜色按顺序保存且各自可带图',
+      mk.json.data && mk.json.data.colors.length === 2 && mk.json.data.colors[0].image_url === '/uploads/smoke.png');
+
+    const dup = await req('/api/products', {
+      method: 'POST', token,
+      body: { name: nm + '-b', colors: [{ name: '印花001' }, { name: ' 印花001 ' }] }
+    });
+    ok('★ 产品：同款颜色重名被拒（含空格差异）', dup.status === 400 && /重复/.test(dup.json.message || ''),
+      `HTTP ${dup.status} ${dup.json.message || ''}`);
+
+    const badImg = await req('/api/products', {
+      method: 'POST', token, body: { name: nm + '-c', image_url: 'javascript:alert(1)' }
+    });
+    ok('产品：javascript: 伪协议图片被拒', badImg.status === 400, `HTTP ${badImg.status}`);
+
+    const hit = await req(`/api/products?q=${encodeURIComponent('印花001')}`, { token });
+    ok('产品：按颜色名能搜到该款', hit.status === 200 && (hit.json.data || []).some((x) => x.id === pid));
+
+    const rep = await req(`/api/products/${pid}`, {
+      method: 'PUT', token, body: { name: nm, colors: [{ name: '印花009' }] }
+    });
+    ok('产品：改颜色 = 整组替换（旧的被清掉）',
+      rep.status === 200 && rep.json.data.colors.length === 1 && rep.json.data.colors[0].name === '印花009');
+
+    const keep = await req(`/api/products/${pid}`, { method: 'PUT', token, body: { name: nm + '（改名）' } });
+    ok('★ 产品：只改名字时颜色/尺码/主图都保留（字段缺省＝不接管）',
+      keep.status === 200 && keep.json.data.colors.length === 1 && keep.json.data.sizes.length === 4
+      && keep.json.data.image_url === '/uploads/smoke.png',
+      JSON.stringify({ c: (keep.json.data || {}).colors?.length, s: (keep.json.data || {}).sizes?.length }));
+
+    // 停用后变体不能丢：历史订单还引用着这些颜色
+    await req(`/api/products/${pid}`, { method: 'DELETE', token });
+    const after = await req(`/api/products/${pid}`, { token });
+    ok('产品：停用后颜色/尺码仍在（历史订单还引用着）',
+      after.status === 200 && after.json.data.status === 'disabled' && after.json.data.colors.length === 1);
+
+    // 清理：产品接口只停用不删行，夹具必须直接清库，且连变体一起删
+    const { db: PDB2 } = require('../src/db');
+    PDB2.prepare('DELETE FROM product_colors WHERE product_id = ?').run(pid);
+    PDB2.prepare('DELETE FROM product_sizes WHERE product_id = ?').run(pid);
+    PDB2.prepare('DELETE FROM products WHERE id = ?').run(pid);
+    const left = PDB2.prepare('SELECT COUNT(*) c FROM products WHERE name LIKE ?').get(`冒烟多色款-${stamp}%`).c;
+    const orphan = PDB2.prepare(
+      'SELECT (SELECT COUNT(*) FROM product_colors WHERE product_id NOT IN (SELECT id FROM products)) + (SELECT COUNT(*) FROM product_sizes WHERE product_id NOT IN (SELECT id FROM products)) AS c'
+    ).get().c;
+    ok('产品：夹具已清干净且不留颜色/尺码孤儿', left === 0 && orphan === 0, `残留 ${left} / 孤儿 ${orphan}`);
+  }
+
   // 5.5 开发单明细（面辅料 / 成衣尺寸 / 生产要求）
   // 说明：整份保存是幂等的（原样回存）；新建版本后立刻删除，不残留数据
   const tpsAll = await req('/api/techpacks/all', { token });

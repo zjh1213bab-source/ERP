@@ -168,6 +168,8 @@ function migrate() {
 
   // 档案图片
   ['customers', 'factories', 'employees'].forEach((tb) => add(tb, 'image_url', 'TEXT'));
+  // 产品主图（v1.68.17：产品页要显示图片；颜色图在 product_colors.image_url）
+  add('products', 'image_url', 'TEXT');
 
   // 钉钉考勤：员工 ↔ 钉钉 userid 映射（空 = 未映射，同步时计入 unmatched 而不是瞎猜）
   add('employees', 'dingtalk_userid', 'TEXT');
