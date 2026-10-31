@@ -322,11 +322,34 @@ function saveItem(templateId, b) {
   if (dup) throw bad(`这个流程里已经有叫「${name}」的节点了`);
 
   const maxSeq = Number(db.prepare('SELECT COALESCE(MAX(seq),0) m FROM node_template_items WHERE template_id = ?').get(templateId).m);
-  const code = nextCustomCode(templateId);
+
+  /**
+   * code 原来**一律**是 nextCustomCode()（c_1、c_2…），于是从页面上新建的流程
+   * 永远拿不到 `inspect` / `pack` / `cut` / `sew` 这些内置 code。
+   *
+   * 后果是硬的：成品入库的闸门 `checkProductionReadyForStock` 按 code 找 `inspect`、`pack`，
+   * 找不到就报「生产检验工序尚未完成」，而界面上明明有「检验」这个节点 ——
+   * 人会以为是报工没做够，接着反复报工；其实这单永远入不了库。
+   * 新装/重置数据后（默认模板没被种子脚本写过）必然踩到。
+   *
+   * 现在：名字与内置工序同名（「检验」「包装」「裁剪」…）就自动认领对应的内置 code；
+   * 也允许显式传 code（前端将来要做下拉时可直接指定）。已被同模板占用的内置 code 不重复认领，
+   * 退回自定义编号 —— 一个流程里不能有两个 inspect。
+   */
+  const builtinByName = Object.keys(BUILTIN_CODES).find((k) => BUILTIN_CODES[k] === name);
+  const wantCode = String(b.code || '').trim() || builtinByName || '';
+  const codeTaken = wantCode
+    ? db.prepare('SELECT 1 AS x FROM node_template_items WHERE template_id = ? AND code = ?').get(templateId, wantCode)
+    : null;
+  const isBuiltin = !!wantCode
+    && Object.prototype.hasOwnProperty.call(BUILTIN_CODES, wantCode)
+    && !codeTaken;
+  const code = isBuiltin ? wantCode : nextCustomCode(templateId);
+
   const info = db.prepare(
     `INSERT INTO node_template_items
       (template_id, code, name, seq, required, role, color, builtin, status, note, visible, panel, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,0,'active',?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,'active',?,?,?,?,?)`
   ).run(
     templateId,
     code,
@@ -335,6 +358,7 @@ function saveItem(templateId, b) {
     b.required !== undefined ? (b.required ? 1 : 0) : 1,
     b.role || 'production',
     b.color || null,
+    isBuiltin ? 1 : 0,
     b.note || null,
     // 新建的默认占列；要「仅扫码」显式传 visible:0
     b.visible !== undefined ? (b.visible ? 1 : 0) : 1,

@@ -225,13 +225,28 @@ function apply(order, { to, note, batchNo, user } = {}) {
   // 批次说明写在备注最前面：事后按批次号能一把捞出「这一批动了哪些单」
   const finalNote = [batchNo ? `${batchNo} 批量流转` : null, note || null].filter(Boolean).join('：') || null;
 
-  db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(to, t, id);
-
-  // 进入生产：自动初始化 13 道工序
+  /**
+   * 先建工序节点，再改状态。
+   *
+   * 原来是「先 UPDATE status='production'，再 ensureNodes()」，两步之间没有事务 ——
+   * ensureNodes 抛错（模板被删光/模板里没节点）时，**订单已经变成生产中、节点一个没有**，
+   * 后面既不能报工（没有 node_id）、也不能重推（状态已经是 production，再流转被「不能流转到生产中」挡回来）。
+   * 这单就死在中间态，只能改库救。
+   *
+   * 现在把 ensureNodes 放在改状态之前：它自带事务，失败就整段抛出、状态原样不动。
+   */
   if (to === 'production') ensureNodes(id);
 
-  db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
-    .run(id, cur, to, who, finalNote, t);
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(to, t, id);
+    db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
+      .run(id, cur, to, who, finalNote, t);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
   afterTransition(order, { to, note: finalNote, user });
 
   return { id, from: cur, to };
