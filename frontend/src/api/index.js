@@ -601,6 +601,13 @@ export const api = {  // 登录
   attendance: (params) => req('/api/attendance' + qs(params)),
   clockAttendance: (employee_id, type) => req('/api/attendance/clock', { method: 'POST', body: { employee_id, type } }),
 
+  /* 钉钉考勤同步（权限 admin/hr） */
+  dingtalkStatus: () => req('/api/integration/dingtalk/status'),
+  dingtalkRuns: (params) => req('/api/integration/dingtalk/runs' + qs(params)),
+  dingtalkProbe: () => req('/api/integration/dingtalk/probe'),
+  dingtalkSync: (d) => req('/api/integration/dingtalk/sync', { method: 'POST', body: d }),
+  dingtalkMap: (d) => req('/api/integration/dingtalk/map', { method: 'POST', body: d }),
+
   // 采购
   purchases: (params) => req('/api/purchases' + qs(params)),
   purchase: (id) => req(`/api/purchases/${id}`),
