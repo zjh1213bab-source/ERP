@@ -22,6 +22,7 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const mall = require('../services/mall');
 const attendanceSync = require('../services/attendanceSync');
 const dingtalk = require('../services/dingtalk');
+const employeeSync = require('../services/employeeSync');
 /** 私有附件的签名与下载只有一份实现（routes/files.js），这里只做别名 */
 const { downloadHandler: DownloadHandler, signedUrlHandler: SignedUrlHandler } = require('./files');
 
@@ -238,6 +239,25 @@ router.post('/dingtalk/sync', authRequired, requireRole(WRITE), wrap(async (req,
 /** 员工 ↔ 钉钉 userid 映射（唯一的映射入口，不做姓名/手机号猜测） */
 router.post('/dingtalk/map', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   return ok(res, attendanceSync.mapEmployee(req.body || {}));
+}));
+
+/**
+ * 从钉钉通讯录导入员工
+ * - preview 只读：会建哪些部门、新增/覆盖多少人、谁没有手机号
+ * - import 会写库；`replace=true` 先删「没有钉钉 userid」的员工（系统里手工造的那些），
+ *   有考勤/工资/账号依赖时整批拒绝（不制造孤儿）
+ */
+router.get('/dingtalk/contacts/preview', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  return ok(res, await employeeSync.preview());
+}));
+
+router.post('/dingtalk/contacts/import', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  const b = req.body || {};
+  const me = req.user || {};
+  return ok(res, await employeeSync.importContacts({
+    replace: !!b.replace,
+    operator: me.name || me.username || ''
+  }));
 }));
 
 // ---------- 签名下载（私有文件短期授权） ----------

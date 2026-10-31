@@ -607,6 +607,8 @@ export const api = {  // 登录
   dingtalkProbe: () => req('/api/integration/dingtalk/probe'),
   dingtalkSync: (d) => req('/api/integration/dingtalk/sync', { method: 'POST', body: d }),
   dingtalkMap: (d) => req('/api/integration/dingtalk/map', { method: 'POST', body: d }),
+  dingtalkContactsPreview: () => req('/api/integration/dingtalk/contacts/preview'),
+  dingtalkContactsImport: (d) => req('/api/integration/dingtalk/contacts/import', { method: 'POST', body: d }),
 
   // 采购
   purchases: (params) => req('/api/purchases' + qs(params)),

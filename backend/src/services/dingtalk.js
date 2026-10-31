@@ -209,4 +209,33 @@ async function probe(userIds) {
   }
 }
 
-module.exports = { ready, assertReady, getToken, resetToken, listResults, listRecords, probe, base };
+/**
+ * 子部门列表（通讯录部门信息读权限 qyapi_get_department_list）
+ * 根部门传 dept_id=1；只返回直接下级，要全公司得自己递归。
+ */
+async function listSubDepts(deptId = 1) {
+  const j = await postWithToken('/topapi/v2/department/listsub', { dept_id: Number(deptId) });
+  return j.result || [];
+}
+
+/**
+ * 部门成员详情（通讯录部门成员读权限 qyapi_get_department_member）
+ * 只返回本部门成员，不含子部门；游标分页。
+ */
+async function listDeptUsers(deptId = 1) {
+  const out = [];
+  let cursor = 0;
+  for (;;) {
+    const j = await postWithToken('/topapi/v2/user/list', {
+      dept_id: Number(deptId), cursor, size: 100, contain_access_limit: false, language: 'zh_CN'
+    });
+    const r = j.result || {};
+    out.push(...(r.list || []));
+    if (!r.has_more) break;
+    cursor = Number(r.next_cursor) || 0;
+    if (out.length > 5000) break;   // 防御：异常分页时不要无限转
+  }
+  return out;
+}
+
+module.exports = { ready, assertReady, getToken, resetToken, listResults, listRecords, probe, listSubDepts, listDeptUsers, base };

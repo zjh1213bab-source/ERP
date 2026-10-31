@@ -594,6 +594,11 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       // 自检会真打钉钉（消耗配额），业务角色必须连这一步都进不去
       const dtProbe403 = await req('/api/integration/dingtalk/probe', { token: dtSales });
       ok('销售角色不能跑连接自检（403）', dtProbe403.status === 403, `HTTP ${dtProbe403.status}`);
+      // 通讯录导入会写员工档案、还会删“没有 userid 的员工”，只能是 admin/hr
+      const dtCv403 = await req('/api/integration/dingtalk/contacts/preview', { token: dtSales });
+      ok('销售角色不能读钉钉通讯录（403）', dtCv403.status === 403, `HTTP ${dtCv403.status}`);
+      const dtCi403 = await req('/api/integration/dingtalk/contacts/import', { method: 'POST', token: dtSales, body: {} });
+      ok('销售角色不能触发通讯录导入（403）', dtCi403.status === 403, `HTTP ${dtCi403.status}`);
     }
 
     const dtMap404 = await req('/api/integration/dingtalk/map', { method: 'POST', token, body: { employee_id: 999999, dingtalk_userid: 'smoke_x' } });

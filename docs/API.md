@@ -335,6 +335,11 @@
 | GET | /api/integration/dingtalk/runs?limit= | admin,hr | 每次同步的流水（区间、ok、新增/更新、跳过人工、未映射、无效卡、API 次数、失败原因） |
 | POST | /api/integration/dingtalk/sync | admin,hr | 触发同步 `{from?, to?, days?, dry_run?}`；不传区间则回补最近 `DINGTALK_SYNC_DAYS` 天。**凭据未配置返回 409**，不会假装成功 |
 | POST | /api/integration/dingtalk/map | admin,hr | 绑定员工 ↔ 钉钉 userid `{employee_id, dingtalk_userid}`；同一 userid 只能属于一个员工，重复返回 409 |
+| GET | /api/integration/dingtalk/contacts/preview | admin,hr | **通讯录预览**（只读）：部门数/将新建哪些、员工新增/覆盖人数、资料不全的人、前 20 人样例 |
+| POST | /api/integration/dingtalk/contacts/import | admin,hr | **从钉钉通讯录导入员工** `{replace?}`。部门按名称对齐（同名不重复建）；员工按 userid → 工号 → 手机认人，不按姓名合并；`replace=true` 先删「没有钉钉 userid」的员工（有考勤/工资/账号依赖时整批 409 拒绝） |
+
+> 通讯录导入需要钉钉应用额外开通两个权限：`qyapi_get_department_list`（部门信息读）与
+> `qyapi_get_department_member`（部门成员读），缺任一个会返回 60011 并在错误里点名。
 
 > 定时触发不走接口：计划任务直接跑 `node backend/scripts/sync-attendance.js`（退出码 0 成功 / 1 出错 / 3 未配置），避免把管理员口令或长期密钥写进任务定义。
 > 写入规则：`attendance` 按 `(employee_id, date)` 唯一；只有 remark 以「钉钉同步」开头的行才会被覆盖，人工录入与补卡行一律保留并计入 `skipped_manual`。

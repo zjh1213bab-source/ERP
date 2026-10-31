@@ -510,6 +510,8 @@
 | imports | POST | `/materials` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | imports | POST | `/products` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | inspection | POST | `/` | ✅ | — | ✅ | ✅ | ✅ | — | ✅ | — |
+| integration | POST | `/dingtalk/contacts/import` | ✅ | — | — | — | — | — | — | ✅ |
+| integration | GET | `/dingtalk/contacts/preview` | ✅ | — | — | — | — | — | — | ✅ |
 | integration | POST | `/dingtalk/map` | ✅ | — | — | — | — | — | — | ✅ |
 | integration | GET | `/dingtalk/probe` | ✅ | — | — | — | — | — | — | ✅ |
 | integration | GET | `/dingtalk/runs` | ✅ | — | — | — | — | — | — | ✅ |
