@@ -603,6 +603,49 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
 
     const dtMap404 = await req('/api/integration/dingtalk/map', { method: 'POST', token, body: { employee_id: 999999, dingtalk_userid: 'smoke_x' } });
     ok('绑定不存在的员工返回 404（不静默建错映射）', dtMap404.status === 404, `HTTP ${dtMap404.status}`);
+
+    /**
+     * ★ 打卡聚合的口径（纯函数，不碰网络/库）
+     *
+     * 钉钉对**漏打的那个卡点**就回 `timeResult=Absenteeism`：打了上班卡、忘打下班卡的人，
+     * 下班卡点也会被判 absenteeism。按"有 absent 就算缺勤"去映射，会把上了班的人记成旷工 ——
+     * 首次真实同步 373 行里踩了 89 行（24%），直接影响出勤率和扣款。
+     * 口径：**一张卡都没有才算缺勤**；缺某个卡点只写 remark，不改状态。
+     */
+    const AS = require('../src/services/attendanceSync');
+    const tz = (hhmm) => new Date(`2026-10-30T${hhmm}:00+08:00`).getTime();
+    const wd = new Date('2026-10-30T00:00:00+08:00').getTime();
+    const rec = (o) => ({ userId: 'smoke_u', workDate: wd, isLegal: true, ...o });
+    const agg = (recs) => AS.aggregate(recs).rows[0];
+
+    const forgetOut = agg([
+      rec({ checkType: 'OnDuty', timeResult: 'Normal', userCheckTime: tz('08:50') }),
+      rec({ checkType: 'OffDuty', timeResult: 'Absenteeism', userCheckTime: 0 })
+    ]);
+    ok('★ 打了上班卡、忘打下班卡 → 不算缺勤（钉钉把该卡点判 Absenteeism）',
+      forgetOut.status === 'normal' && forgetOut.miss === 'out' && forgetOut.check_in === '08:50',
+      `status=${forgetOut.status} miss=${forgetOut.miss || '-'}`);
+
+    const lateForgetOut = agg([
+      rec({ checkType: 'OnDuty', timeResult: 'Late', userCheckTime: tz('09:20') }),
+      rec({ checkType: 'OffDuty', timeResult: 'Absenteeism', userCheckTime: 0 })
+    ]);
+    ok('迟到 + 忘打下班卡 → 迟到优先（不能被缺勤盖掉）',
+      lateForgetOut.status === 'late' && lateForgetOut.miss === 'out', `status=${lateForgetOut.status}`);
+
+    const reallyAbsent = agg([
+      rec({ checkType: 'OnDuty', timeResult: 'Absenteeism', userCheckTime: 0 }),
+      rec({ checkType: 'OffDuty', timeResult: 'Absenteeism', userCheckTime: 0 })
+    ]);
+    ok('一张卡都没有 → 才判缺勤', reallyAbsent.status === 'absent' && !reallyAbsent.miss, `status=${reallyAbsent.status}`);
+
+    const bothCards = agg([
+      rec({ checkType: 'OnDuty', timeResult: 'Normal', userCheckTime: tz('08:45') }),
+      rec({ checkType: 'OffDuty', timeResult: 'Normal', userCheckTime: tz('18:10') })
+    ]);
+    ok('两卡齐全 → 正常，且取最早上班 / 最晚下班',
+      bothCards.status === 'normal' && bothCards.check_in === '08:45' && bothCards.check_out === '18:10',
+      `${bothCards.check_in}/${bothCards.check_out}`);
   }
 
   /**

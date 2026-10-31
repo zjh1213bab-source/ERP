@@ -52,6 +52,8 @@ const TZ_MS = TZ_OFFSET_H * 3600 * 1000;
 
 const dayOf = (ms) => new Date(Number(ms) + TZ_MS).toISOString().slice(0, 10);
 const clockOf = (ms) => new Date(Number(ms) + TZ_MS).toISOString().slice(11, 16);
+/** 业务时区的"今天"（YYYY-MM-DD） */
+const todayStr = () => new Date(Date.now() + TZ_MS).toISOString().slice(0, 10);
 
 /**
  * 把钉钉的卡点记录聚合成「一人一天一行」
@@ -87,15 +89,32 @@ function aggregate(records = []) {
   }
 
   const rows = [...map.values()].map((r) => {
-    // 缺勤优先级最高：只要有一个卡点是缺勤，这天就不是正常出勤
-    const status = r.results.includes('absent') ? 'absent'
-      : r.results.includes('late') ? 'late' : 'normal';
+    /*
+     * ★ 缺勤的判据是「这天一张卡都没有」，不是「某个卡点被判 Absenteeism」。
+     *
+     * 钉钉对**漏打的那个卡点**就回 `timeResult=Absenteeism`：打了上班卡、忘打下班卡的人，
+     * 会被标成 OffDuty=Absenteeism。照原样映射就会把「上了班但忘打卡」记成旷工 ——
+     * 实测 373 行里有 89 行是这样（占 24%），直接影响出勤率和扣款，属于"看起来有数据、
+     * 其实是替人做了错误判断"。
+     *
+     * 现在的口径：
+     *   - 有任一有效卡 → 不许判缺勤；迟到取迟到，其余正常；漏打的卡点写进 remark
+     *   - 一张卡都没有 → 才记 absent（真旷工）
+     */
+    const hasIn = !!r.inMs;
+    const hasOut = !!r.outMs;
+    const miss = hasIn && !hasOut ? 'out' : (hasOut && !hasIn ? 'in' : null);
+    let status;
+    if (!hasIn && !hasOut) status = 'absent';
+    else if (r.results.includes('late')) status = 'late';
+    else status = 'normal';
     return {
       userId: r.userId,
       date: r.date,
       check_in: r.inMs ? clockOf(r.inMs) : null,
       check_out: r.outMs && r.outMs !== r.inMs ? clockOf(r.outMs) : null,
       status,
+      miss,
       illegal: r.illegal
     };
   });
@@ -176,7 +195,7 @@ async function sync({ from, to, days, dryRun = false, operator = '' } = {}) {
   const stats = {
     from: range.from, to: range.to, windows: windows.length,
     employees: emps.length, api_calls: 0,
-    inserted: 0, updated: 0, skipped_manual: 0, unmatched: 0, illegal: 0,
+    inserted: 0, updated: 0, skipped_manual: 0, unmatched: 0, illegal: 0, missing_card: 0,
     unmatched_userids: [], dry_run: !!dryRun
   };
 
@@ -234,7 +253,15 @@ async function sync({ from, to, days, dryRun = false, operator = '' } = {}) {
       const updStmt = db.prepare('UPDATE attendance SET check_in=?, check_out=?, status=?, remark=? WHERE id=?');
       for (const { emp, row } of pending) {
         const exist = findStmt.get(emp.id, row.date);
-        const remark = row.illegal ? `${SYNC_REMARK}（含无效卡 ${row.illegal} 条）` : SYNC_REMARK;
+        // 备注要能解释「为什么这天不是全勤」：无效卡、漏打卡都写上，别让人再去钉钉对
+        const notes = [];
+        const isToday = row.date === todayStr();
+        if (row.miss === 'out') notes.push(isToday ? '今日进行中，下班卡未打' : '缺下班卡');
+        if (row.miss === 'in') notes.push('缺上班卡');
+        if (row.illegal) notes.push(`含无效卡 ${row.illegal} 条`);
+        const remark = notes.length ? `${SYNC_REMARK}（${notes.join('，')}）` : SYNC_REMARK;
+        // 当日未下班是正常状态，不能计进"缺卡异常"，否则每天都有几十条假异常
+        if ((row.miss === 'in' || row.miss === 'out') && !isToday) stats.missing_card += 1;
         if (!exist) {
           insStmt.run(emp.id, emp.name, row.date, row.check_in, row.check_out, row.status, remark, now());
           stats.inserted += 1;
