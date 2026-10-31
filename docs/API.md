@@ -594,11 +594,11 @@
 | GET | /api/quotations?status=&q=&customer_id= | 登录 | 列表 |
 | GET | /api/quotations/meta | 登录 | 状态字典 + 当前汇率 |
 | GET | /api/quotations/:id | 登录 | 详情（含明细） |
-| POST | /api/quotations | admin,sales | 新建；明细不传 `price_usd` 时**自动取阶梯价** |
+| POST | /api/quotations | admin,sales | 新建；明细不传 `price_usd` 时**自动取阶梯价**；明细可带 `color`（须是该产品已配的颜色，否则 400；大小写/空格按主数据规范化） |
 | PUT | /api/quotations/:id | admin,sales | 修改（仅草稿） |
 | POST | /api/quotations/:id/status | admin,sales | `draft→sent→accepted/rejected` |
-| POST | /api/quotations/:id/reprice | admin,sales | 按当前阶梯价重算（仅草稿） |
-| POST | /api/quotations/:id/convert | admin,sales | 仅客户已接受的报价可转销售订单草稿；转单后须在草稿补齐颜色尺码，返回 `{order_id, order_no}` |
+| POST | /api/quotations/:id/reprice | admin,sales | 按当前阶梯价重算（仅草稿）；**明细颜色保留**（重写明细会带 `color`） |
+| POST | /api/quotations/:id/convert | admin,sales | 仅客户已接受的报价可转销售订单草稿；**明细颜色随行带入订单**（`order_items.color` 与 `order_item_sizes.color`），尺码落「均码」占位待细化；返回 `{order_id, order_no}` |
 | DELETE | /api/quotations/:id | admin,sales | 删除（仅草稿） |
 
 打印页：前端 `/print/quote/:id`（A4，含美金大写、报价说明、签章位）。

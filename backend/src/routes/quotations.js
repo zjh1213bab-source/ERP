@@ -55,6 +55,26 @@ function prepareItems(items, rate) {
     let tierId = null;
     let productName = it.product_name || '';
     let sku = it.sku || null;
+    /*
+     * 颜色/花型：一款多色时每色一行报价（和下单页一致）。
+     * 有产品就校验颜色必须在该产品已配的颜色里 —— 否则「印花1」「印花001」会各报一份，
+     * 转订单后按颜色统计/对库存全对不上。没选产品（手填行）不校验，允许自由写。
+     */
+    let color = String(it.color || '').trim() || null;
+    if (color && color.length > 40) return { error: `颜色「${color}」超过 40 字` };
+    if (pid && color) {
+      const okColor = db.prepare(
+        'SELECT 1 AS x FROM product_colors WHERE product_id = ? AND UPPER(TRIM(name)) = ?'
+      ).get(pid, color.toUpperCase());
+      if (!okColor) {
+        return { error: `产品「${productName || pid}」没有颜色「${color}」：请在产品管理里先配好，或改用手填行` };
+      }
+      // 存库用产品里的标准写法（大小写/空格以主数据为准）
+      const canon = db.prepare(
+        'SELECT name FROM product_colors WHERE product_id = ? AND UPPER(TRIM(name)) = ?'
+      ).get(pid, color.toUpperCase());
+      if (canon) color = canon.name;
+    }
     if (pid) {
       const p = db.prepare('SELECT id, name, sku, price FROM products WHERE id = ?').get(pid);
       if (!p) return { error: `产品 ID ${pid} 不存在` };
@@ -78,6 +98,7 @@ function prepareItems(items, rate) {
       product_id: pid || null,
       product_name: productName,
       sku,
+      color,
       qty,
       price_usd: round2(priceUsd),
       amount_usd: amountUsd,
@@ -149,10 +170,10 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
       b.remark || null, req.user.sub, t, t);
     id = Number(info.lastInsertRowid);
     const ins = db.prepare(
-      `INSERT INTO quotation_items (quote_id, product_id, product_name, sku, qty, price_usd, amount_usd, amount_cny, tier_id, remark)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO quotation_items (quote_id, product_id, product_name, sku, color, qty, price_usd, amount_usd, amount_cny, tier_id, remark)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
     );
-    prep.rows.forEach((r) => ins.run(id, r.product_id, r.product_name, r.sku, r.qty, r.price_usd, r.amount_usd, r.amount_cny, r.tier_id, r.remark));
+    prep.rows.forEach((r) => ins.run(id, r.product_id, r.product_name, r.sku, r.color, r.qty, r.price_usd, r.amount_usd, r.amount_cny, r.tier_id, r.remark));
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
@@ -193,10 +214,10 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
         b.remark !== undefined ? b.remark || null : q.remark, t, q.id);
       db.prepare('DELETE FROM quotation_items WHERE quote_id = ?').run(q.id);
       const ins = db.prepare(
-        `INSERT INTO quotation_items (quote_id, product_id, product_name, sku, qty, price_usd, amount_usd, amount_cny, tier_id, remark)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO quotation_items (quote_id, product_id, product_name, sku, color, qty, price_usd, amount_usd, amount_cny, tier_id, remark)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
       );
-      prep.rows.forEach((r) => ins.run(q.id, r.product_id, r.product_name, r.sku, r.qty, r.price_usd, r.amount_usd, r.amount_cny, r.tier_id, r.remark));
+      prep.rows.forEach((r) => ins.run(q.id, r.product_id, r.product_name, r.sku, r.color, r.qty, r.price_usd, r.amount_usd, r.amount_cny, r.tier_id, r.remark));
     } else {
       db.prepare(
         `UPDATE quotations SET customer_id=?, valid_until=?, trade_terms=?, delivery_days=?, remark=?, updated_at=? WHERE id=?`
@@ -234,18 +255,18 @@ router.post('/:id/reprice', authRequired, requireRole(WRITE), wrap(async (req, r
   if (!q) return fail(res, 404, '报价单不存在');
   if (q.status !== 'draft') return fail(res, 400, '只有草稿可以重新计价');
   const prep = prepareItems(q.items.map((it) => ({
-    product_id: it.product_id, product_name: it.product_name, sku: it.sku,
-    qty: it.qty, remark: it.remark   // 不传 price_usd，强制按阶梯价重算
+    product_id: it.product_id, product_name: it.product_name, sku: it.sku, color: it.color,
+    qty: it.qty, remark: it.remark   // 不传 price_usd，强制按阶梯价重算；color 必须带上，否则重算把颜色抹掉
   })), q.rate);
   if (prep.error) return fail(res, 400, prep.error);
   db.exec('BEGIN');
   try {
     db.prepare('DELETE FROM quotation_items WHERE quote_id = ?').run(q.id);
     const ins = db.prepare(
-      `INSERT INTO quotation_items (quote_id, product_id, product_name, sku, qty, price_usd, amount_usd, amount_cny, tier_id, remark)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO quotation_items (quote_id, product_id, product_name, sku, color, qty, price_usd, amount_usd, amount_cny, tier_id, remark)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
     );
-    prep.rows.forEach((r) => ins.run(q.id, r.product_id, r.product_name, r.sku, r.qty, r.price_usd, r.amount_usd, r.amount_cny, r.tier_id, r.remark));
+    prep.rows.forEach((r) => ins.run(q.id, r.product_id, r.product_name, r.sku, r.color, r.qty, r.price_usd, r.amount_usd, r.amount_cny, r.tier_id, r.remark));
     db.prepare('UPDATE quotations SET total_qty=?, total_usd=?, total_amount=?, updated_at=? WHERE id=?')
       .run(prep.totalQty, prep.totalUsd, prep.totalCny, now(), q.id);
     db.exec('COMMIT');
@@ -296,16 +317,16 @@ router.post('/:id/convert', authRequired, requireRole(WRITE), wrap(async (req, r
     orderId = Number(info.lastInsertRowid);
 
     const insItem = db.prepare(
-      'INSERT INTO order_items (order_id, product_id, product_name, sku, remark, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?)'
+      'INSERT INTO order_items (order_id, product_id, product_name, sku, color, remark, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?,?)'
     );
     const insSize = db.prepare(
       'INSERT INTO order_item_sizes (item_id, color, size, qty, usd_price, cny_price, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?)'
     );
     for (const it of q.items) {
-      const r = insItem.run(orderId, it.product_id, it.product_name, it.sku, `报价单行 ${it.id}`, it.qty, it.amount_usd, it.amount_cny);
+      const r = insItem.run(orderId, it.product_id, it.product_name, it.sku, it.color || null, `报价单行 ${it.id}`, it.qty, it.amount_usd, it.amount_cny);
       const itemId = Number(r.lastInsertRowid);
-      // 报价阶段只有总量与美金单价，"均码/待分色"占位，下单后可在订单里改成真实颜色尺码
-      insSize.run(itemId, '待定', '均码', it.qty, it.price_usd, round2(it.price_usd * rate), it.amount_usd, it.amount_cny);
+      // 颜色按报价行带到订单（没填才落"待定"）；尺码仍是"均码"占位，下单后按实际尺码细化
+      insSize.run(itemId, it.color || '待定', '均码', it.qty, it.price_usd, round2(it.price_usd * rate), it.amount_usd, it.amount_cny);
     }
 
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')

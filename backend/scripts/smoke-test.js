@@ -1598,6 +1598,83 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
   const emptyQuote = await req('/api/quotations', { method: 'POST', body: { items: [] }, token });
   ok('报价单无明细返回 400', emptyQuote.status === 400, `HTTP ${emptyQuote.status}`);
 
+  /**
+   * 报价行的颜色：报价阶段就能按颜色报，转订单后颜色必须还是那个颜色
+   *
+   * 这条链路有三个改坏的方式，都要盯住：
+   *   1. 颜色自由填写 → 「印花1」「印花001」各报一份，转订单后按色统计对不上（必须拒）
+   *   2. 按阶梯价重算会 DELETE + 重新 INSERT 明细 → 漏带 color 就把颜色抹掉
+   *   3. 转订单写 order_item_sizes 时原来硬编码「待定」 → 颜色白填
+   */
+  {
+    const stamp2 = String(Date.now()).slice(-6);
+    const nm2 = `冒烟报价色-${stamp2}`;
+    const mkP = await req('/api/products', {
+      method: 'POST', token,
+      body: { name: nm2, sku: `QTC-${stamp2}`, price: 10, colors: [{ name: '印花001' }, { name: '印花002' }], sizes: ['S', 'M'] }
+    });
+    const pid2 = mkP.json.data && mkP.json.data.id;
+    ok('报价：夹具产品（两色）已建', mkP.status === 200, `HTTP ${mkP.status}`);
+
+    const qa = await req('/api/quotations', {
+      method: 'POST', token,
+      body: { items: [
+        { product_id: pid2, color: '印花002', qty: 100, price_usd: 10 },
+        { product_id: pid2, color: '印花001', qty: 50, price_usd: 10 }
+      ] }
+    });
+    const qid2 = qa.json.data && qa.json.data.id;
+    ok('报价：明细可带颜色（按色各一行）',
+      qa.status === 200 && (qa.json.data.items || []).map((x) => x.color).join(',') === '印花002,印花001',
+      JSON.stringify((qa.json.data && qa.json.data.items || []).map((x) => x.color)));
+
+    const qbad = await req('/api/quotations', {
+      method: 'POST', token,
+      body: { items: [{ product_id: pid2, color: '印花2', qty: 10, price_usd: 10 }] }
+    });
+    ok('★ 报价：颜色不在产品主数据里被拒（防「印花2/印花001」并存）',
+      qbad.status === 400 && /没有颜色/.test(qbad.json.message || ''), `HTTP ${qbad.status} ${qbad.json.message || ''}`);
+
+    const qrep = await req(`/api/quotations/${qid2}/reprice`, { method: 'POST', token, body: {} });
+    ok('★ 报价：按阶梯价重算后颜色不丢（重写明细要带 color）',
+      qrep.status === 200 && (qrep.json.data.items || []).map((x) => x.color).join(',') === '印花002,印花001',
+      JSON.stringify((qrep.json.data && qrep.json.data.items || []).map((x) => x.color)));
+
+    await req(`/api/quotations/${qid2}/status`, { method: 'POST', token, body: { status: 'sent' } });
+    await req(`/api/quotations/${qid2}/status`, { method: 'POST', token, body: { status: 'accepted' } });
+    const qcv = await req(`/api/quotations/${qid2}/convert`, { method: 'POST', token, body: {} });
+    const oid2 = qcv.json.data && qcv.json.data.order_id;
+    ok('报价：转销售订单成功', qcv.status === 200 && !!oid2, `HTTP ${qcv.status}`);
+
+    const { db: QDB } = require('../src/db');
+    const oi = oid2 ? QDB.prepare('SELECT color FROM order_items WHERE order_id = ? ORDER BY id').all(oid2) : [];
+    ok('★ 报价：订单明细沿用报价行的颜色',
+      oi.length === 2 && oi[0].color === '印花002' && oi[1].color === '印花001', JSON.stringify(oi));
+    const os = oid2 ? QDB.prepare('SELECT s.color, s.size FROM order_item_sizes s JOIN order_items i ON i.id = s.item_id WHERE i.order_id = ? ORDER BY s.id').all(oid2) : [];
+    ok('★ 报价：尺码行也是该颜色（不再是「待定」）',
+      os.length === 2 && os[0].color === '印花002' && os[1].color === '印花001', JSON.stringify(os));
+
+    // 清理：转过的报价删不掉，直接清库；订单与明细一起清
+    if (oid2) {
+      QDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(oid2);
+      QDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(oid2);
+      QDB.prepare('DELETE FROM order_logs WHERE order_id = ?').run(oid2);
+      QDB.prepare('DELETE FROM orders WHERE id = ?').run(oid2);
+    }
+    if (qid2) {
+      QDB.prepare('DELETE FROM quotation_items WHERE quote_id = ?').run(qid2);
+      QDB.prepare('DELETE FROM quotations WHERE id = ?').run(qid2);
+    }
+    if (pid2) {
+      QDB.prepare('DELETE FROM product_colors WHERE product_id = ?').run(pid2);
+      QDB.prepare('DELETE FROM product_sizes WHERE product_id = ?').run(pid2);
+      QDB.prepare('DELETE FROM products WHERE id = ?').run(pid2);
+    }
+    const leftQ = QDB.prepare('SELECT COUNT(*) c FROM quotations WHERE id = ?').get(qid2).c;
+    const leftP = QDB.prepare('SELECT COUNT(*) c FROM products WHERE id = ?').get(pid2).c;
+    ok('报价：夹具已清干净（报价/订单/产品）', leftQ === 0 && leftP === 0, `报价${leftQ} 产品${leftP}`);
+  }
+
   // 9. 薪酬核算 / 固定资产 / 行政费用
   const ym = new Date().toISOString().slice(0, 7);
   const payList = await req('/api/payrolls?period=' + ym, { token });

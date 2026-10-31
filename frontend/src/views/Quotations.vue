@@ -82,6 +82,7 @@
             <thead>
               <tr>
                 <th style="min-width: 200px">产品</th>
+                <th style="width: 130px">颜色 / 花型</th>
                 <th style="width: 100px">数量</th>
                 <th style="width: 120px">单价 USD</th>
                 <th style="width: 110px">金额 USD</th>
@@ -97,6 +98,15 @@
                   </select>
                   <input v-if="!it.product_id" class="input" style="margin-top: 6px" v-model="it.product_name" placeholder="产品名称" />
                 </td>
+                <td>
+                  <!-- 有产品就选该产品配好的颜色；否则手填（避免「印花1/印花001」两种写法） -->
+                  <select v-if="colorOptions(it).length" class="select" v-model="it.color">
+                    <option value="">— 选择 —</option>
+                    <option v-for="o in colorOptions(it)" :key="o" :value="o">{{ o }}</option>
+                    <option v-if="it.color && !colorOptions(it).includes(it.color)" :value="it.color">{{ it.color }}（原有）</option>
+                  </select>
+                  <input v-else class="input" v-model="it.color" placeholder="可选" maxlength="40" />
+                </td>
                 <td><input class="input" type="number" min="0" v-model.number="it.qty" /></td>
                 <td><input class="input" type="number" step="0.01" v-model.number="it.price_usd" /></td>
                 <td class="num">${{ money((Number(it.qty) || 0) * (Number(it.price_usd) || 0)) }}</td>
@@ -106,7 +116,7 @@
                 </td>
               </tr>
               <tr v-if="!form.items.length">
-                <td colspan="5" class="empty-cell">添加一行开始报价</td>
+                <td colspan="6" class="empty-cell">添加一行开始报价</td>
               </tr>
             </tbody>
           </table>
@@ -244,8 +254,14 @@ async function loadBase() {
   } catch (e) { /* ignore */ }
 }
 
+/** 该行产品配好的颜色名（产品列表已带 colors）；没配就返回空 → 退回手填 */
+function colorOptions(it) {
+  const p = it.product_id ? products.value.find((x) => x.id === it.product_id) : null;
+  return p && p.colors ? p.colors.map((c) => c.name) : [];
+}
+
 function addItem() {
-  form.value.items.push({ product_id: null, product_name: '', qty: 0, price_usd: 0 });
+  form.value.items.push({ product_id: null, product_name: '', color: '', qty: 0, price_usd: 0 });
 }
 
 function onPickProduct(it) {
@@ -289,7 +305,7 @@ async function openEdit(row) {
       valid_until: d.valid_until || '', trade_terms: d.trade_terms || '',
       delivery_days: d.delivery_days || 0, remark: d.remark || '',
       items: d.items.map((it) => ({
-        product_id: it.product_id, product_name: it.product_name, sku: it.sku,
+        product_id: it.product_id, product_name: it.product_name, sku: it.sku, color: it.color || '',
         qty: it.qty, price_usd: it.price_usd
       }))
     };
@@ -347,7 +363,7 @@ async function setStatus(row, to) {
 }
 
 async function convert(row) {
-  if (!confirm(`把 ${row.quote_no} 转成销售订单？会生成一张草稿订单（颜色/尺码为待定占位，可在订单里细化）。`)) return;
+  if (!confirm(`把 ${row.quote_no} 转成销售订单？会生成一张草稿订单（颜色按报价行带到订单；尺码为「均码」占位，可在订单里按实际尺码细化）。`)) return;
   try {
     const r = await api.convertQuotation(row.id);
     await load();

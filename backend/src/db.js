@@ -170,6 +170,8 @@ function migrate() {
   ['customers', 'factories', 'employees'].forEach((tb) => add(tb, 'image_url', 'TEXT'));
   // 产品主图（v1.68.17：产品页要显示图片；颜色图在 product_colors.image_url）
   add('products', 'image_url', 'TEXT');
+  // 报价明细的颜色（v1.68.19：一款多色时每种颜色一行报价，转订单时带到 order_items/order_item_sizes）
+  add('quotation_items', 'color', 'TEXT');
 
   // 钉钉考勤：员工 ↔ 钉钉 userid 映射（空 = 未映射，同步时计入 unmatched 而不是瞎猜）
   add('employees', 'dingtalk_userid', 'TEXT');
