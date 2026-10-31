@@ -43,6 +43,7 @@
             <th style="width: 38px">#</th>
             <th style="width: 110px">款号</th>
             <th>产品名称</th>
+            <th style="width: 88px">颜色/花型</th>
             <th style="width: 70px">数量</th>
             <th style="width: 84px">单价 USD</th>
             <th style="width: 96px">金额 USD</th>
@@ -54,16 +55,17 @@
             <td>{{ i + 1 }}</td>
             <td>{{ it.sku || '-' }}</td>
             <td>{{ it.product_name }}</td>
+            <td>{{ it.color || '-' }}</td>
             <td class="num">{{ it.qty }}</td>
             <td class="num">{{ fmt(it.price_usd) }}</td>
             <td class="num">{{ fmt(it.amount_usd) }}</td>
             <td class="num">{{ fmt(it.amount_cny) }}</td>
           </tr>
-          <tr v-if="!quote.items.length"><td colspan="7" class="num">无明细</td></tr>
+          <tr v-if="!quote.items.length"><td colspan="8" class="num">无明细</td></tr>
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="3" class="qp-total-label">合计 TOTAL</td>
+            <td colspan="4" class="qp-total-label">合计 TOTAL</td>
             <td class="num">{{ quote.total_qty }}</td>
             <td></td>
             <td class="num">{{ fmt(quote.total_usd) }}</td>
