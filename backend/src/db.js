@@ -169,6 +169,9 @@ function migrate() {
   // 档案图片
   ['customers', 'factories', 'employees'].forEach((tb) => add(tb, 'image_url', 'TEXT'));
 
+  // 钉钉考勤：员工 ↔ 钉钉 userid 映射（空 = 未映射，同步时计入 unmatched 而不是瞎猜）
+  add('employees', 'dingtalk_userid', 'TEXT');
+
   // 面辅料档案扩展
   ['short_name', 'color', 'color_no', 'image_url', 'width', 'weight', 'air_gap', 'composition', 'unit', 'supplier_info', 'stock_detail', 'remark']
     .forEach((col) => add('materials', col, 'TEXT'));

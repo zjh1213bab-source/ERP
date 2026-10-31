@@ -556,6 +556,47 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     ok('新品开发夹具已清干净', leftDev.a === 0 && leftDev.b === 0, `预下单残留=${leftDev.a} / 申请残留=${leftDev.b}`);
   }
 
+  /**
+   * 5.5b 钉钉考勤同步（未配置态 + 权限边界）
+   *
+   * 这条链路最怕的不是"报错"，是**装作成功**：凭据没配却回 200、写 0 行，
+   * 人事以为同步过了，月底才发现整月没有考勤。所以这里锁三件事：
+   *   1. 未配置 → 409 + 说清原因（不能 200，也不该是 500）
+   *   2. 业务角色不能触发同步（打卡是人事口径，一次误触发会整批重算）
+   *   3. 员工映射不存在时明确 404，而不是静默建一条错映射
+   */
+  {
+    const dtLogin = async (u) => {
+      const r = await req('/api/auth/login', { method: 'POST', body: { username: u, password: PASS } });
+      return r.status === 200 ? r.json.data.token : '';
+    };
+
+    const dtSt = await req('/api/integration/dingtalk/status', { token });
+    ok('钉钉同步状态可查（configured / 已映射 / 未映射人数）',
+      dtSt.status === 200 && typeof dtSt.json.data.configured === 'boolean'
+        && typeof dtSt.json.data.employees_mapped === 'number',
+      `HTTP ${dtSt.status} configured=${dtSt.json.data && dtSt.json.data.configured} mapped=${dtSt.json.data && dtSt.json.data.employees_mapped}`);
+
+    if (dtSt.status === 200 && dtSt.json.data.configured === false) {
+      const dtSync = await req('/api/integration/dingtalk/sync', { method: 'POST', token, body: { days: 1 } });
+      ok('★ 凭据未配置时同步返回 409 并说清原因（绝不假装成功）',
+        dtSync.status === 409 && /未配置/.test(String(dtSync.json.message || '')),
+        `HTTP ${dtSync.status} ${String(dtSync.json.message || '').slice(0, 40)}`);
+    } else {
+      // 配了凭据的环境：不在冒烟里真打钉钉（会消耗配额、且依赖外网）
+      ok('（本环境已配置钉钉凭据，跳过"未配置"断言）', true);
+    }
+
+    const dtSales = await dtLogin('sales01');
+    if (dtSales) {
+      const dtForbidden = await req('/api/integration/dingtalk/sync', { method: 'POST', token: dtSales, body: { days: 1 } });
+      ok('销售角色不能触发考勤同步（403）', dtForbidden.status === 403, `HTTP ${dtForbidden.status}`);
+    }
+
+    const dtMap404 = await req('/api/integration/dingtalk/map', { method: 'POST', token, body: { employee_id: 999999, dingtalk_userid: 'smoke_x' } });
+    ok('绑定不存在的员工返回 404（不静默建错映射）', dtMap404.status === 404, `HTTP ${dtMap404.status}`);
+  }
+
   // 5.6 面辅料档案
   const matFab = await req('/api/materials?type=fabric', { token });
   ok('面辅料档案按类型筛选', matFab.status === 200 && Array.isArray(matFab.json.data), `HTTP ${matFab.status}`);

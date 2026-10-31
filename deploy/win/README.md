@@ -97,6 +97,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart
 
 访问：`http://127.0.0.1:3000`（局域网用 `http://<本机IP>:3000`，服务监听 `0.0.0.0`）。
 
+## 定时任务：钉钉考勤同步（可选）
+
+配好 `backend/.env` 里的 `DINGTALK_APP_KEY` / `DINGTALK_APP_SECRET`（并给钉钉应用加「查询企业考勤数据权限」）后，
+可以让计划任务每 30 分钟跑一次，**不需要登录态、也不需要把任何口令写进任务**：
+
+```bat
+:: 手动试跑（--dry-run 只算不写）
+cd /d D:\wk\2026-10-26-09-45-32\erp-mindmap\backend
+node scripts\sync-attendance.js --dry-run
+node scripts\sync-attendance.js --days=3
+```
+
+退出码：`0` 成功 / `1` 出错 / `3` 凭据未配置（计划任务里可据此不报警）。
+用「任务计划程序」新建任务，触发器每 30 分钟、操作填 `node.exe` + `scripts\sync-attendance.js`，
+起始于 `backend` 目录即可。每次同步的结果都能在
+`GET /api/integration/dingtalk/runs`（或页面「人事行政 → 考勤打卡」）里看到，含失败原因。
+
 ## 日志在哪
 
 `backend/data/logs/`

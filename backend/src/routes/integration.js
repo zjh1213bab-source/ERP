@@ -20,6 +20,7 @@ const { db, now } = require('../db');
 const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const mall = require('../services/mall');
+const attendanceSync = require('../services/attendanceSync');
 /** 私有附件的签名与下载只有一份实现（routes/files.js），这里只做别名 */
 const { downloadHandler: DownloadHandler, signedUrlHandler: SignedUrlHandler } = require('./files');
 
@@ -196,6 +197,38 @@ router.post('/ingest/:code', wrap(async (req, res) => {
     status: 'pending',
     message: '已接收，等待处理（可调用 dispatch 或等待定时任务）'
   });
+}));
+
+// ---------- 钉钉考勤同步 ----------
+/**
+ * 为什么单独一组接口，而不是让外部系统直接 POST /ingest：
+ * 拉取方向相反 —— 这里是**本系统主动去钉钉取数**，走的是出网请求 + 应用凭证，
+ * 与"别人推给我们"的接入点不是一回事（那套用 X-Api-Key + 幂等键）。
+ *
+ * 权限统一给 admin / hr（WRITE）：打卡数据是人事口径，业务角色只读即可，
+ * 不给它们触发同步的能力 —— 一次误触发会把当天考勤整批重算。
+ *
+ * 定时触发不走这里：计划任务直接跑 `node scripts/sync-attendance.js`，
+ * 免得为了一个后台任务把管理员口令/token 落到计划任务里。
+ */
+router.get('/dingtalk/status', authRequired, requireRole(WRITE), wrap(async (req, res) => ok(res, attendanceSync.status())));
+
+router.get('/dingtalk/runs', authRequired, requireRole(WRITE), wrap(async (req, res) => ok(res, attendanceSync.recentRuns(req.query.limit))));
+
+router.post('/dingtalk/sync', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  const b = req.body || {};
+  const me = req.user || {};
+  const r = await attendanceSync.sync({
+    from: b.from, to: b.to, days: b.days,
+    dryRun: !!b.dry_run,
+    operator: me.name || me.username || ''
+  });
+  return ok(res, r);
+}));
+
+/** 员工 ↔ 钉钉 userid 映射（唯一的映射入口，不做姓名/手机号猜测） */
+router.post('/dingtalk/map', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  return ok(res, attendanceSync.mapEmployee(req.body || {}));
 }));
 
 // ---------- 签名下载（私有文件短期授权） ----------

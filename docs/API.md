@@ -327,6 +327,17 @@
 | GET | /api/integration/openapi.json | 登录 | 自动生成 OpenAPI 3.0.3 接口清单 |
 | POST | /api/integration/files/signed-url | 登录 | **别名**，行为同 `/api/files/signed-url` |
 
+### 钉钉考勤同步（出网方向，与上面的入口相反）
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/integration/dingtalk/status | admin,hr | 是否已配置凭据、已映射/未映射员工数、最近一次同步结果、未映射员工样例 |
+| GET | /api/integration/dingtalk/runs?limit= | admin,hr | 每次同步的流水（区间、ok、新增/更新、跳过人工、未映射、无效卡、API 次数、失败原因） |
+| POST | /api/integration/dingtalk/sync | admin,hr | 触发同步 `{from?, to?, days?, dry_run?}`；不传区间则回补最近 `DINGTALK_SYNC_DAYS` 天。**凭据未配置返回 409**，不会假装成功 |
+| POST | /api/integration/dingtalk/map | admin,hr | 绑定员工 ↔ 钉钉 userid `{employee_id, dingtalk_userid}`；同一 userid 只能属于一个员工，重复返回 409 |
+
+> 定时触发不走接口：计划任务直接跑 `node backend/scripts/sync-attendance.js`（退出码 0 成功 / 1 出错 / 3 未配置），避免把管理员口令或长期密钥写进任务定义。
+> 写入规则：`attendance` 按 `(employee_id, date)` 唯一；只有 remark 以「钉钉同步」开头的行才会被覆盖，人工录入与补卡行一律保留并计入 `skipped_manual`。
+
 ### 支持的事件主题
 | topic | payload 关键字段 | 处理结果 |
 |---|---|---|

@@ -121,6 +121,36 @@ const cfg = {
     lockMaxMs: (Number(process.env.LOGIN_LOCK_MAX_SEC) || 1800) * 1000
   },
 
+  /**
+   * 钉钉考勤同步
+   * ============================================================
+   * 凭据留空即可正常启动 —— 只是同步接口会明确回「未配置」，
+   * 而不是装作成功写 0 行（那种"跑了但没数据"最难查）。
+   *
+   * 需要企业管理员在钉钉开放平台建「企业内部应用」，并给应用加
+   * 「查询企业考勤数据权限」，然后把 AppKey / AppSecret 填到 .env。
+   *
+   * baseUrl 可覆盖是为了可测：指向本地 mock 服务就能在没有真实凭据的情况下
+   * 把分页、时间窗切分、状态映射、幂等写入整条链路跑通。
+   */
+  dingtalk: {
+    appKey: process.env.DINGTALK_APP_KEY || '',
+    appSecret: process.env.DINGTALK_APP_SECRET || '',
+    baseUrl: (process.env.DINGTALK_BASE_URL || 'https://oapi.dingtalk.com').replace(/\/+$/, ''),
+    /** 每次同步回补几天（钉钉考勤同步有延迟，只拉当天会漏） */
+    syncDays: Number(process.env.DINGTALK_SYNC_DAYS) || 3,
+    /**
+     * 拉取范围：
+     *   all（默认）—— 不传 userIdList，按应用权限取范围内全部打卡。
+     *                 代价是数据量大些，但**能发现"有人打卡却没绑 userid"**，
+     *                 否则新员工入职后考勤会静默缺失，月底才发现。
+     *   mapped   —— 只拉已映射的员工。数据量小，但漏绑的人永远看不见。
+     */
+    scope: process.env.DINGTALK_SCOPE === 'mapped' ? 'mapped' : 'all',
+    /** 单次 HTTP 超时（毫秒）：钉钉偶发慢响应，不能把同步任务卡死 */
+    timeoutMs: Number(process.env.DINGTALK_TIMEOUT_MS) || 15000
+  },
+
   DEFAULT_JWT_SECRET,
   DEFAULT_ADMIN_PASSWORD
 };
@@ -151,6 +181,18 @@ cfg.securityAudit = function securityAudit() {
   const cors = String(process.env.CORS_ORIGIN || '').trim();
   if (!cors || cors === '*') {
     issues.push({ key: 'CORS_ORIGIN', level: 'fatal', msg: 'CORS_ORIGIN 未设置或为 *：任何站点都能带 token 调接口（同域反代部署请设为本站域名）' });
+  }
+
+  /**
+   * 钉钉凭据「只填了一半」比"没填"更危险：接口会去请求、拿到 4xx，
+   * 然后同步任务每天失败一次而没人看。这里直接点出来。
+   */
+  const dtKey = String(cfg.dingtalk.appKey || '').trim();
+  const dtSec = String(cfg.dingtalk.appSecret || '').trim();
+  if (dtKey && !dtSec) {
+    issues.push({ key: 'DINGTALK_APP_SECRET', level: 'warn', msg: '配了 DINGTALK_APP_KEY 却没有 APP_SECRET，考勤同步会一直失败' });
+  } else if (!dtKey && dtSec) {
+    issues.push({ key: 'DINGTALK_APP_KEY', level: 'warn', msg: '配了 DINGTALK_APP_SECRET 却没有 APP_KEY，考勤同步会一直失败' });
   }
 
   if (!cfg.isProd) {
