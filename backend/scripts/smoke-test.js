@@ -600,6 +600,69 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     ok('绑定不存在的员工返回 404（不静默建错映射）', dtMap404.status === 404, `HTTP ${dtMap404.status}`);
   }
 
+  /**
+   * 5.5c 员工档案批量导入
+   *
+   * 空库上线第一件事就是录员工，这条链路里最容易错的三处：
+   *   1. 部门名打错 → 必须报错，不能悄悄建出一个错别字部门；
+   *   2. 同一批里两人填同一个钉钉 userid → 必须拦住（导进去打卡会落到两个人头上）；
+   *   3. 重复导入 → 必须是更新，不能重复建人（否则考勤与工资各算一半）。
+   */
+  {
+    const { db: IDB } = require('../src/db');
+    const stamp = 'IMP' + String(Date.now()).slice(-6);
+    const deptName = stamp + '部';
+    const fileTag = 'smoke-' + stamp + '.csv';
+    let deptId = null;
+    const impClean = () => {
+      IDB.prepare('DELETE FROM employees WHERE code LIKE ?').run(stamp + '%');
+      if (deptId) IDB.prepare('DELETE FROM departments WHERE id = ?').run(deptId);
+      IDB.prepare('DELETE FROM import_batches WHERE file_name = ?').run(fileTag);
+    };
+    impClean();
+    deptId = Number(IDB.prepare('INSERT INTO departments (name, created_at) VALUES (?, ?)').run(deptName, new Date().toISOString()).lastInsertRowid);
+
+    const impTypes = await req('/api/importops/types', { token });
+    ok('导入类型清单含「员工档案」',
+      impTypes.status === 200 && (impTypes.json.data.types || []).some((t) => t.type === 'employees'),
+      `HTTP ${impTypes.status}`);
+
+    const impHead = '工号,姓名,部门,岗位,手机,入职日期,状态,钉钉userid';
+    const badCsv = [impHead,
+      `${stamp}-1,张三,${deptName},车缝工,13800000001,,在职,`,
+      `${stamp}-2,李四,不存在的部门XX,裁剪工,,,在职,`].join('\n');
+    const impPv = await req('/api/importops/preview', { method: 'POST', token, body: { type: 'employees', csv: badCsv } });
+    ok('★ 员工导入预览：部门不存在报错且不允许直接提交',
+      impPv.status === 200 && impPv.json.data.stat.new === 1 && impPv.json.data.stat.error === 1 && impPv.json.data.can_commit === false,
+      JSON.stringify(impPv.json.data && impPv.json.data.stat));
+
+    const dupCsv = [impHead,
+      `${stamp}-3,王五,${deptName},,13800000003,,在职,uid_${stamp}`,
+      `${stamp}-4,赵六,${deptName},,13800000004,,在职,uid_${stamp}`].join('\n');
+    const impPv2 = await req('/api/importops/preview', { method: 'POST', token, body: { type: 'employees', csv: dupCsv } });
+    ok('★ 同一批里钉钉 userid 重复被拦住（否则打卡会落到两个人头上）',
+      impPv2.status === 200 && impPv2.json.data.stat.error === 1 && /userid/.test(JSON.stringify(impPv2.json.data.rows)),
+      JSON.stringify(impPv2.json.data && impPv2.json.data.stat));
+
+    const okCsv = [impHead, `${stamp}-1,张三,${deptName},车缝工,13800000001,,在职,`].join('\n');
+    const impC1 = await req('/api/importops/commit', { method: 'POST', token, body: { type: 'employees', csv: okCsv, opts: { file_name: fileTag } } });
+    ok('员工导入提交成功（新增 1）', impC1.status === 200 && impC1.json.data.new === 1,
+      `HTTP ${impC1.status} ${JSON.stringify(impC1.json.data || {}).slice(0, 70)}`);
+
+    const impC2 = await req('/api/importops/commit', { method: 'POST', token, body: { type: 'employees', csv: okCsv, opts: { file_name: fileTag } } });
+    ok('同一文件再导一次是更新、不重复建人',
+      impC2.status === 200 && impC2.json.data.new === 0 && impC2.json.data.update === 1,
+      JSON.stringify(impC2.json.data || {}).slice(0, 70));
+
+    impClean();
+    const impLeftEmp = IDB.prepare('SELECT COUNT(*) c FROM employees WHERE code LIKE ?').get(stamp + '%').c;
+    const impLeftDept = IDB.prepare('SELECT COUNT(*) c FROM departments WHERE id = ?').get(deptId).c;
+    const impLeftBatch = IDB.prepare('SELECT COUNT(*) c FROM import_batches WHERE file_name = ?').get(fileTag).c;
+    ok('员工导入夹具已清干净（员工/部门/批次）',
+      impLeftEmp === 0 && impLeftDept === 0 && impLeftBatch === 0,
+      `员工=${impLeftEmp} 部门=${impLeftDept} 批次=${impLeftBatch}`);
+  }
+
   // 5.6 面辅料档案
   const matFab = await req('/api/materials?type=fabric', { token });
   ok('面辅料档案按类型筛选', matFab.status === 200 && Array.isArray(matFab.json.data), `HTTP ${matFab.status}`);
@@ -5177,9 +5240,9 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
 
     const tp = await req('/api/importops/types', { token });
     const typeKeys = ((tp.json.data && tp.json.data.types) || []).map((x) => x.type);
-    ok('导入类型含客户/供应商/物料/产品/SKU/期初库存',
-      tp.status === 200 && typeKeys.length === 6
-      && ['customers', 'suppliers', 'materials', 'products', 'skus', 'stock_opening'].every((k) => typeKeys.includes(k)),
+    ok('导入类型含客户/供应商/物料/产品/SKU/期初库存/员工档案',
+      tp.status === 200 && typeKeys.length === 7
+      && ['customers', 'suppliers', 'materials', 'products', 'skus', 'stock_opening', 'employees'].every((k) => typeKeys.includes(k)),
       typeKeys.join(','));
 
     const tplRes = await fetch(BASE + '/api/importops/template/stock_opening', { headers: { Authorization: 'Bearer ' + token } });

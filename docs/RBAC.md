@@ -166,6 +166,7 @@
 | cockpit | GET | `/forecasts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | cockpit | POST | `/forecasts` | ✅ | — | — | — | — | — | ✅ | — |
 | cockpit | GET | `/forecasts/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| cockpit | DELETE | `/forecasts/:id` | ✅ | — | — | — | — | — | — | — |
 | cockpit | GET | `/forecasts/:id/variance` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | cockpit | GET | `/kpis` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | cockpit | POST | `/kpis/snapshot` | ✅ | — | — | — | — | — | ✅ | — |
@@ -229,6 +230,7 @@
 | crm | GET | `/commissions` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | crm | POST | `/commissions` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | GET | `/commissions/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| crm | DELETE | `/commissions/:id` | ✅ | — | — | — | — | — | — | — |
 | crm | POST | `/commissions/:id/adjust` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | POST | `/commissions/:id/link-payroll` | ✅ | — | — | — | — | — | ✅ | — |
 | crm | POST | `/commissions/preview` | ✅ | — | ✅ | — | — | — | — | — |
@@ -244,10 +246,12 @@
 | crm | GET | `/handovers` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | crm | POST | `/handovers` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | GET | `/handovers/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| crm | DELETE | `/handovers/:id` | ✅ | — | — | — | — | — | — | — |
 | crm | GET | `/leads` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | crm | POST | `/leads` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | GET | `/leads/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | crm | PUT | `/leads/:id` | ✅ | — | ✅ | — | — | — | — | — |
+| crm | DELETE | `/leads/:id` | ✅ | — | — | — | — | — | — | — |
 | crm | POST | `/leads/:id/assign` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | POST | `/leads/:id/claim` | ✅ | — | ✅ | — | — | — | — | — |
 | crm | POST | `/leads/:id/follow` | ✅ | — | ✅ | — | — | — | — | — |
@@ -500,7 +504,7 @@
 | hr | POST | `/recruitments` | ✅ | — | — | — | — | — | — | ✅ |
 | hr | PUT | `/recruitments/:id` | ✅ | — | — | — | — | — | — | ✅ |
 | hr | DELETE | `/recruitments/:id` | ✅ | — | — | — | — | — | — | ✅ |
-| importops | POST | `/commit` | ✅ | — | — | — | — | — | ✅ | — |
+| importops | POST | `/commit` | ✅ | — | — | — | — | — | ✅ | ✅ |
 | importops | POST | `/preview` | ✅ | — | ✅ | ✅ | — | ✅ | ✅ | — |
 | imports | POST | `/customers` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | imports | POST | `/materials` | ✅ | — | ✅ | ✅ | — | — | — | — |
@@ -673,6 +677,7 @@
 | notify | POST | `/templates` | ✅ | — | ✅ | — | — | — | — | — |
 | notify | GET | `/templates/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | notify | PUT | `/templates/:id` | ✅ | — | ✅ | — | — | — | — | — |
+| notify | DELETE | `/templates/:id` | ✅ | — | — | — | — | — | — | — |
 | notify | POST | `/templates/:id/approve` | ✅ | — | — | — | — | — | ✅ | — |
 | notify | POST | `/templates/:id/retire` | ✅ | — | — | — | — | — | ✅ | — |
 | notify | POST | `/templates/:id/submit` | ✅ | — | ✅ | — | — | — | — | — |
@@ -733,6 +738,7 @@
 | org | POST | `/routes/:id/status` | ✅ | — | — | — | — | — | ✅ | — |
 | org | GET | `/scopes` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | org | GET | `/scopes/:id` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| org | DELETE | `/scopes/:id` | ✅ | — | — | — | — | — | — | — |
 | org | POST | `/scopes/:id/approve` | ✅ | — | — | — | — | — | ✅ | — |
 | org | POST | `/scopes/:id/reject` | ✅ | — | — | — | — | — | ✅ | — |
 | org | POST | `/scopes/sweep` | ✅ | — | — | — | — | — | ✅ | — |
@@ -1021,6 +1027,7 @@
 | supply | GET | `/batches` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | supply | POST | `/batches` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | supply | GET | `/batches/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| supply | DELETE | `/batches/:id` | ✅ | — | — | — | — | — | — | — |
 | supply | POST | `/batches/:id/move` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | supply | POST | `/batches/:id/short` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | supply | POST | `/batches/:id/split` | ✅ | — | ✅ | — | — | ✅ | — | — |
@@ -1038,6 +1045,7 @@
 | supply | GET | `/requests` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | supply | POST | `/requests` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | supply | GET | `/requests/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| supply | DELETE | `/requests/:id` | ✅ | — | — | — | — | — | — | — |
 | supply | POST | `/requests/:id/cancel` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | supply | POST | `/requests/:id/confirm` | ✅ | — | ✅ | — | — | — | — | — |
 | supply | POST | `/requests/:id/reject` | ✅ | — | ✅ | — | — | — | — | — |
@@ -1119,6 +1127,7 @@
 | whplan | GET | `/waves` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | whplan | POST | `/waves` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | whplan | GET | `/waves/:id` | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| whplan | DELETE | `/waves/:id` | ✅ | — | — | — | — | — | — | — |
 | whplan | POST | `/waves/:id/cancel` | ✅ | — | — | — | — | ✅ | — | — |
 | whplan | POST | `/waves/:id/items/:itemId/pick` | ✅ | — | ✅ | — | — | ✅ | — | — |
 | whplan | POST | `/waves/:id/pack` | ✅ | — | ✅ | — | — | ✅ | — | — |

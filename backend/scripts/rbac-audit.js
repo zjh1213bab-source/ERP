@@ -39,12 +39,24 @@ function parseRoutes(file) {
   let m;
   while ((m = re.exec(src))) {
     const [full, method, routePath, rest] = m;
-    // 支持 requireRole([...]) / requireRole(CONST) / requireRole(...CONST) 三种写法
-    const rm = rest.match(/requireRole\(\s*(?:\.\.\.)?\s*(\[[^\]]*\]|[A-Z_]+)\s*\)/);
+    /**
+     * 支持四种写法：
+     *   requireRole([...])            字面量数组
+     *   requireRole(CONST)            常量数组
+     *   requireRole(...CONST)         展开常量
+     *   requireRole('admin','hr')     纯字符串字面量
+     *
+     * 最后一种原来不支持 —— 结果是把写成字面量的路由**静默丢出清单**：
+     * 清单里少一行不会报错，等于给自己造了个审计盲区（`importops /commit` 就这么消失过）。
+     * 现在把带引号的也认下来；解析不出来时会落到「<未解析>」并被下面的问题检查点名。
+     */
+    const rm = rest.match(/requireRole\(\s*(?:\.\.\.)?\s*(\[[^\]]*\]|[A-Z_]+(?:\.\s*[A-Z_]+)?|(?:'[^']*'|"[^"]*")(?:\s*,\s*(?:'[^']*'|"[^"]*"))*)\s*\)/);
     if (!rm) continue;
     let roles;
     if (rm[1].startsWith('[')) {
       roles = rm[1].slice(1, -1).split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+    } else if (/^['"]/.test(rm[1])) {
+      roles = rm[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
     } else {
       roles = consts[rm[1]] || ['<未解析:' + rm[1] + '>'];
     }

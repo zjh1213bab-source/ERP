@@ -40,6 +40,8 @@ const SUP_CAT = {
 };
 const SKU_KIND = { 单件: 'single', 套装: 'set', single: 'single', set: 'set' };
 const WH = { 生产仓: 'cn', 美仓: 'us', cn: 'cn', us: 'us', 国内仓: 'cn', 美国仓: 'us' };
+/** 员工状态：库里只有 active / left 两种 */
+const EMP_STATUS = { 在职: 'active', 在岗: 'active', 离职: 'left', active: 'active', left: 'left' };
 
 function pickEnum(map, v, fallback, errs, label) {
   const s = trim(v);
@@ -483,6 +485,112 @@ const TYPES = {
       return id;
     },
     update() { /* 期初不更新 */ }
+  },
+
+  // ============ 员工档案 ============
+  /**
+   * 空库上线第一件事就是录员工，一个个敲 25 个人不现实。
+   *
+   * 三条刻意的规则：
+   *   1. **部门必须已存在**：不自动建，否则「生产部 / 生产一部 / 生产 部」会各建一个；
+   *   2. 匹配顺序 工号 → 姓名+手机 → 新建。**只有姓名就当新人**，不按姓名合并
+   *      （同名不同人很常见，合并会把两个人的考勤和工资搅在一起）；
+   *   3. 钉钉 userid 不能撞人：一个 userid 只能属于一个员工，否则打卡会写到两个人头上。
+   */
+  employees: {
+    label: '员工档案',
+    group: '主数据',
+    unique: '按「工号」匹配；没有工号时按「姓名 + 手机」匹配，都没有就新建',
+    note: '部门要先在「组织编制与岗位」建好（不自动创建，避免错别字造部门）；填了钉钉 userid 才能同步考勤',
+    fields: [
+      { k: 'code', label: '工号', aliases: ['工号', '员工编号'] },
+      { k: 'name', label: '姓名', aliases: ['姓名', '员工姓名'], required: true },
+      { k: 'department_name', label: '部门', aliases: ['部门', '所属部门'], hint: '须已存在' },
+      { k: 'position', label: '岗位', aliases: ['岗位', '职位'] },
+      { k: 'phone', label: '手机', aliases: ['手机', '电话', '手机号'] },
+      { k: 'hire_date', label: '入职日期', aliases: ['入职日期', '入职时间'], hint: 'YYYY-MM-DD' },
+      { k: 'status', label: '状态', aliases: ['状态'], hint: '在职 / 离职' },
+      { k: 'dingtalk_userid', label: '钉钉userid', aliases: ['钉钉userid', '钉钉ID', 'dingtalk_userid'] }
+    ],
+    sample: ['E001', '张三', '生产部', '车缝工', '13800000000', '2026-11-01', '在职', '2300000000000001'],
+    parse(get) {
+      const errs = [];
+      const name = trim(get('姓名', '员工姓名'));
+      if (!name) errs.push('姓名必填');
+
+      const deptName = trim(get('部门', '所属部门'));
+      let department_id = null;
+      if (deptName) {
+        const d = db.prepare('SELECT id FROM departments WHERE name = ?').get(deptName);
+        if (!d) errs.push(`部门「${deptName}」不存在：先到「组织编制与岗位」建好（这里不自动建，避免错别字造出部门）`);
+        else department_id = d.id;
+      }
+
+      const phone = trim(get('手机', '电话', '手机号')) || null;
+      if (phone && !/^1\d{10}$/.test(String(phone).replace(/[-\s]/g, ''))) {
+        errs.push(`手机号格式不对：${phone}`);
+      }
+
+      const hire = trim(get('入职日期', '入职时间')) || null;
+      if (hire && !/^\d{4}-\d{2}-\d{2}$/.test(hire)) errs.push(`入职日期应为 YYYY-MM-DD：${hire}`);
+
+      return {
+        values: {
+          code: trim(get('工号', '员工编号')) || null,
+          name,
+          department_id,
+          position: trim(get('岗位', '职位')) || null,
+          phone: phone ? String(phone).replace(/[-\s]/g, '') : null,
+          hire_date: hire,
+          status: pickEnum(EMP_STATUS, get('状态'), 'active', errs, '状态'),
+          dingtalk_userid: trim(get('钉钉userid', '钉钉ID', 'dingtalk_userid')) || null
+        },
+        errors: errs
+      };
+    },
+    find(v) {
+      // 有工号就只认工号（工号查不到＝新人，不能退化成按姓名匹配）
+      if (v.code) return db.prepare('SELECT * FROM employees WHERE code = ?').get(v.code) || null;
+      if (v.phone) return db.prepare('SELECT * FROM employees WHERE name = ? AND phone = ?').get(v.name, v.phone) || null;
+      return null;
+    },
+    batchUnique(v) {
+      // 一个钉钉 userid 只能属于一个员工，否则打卡会落到两个人头上
+      return v.dingtalk_userid
+        ? [{ key: 'dt:' + v.dingtalk_userid, label: `钉钉 userid「${v.dingtalk_userid}」` }]
+        : [];
+    },
+    precheck(v, existing) {
+      const errs = [];
+      if (v.dingtalk_userid) {
+        const owner = db.prepare('SELECT id, name FROM employees WHERE dingtalk_userid = ?').get(v.dingtalk_userid);
+        if (owner && (!existing || Number(owner.id) !== Number(existing.id))) {
+          errs.push(`钉钉 userid「${v.dingtalk_userid}」已被「${owner.name}」占用（一个 userid 只能绑一个员工）`);
+        }
+      }
+      return errs;
+    },
+    insert(v, ts, ctx) {
+      return db.prepare(
+        `INSERT INTO employees (code, name, department_id, position, phone, hire_date, status, dingtalk_userid, base_salary, remark, created_at, company_id)
+         VALUES (?,?,?,?,?,?,?,?,0,NULL,?,?)`
+      ).run(v.code, v.name, v.department_id, v.position, v.phone, v.hire_date, v.status, v.dingtalk_userid, ts, (ctx && ctx.company_id) || 1).lastInsertRowid;
+    },
+    update(ex, v, ts) {
+      // employees 没有 updated_at 列（不硬套别的类型的写法）
+      const sets = [];
+      const args = [];
+      Object.keys(v).forEach((k) => {
+        if (k === 'code' && !v.code) return;
+        if (k === 'department_id') { if (v[k]) { sets.push('department_id = ?'); args.push(v[k]); } return; }
+        if (v[k] === null || v[k] === undefined || v[k] === '') return;  // 没给的列不动
+        sets.push(`${k} = ?`);
+        args.push(v[k]);
+      });
+      if (!sets.length) return;
+      args.push(ex.id);
+      db.prepare(`UPDATE employees SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+    }
   }
 };
 
@@ -535,7 +643,8 @@ function analyze(type, csv) {
     throw new Error(`表头缺少必填列：${missing.join('、')}（可下载模板对照）`);
   }
 
-  const seen = new Map();      // 同批次内重复检测
+  const seen = new Map();      // 同批次内重复检测（主键：工号/编码/姓名）
+  const seenExtra = new Map(); // 批内附加唯一键（如员工钉钉 userid）
   const rows = [];
   parsed.rows.slice(1).forEach((raw, i) => {
     const line = i + 2;        // 表头占第 1 行
@@ -556,6 +665,20 @@ function analyze(type, csv) {
       errors.push(`与第 ${seen.get(key)} 行重复（同一批里不能出现两次）`);
     } else if (key) {
       seen.set(key, line);
+    }
+
+    /**
+     * 批内附加唯一键（例如员工的钉钉 userid）
+     *
+     * 为什么单独做：这类冲突**在预览阶段库里还查不到彼此**（两行都还没入库），
+     * 只靠 precheck 查表是查不出来的 —— 导进去就会出现"一个 userid 属于两个人"，
+     * 之后打卡会随机落到其中一个人头上。
+     */
+    if (typeof t.batchUnique === 'function') {
+      (t.batchUnique(v) || []).filter(Boolean).forEach((u) => {
+        if (seenExtra.has(u.key)) errors.push(`${u.label} 与第 ${seenExtra.get(u.key)} 行重复（同一批里不能出现两次）`);
+        else seenExtra.set(u.key, line);
+      });
     }
 
     let existing = null;
@@ -596,6 +719,7 @@ function previewOf(type, v) {
   if (type === 'materials') return `${v.type === 'fabric' ? '面料' : '辅料'} · ${v.code || '(无编码)'} ${v.name}`;
   if (type === 'customers') return `${v.code || '(无编号)'} ${v.name}`;
   if (type === 'suppliers') return `${v.code || '(无编码)'} ${v.name}`;
+  if (type === 'employees') return `${v.code || '(无工号)'} ${v.name}${v.position ? ' · ' + v.position : ''}`;
   return `${v.sku} ${v.name}`;
 }
 
@@ -634,6 +758,8 @@ function commit(type, csv, opts, operator) {
 
   const todo = a.rows.filter((r) => r.action !== 'error');
   const ts = now();
+  // 主体：带 company_id 的表由插入实现显式写入（绝不取请求体）
+  const ctx = { company_id: opts && opts.company_id };
   const batchNo = nextBatchNo();
   let batchId = null;
   let created = 0;
@@ -644,11 +770,11 @@ function commit(type, csv, opts, operator) {
     a.header.forEach(() => {});
     todo.forEach((r) => {
       if (r.action === 'new') {
-        t.insert(r.values, ts);
+        t.insert(r.values, ts, ctx);
         created += 1;
       } else if (r.action === 'update') {
         const ex = t.find(r.values);
-        t.update(ex, r.values, ts);
+        t.update(ex, r.values, ts, ctx);
         updated += 1;
       }
     });

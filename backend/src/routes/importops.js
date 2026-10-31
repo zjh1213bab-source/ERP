@@ -9,6 +9,7 @@ const express = require('express');
 const { ok, fail } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const S = require('../services/importOps');
+const scope = require('../access/companyScope');
 
 const router = express.Router();
 const READ = ['admin', 'sales', 'tech', 'finance', 'production', 'warehouse'];
@@ -46,10 +47,23 @@ router.get('/template/:type', authRequired, (req, res) => {
 router.post('/preview', authRequired, requireRole(...PREVIEW),
   guard((req) => S.preview(req.body && req.body.type, req.body && req.body.csv)));
 
-router.post('/commit', authRequired, requireRole(...COMMIT),
+// 角色必须**写全**，不能用 `requireRole(...COMMIT, 'hr')` 这种展开：
+// 静态审计（scripts/rbac-audit.js）认的是字面量，展开写法会让这个路由
+// 直接从 RBAC 清单里消失 —— 等于给自己制造一个审计盲区（已实测踩到）。
+router.post('/commit', authRequired, requireRole('admin', 'finance', 'hr'),
   guard((req) => {
     const b = req.body || {};
-    return S.commit(b.type, b.csv, b.opts || b, opName(req));
+    /**
+     * 人事要能导员工档案，但**不能导期初库存**（那会动库存与流水，只放管理员/财务）。
+     * 所以 COMMIT 里加 hr，再用类型卡住 —— 比"人人都能导全部类型"安全得多。
+     */
+    if (req.user.role === 'hr' && b.type !== 'employees') {
+      const e = new Error('人事只能提交员工档案导入；其它类型（含期初库存）仅限管理员/财务');
+      e.code = 403;
+      throw e;
+    }
+    const opts = { ...(b.opts || b), company_id: scope.writeCompanyOf(req.user) };
+    return S.commit(b.type, b.csv, opts, opName(req));
   }));
 
 router.get('/batches', authRequired, guard((req) => ({ rows: S.batches(req.query || {}) })));
