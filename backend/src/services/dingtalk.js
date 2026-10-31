@@ -53,6 +53,24 @@ let tokenCache = { token: '', expireAt: 0 };
 
 function resetToken() { tokenCache = { token: '', expireAt: 0 }; }
 
+/**
+ * 钉钉错误码 → 下一步该做什么
+ *
+ * 钉钉的 errmsg 只说"错了"，不说"怎么办"。这几个是接考勤时必然撞上的：
+ * 60011 权限没开（哪怕 Secret 全对，也要在后台加权限**并重新发布应用**才生效）、
+ * 60020 出口 IP 不在白名单、40089 凭据不匹配。把处置方式直接写进报错，
+ * 省掉"拿到错误码再去翻文档"这一轮。
+ */
+const ERR_HINT = {
+  60011: '应用缺少该接口权限：钉钉开放平台 → 权限管理 → 添加后**重新发布应用**才生效',
+  60020: '服务器出口 IP 不在应用白名单：钉钉后台 → 应用 → 安全设置 → 服务器出口 IP',
+  40089: 'AppKey 与 AppSecret 不匹配（确认属于同一个应用；Secret 不能用控制台的遮罩值）',
+  40014: 'access_token 无效（已自动重取重试一次仍失败）',
+  88: 'access_token 无效',
+  90018: '参数不合法：检查日期窗口是否超过 7 天、userIds 是否超过 50 个',
+  90007: '参数不合法（业务参数校验失败）'
+};
+
 async function httpJson(url, { method = 'GET', body } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), cfg().timeoutMs);
@@ -69,8 +87,10 @@ async function httpJson(url, { method = 'GET', body } = {}) {
       throw bad(`钉钉返回非 JSON（HTTP ${res.status}）：${String(text).slice(0, 140)}`, 502);
     }
     if (json && json.errcode && Number(json.errcode) !== 0) {
-      const err = bad(`钉钉接口报错 ${json.errcode}：${json.errmsg || '(无描述)'}`, 502);
-      err.errcode = Number(json.errcode);
+      const code = Number(json.errcode);
+      const hint = ERR_HINT[code];
+      const err = bad(`钉钉接口报错 ${code}：${json.errmsg || '(无描述)'}${hint ? '　→ ' + hint : ''}`, 502);
+      err.errcode = code;
       throw err;
     }
     return json;
@@ -147,4 +167,40 @@ async function listRecords({ from, to, userIds }) {
   return j.recordresult || [];
 }
 
-module.exports = { ready, assertReady, getToken, resetToken, listResults, listRecords, base };
+/**
+ * 连接自检（不写库、不需要员工映射）
+ *
+ * 为什么需要：同步本体要求"先绑了员工才跑"，于是凭据对不对、权限开没开这两件事
+ * 没有独立验证入口 —— 人事只能等到映射完才发现权限没开。这里把链路拆成两步分别试：
+ *   1. gettoken    → 凭据是否有效（AppKey/Secret 是否同一应用）
+ *   2. attendance  → 应用是否被授予"查询企业考勤数据权限"
+ * 只取 1 条记录，不返回任何人员信息。
+ */
+async function probe() {
+  const steps = [];
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+
+  const t0 = Date.now();
+  try {
+    const tk = await getToken();
+    steps.push({ name: 'gettoken', ok: true, ms: Date.now() - t0, note: `已取得 token（${tk.length} 字符，缓存 2 小时）` });
+  } catch (e) {
+    steps.push({ name: 'gettoken', ok: false, ms: Date.now() - t0, error: e.message });
+    return { configured: true, ok: false, steps };
+  }
+
+  const t1 = Date.now();
+  try {
+    const r = await listResults({ from: `${today} 00:00:00`, to: `${today} 23:59:59`, offset: 0, limit: 1 });
+    steps.push({
+      name: 'attendance.list', ok: true, ms: Date.now() - t1,
+      note: r.records.length ? `今日可读（本页 ${r.records.length} 条）` : '可读，但今天还没有打卡记录'
+    });
+    return { configured: true, ok: true, steps };
+  } catch (e) {
+    steps.push({ name: 'attendance.list', ok: false, ms: Date.now() - t1, error: e.message });
+    return { configured: true, ok: false, steps };
+  }
+}
+
+module.exports = { ready, assertReady, getToken, resetToken, listResults, listRecords, probe, base };

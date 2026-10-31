@@ -15,7 +15,7 @@
 | 客户端 `services/dingtalk.js` | 只封三个已验证接口：`/gettoken`、`/attendance/list`（打卡结果）、`/attendance/listRecord`（打卡明细）。token 缓存 7200s 且提前 5 分钟过期；遇到 40014/88/42001 等失效码**自动重取并重试一次**；15s 超时；凭据空直接抛 `DINGTALK_NOT_CONFIGURED` |
 | 同步 `services/attendanceSync.js` | 两次卡合成一行（上班卡取最早、下班卡取最晚）；`[from,to]` 按 ≤7 天切片；状态映射 `Normal/Late/SeriousLate/Absenteeism → normal/late/absent`；无效卡（`isLegal=false`）计数并写进 remark |
 | 写入规则 | `attendance` 按 `(employee_id,date)` 幂等；**只覆盖 remark 以「钉钉同步」开头的行**，人工录入与「补卡：SR…」一律保留并计 `skipped_manual`；未映射的 userid 只计数不落库 |
-| 接口 | `GET /dingtalk/status`、`GET /dingtalk/runs`、`POST /dingtalk/sync`（支持 `dry_run`）、`POST /dingtalk/map`，权限统一 admin/hr |
+| 接口 | `GET /dingtalk/status`、`GET /dingtalk/probe`（连接自检）、`GET /dingtalk/runs`、`POST /dingtalk/sync`（支持 `dry_run`）、`POST /dingtalk/map`，权限统一 admin/hr |
 | 定时入口 | `scripts/sync-attendance.js`（`--days` / `--from --to` / `--dry-run`），退出码 0/1/3，计划任务直接跑，不落任何口令 |
 | 表结构 | `employees.dingtalk_userid`（+索引）、`dingtalk_sync_runs`（每次同步留痕 + 索引）；迁移后 367 表 / 437 索引 |
 
@@ -41,6 +41,13 @@
 | CLI 全链路（子进程 + mock） | **5 / 5**：退出码 0、输出结构化结果、落库成一 行 08:31~17:47、operator=cron |
 | 冒烟 | 单公司 **2263 / 0**（+4 条：状态可查、未配置 409、销售 403、映射不存在 404） |
 | 迁移 | `employees.dingtalk_userid` + `dingtalk_sync_runs`，367 表 / 437 索引 |
+
+**真凭据实测（2026-10-31 填好 Client ID/Secret 后）**
+
+- `gettoken` **通过**（211ms，32 字符 token）→ AppKey/Secret 属于同一应用、Secret 是完整串而非控制台遮罩值；
+- `attendance.list` 返回 **60011**：应用尚未开通 `qyapi_attendance_isv_query_result` / `qyapi_get_attendance_data` —— 需要在开放平台加「查询企业考勤数据权限」并**重新发布应用**；
+- 因此新增 `GET /dingtalk/probe`（及 `sync-attendance.js --probe`）：把「凭据对不对」与「权限开没开」拆成两步分别验证，不用先绑员工；
+- 错误码加了处置提示（60011 缺权限 / 60020 出口 IP 白名单 / 40089 凭据不匹配 / 90018 参数不合法），避免"拿到错误码再翻文档"。
 
 **尚未做（需要真凭据或另行确认）**
 

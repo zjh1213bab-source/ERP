@@ -29,6 +29,18 @@ function arg(name) {
   const from = arg('from');
   const to = arg('to');
 
+  // 连接自检：只验凭据与权限，不写库、不需要员工映射
+  if (arg('probe')) {
+    try {
+      const p = await require('../src/services/dingtalk').probe();
+      console.log(JSON.stringify(p, null, 2));
+      process.exit(p.ok ? 0 : 1);
+    } catch (e) {
+      console.error(`[自检失败] ${e.message || e}`);
+      process.exit(e.code === 'DINGTALK_NOT_CONFIGURED' ? 3 : 1);
+    }
+  }
+
   try {
     const r = await attendanceSync.sync({
       from: typeof from === 'string' ? from : undefined,

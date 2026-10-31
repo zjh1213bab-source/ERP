@@ -591,6 +591,9 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     if (dtSales) {
       const dtForbidden = await req('/api/integration/dingtalk/sync', { method: 'POST', token: dtSales, body: { days: 1 } });
       ok('销售角色不能触发考勤同步（403）', dtForbidden.status === 403, `HTTP ${dtForbidden.status}`);
+      // 自检会真打钉钉（消耗配额），业务角色必须连这一步都进不去
+      const dtProbe403 = await req('/api/integration/dingtalk/probe', { token: dtSales });
+      ok('销售角色不能跑连接自检（403）', dtProbe403.status === 403, `HTTP ${dtProbe403.status}`);
     }
 
     const dtMap404 = await req('/api/integration/dingtalk/map', { method: 'POST', token, body: { employee_id: 999999, dingtalk_userid: 'smoke_x' } });

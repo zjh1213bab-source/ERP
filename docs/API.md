@@ -331,6 +331,7 @@
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | /api/integration/dingtalk/status | admin,hr | 是否已配置凭据、已映射/未映射员工数、最近一次同步结果、未映射员工样例 |
+| GET | /api/integration/dingtalk/probe | admin,hr | **连接自检**：分两步验证 `gettoken`（凭据是否同一应用）与 `attendance.list`（是否已授予考勤读权限）；不写库、不需要员工映射，各步返回 `ok/ms/error` |
 | GET | /api/integration/dingtalk/runs?limit= | admin,hr | 每次同步的流水（区间、ok、新增/更新、跳过人工、未映射、无效卡、API 次数、失败原因） |
 | POST | /api/integration/dingtalk/sync | admin,hr | 触发同步 `{from?, to?, days?, dry_run?}`；不传区间则回补最近 `DINGTALK_SYNC_DAYS` 天。**凭据未配置返回 409**，不会假装成功 |
 | POST | /api/integration/dingtalk/map | admin,hr | 绑定员工 ↔ 钉钉 userid `{employee_id, dingtalk_userid}`；同一 userid 只能属于一个员工，重复返回 409 |

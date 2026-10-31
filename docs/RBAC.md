@@ -507,6 +507,7 @@
 | imports | POST | `/products` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | inspection | POST | `/` | ✅ | — | ✅ | ✅ | ✅ | — | ✅ | — |
 | integration | POST | `/dingtalk/map` | ✅ | — | — | — | — | — | — | ✅ |
+| integration | GET | `/dingtalk/probe` | ✅ | — | — | — | — | — | — | ✅ |
 | integration | GET | `/dingtalk/runs` | ✅ | — | — | — | — | — | — | ✅ |
 | integration | GET | `/dingtalk/status` | ✅ | — | — | — | — | — | — | ✅ |
 | integration | POST | `/dingtalk/sync` | ✅ | — | — | — | — | — | — | ✅ |

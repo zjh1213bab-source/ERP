@@ -21,6 +21,7 @@ const { ok, fail, wrap, genNo } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const mall = require('../services/mall');
 const attendanceSync = require('../services/attendanceSync');
+const dingtalk = require('../services/dingtalk');
 /** 私有附件的签名与下载只有一份实现（routes/files.js），这里只做别名 */
 const { downloadHandler: DownloadHandler, signedUrlHandler: SignedUrlHandler } = require('./files');
 
@@ -212,6 +213,14 @@ router.post('/ingest/:code', wrap(async (req, res) => {
  * 免得为了一个后台任务把管理员口令/token 落到计划任务里。
  */
 router.get('/dingtalk/status', authRequired, requireRole(WRITE), wrap(async (req, res) => ok(res, attendanceSync.status())));
+
+/**
+ * 连接自检：分别验证「凭据能不能换到 token」与「应用有没有考勤读权限」。
+ * 不需要任何员工映射，也不写库 —— 装完凭据先点这个，比直接跑同步更容易定位问题。
+ */
+router.get('/dingtalk/probe', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+  return ok(res, await dingtalk.probe());
+}));
 
 router.get('/dingtalk/runs', authRequired, requireRole(WRITE), wrap(async (req, res) => ok(res, attendanceSync.recentRuns(req.query.limit))));
 
