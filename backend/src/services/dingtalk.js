@@ -35,7 +35,15 @@ function ready() {
 
 function assertReady() {
   if (ready()) return;
-  const e = bad('钉钉凭据未配置：请在 backend/.env 填 DINGTALK_APP_KEY / DINGTALK_APP_SECRET 后重启服务', 409);
+  /**
+   * 要说清**缺哪一个**。只写"凭据未配置"时，人会以为自己填了 —— 钉钉控制台把 Secret
+   * 显示成 `XHis_u16e8****EZBJm7DsKe` 这种遮罩值，直接复制就会填进一个假字符串，
+   * 然后卡在"配了却调不通"上排查半天。
+   */
+  const missing = [];
+  if (!String(cfg().appKey || '').trim()) missing.push('DINGTALK_APP_KEY');
+  if (!String(cfg().appSecret || '').trim()) missing.push('DINGTALK_APP_SECRET');
+  const e = bad(`钉钉凭据未配置：缺少 ${missing.join(' / ')}（在 backend/.env 填好后重启服务；Secret 不能填控制台的遮罩值，要点「查看」复制完整串）`, 409);
   e.code = 'DINGTALK_NOT_CONFIGURED';
   throw e;
 }
