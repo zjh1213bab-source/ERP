@@ -122,7 +122,7 @@
 
             <div class="fitem full">
               <label>颜色 / 花型（一款多色，可逐色配图）</label>
-              <div class="color-list">
+              <div v-if="canColorWrite" class="color-list">
                 <div v-for="(c, i) in form.colors" :key="i" class="color-row">
                   <ImageUpload v-model="c.image_url" size="sm" :title="c.name || '颜色图'" />
                   <input class="input" v-model="c.name" :placeholder="`印花00${i + 1}`" maxlength="40" />
@@ -130,6 +130,15 @@
                 </div>
                 <button class="btn btn-ghost btn-sm" @click="addColor">＋ 添加颜色</button>
                 <span class="muted tiny" v-if="form.colors.length">共 {{ form.colors.length }} 个颜色</span>
+              </div>
+              <!-- 没有 product.color.write：只读展示。颜色是全公司口径（订单行/库存按它归集），
+                   不让人随手加「印花1」，否则和「印花001」并存只能人工合账 -->
+              <div v-else class="color-readonly">
+                <div class="size-chips">
+                  <span v-for="(c, i) in form.colors" :key="i" class="chip pic">{{ c.name }}</span>
+                  <span v-if="!form.colors.length" class="muted tiny">暂无颜色</span>
+                </div>
+                <div class="muted tiny">颜色由技术维护（影响订单与库存口径）；你可以改名称、单价、尺码等其它信息。</div>
               </div>
             </div>
 
@@ -217,6 +226,8 @@ const list = ref([]);
 const q = ref('');
 const status = ref('');
 const canWrite = computed(() => can('product.write'));
+/** 颜色/花型维护权：只有技术 + 管理员（product.color.write） */
+const canColorWrite = computed(() => can('product.color.write'));
 
 const showModal = ref(false);
 const saving = ref(false);
@@ -286,7 +297,13 @@ async function save() {
   if (noName) return alert('有个颜色只传了图没填名称：请补上名称（如 印花001）');
   saving.value = true;
   try {
-    const body = { ...form.value, colors, sizes: form.value.sizes };
+    const body = { ...form.value, sizes: form.value.sizes };
+    /*
+     * 没有颜色维护权时不提交 colors：后端会 403，
+     * 而且这里必须「不发」而不是「发空数组」—— 空数组的语义是"清空颜色"，等于误删别人的主数据。
+     */
+    if (canColorWrite.value) body.colors = colors;
+    else delete body.colors;
     if (form.value.id) await api.updateProduct(form.value.id, body);
     else await api.createProduct(body);
     showModal.value = false;
@@ -427,6 +444,7 @@ onMounted(() => {
 .size-add { display: flex; gap: 8px; }
 .size-add .input { flex: 1; }
 .quick-sizes { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.color-readonly { display: flex; flex-direction: column; gap: 6px; }
 .qsize {
   border: 1px solid #dbe6f7; background: #f7faff; color: #2b4a7d;
   border-radius: 10px; padding: 1px 9px; font-size: 11.5px; cursor: pointer;

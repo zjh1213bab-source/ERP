@@ -21,6 +21,15 @@ const { authRequired, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const WRITE = ['admin', 'sales', 'tech'];
+/**
+ * 颜色 / 花型的维护权（= 权限点 `product.color.write`）
+ *
+ * 比 product.write 窄：销售可以改产品名称/单价、可以在下单时**选**颜色，
+ * 但不能新增或改颜色 —— 颜色是全公司口径（订单行、库存对账都按它归集），
+ * 随手多加一个「印花1」会和「印花001」并存，事后只能人工合并。
+ */
+const COLOR_WRITE = ['admin', 'tech'];
+const canColorWrite = (user) => COLOR_WRITE.includes(user && user.role);
 
 const MAX_COLORS = 60;
 const MAX_SIZES = 30;
@@ -187,6 +196,9 @@ router.post(
     } catch (e) {
       return fail(res, 400, e.message);
     }
+    if (b.colors !== undefined && !canColorWrite(req.user)) {
+      return fail(res, 403, '颜色/花型属于产品主数据，只有技术或管理员可以新增或修改（你可以先建产品，再让技术补颜色）');
+    }
     if (b.sku) {
       const dup = db.prepare('SELECT 1 AS x FROM products WHERE sku = ?').get(b.sku);
       if (dup) return fail(res, 400, '款号(SKU)已存在');
@@ -243,6 +255,9 @@ router.put(
     } catch (e) {
       return fail(res, 400, e.message);
     }
+    if (b.colors !== undefined && !canColorWrite(req.user)) {
+      return fail(res, 403, '颜色/花型属于产品主数据，只有技术或管理员可以新增或修改');
+    }
     if (b.sku) {
       const dup = db.prepare('SELECT 1 AS x FROM products WHERE sku = ? AND id <> ?').get(b.sku, id);
       if (dup) return fail(res, 400, '款号(SKU)已被其它产品占用');
@@ -273,6 +288,61 @@ router.put(
       db.exec('ROLLBACK');
       throw e;
     }
+  })
+);
+
+/**
+ * 追加一个颜色 / 花型（下单页里的「＋ 新增颜色」走这里）
+ *
+ * 为什么不复用 PUT 的整组替换：两个人在同一款上同时加颜色时，整组替换会用"我看到的旧列表"
+ * 覆盖掉对方刚加的那个。追加是幂等的最小动作，冲突只在同名时发生（409 说清已存在）。
+ */
+router.post(
+  '/:id/colors',
+  authRequired,
+  requireRole(COLOR_WRITE),
+  wrap(async (req, res) => {
+    const p = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+    if (!p) return fail(res, 404, '产品不存在');
+    const b = req.body || {};
+    const name = String(b.name || '').trim();
+    if (!name) return fail(res, 400, '颜色名称必填');
+    if (name.length > 40) return fail(res, 400, '颜色名超过 40 字');
+    const img = safeImage(b.image_url);
+    if (img === null) return fail(res, 400, '图片地址不合法（只支持上传图或 http(s) 链接）');
+
+    const dup = db.prepare(
+      'SELECT id, name FROM product_colors WHERE product_id = ? AND UPPER(TRIM(name)) = ?'
+    ).get(p.id, name.toUpperCase());
+    if (dup) return fail(res, 409, `该款已有颜色「${dup.name}」，换个名字（同一款里颜色名不能重复）`);
+
+    const t = now();
+    const maxSort = db.prepare('SELECT IFNULL(MAX(sort), -1) AS m FROM product_colors WHERE product_id = ?').get(p.id).m;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare(
+        'INSERT INTO product_colors (product_id, name, image_url, sort, created_at) VALUES (?,?,?,?,?)'
+      ).run(p.id, name, img || null, Number(maxSort) + 1, t);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+    return ok(res, attachVariants(db.prepare('SELECT * FROM products WHERE id = ?').get(p.id)));
+  })
+);
+
+/** 删除单个颜色（产品页/下单页误加时用）。历史订单里存的是颜色文本，不受影响 */
+router.delete(
+  '/:id/colors/:colorId',
+  authRequired,
+  requireRole(COLOR_WRITE),
+  wrap(async (req, res) => {
+    const row = db.prepare('SELECT * FROM product_colors WHERE id = ? AND product_id = ?')
+      .get(req.params.colorId, req.params.id);
+    if (!row) return fail(res, 404, '颜色不存在或不属于该产品');
+    db.prepare('DELETE FROM product_colors WHERE id = ?').run(row.id);
+    return ok(res, { id: row.id, name: row.name, deleted: true });
   })
 );
 

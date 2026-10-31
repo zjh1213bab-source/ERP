@@ -251,8 +251,23 @@
 
             <div v-for="(c, ci) in it.colors" :key="ci" style="border: 1px dashed #dfe5ef; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #fcfdff">
               <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 8px">
-                <div class="fitem" style="flex: 1; margin: 0"><label>颜色</label><input class="input" v-model="c.color" placeholder="如 藏青/米白" /></div>
+                <div class="fitem" style="flex: 1; margin: 0">
+                  <label>颜色 / 花型</label>
+                  <!-- 选了产品就「选」颜色（产品里配好的），没选则退回手填，避免手打出现「印花1 / 印花001」两种写法 -->
+                  <select v-if="colorOptions(it).length" class="select" v-model="c.color">
+                    <option value="">— 选择颜色 —</option>
+                    <option v-for="o in colorOptions(it)" :key="o" :value="o">{{ o }}</option>
+                    <!-- 已存单据里的颜色可能不在当前产品列表（历史数据/颜色被改名），必须保留原值 -->
+                    <option v-if="c.color && !colorOptions(it).includes(c.color)" :value="c.color">{{ c.color }}（原有）</option>
+                  </select>
+                  <input v-else class="input" v-model="c.color" placeholder="该款还没配颜色，可直接填写" />
+                </div>
                 <button class="link-btn danger" @click="removeColor(it, ci)" :disabled="it.colors.length === 1">删除该色</button>
+              </div>
+              <div v-if="it.product_id && !colorOptions(it).length" class="color-hint">
+                该款在产品管理里还没有颜色 ——
+                <template v-if="canColorWrite">下面「＋ 新增颜色」可直接加；</template>
+                <template v-else>请联系技术在产品管理里补颜色，避免各人写法不一致。</template>
               </div>
 
               <div style="font-size: 12px; color: #8a94a6; font-weight: 600; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 8px; margin-bottom: 6px">
@@ -269,7 +284,20 @@
               <div style="text-align: right; font-size: 12.5px; color: #8a94a6; margin-top: 6px">本色：{{ colorQty(c) }} 件 · ${{ money(colorUsd(c)) }}</div>
             </div>
 
-            <button class="btn btn-ghost btn-sm" @click="addColor(it)">＋ 加颜色</button>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+              <button class="btn btn-ghost btn-sm" @click="addColor(it)">＋ 再加一个颜色组</button>
+              <!-- 新增颜色 = 改产品主数据，只有 product.color.write（技术/管理员）能做 -->
+              <button
+                v-if="it.product_id"
+                class="btn btn-ghost btn-sm"
+                :disabled="!canColorWrite"
+                :title="canColorWrite ? '新增的颜色会写进产品主数据，以后所有订单都能选' : '颜色由技术维护：你的账号只能选已有颜色'"
+                @click="addColorToProduct(it)"
+              >＋ 新增颜色</button>
+              <span v-if="it.product_id && !canColorWrite" class="color-hint" style="margin: 0">
+                无颜色维护权限，仅可选择已有颜色
+              </span>
+            </div>
             <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #eef2f7; display: flex; justify-content: space-between; font-size: 13px">
               <span style="color: #8a94a6">本款：{{ itemQty(it) }} 件</span>
               <span>小计 <strong>${{ money(itemUsd(it)) }}</strong> · <strong>¥{{ money(itemUsd(it) * rate) }}</strong></span>
@@ -1324,6 +1352,11 @@ function batchPrint() {
   router.push({ path: '/print/batch', query: { type: 'production', ids: ids.join(',') } });
 }
 const canTechWrite = computed(() => can('development.write'));
+/**
+ * 颜色/花型的维护权（product.color.write：只有技术 + 管理员）
+ * 下单时「选颜色」人人可做；「新增颜色」会改产品主数据，影响以后所有订单与库存口径，所以单独一道门。
+ */
+const canColorWrite = computed(() => can('product.color.write'));
 const canTechReview = computed(() => can('development.review'));
 const canCostWrite = computed(() => can('cost.write'));
 const canFinanceReview = computed(() => can('cost.review'));
@@ -1352,8 +1385,9 @@ const DEFAULT_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
 function blankTp() {
   return { product_name: '', version: 'V1', fabric_ids: [], accessory_ids: [], fabric_info: '', accessory_info: '', craft_info: '', customer_req: '', size_spec: '' };
 }
-function blankColor() {
-  return { color: '', sizes: DEFAULT_SIZES.map((s) => ({ size: s, qty: 0, usd_price: 0 })) };
+function blankColor(color = '', sizes = null) {
+  const list = sizes && sizes.length ? sizes : DEFAULT_SIZES;
+  return { color, sizes: list.map((s) => ({ size: s, qty: 0, usd_price: 0 })) };
 }
 function blankItem() {
   return { product_id: null, product_name: '', style_no: '', sku: '', colors: [blankColor()] };
@@ -1477,16 +1511,88 @@ async function load() {
 function openCreate() { form.value = blankForm(); showCreate.value = true; }
 function addItem() { form.value.items.push(blankItem()); }
 function removeItem(i) { if (form.value.items.length > 1) form.value.items.splice(i, 1); }
-function addColor(it) { it.colors.push(blankColor()); }
+function addColor(it) { it.colors.push(blankColor('', productSizeNames(it))); }
 function removeColor(it, ci) { if (it.colors.length > 1) it.colors.splice(ci, 1); }
 function addSize(c) { c.sizes.push({ size: '', qty: 0, usd_price: 0 }); }
 function removeSize(c, si) { if (c.sizes.length > 1) c.sizes.splice(si, 1); }
+
+/** 当前行选中的产品（产品列表已带 colors / sizes，见 GET /api/products） */
+function productOf(it) {
+  return it.product_id ? products.value.find((x) => x.id === it.product_id) || null : null;
+}
+/** 该产品配好的颜色名（下拉选项）。没配就是空数组 → 退回手填 */
+function colorOptions(it) {
+  const p = productOf(it);
+  return p && p.colors ? p.colors.map((c) => c.name) : [];
+}
+/** 该产品配好的尺码；没配用默认 S~XXL */
+function productSizeNames(it) {
+  const p = productOf(it);
+  const list = p && p.sizes && p.sizes.length ? p.sizes.map((s) => s.size) : DEFAULT_SIZES;
+  return list;
+}
+
+/**
+ * 选产品：把「颜色」和「尺码」按产品主数据铺好，并**保留已经填过的数量与单价**
+ * （销售先填数量再改产品是常见操作，直接清空比填错更让人恼火）。
+ */
 function pickProduct(it) {
   const p = products.value.find((x) => x.id === it.product_id);
   if (!p) return;
   it.product_name = p.name;
   const usd = rate.value > 0 ? Math.round((Number(p.price) / rate.value) * 100) / 100 : 0;
-  it.colors.forEach((c) => c.sizes.forEach((s) => { if (!Number(s.usd_price)) s.usd_price = usd; }));
+
+  const sizes = productSizeNames(it);
+  const colors = (p.colors || []).map((c) => c.name);
+
+  // 旧值按「颜色 + 尺码」两个键对齐（不分大小写），改名/重选产品都不会把数字清零
+  const prevColor = new Map(it.colors.map((c) => [String(c.color || '').trim().toUpperCase(), c]));
+  const prevCell = (prev, size) => {
+    if (!prev) return null;
+    const hit = prev.sizes.find((s) => String(s.size || '').trim().toUpperCase() === String(size).toUpperCase());
+    return hit || null;
+  };
+
+  if (colors.length) {
+    it.colors = colors.map((name) => {
+      const prev = prevColor.get(name.toUpperCase());
+      return {
+        color: name,
+        sizes: sizes.map((size) => {
+          const cell = prevCell(prev, size);
+          return { size, qty: cell ? cell.qty : 0, usd_price: (cell && cell.usd_price) || usd };
+        })
+      };
+    });
+  } else {
+    // 产品还没配颜色：保留现有颜色组，只把尺码换成产品尺码
+    it.colors.forEach((c) => {
+      const keep = c.sizes;
+      c.sizes = sizes.map((size) => {
+        const cell = prevCell({ sizes: keep }, size);
+        return { size, qty: cell ? cell.qty : 0, usd_price: (cell && cell.usd_price) || usd };
+      });
+    });
+  }
+}
+
+/** 新增颜色到产品主数据（需 product.color.write），成功后直接选上 */
+async function addColorToProduct(it) {
+  if (!canColorWrite.value) return;
+  if (!it.product_id) return alert('请先选择产品，再新增颜色');
+  const name = (prompt('新增颜色 / 花型名称（会写进产品主数据，以后所有订单都能选）') || '').trim();
+  if (!name) return;
+  try {
+    const p = await api.addProductColor(it.product_id, { name });
+    // 刷新本地产品缓存，让下拉立刻出现新颜色
+    const idx = products.value.findIndex((x) => x.id === it.product_id);
+    if (idx >= 0) products.value[idx] = p;
+    const empty = it.colors.find((c) => !String(c.color || '').trim());
+    if (empty) empty.color = name;
+    else it.colors.push(blankColor(name, productSizeNames(it)));
+  } catch (e) {
+    alert(e.message);
+  }
 }
 function applySizeTemplate(it, tid) {
   const t = sizeTemplates.value.find((x) => String(x.id) === String(tid));
@@ -2067,4 +2173,6 @@ onMounted(async () => {
 .bfield label > span { display: block; font-size: 12.5px; color: #6b7688; margin-bottom: 5px; }
 .bchk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #4b5568; }
 .modal.wide .data.sm td { vertical-align: top; }
+/* 颜色提示：不抢注意力，只解释「为什么这里只能选不能改」 */
+.color-hint { font-size: 11.5px; color: #98a2b3; margin: -2px 0 6px; line-height: 1.6; }
 </style>

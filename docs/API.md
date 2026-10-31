@@ -21,6 +21,8 @@
 | GET/PUT/DELETE | /api/customers/:id | 同上 | 详情/修改/停用 |
 | GET/POST | /api/products | 读:登录 / 写:admin,sales,tech | 列表（带 `colors` / `sizes` / `image_url`，`?q=` 也能按颜色名搜）/ 新增 |
 | GET/PUT/DELETE | /api/products/:id | 同上 | 详情（带颜色尺码）/ 修改 / 停用 |
+| POST | /api/products/:id/colors | **admin,tech**（`product.color.write`） | 追加一个颜色 `{name, image_url}`；同款同名返回 **409** |
+| DELETE | /api/products/:id/colors/:colorId | **admin,tech** | 删除单个颜色（历史订单存的是颜色文本，不受影响） |
 
 产品变体（v1.68.17）：
 
@@ -30,6 +32,7 @@
 | `colors[]` | `{ name, image_url }`，一款多色（印花001、印花002…）。**同款同名（TRIM+不分大小写）直接 400**，最多 60 个 |
 | `sizes[]` | 字符串数组或 `{ size }`。**重复自动去重**（`S,M,L,L` → 3 个），最多 30 个 |
 | 缺省语义 | `colors`/`sizes`/`image_url` **不传＝保留原值**，传空数组/空串＝清空。老调用方只改名字不会把变体抹掉 |
+| 权限 | 改颜色需要 `product.color.write`（**仅技术 + 管理员**）：销售能选颜色、能改名称单价，但带 `colors` 调 PUT / POST 颜色会 **403** |
 
 ## 订单
 | 方法 | 路径 | 角色 | 说明 |

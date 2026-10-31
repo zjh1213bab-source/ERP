@@ -49,6 +49,7 @@ export const PERM_TABLE = {
   'mail.write': ["sales","tech","finance","production","warehouse","hr"],
   'customer.write': ["sales"],
   'product.write': ["sales","tech"],
+  'product.color.write': ["tech"],
   'factory.write': ["production","sales"],
   'stock.write': ["warehouse","production"],
   'purchase.write': ["warehouse"],

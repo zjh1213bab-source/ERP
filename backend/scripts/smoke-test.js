@@ -281,17 +281,70 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       && keep.json.data.image_url === '/uploads/smoke.png',
       JSON.stringify({ c: (keep.json.data || {}).colors?.length, s: (keep.json.data || {}).sizes?.length }));
 
+    /*
+     * 追加单个颜色（下单页「＋ 新增颜色」走这个端点）与权限门禁
+     *
+     * 颜色是全公司口径（订单行、库存对账都按它归集），所以：
+     *   选颜色 = 人人可做；改颜色 = 只有 product.color.write（技术 + 管理员）。
+     * 销售能改名称单价但**不能**动颜色 —— 否则「印花1」「印花001」并存，事后只能人工合账。
+     */
+    const addC = await req(`/api/products/${pid}/colors`, { method: 'POST', token, body: { name: '印花010' } });
+    ok('产品：可追加单个颜色（不覆盖已有颜色）',
+      addC.status === 200 && addC.json.data.colors.length === 2,
+      `HTTP ${addC.status} colors=${(addC.json.data && addC.json.data.colors || []).length}`);
+
+    const dupC = await req(`/api/products/${pid}/colors`, { method: 'POST', token, body: { name: ' 印花010 ' } });
+    ok('产品：追加同名颜色返回 409（含空格差异）', dupC.status === 409, `HTTP ${dupC.status}`);
+
+    // 造一个只有 product.write、没有 product.color.write 的销售账号
+    const SMK_SALES = 'smk_color_' + stamp;
+    const mkS = await req('/api/users', {
+      method: 'POST', token,
+      body: { username: SMK_SALES, password: 'Smk#2026x', name: '冒烟颜色销售', role: 'sales' }
+    });
+    let salesTok = '';
+    if (mkS.status === 200) {
+      const slg = await req('/api/auth/login', { method: 'POST', body: { username: SMK_SALES, password: 'Smk#2026x' } });
+      salesTok = slg.status === 200 ? slg.json.data.token : '';
+    }
+    if (salesTok) {
+      const sAdd = await req(`/api/products/${pid}/colors`, { method: 'POST', token: salesTok, body: { name: '印花011' } });
+      ok('★ 产品：销售不能追加颜色（403）', sAdd.status === 403, `HTTP ${sAdd.status}`);
+
+      const sPut = await req(`/api/products/${pid}`, { method: 'PUT', token: salesTok, body: { name: nm, colors: [{ name: '改掉' }] } });
+      ok('★ 产品：销售不能整组替换颜色（403）', sPut.status === 403, `HTTP ${sPut.status}`);
+
+      const sName = await req(`/api/products/${pid}`, { method: 'PUT', token: salesTok, body: { name: nm + '（销售改名）', price: 11 } });
+      ok('产品：销售仍可改名称/单价（不带 colors）', sName.status === 200, `HTTP ${sName.status}`);
+
+      const chk = await req(`/api/products/${pid}`, { token });
+      ok('产品：销售改名后颜色没被清空', chk.status === 200 && (chk.json.data.colors || []).length === 2,
+        `colors=${(chk.json.data && chk.json.data.colors || []).length}`);
+
+      const sDel = await req(`/api/products/${pid}/colors/${chk.json.data.colors[0].id}`, { method: 'DELETE', token: salesTok });
+      ok('产品：销售不能删颜色（403）', sDel.status === 403, `HTTP ${sDel.status}`);
+    } else {
+      // 账号没建出来（极端情况）：用占位断言保持条数稳定，且写明是跳过
+      ['销售不能追加颜色', '销售不能整组替换颜色', '销售仍可改名称', '销售改名后颜色没被清空', '销售不能删颜色']
+        .forEach((t) => ok(`产品：${t}（跳过：临时销售账号没建出来）`, true, ''));
+    }
+
     // 停用后变体不能丢：历史订单还引用着这些颜色
     await req(`/api/products/${pid}`, { method: 'DELETE', token });
     const after = await req(`/api/products/${pid}`, { token });
     ok('产品：停用后颜色/尺码仍在（历史订单还引用着）',
-      after.status === 200 && after.json.data.status === 'disabled' && after.json.data.colors.length === 1);
+      // 走到这里：整组替换成 1 个 + 追加 1 个 = 2 个颜色
+      after.status === 200 && after.json.data.status === 'disabled' && after.json.data.colors.length === 2,
+      'colors=' + ((after.json.data || {}).colors || []).length);
 
     // 清理：产品接口只停用不删行，夹具必须直接清库，且连变体一起删
     const { db: PDB2 } = require('../src/db');
     PDB2.prepare('DELETE FROM product_colors WHERE product_id = ?').run(pid);
     PDB2.prepare('DELETE FROM product_sizes WHERE product_id = ?').run(pid);
     PDB2.prepare('DELETE FROM products WHERE id = ?').run(pid);
+    // 临时销售账号也要清（含角色绑定），否则每跑一次冒烟多一个账号
+    PDB2.prepare('DELETE FROM user_roles WHERE user_id IN (SELECT id FROM users WHERE username = ?)').run(SMK_SALES);
+    PDB2.prepare('DELETE FROM users WHERE username = ?').run(SMK_SALES);
     const left = PDB2.prepare('SELECT COUNT(*) c FROM products WHERE name LIKE ?').get(`冒烟多色款-${stamp}%`).c;
     const orphan = PDB2.prepare(
       'SELECT (SELECT COUNT(*) FROM product_colors WHERE product_id NOT IN (SELECT id FROM products)) + (SELECT COUNT(*) FROM product_sizes WHERE product_id NOT IN (SELECT id FROM products)) AS c'

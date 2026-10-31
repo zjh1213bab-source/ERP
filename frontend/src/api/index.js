@@ -103,6 +103,9 @@ export const api = {  // 登录
   createProduct: (d) => req('/api/products', { method: 'POST', body: d }),
   updateProduct: (id, d) => req(`/api/products/${id}`, { method: 'PUT', body: d }),
   deleteProduct: (id) => req(`/api/products/${id}`, { method: 'DELETE' }),
+  /** 追加一个颜色/花型（需 product.color.write：只有技术/管理员有） */
+  addProductColor: (id, d) => req(`/api/products/${id}/colors`, { method: 'POST', body: d }),
+  deleteProductColor: (id, colorId) => req(`/api/products/${id}/colors/${colorId}`, { method: 'DELETE' }),
 
   // 订单
   preOrders: (params) => req('/api/pre-orders' + qs(params)),

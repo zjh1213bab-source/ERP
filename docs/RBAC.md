@@ -854,6 +854,8 @@
 | products | POST | `/` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | products | PUT | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
 | products | DELETE | `/:id` | ✅ | — | ✅ | ✅ | — | — | — | — |
+| products | POST | `/:id/colors` | ✅ | — | — | ✅ | — | — | — | — |
+| products | DELETE | `/:id/colors/:colorId` | ✅ | — | — | ✅ | — | — | — | — |
 | purchaseChanges | POST | `/` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | purchaseChanges | POST | `/:id/effective` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
 | purchaseChanges | POST | `/:id/submit` | ✅ | — | ✅ | — | ✅ | ✅ | — | — |
@@ -1171,6 +1173,7 @@
 | `mail.write` | 销售跟单、技术打版、财务会计、生产车间、仓库采购、人事行政 |
 | `customer.write` | 销售跟单 |
 | `product.write` | 销售跟单、技术打版 |
+| `product.color.write` | 技术打版 |
 | `factory.write` | 生产车间、销售跟单 |
 | `stock.write` | 仓库采购、生产车间 |
 | `purchase.write` | 仓库采购 |
