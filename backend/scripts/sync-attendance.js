@@ -32,7 +32,8 @@ function arg(name) {
   // 连接自检：只验凭据与权限，不写库、不需要员工映射
   if (arg('probe')) {
     try {
-      const p = await require('../src/services/dingtalk').probe();
+      const AS = require('../src/services/attendanceSync');
+      const p = await require('../src/services/dingtalk').probe(AS.probeUserIds());
       console.log(JSON.stringify(p, null, 2));
       process.exit(p.ok ? 0 : 1);
     } catch (e) {

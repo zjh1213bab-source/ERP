@@ -13,6 +13,8 @@
     "pack": "node scripts/pack-release.js",
     "audit:data": "node scripts/audit-demo-data.js",
     "clean:data": "node scripts/audit-demo-data.js --clean",
+    "reset:data": "node scripts/reset-business-data.js",
+    "reset:data:apply": "node scripts/reset-business-data.js --apply",
     "verify:data": "node scripts/audit-demo-data.js --verify",
     "test:race": "node scripts/test-report-race.js",
     "prune:data": "node scripts/prune-data.js"

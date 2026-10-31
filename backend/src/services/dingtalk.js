@@ -176,9 +176,15 @@ async function listRecords({ from, to, userIds }) {
  *   2. attendance  → 应用是否被授予"查询企业考勤数据权限"
  * 只取 1 条记录，不返回任何人员信息。
  */
-async function probe() {
+async function probe(userIds) {
   const steps = [];
   const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  /**
+   * 必须带 userIdList：不传时钉钉把它当成"要全公司所有人的数据"，
+   * 直接报 850001（单次数据量过大），看起来像权限问题、其实不是。
+   * 没有已绑定员工时用一个占位 userid —— 只要权限在，它返回空数组而不是报错。
+   */
+  const probeIds = (userIds && userIds.length) ? userIds.slice(0, 50) : ['__probe__'];
 
   const t0 = Date.now();
   try {
@@ -191,10 +197,10 @@ async function probe() {
 
   const t1 = Date.now();
   try {
-    const r = await listResults({ from: `${today} 00:00:00`, to: `${today} 23:59:59`, offset: 0, limit: 1 });
+    const r = await listResults({ from: `${today} 00:00:00`, to: `${today} 23:59:59`, userIdList: probeIds, offset: 0, limit: 1 });
     steps.push({
       name: 'attendance.list', ok: true, ms: Date.now() - t1,
-      note: r.records.length ? `今日可读（本页 ${r.records.length} 条）` : '可读，但今天还没有打卡记录'
+      note: r.records.length ? `今日可读（本页 ${r.records.length} 条）` : '权限正常（今天暂无可读打卡）'
     });
     return { configured: true, ok: true, steps };
   } catch (e) {

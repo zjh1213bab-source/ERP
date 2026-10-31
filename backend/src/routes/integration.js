@@ -219,7 +219,7 @@ router.get('/dingtalk/status', authRequired, requireRole(WRITE), wrap(async (req
  * 不需要任何员工映射，也不写库 —— 装完凭据先点这个，比直接跑同步更容易定位问题。
  */
 router.get('/dingtalk/probe', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  return ok(res, await dingtalk.probe());
+  return ok(res, await dingtalk.probe(attendanceSync.probeUserIds()));
 }));
 
 router.get('/dingtalk/runs', authRequired, requireRole(WRITE), wrap(async (req, res) => ok(res, attendanceSync.recentRuns(req.query.limit))));

@@ -20,7 +20,6 @@
  *    静默当成正常出勤等于替人做了判断，这里只标注在 remark 里并计数。
  */
 const { db, now } = require('../db');
-const config = require('../config');
 const DT = require('./dingtalk');
 
 const bad = (msg, status = 400) => {
@@ -193,21 +192,17 @@ async function sync({ from, to, days, dryRun = false, operator = '' } = {}) {
      */
     const raw = [];
     /**
-     * 拉取范围默认「全量」：不传 userIdList，让钉钉按应用权限返回范围内所有打卡。
-     * 只传已映射的 userid 会省一点数据量，但**永远看不见"有人打卡却没绑 userid"** ——
-     * 新员工入职漏绑，考勤会静默缺失到月底才发现。漏绑的人在这里计成 unmatched。
-     * （DINGTALK_SCOPE=mapped 可切回"只拉已绑的人"）
+     * 必须按 userid 分批（≤50/次）。2026-10-31 真凭据实测：不传 userIdList 时钉钉返回
+     * 850001"单次数据量过大"——它会当成"要全公司所有人的数据"。
+     * 代价是**看不到没绑定的人打了卡**，漏绑只能靠 status 里的未映射名单发现。
      */
-    const scopeAll = config.dingtalk.scope !== 'mapped';
-    const batches = scopeAll ? [null] : [];
-    if (!scopeAll) for (let i = 0; i < userIds.length; i += 50) batches.push(userIds.slice(i, i + 50));
-
     for (const w of windows) {
-      for (const batch of batches) {
+      for (let i = 0; i < userIds.length; i += 50) {
+        const batch = userIds.slice(i, i + 50);
         let offset = 0;
         for (;;) {
           const { records, hasMore } = await DT.listResults({
-            from: w.from, to: w.to, userIdList: batch || undefined, offset, limit: 50
+            from: w.from, to: w.to, userIdList: batch, offset, limit: 50
           });
           stats.api_calls += 1;
           if (records.length) raw.push(...records);
@@ -289,6 +284,14 @@ async function sync({ from, to, days, dryRun = false, operator = '' } = {}) {
   }
 }
 
+/** 自检用：取一个已映射的 userid（有就贴近真实调用，没有就用占位串验证权限） */
+function probeUserIds() {
+  const one = db.prepare(
+    "SELECT dingtalk_userid FROM employees WHERE IFNULL(TRIM(dingtalk_userid),'') <> '' LIMIT 1"
+  ).get();
+  return one ? [String(one.dingtalk_userid).trim()] : [];
+}
+
 function recentRuns(limit = 20) {
   return db.prepare(
     `SELECT id, from_date, to_date, ok, inserted, updated, skipped_manual, unmatched, illegal, api_calls, error, started_at, finished_at, operator
@@ -329,4 +332,4 @@ function mapEmployee({ employee_id, dingtalk_userid }) {
   return { employee_id: id, name: emp.name, dingtalk_userid: uid || null };
 }
 
-module.exports = { aggregate, splitWindows, defaultRange, sync, status, recentRuns, mapEmployee, SYNC_REMARK, STATUS_MAP };
+module.exports = { aggregate, splitWindows, defaultRange, sync, status, recentRuns, mapEmployee, probeUserIds, SYNC_REMARK, STATUS_MAP };

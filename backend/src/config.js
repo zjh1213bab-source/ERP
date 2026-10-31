@@ -140,13 +140,13 @@ const cfg = {
     /** 每次同步回补几天（钉钉考勤同步有延迟，只拉当天会漏） */
     syncDays: Number(process.env.DINGTALK_SYNC_DAYS) || 3,
     /**
-     * 拉取范围：
-     *   all（默认）—— 不传 userIdList，按应用权限取范围内全部打卡。
-     *                 代价是数据量大些，但**能发现"有人打卡却没绑 userid"**，
-     *                 否则新员工入职后考勤会静默缺失，月底才发现。
-     *   mapped   —— 只拉已映射的员工。数据量小，但漏绑的人永远看不见。
+     * 钉钉 `attendance/list` **必须**带 userIdList（≤50 个/次）：
+     * 不传会被判定为"要该公司全部人的数据"，直接报
+     * 850001 The amount of attendance data acquired in a single time is too large。
+     * 所以同步一律按"已绑定 userid 的员工"分批拉取 —— 这也意味着
+     * **看不到没绑定的人打了卡**，漏绑只能在 status 的未映射名单里发现。
+     * （2026-10-31 真凭据实测确认，原设计的"拉全量"方案不可行）
      */
-    scope: process.env.DINGTALK_SCOPE === 'mapped' ? 'mapped' : 'all',
     /** 单次 HTTP 超时（毫秒）：钉钉偶发慢响应，不能把同步任务卡死 */
     timeoutMs: Number(process.env.DINGTALK_TIMEOUT_MS) || 15000
   },
