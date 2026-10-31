@@ -23,6 +23,7 @@ const mall = require('../services/mall');
 const attendanceSync = require('../services/attendanceSync');
 const dingtalk = require('../services/dingtalk');
 const employeeSync = require('../services/employeeSync');
+const syncScheduler = require('../services/syncScheduler');
 /** 私有附件的签名与下载只有一份实现（routes/files.js），这里只做别名 */
 const { downloadHandler: DownloadHandler, signedUrlHandler: SignedUrlHandler } = require('./files');
 
@@ -213,7 +214,11 @@ router.post('/ingest/:code', wrap(async (req, res) => {
  * 定时触发不走这里：计划任务直接跑 `node scripts/sync-attendance.js`，
  * 免得为了一个后台任务把管理员口令/token 落到计划任务里。
  */
-router.get('/dingtalk/status', authRequired, requireRole(WRITE), wrap(async (req, res) => ok(res, attendanceSync.status())));
+router.get('/dingtalk/status', authRequired, requireRole(WRITE), wrap(async (req, res) => ok(res, {
+  ...attendanceSync.status(),
+  // 自动同步排班（进程内定时器）：页面据此告诉人事「什么时候会自己同步」，否则没人知道它在跑
+  auto_sync: syncScheduler.status()
+})));
 
 /**
  * 连接自检：分别验证「凭据能不能换到 token」与「应用有没有考勤读权限」。

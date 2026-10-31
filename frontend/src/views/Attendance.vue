@@ -59,6 +59,13 @@
           {{ dt.status.configured ? '凭据已配置' : '凭据未配置' }}
         </span>
         <span>已绑定 <b>{{ dt.status.employees_mapped }}</b> / {{ dt.status.employees_total }} 名在职员工</span>
+        <span v-if="dt.status.auto_sync" class="mut tiny">
+          · 自动同步
+          <template v-if="dt.status.auto_sync.enabled">
+            每天 {{ (dt.status.auto_sync.schedule || []).join(' / ') }}（错过 {{ dt.status.auto_sync.catchup_hours }} 小时内会补跑）
+          </template>
+          <template v-else>已关闭</template>
+        </span>
         <span v-if="dt.status.last_run" class="mut tiny">
           · 上次同步 {{ shortTime(dt.status.last_run.started_at) }}：
           <template v-if="dt.status.last_run.ok">新增 {{ dt.status.last_run.inserted }} / 更新 {{ dt.status.last_run.updated }}</template>

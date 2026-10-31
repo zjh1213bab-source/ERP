@@ -73,11 +73,23 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = empOr404(req, req.params.id);
   if (!row) return fail(res, 404, '员工不存在');
   const b = req.body || {};
-  db.prepare('UPDATE employees SET code=?, name=?, department_id=?, position=?, phone=?, hire_date=?, status=?, base_salary=?, remark=?, image_url=? WHERE id=?').run(
+  /*
+   * 员工类型：只接受既有字典里的四个值（与 services/org.js 的 EMP_TYPE_LABEL 一致）。
+   * 用途之一是**把共享/值守账号标成 outsource**：它们在钉钉通讯录里是正常成员、也打卡，
+   * 但按供应商结算、不该占一张工资单。类型值写错会静默落库 → 工资表口径就错了，所以这里白名单。
+   */
+  const EMP_TYPES = ['fulltime', 'parttime', 'secondment', 'outsource'];
+  const empType = b.employment_type === undefined
+    ? row.employment_type
+    : (EMP_TYPES.includes(b.employment_type) ? b.employment_type : null);
+  if (b.employment_type !== undefined && !empType) {
+    return fail(res, 400, `员工类型只能是 ${EMP_TYPES.join(' / ')}`);
+  }
+  db.prepare('UPDATE employees SET code=?, name=?, department_id=?, position=?, phone=?, hire_date=?, status=?, base_salary=?, remark=?, image_url=?, employment_type=? WHERE id=?').run(
     b.code ?? row.code, b.name || row.name, b.department_id ?? row.department_id, b.position ?? row.position,
     b.phone ?? row.phone, b.hire_date ?? row.hire_date, b.status || row.status,
     b.base_salary !== undefined ? Number(b.base_salary) || 0 : row.base_salary, b.remark ?? row.remark,
-    b.image_url ?? row.image_url, req.params.id
+    b.image_url ?? row.image_url, empType, req.params.id
   );
   return ok(res, db.prepare('SELECT * FROM employees WHERE id = ?').get(req.params.id));
 }));

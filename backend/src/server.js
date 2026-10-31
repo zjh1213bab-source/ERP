@@ -478,4 +478,17 @@ app.listen(config.port, () => {
   console.log(`  健康检查: http://127.0.0.1:${config.port}/api/health`);
   console.log(`  管理员:   ${config.adminUsername}`);
   console.log('========================================\n');
+
+  /*
+   * 钉钉考勤定时同步（默认每天 12:00 / 00:00）。
+   *
+   * 只在这里启动一次：定时器挂在服务进程上，靠守护进程保证"服务在 = 定时在"。
+   * 时段用 app_config 主键做原子占位，所以 3100 临时实例与 3000 生产同时到点也不会重复跑；
+   * 但临时实例请显式 `ERP_SCHEDULER=0`（或 DINGTALK 凭据不配），否则它会把真实考勤写进临时库。
+   */
+  try {
+    require('./services/syncScheduler').start();
+  } catch (e) {
+    console.error('[sync] 定时同步启动失败（不影响主服务）：', e.message);
+  }
 });

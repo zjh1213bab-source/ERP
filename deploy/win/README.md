@@ -97,21 +97,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deploy\win\install-autostart
 
 访问：`http://127.0.0.1:3000`（局域网用 `http://<本机IP>:3000`，服务监听 `0.0.0.0`）。
 
-## 定时任务：钉钉考勤同步（可选）
+## 定时任务：钉钉考勤同步
 
-配好 `backend/.env` 里的 `DINGTALK_APP_KEY` / `DINGTALK_APP_SECRET`（并给钉钉应用加「查询企业考勤数据权限」）后，
-可以让计划任务每 30 分钟跑一次，**不需要登录态、也不需要把任何口令写进任务**：
+**默认已经内置，不需要再建计划任务**：服务进程里跑着一个定时器，每天 **12:00 与 00:00** 各同步一次
+（回补 3 天，错过时段 6 小时内补跑）。服务在用 = 定时在用；服务停着也不会同步，因为那时也拉不到数据。
+
+| 想改的东西 | 改哪里 |
+|---|---|
+| 同步时刻 | `backend/.env` → `DINGTALK_SYNC_SCHEDULE=12:00,00:00`（逗号分隔，可加 08:30 等） |
+| 补跑窗口 | `DINGTALK_SYNC_CATCHUP_HOURS=6` —— 调太大等于"半夜把中午的账补到晚上" |
+| 回补天数 | `DINGTALK_SYNC_DAYS=3` |
+| 临时关闭 | 启动时加 `ERP_SCHEDULER=0`（临时实例、冒烟必须加，否则会把真实考勤写进临时库） |
+
+改完 `.env` 要 `reload-erp.cmd` 才生效。当前排班与上次结果可以直接看
+`GET /api/integration/dingtalk/status` 的 `auto_sync` 字段（页面「人事行政 → 考勤打卡」也会显示一行）。
+
+为什么不用系统计划任务：本机 `schtasks.exe` 被安全策略禁用，新建任务又要管理员；
+进程内定时器是唯一不需要提权的可持续做法。一个时段只会跑一次 —— 用 `app_config` 主键做原子占位，
+两个实例同时到点也只有第一个能跑。
+
+需要手动补数据时仍可直接跑脚本（**不需要登录态，也不会把口令写进任何任务**）：
 
 ```bat
-:: 手动试跑（--dry-run 只算不写）
 cd /d D:\wk\2026-10-26-09-45-32\erp-mindmap\backend
-node scripts\sync-attendance.js --dry-run
-node scripts\sync-attendance.js --days=3
+node scripts\sync-attendance.js --dry-run      :: 只算不写
+node scripts\sync-attendance.js --days=3       :: 真写
 ```
 
-退出码：`0` 成功 / `1` 出错 / `3` 凭据未配置（计划任务里可据此不报警）。
-用「任务计划程序」新建任务，触发器每 30 分钟、操作填 `node.exe` + `scripts\sync-attendance.js`，
-起始于 `backend` 目录即可。每次同步的结果都能在
+退出码：`0` 成功 / `1` 出错 / `3` 凭据未配置。每次同步的结果都能在
 `GET /api/integration/dingtalk/runs`（或页面「人事行政 → 考勤打卡」）里看到，含失败原因。
 
 ## 日志在哪

@@ -646,6 +646,36 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     ok('两卡齐全 → 正常，且取最早上班 / 最晚下班',
       bothCards.status === 'normal' && bothCards.check_in === '08:45' && bothCards.check_out === '18:10',
       `${bothCards.check_in}/${bothCards.check_out}`);
+
+    /**
+     * ★ 定时同步的时段判定（12:00 / 00:00，补跑窗口 6h）
+     *
+     * 这里全是纯函数 + 一次测试键占用，不联网、不写业务数据。
+     * 之所以要测：这套逻辑错了不会报错，只会「该跑的时候不跑」或「半夜把中午的账补跑一遍」——
+     * 两者都不会让任何接口变红，只能靠断言盯着。
+     */
+    const SCH = require('../src/services/syncScheduler');
+    const slots = SCH.parseSlots('12:00,00:00,25:00,08:70');
+    ok('时段解析：只留合法项并去重排序', slots.length === 2 && slots[0].label === '00:00' && slots[1].label === '12:00',
+      slots.map((s) => s.label).join(',') || '(空)');
+
+    const at = (h, m) => { const d = new Date(2026, 9, 31, h, m, 30, 0); return d; };
+    ok('刚过 12:00 → 触发 12:00 这一次', (SCH.dueSlot(at(12, 0), slots, 6) || {}).slot?.label === '12:00',
+      JSON.stringify(SCH.dueSlot(at(12, 0), slots, 6)?.slot || null));
+    ok('13:30（窗口内）→ 补跑 12:00', (SCH.dueSlot(at(13, 30), slots, 6) || {}).slot?.label === '12:00', '');
+    ok('18:01（超 6h 窗口）→ 不补跑', SCH.dueSlot(at(18, 1), slots, 6) === null, '');
+    ok('00:01 → 触发 00:00 这一次', (SCH.dueSlot(at(0, 1), slots, 6) || {}).slot?.label === '00:00', '');
+    ok('11:59 → 既不补 00:00（已过期）也不提前跑 12:00', SCH.dueSlot(at(11, 59), slots, 6) === null, '');
+
+    // 时段原子占位：两个实例同时到点，只能有一个跑
+    const fakeSlot = new Date(2025, 0, 1, 12, 0, 0);
+    const firstClaim = SCH.claim(fakeSlot);
+    const secondClaim = SCH.claim(fakeSlot);
+    ok('★ 同一时段只能被占一次（跨实例不会重复同步）', firstClaim === true && secondClaim === false,
+      `first=${firstClaim} second=${secondClaim}`);
+    SCH.release(fakeSlot);
+    ok('失败后可释放占位，下个 tick 还能补跑', SCH.claim(fakeSlot) === true, '');
+    SCH.release(fakeSlot);
   }
 
   /**

@@ -148,7 +148,23 @@ const cfg = {
      * （2026-10-31 真凭据实测确认，原设计的"拉全量"方案不可行）
      */
     /** 单次 HTTP 超时（毫秒）：钉钉偶发慢响应，不能把同步任务卡死 */
-    timeoutMs: Number(process.env.DINGTALK_TIMEOUT_MS) || 15000
+    timeoutMs: Number(process.env.DINGTALK_TIMEOUT_MS) || 15000,
+    /**
+     * 自动同步时段（业务本地时间，逗号分隔 HH:mm）。
+     * 默认 12:00 与 00:00 —— 中午一次、跨日一次，覆盖上班与下班两段。
+     */
+    syncSchedule: String(process.env.DINGTALK_SYNC_SCHEDULE || '12:00,00:00').trim(),
+    /**
+     * 错过时段后的补跑窗口（小时）。
+     * 服务在 12:00 前后重启会错过那一次；窗口内补一次是必要的，
+     * 但窗口不能无限大 —— 否则半夜重启会把中午的账补到晚上，数据看着对、时间不对。
+     */
+    syncCatchupHours: Number(process.env.DINGTALK_SYNC_CATCHUP_HOURS) || 6,
+    /**
+     * 进程内定时器开关（`ERP_SCHEDULER=0` 关掉）。
+     * 冒烟 / 临时实例必须关：否则跑到 12:00 之后会把真实考勤写进临时库。
+     */
+    scheduleEnabled: process.env.ERP_SCHEDULER !== '0'
   },
 
   DEFAULT_JWT_SECRET,

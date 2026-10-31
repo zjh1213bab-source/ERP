@@ -165,10 +165,18 @@ router.post('/generate', authRequired, requireRole(WRITE), wrap(async (req, res)
   const overwrite = !!b.overwrite;
 
   const cid = cidOf(req);
-  // 只给本主体的在职员工生成 —— 否则分部生成工资单会把总部的人一起算进去
+  /*
+   * 只给本主体的在职员工生成 —— 否则分部生成工资单会把总部的人一起算进去。
+   *
+   * 另外排除「外包」（employment_type='outsource'）：外包按供应商结算，不上工资表。
+   * 这一条是为了钉钉通讯录里的**共享/值守类账号**（如「消防巡查」）——
+   * 它们在通讯录里是正常成员、也会打卡，但不该占一张 0 元工资单，
+   * 否则每个月工资表都多出几条查不出缘由的记录。
+   */
   const emps = db.prepare(
     `SELECT e.*, d.name AS dept_name FROM employees e
      LEFT JOIN departments d ON d.id = e.department_id WHERE e.status = 'active'` +
+    ` AND IFNULL(e.employment_type,'') <> 'outsource'` +
     (cid ? ' AND e.company_id = ' + Number(cid) : '') + ' ORDER BY e.id'
   ).all();
   if (!emps.length) return fail(res, 400, '没有在职员工，请先在「员工档案」录入');
