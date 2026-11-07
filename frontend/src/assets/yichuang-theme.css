@@ -1,4 +1,4 @@
-/* 衣创视觉皮肤：只覆盖颜色、字体、边框和阴影，不改变页面结构与排版尺寸。 */
+/* 跳色科技视觉皮肤：只覆盖颜色、字体、边框和阴影，不改变页面结构与排版尺寸。 */
 :root{--brand:#1890ff;--brand-2:#087ad8;--brand-soft:#ecf5ff;--on-brand:#fff;--bg:#f5f7fa;--surface:#fff;--surface-2:#f7f8fa;--surface-3:#edf2f8;--ink:#303133;--ink-soft:#606266;--ink-mute:#909399;--line:#dcdfe6;--border:#dcdfe6;--success:#67c23a;--warning:#e6a23c;--danger:#f56c6c;--shadow-sm:0 2px 6px #0000000d;--shadow-md:0 6px 20px #00000026}
 :root[data-theme="dark"]{--brand:#409eff;--brand-2:#79bbff;--brand-soft:#182d43;--on-brand:#fff;--bg:#14181e;--surface:#1d222a;--surface-2:#242b35;--surface-3:#2b3541;--ink:#e5eaf3;--ink-soft:#bac3d0;--ink-mute:#8c98aa;--line:#3c4654;--border:#3c4654;--success:#85ce61;--warning:#eebe77;--danger:#f89898}
 body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif}

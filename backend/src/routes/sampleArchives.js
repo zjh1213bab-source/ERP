@@ -26,6 +26,14 @@ router.get('/image-search/:jobId', authRequired, requireRole('admin', 'tech', 's
   return ok(res, require('../services/sampleImageSearch').result(req.user, req.params.jobId));
 }));
 
+/**
+ * 样衣管理「开发款视图」只读聚合（一比一卡片列表 / 流程节点计数 / 下拉可选值）。
+ * 静态路径必须留在 /:id 之前；权限在 service 内逐条复用 patternManagement.owns。
+ */
+router.get('/workspace', authRequired, wrap(async (req, res) => {
+  return ok(res, require('../services/sampleWorkspace').read(req.user, req.query || {}));
+}));
+
 function safeJson(s) {
   try { return JSON.parse(s); } catch (e) { return {}; }
 }

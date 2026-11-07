@@ -1,20 +1,38 @@
 /**
  * 统一接口封装：自动带 Token、统一解包 data、401 自动跳登录
+ *
+ * 局域网实时开发：deploy/lan-live.js 会把后端跑在 3200（源码改动自动重启）。
+ * 局域网 http://<IP>:5173 由另一个提权会话的 Vite 提供，其 /api 代理固定在旧 3100，
+ * 当前会话无权重启它。因此这里让业务接口优先直连 3200（同源地址动态推导，
+ * 局域网/本机都命中），3200 不可用（未启动、CORS 不通）时自动回退同源 /api。
+ * 后端 CORS_ORIGIN 已包含 5173 的三个来源，Authorization 预检放行。
  */
 import { auth, clearAuth } from '../store/auth';
 
 const BASE = import.meta.env.VITE_API_BASE || '';
+const LIVE = import.meta.env.VITE_LIVE_API_BASE
+  || `${location.protocol}//${location.hostname}:${import.meta.env.VITE_LIVE_API_PORT || '3200'}`;
+// 3200 探测失败后短暂直连同源，避免每个请求都先失败一次
+let liveDownUntil = 0;
 
-async function req(path, { method = 'GET', body, headers = {}, signal } = {}) {
+async function raw(url, { method = 'GET', body, headers = {}, signal } = {}) {
   const h = { 'Content-Type': 'application/json', ...headers };
   if (auth.token) h.Authorization = `Bearer ${auth.token}`;
 
-  const res = await fetch(BASE + path, {
-    method,
-    headers: h,
-    signal,
-    body: body !== undefined ? JSON.stringify(body) : undefined
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: h,
+      signal,
+      body: body !== undefined ? JSON.stringify(body) : undefined
+    });
+  } catch (e) {
+    const err = new Error(e.message || '网络请求失败');
+    // 只有网络层失败才允许回退；用户主动取消（AbortError）不重发
+    err.__network = e.name !== 'AbortError';
+    throw err;
+  }
 
   let json = {};
   try {
@@ -38,6 +56,19 @@ async function req(path, { method = 'GET', body, headers = {}, signal } = {}) {
     throw err;
   }
   return json.data !== undefined ? json.data : json;
+}
+
+async function req(path, opts = {}) {
+  if (Date.now() >= liveDownUntil) {
+    try {
+      return await raw(LIVE + path, opts);
+    } catch (e) {
+      // HTTP 业务错误（401/404/校验失败等）保持原语义直接抛出，不回退
+      if (!e.__network) throw e;
+      liveDownUntil = Date.now() + 15000;
+    }
+  }
+  return raw(BASE + path, opts);
 }
 
 function qs(params = {}) {
@@ -1138,8 +1169,10 @@ export const api = {
   patternMaterials: (flowId) => req(`/api/pattern-flows/${flowId}/materials`),
   savePatternMaterials: (flowId, materials) => req(`/api/pattern-flows/${flowId}/materials`, { method: 'PUT', body: { materials } }),
 
-  // 样衣档案
-  sampleArchives: (params) => req('/api/sample-archives' + qs(params)),
+// 样衣档案
+sampleArchives: (params) => req('/api/sample-archives' + qs(params)),
+// 样衣管理「开发款视图」：卡片列表 + 流程节点计数 + 下拉可选值（只读）
+sampleWorkspace: (params) => req('/api/sample-archives/workspace' + qs(params)),
   sampleImageSearch: (body) => req('/api/sample-archives/image-search', { method: 'POST', body }),
   sampleImageSearchResult: (id) => req('/api/sample-archives/image-search/' + encodeURIComponent(id)),
   sampleArchive: (id) => req(`/api/sample-archives/${id}`),

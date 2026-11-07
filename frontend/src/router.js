@@ -300,4 +300,10 @@ router.beforeEach(async (to) => {
   return true;
 });
 
+// 统一浏览器标签页标题：SPA 内跳转也会刷新 document.title，
+// 避免旧标签页残留旧品牌字样；打印页与客户商城同样适用。
+router.afterEach((to) => {
+  document.title = `${to.meta.title || '工作台'} · 跳色科技 ERP`;
+});
+
 export default router;

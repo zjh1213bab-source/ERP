@@ -3,8 +3,8 @@
     <!-- 侧边栏 -->
     <aside class="erp-sidebar" :class="{ open: navOpen }">
       <div class="brand">
-        <span class="brand-mark">跳</span>
-        <span class="brand-copy"><strong>跳色科技</strong><small>业务协同 · ERP</small></span>
+        <img class="brand-logo" :src="brandLogo" alt="跳色科技" data-no-image-preview />
+        <span class="brand-copy"><strong>跳色科技</strong><small>协同 ERP</small></span>
       </div>
       <nav class="erp-nav">
         <template v-for="item in visibleModel" :key="item.key">
@@ -36,7 +36,13 @@
 
       <header class="erp-topbar">
         <button class="nav-toggle" @click="navOpen = true" aria-label="打开菜单">☰</button>
-        <div class="crumb"><span class="crumb-home">工作空间</span><span class="crumb-separator">/</span><strong>{{ pageTitle }}</strong></div>
+        <div class="crumb">
+          <span class="crumb-home">首页</span><span class="crumb-separator">/</span>
+          <span>{{ sectionTitle }}</span><span class="crumb-separator">/</span>
+          <strong>{{ pageTitle }}</strong>
+        </div>
+        <router-link to="/assistant" class="yc-help">帮助中心</router-link>
+        <button class="yc-icon-btn" type="button" title="全屏" aria-label="全屏" @click="toggleFullscreen">⛶</button>
         <router-link to="/mail" class="mail-bell" :title="mailTitle">
           <UiIcon name="mail" />
           <span v-if="mailUnread > 0" class="mb-badge">{{ mailUnread > 99 ? '99+' : mailUnread }}</span>
@@ -47,12 +53,31 @@
         </button>
         <button class="appearance-top-trigger" type="button" @click="appearanceOpen=true"><UiIcon name="palette" /><span>外观</span></button>
         <div class="userbox">
-          <span class="tag blue">{{ roleLabel }}</span>
-          <span>{{ auth.user?.name || auth.user?.username }}</span>
-          <div class="avatar">{{ initial }}</div>
+          <div class="yc-user">
+            <div class="avatar">{{ initial }}</div>
+            <div class="yc-user-txt">
+              <b>{{ auth.user?.name || auth.user?.username }}</b>
+              <small>{{ roleLabel }}</small>
+            </div>
+          </div>
           <button class="link-btn" @click="logout">退出</button>
         </div>
       </header>
+
+      <!-- 二级页签：文字对齐参考系统，跳转与下拉子项全部取自本地真实路由 -->
+      <div class="yc-tabs">
+        <div v-for="t in quickTabs" :key="t.label" class="yc-tab-wrap">
+          <router-link :to="t.to" class="yc-tab" :class="{ on: isTabOn(t) }" @click="openTab = ''">
+            <span v-if="t.dot" class="yc-dot"></span>{{ t.label }}
+            <span v-if="tabBadge(t)" class="yc-badge">{{ tabBadge(t) }}</span>
+          </router-link>
+          <button class="yc-tab-caret" type="button" :aria-label="`${t.label} 子菜单`" @click.stop="toggleTab(t.label)">▾</button>
+          <div v-if="openTab === t.label" class="yc-tab-menu">
+            <router-link v-for="c in tabChildren(t)" :key="c.to" :to="c.to" @click="openTab = ''">{{ c.label }}</router-link>
+            <span v-if="!tabChildren(t).length" class="yc-tab-empty">该模块暂无授权子页面</span>
+          </div>
+        </div>
+      </div>
 
       <section class="erp-content">
         <router-view />
@@ -88,8 +113,13 @@ import { auth, clearAuth, ROLE_LABELS } from '../store/auth';
 import { api } from '../api';
 import { myRoles, permState } from '../store/permissions';
 import { theme, toggleTheme } from '../store/theme';
+import { brandLogoMode } from '../store/appearance';
 import AssistantWidget from '../components/AssistantWidget.vue';
 import { canVisit } from '../store/navigation';
+// 品牌素材（Vite 打包后自动带 hash；放在 src 下才能被实时镜像同步到局域网 Vite）
+import logoDark from '../assets/brand/jump-color-dark.png';
+import logoLight from '../assets/brand/jump-color-light.png';
+import logoFestive from '../assets/brand/jump-color-festive.png';
 
 
 const route = useRoute();
@@ -334,6 +364,12 @@ const navOpen = ref(false); // 移动端抽屉开关
 const openMap = reactive({});
 const appearanceOpen=ref(false);
 const navPalettePresets = [
+  // 「跳色蓝」是参考截图的亮蓝侧栏，作为默认项；深色显示模式下自动切深蓝。
+  // 侧栏皮肤只读这里的 --nav-* 变量，不再写死颜色，外观设置每个预设都能即时生效。
+  // id 沿用 yichuang 只是内部标识，避免已保存过该设置的浏览器丢失选择。
+  { id: 'yichuang', label: '跳色蓝', bg: '#1668f0', accent: '#0f57d8' },
+  // 「跳色彩色」为节日/自定义皮肤配色，搭配「彩色·节日」品牌图标使用。
+  { id: 'festive', label: '跳色彩色', bg: '#233a6b', accent: '#ff4d8d' },
   {id:'pearl',label:'雾白',bg:'#f9fbfb',accent:'#1d7066'},
   { id: 'navy', label: '海军蓝', bg: '#10203f', accent: '#2b6de5' },
   { id: 'graphite', label: '石墨灰', bg: '#272d38', accent: '#5388f4' },
@@ -341,24 +377,42 @@ const navPalettePresets = [
   { id: 'violet', label: '暮紫', bg: '#302341', accent: '#8a67e8' },
   { id: 'ocean', label: '深海蓝', bg: '#17364b', accent: '#28a3c7' }
 ];
-const savedNavPalette = localStorage.getItem('erp_nav_palette') || 'pearl';
-const navPaletteId = ref(navPalettePresets.some((preset) => preset.id === savedNavPalette) || savedNavPalette === 'custom' ? savedNavPalette : 'pearl');
+const savedNavPalette = localStorage.getItem('erp_nav_palette') || 'yichuang';
+const navPaletteId = ref(navPalettePresets.some((preset) => preset.id === savedNavPalette) || savedNavPalette === 'custom' ? savedNavPalette : 'yichuang');
 const customNavColor = ref(localStorage.getItem('erp_nav_custom_color') || '#26394b');
+
+/** 背景亮度（0-255），用于判断侧栏该用黑色还是白色 Logo */
+function lightness(bg) {
+  const rgb = String(bg).match(/[\da-f]{2}/gi)?.slice(0, 3).map((part) => parseInt(part, 16)) || [16, 32, 63];
+  return (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
+}
 
 const navPaletteStyle = computed(() => {
   const preset = navPalettePresets.find((item) => item.id === navPaletteId.value);
-  const bg = navPaletteId.value==='pearl' ? (theme.mode==='dark'?'#151e26':'#f9fbfb') : navPaletteId.value === 'custom' ? customNavColor.value : (preset?.bg || '#f9fbfb');
-  const rgb = bg.match(/[\da-f]{2}/gi)?.slice(0, 3).map((part) => parseInt(part, 16)) || [16, 32, 63];
-  const light = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000 > 155;
+  let bg;
+  if (navPaletteId.value === 'custom') bg = customNavColor.value;
+  else if (navPaletteId.value === 'pearl') bg = theme.mode === 'dark' ? '#151e26' : '#f9fbfb';
+  else if (navPaletteId.value === 'yichuang') bg = theme.mode === 'dark' ? '#16386b' : '#1668f0';
+  else bg = preset?.bg || '#f9fbfb';
+  const light = lightness(bg) > 155;
+  const accent = navPaletteId.value === 'yichuang' && theme.mode === 'dark'
+    ? '#2f6fd0'
+    : (preset?.accent || '#315ee8');
   return {
     '--nav-bg': bg,
     '--nav-ink': light ? '#182230' : '#f8fbff',
     '--nav-text': light ? '#40516a' : '#c9d6ee',
     '--nav-muted': light ? '#65758c' : '#9aacc8',
-    '--nav-accent': preset?.accent || '#315ee8',
+    '--nav-accent': accent,
     '--nav-accent-ink': '#ffffff',
-    '--nav-hover': light ? 'rgba(20, 35, 61, .08)' : 'rgba(255, 255, 255, .08)'
+    '--nav-hover': light ? 'rgba(20, 35, 61, .08)' : 'rgba(255, 255, 255, .10)'
   };
+});
+// 浅色侧栏用黑色 Logo，深色侧栏用白色 Logo；「彩色·节日」优先。
+const navIsLight = computed(() => lightness(navPaletteStyle.value['--nav-bg']) > 155);
+const brandLogo = computed(() => {
+  if (brandLogoMode.value === 'festive') return logoFestive;
+  return navIsLight.value ? logoDark : logoLight;
 });
 function selectNavPalette(id) {
   navPaletteId.value = id;
@@ -379,6 +433,45 @@ watch(() => route.path, (p) => { openGroupForPath(p); navOpen.value = false; });
 
 function toggle(key) { openMap[key] = !openMap[key]; }
 
+/**
+ * 参考系统的二级页签。
+ * 文案与顺序对齐截图，但 to 一律指向本地真实路由；下拉子项直接复用
+ * navModel 的分组（经 visibleChildren 做权限过滤），不新增死链、不丢入口。
+ * 多个页签指向同一路由时只高亮第一个，避免整排同时亮起。
+ */
+const quickTabs = [
+  { label: '首页', to: '/dashboard' },
+  { label: '生产订单', to: '/orders', group: 'prod' },
+  { label: '采购列表', to: '/purchases', group: 'purchase' },
+  { label: '打版流程', to: '/pattern-board', group: 'tech' },
+  { label: '现货开单', to: '/spot-ops', group: 'stock' },
+  { label: '开销售单', to: '/orders', group: 'sales' },
+  { label: '开发管理', to: '/development', group: 'tech' },
+  { label: '样衣管理', to: '/sample-archive', group: 'tech', dot: true, badgeFrom: '/sample-archive' },
+  { label: '业务订单', to: '/orders', group: 'sales' }
+];
+const openTab = ref('');
+function toggleTab(label) { openTab.value = openTab.value === label ? '' : label; }
+function tabChildren(t) {
+  const group = navModel.find((i) => i.key === t.group);
+  return group ? visibleChildren(group) : [];
+}
+function tabBadge(t) { return t.badgeFrom ? (reviewCount(t.badgeFrom) || 0) : 0; }
+function isTabOn(t) {
+  const p = route.path;
+  if (p !== t.to && !p.startsWith(t.to + '/')) return false;
+  return quickTabs.find((x) => x.to === t.to) === t;
+}
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen?.();
+  else document.documentElement.requestFullscreen?.();
+}
+
+/** 面包屑中间级：按当前路径归属的菜单分组显示，不写死「样衣」。 */
+const sectionTitle = computed(() => {
+  const hit = navModel.find((i) => i.children && i.children.some((c) => route.path.startsWith(String(c.to).split('?')[0])));
+  return hit?.label || '工作空间';
+});
 const pageTitle = computed(() => route.meta.title || '工作台');
 const roleLabel = computed(() => permState.positionName || ROLE_LABELS[auth.user?.role] || auth.user?.role || '');
 const initial = computed(() => {

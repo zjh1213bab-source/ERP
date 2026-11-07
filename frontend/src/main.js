@@ -6,6 +6,7 @@ import './assets/main.css';
 import './assets/erp.css';
 import './assets/workspace.css';
 import './assets/yichuang-theme.css';
+import './assets/yichuang-shell.css';
 import './store/theme';
 import { openImage } from './store/viewer';
 
