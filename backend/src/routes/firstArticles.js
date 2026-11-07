@@ -77,10 +77,17 @@ function orderQty(orderId) {
 }
 
 /** 当前冻结版：该订单最新一张已确认技术版 */
-function frozenTechpack(orderId) {
+function frozenTechpack(orderId,itemId) {
+  if(itemId){const T=require('../services/orderTechnicalPacks'),rows=T.items(orderId),item=rows.find(i=>i.id===Number(itemId));const p=item&&T.packForItem(orderId,item,rows);return p?.status==='confirmed'?p:null;}
   return db.prepare(
     "SELECT * FROM tech_packs WHERE order_id = ? AND status = 'confirmed' ORDER BY id DESC LIMIT 1"
   ).get(orderId);
+}
+
+function currentForFa(fa){
+ const tp=db.prepare('SELECT * FROM tech_packs WHERE id=?').get(fa.tech_pack_id);
+ const T=require('../services/orderTechnicalPacks'),rows=T.items(fa.order_id),item=tp&&T.itemForPack(tp,rows);
+ return item?frozenTechpack(fa.order_id,item.id):(rows.length<=1?frozenTechpack(fa.order_id):null);
 }
 
 /** 首件是否已失效：引用的技术版不是当前冻结版（改版了） */
@@ -89,7 +96,8 @@ function staleOf(fa) {
   const tp = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(fa.tech_pack_id);
   if (!tp) return { stale: 1, reason: '引用的技术版已被删除' };
   if (tp.status !== 'confirmed') return { stale: 1, reason: `引用的技术版 ${tp.version} 当前不是确认状态` };
-  const cur = frozenTechpack(fa.order_id);
+  const cur = currentForFa(fa);
+  if(!cur)return {stale:1,reason:'首件无法关联当前款式的有效冻结版，请逐款核对'};
   if (cur && cur.id !== fa.tech_pack_id) {
     return { stale: 1, reason: `订单已改版到 ${cur.version}（技术版 #${cur.id}），本首件是按 ${fa.tech_pack_version || '旧版'} 做的，必须按新版重做` };
   }
@@ -101,6 +109,18 @@ function staleOf(fa) {
  * 供报工（reports.js）与前端调用
  */
 function faGate(orderId) {
+  const T=require('../services/orderTechnicalPacks'),styles=T.items(orderId);
+  if(styles.length>1){
+    const released=[];
+    for(const style of styles){
+      const tp=T.packForItem(orderId,style,styles);
+      const rows=tp?db.prepare("SELECT * FROM first_articles WHERE order_id=? AND tech_pack_id=? AND status IN ('passed','conditional') ORDER BY id DESC").all(orderId,tp.id):[];
+      const valid=rows.find(f=>int(f.release_qty)>0&&!staleOf(f).stale);
+      if(!valid)return {ok:false,reason:`款「${style.style_no||style.product_name}」尚无当前冻结版的有效放行首件，请逐款检验`};
+      released.push(valid);
+    }
+    return {ok:true,fa:released[0],first_articles:released,reason:null};
+  }
   const rows = db.prepare(
     "SELECT * FROM first_articles WHERE order_id = ? AND status IN ('passed','conditional') ORDER BY id DESC"
   ).all(orderId);
@@ -145,7 +165,7 @@ function view(fa) {
   const checks = checkList(fa.id);
   const s = staleOf(fa);
   const tp = fa.tech_pack_id ? db.prepare('SELECT id, version, status, product_name FROM tech_packs WHERE id = ?').get(fa.tech_pack_id) : null;
-  const cur = frozenTechpack(fa.order_id);
+  const cur = currentForFa(fa);
   const sizeN = checks.filter((c) => c.kind === 'size').length;
   const craftN = checks.filter((c) => c.kind === 'craft').length;
   const done = checks.filter((c) => c.result).length;
@@ -313,6 +333,7 @@ router.get('/board', authRequired, wrap(async (req, res) => {
      LEFT JOIN commitments c ON c.order_id = o.id
      WHERE o.status IN ('assigned','production','instock')
         OR (o.status = 'draft' AND c.review_status = 'approved')
+        OR EXISTS (SELECT 1 FROM first_articles history WHERE history.order_id=o.id)
      ORDER BY o.id DESC`
   ).all();
 
@@ -392,18 +413,23 @@ router.get('/order/:orderId', authRequired, wrap(async (req, res) => {
   const orderId = Number(req.params.orderId);
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   if (!order) return fail(res, 404, '订单不存在');
-  const fa = db.prepare('SELECT * FROM first_articles WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(orderId);
-  const tp = frozenTechpack(orderId);
+  const styles=require('../services/orderTechnicalPacks').items(orderId);
+  const selected=req.query.order_item_id?styles.find(i=>i.id===Number(req.query.order_item_id)):styles[0];
+  if(req.query.order_item_id&&!selected)return fail(res,400,'款式不属于该订单');
+  const tp = frozenTechpack(orderId,selected?.id);
+  const fa = tp?db.prepare('SELECT * FROM first_articles WHERE order_id=? AND tech_pack_id=? ORDER BY id DESC LIMIT 1').get(orderId,tp.id):null;
   const gate = faGate(orderId);
   return ok(res, {
     fa: fa ? detail(fa.id) : null,
+    order_items:styles.map(i=>({id:i.id,style_no:i.style_no,product_name:i.product_name,qty:i.qty})),
+    selected_item_id:selected?.id||null,
     order: { id: order.id, order_no: order.order_no, style_no: order.style_name, type: order.type, status: order.status },
     tech_pack: tp ? { id: tp.id, version: tp.version, product_name: tp.product_name } : null,
     workstations: wsList(orderId),
     gate: { released: gate.ok, reason: gate.reason },
     template: {
       fa_type: 'full',
-      batch_qty: orderQty(orderId),
+      batch_qty: selected?.qty||orderQty(orderId),
       sample_size: null,
       status: 'draft',
       status_label: STATUS.draft
@@ -425,11 +451,16 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   if (!order) return fail(res, 404, '订单不存在');
 
-  const tp = frozenTechpack(orderId);
+  const styles=require('../services/orderTechnicalPacks').items(orderId);
+  const item=b.order_item_id?styles.find(i=>i.id===Number(b.order_item_id)):(styles.length===1?styles[0]:null);
+  if(styles.length>1&&!item)return fail(res,400,'多款订单请明确选择首件检验款式');
+  if(b.order_item_id&&!item)return fail(res,400,'款式不属于该订单');
+  if(item&&b.batch_qty!==undefined&&(!Number.isSafeInteger(Number(b.batch_qty))||Number(b.batch_qty)<=0||Number(b.batch_qty)>Number(item.qty)))return fail(res,400,'首件批量必须为正整数，且不能超过当前款式订单数量');
+  const tp = frozenTechpack(orderId,item?.id);
   if (!tp) {
     return fail(res, 400, '这单还没有已确认的技术版，不能做首件。首件是按冻结版核验，请先让总部技术把开发单确认后再来');
   }
-  const open = db.prepare("SELECT * FROM first_articles WHERE order_id = ? AND status IN ('draft','submitted')").get(orderId);
+  const open = db.prepare("SELECT * FROM first_articles WHERE order_id = ? AND tech_pack_id=? AND status IN ('draft','submitted')").get(orderId,tp.id);
   if (open) return fail(res, 400, `这单已有进行中的首件单 ${open.fa_no}（${STATUS[open.status]}），请先把这张处理完`);
 
   const cut = db.prepare('SELECT * FROM cut_orders WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(orderId);
@@ -441,7 +472,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   ).run(
     nextFaNo(), orderId, order.order_no, order.style_name || null, cut ? cut.id : null,
     tp.id, tp.version, b.fa_type === 'simple' ? 'simple' : 'full',
-    int(b.batch_qty) || orderQty(orderId), b.sample_bundle_no || null, b.sample_size || null,
+      int(b.batch_qty) || item?.qty || orderQty(orderId), b.sample_bundle_no || null, b.sample_size || null,
     b.scope || null, b.remark || null, req.user.username, t, t
   );
   return ok(res, detail(Number(info.lastInsertRowid)));
@@ -712,7 +743,7 @@ router.post('/:id/reopen', authRequired, requireRole(WRITE), wrap(async (req, re
 router.post('/:id/refresh-version', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const fa = db.prepare('SELECT * FROM first_articles WHERE id = ?').get(req.params.id);
   if (!fa) return fail(res, 404, '首件单不存在');
-  const tp = frozenTechpack(fa.order_id);
+  const tp = currentForFa(fa);
   if (!tp) return fail(res, 400, '这单没有已确认的技术版，无法指向新版');
   if (tp.id === fa.tech_pack_id) return fail(res, 400, '首件已经指向当前冻结版，不需要刷新');
 

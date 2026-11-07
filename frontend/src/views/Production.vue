@@ -1,5 +1,6 @@
 <template>
-  <div>
+  <OperationWorkbench v-if="route.query.station" :station="String(route.query.station)"/>
+  <div v-else>
     <div class="page-head">
       <div>
         <h2>生产管理</h2>
@@ -25,7 +26,7 @@
       <div v-for="o in filtered" :key="o.id" class="dev-card" style="cursor: pointer" @click="open(o)">
         <div class="dev-body">
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px">
-            <strong class="nowrap-ellipsis" style="color: #16233b; min-width: 0">{{ o.order_no }}</strong>
+            <strong class="nowrap-ellipsis" style="color: var(--ink); min-width: 0">{{ o.order_no }}</strong>
             <span class="tag" :class="statusTag(o.status)" style="flex: none; white-space: nowrap">{{ statusLabel(o.status) }}</span>
           </div>
           <div class="dev-sub" style="margin-top: 6px">{{ o.style_name || '-' }}</div>
@@ -51,11 +52,12 @@
 </template>
 
 <script setup>
+import OperationWorkbench from '../components/OperationWorkbench.vue';
 import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { api } from '../api';
 
-const router = useRouter();
+const router = useRouter(),route=useRoute();
 const list = ref([]);
 const tab = ref('all');
 

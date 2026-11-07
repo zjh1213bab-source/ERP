@@ -257,12 +257,12 @@ onMounted(load);
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .cards.c4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 .stat-card.danger { border-color: #f5c2c7; background: #fff8f8; }
-.stat-card .foot { font-size: 11px; line-height: 1.45; }
+.stat-card .foot { font-size: 12px; line-height: 1.45; }
 
 .rule-block { margin-bottom: 18px; }
 /* 日志表：标签不许折行；「表.字段」里的长字段串要在格子里断，不能撑宽整张表 */
 .log-tbl .tag { white-space: nowrap; }
-.log-tbl td:nth-child(4) { max-width: 190px; overflow-wrap: anywhere; font-size: 11.5px; }
+.log-tbl td:nth-child(4) { max-width: 190px; overflow-wrap: anywhere; font-size: 12px; }
 .log-tbl td:nth-child(8) { min-width: 220px; }
 .log-tbl td { vertical-align: middle; }
 .rule-block table.data td { vertical-align: middle; }
@@ -270,9 +270,9 @@ onMounted(load);
 .keep-box, .log-box { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 /* 44px 的输入框扣掉默认 padding 只剩 22px，数字会被裁成半个字符 */
 .keep-box .input { padding: 3px 4px; text-align: center; }
-.lock { font-size: 10.5px; color: #b45309; background: #fff7e6; border-radius: 4px; padding: 1px 4px; }
-.rb-title { font-size: 13px; font-weight: 700; color: #16233b; margin: 0 0 6px; }
-.mut { color: #8a94a6; font-size: 11.6px; line-height: 1.5; }
+.lock { font-size: 12px; color: #b45309; background: #fff7e6; border-radius: 4px; padding: 1px 4px; }
+.rb-title { font-size: 13px; font-weight: 700; color: var(--ink); margin: 0 0 6px; }
+.mut { color: var(--ink-mute); font-size: 12px; line-height: 1.5; }
 .warn-box { background: #fffaf0; border: 1px solid #f2dfae; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: #7a6420; line-height: 1.7; margin-bottom: 14px; }
 
 .reveal-form { background: #f8fafd; border: 1px solid #e6ebf3; border-radius: 10px; padding: 14px; }

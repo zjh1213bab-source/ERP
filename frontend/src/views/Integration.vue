@@ -52,7 +52,7 @@
     <!-- ==================== 接入点 ==================== -->
     <template v-if="tab === 'endpoints'">
       <div class="toolbar" style="margin-bottom: 12px">
-        <button v-if="canWrite" class="btn btn-primary" @click="openEndpoint()">＋ 新增接入点</button>
+        <button  v-if="canWrite" class="btn btn-primary" @click="openEndpoint()">＋ 新增接入点</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
         每个接入点独立 API Key 与限流；外部调用 <code>POST /api/integration/ingest/&lt;code&gt;</code> 时必须带
@@ -73,7 +73,7 @@
               <td class="num">{{ r.calls_24h }}<span v-if="r.errors_24h" class="muted"> / 失败 {{ r.errors_24h }}</span></td>
               <td class="nowrap"><span class="tag" :class="r.status === 'active' ? 'green' : 'gray'">{{ r.status_label }}</span></td>
               <td v-if="canWrite" class="nowrap">
-                <button class="link-btn" @click="openEndpoint(r)">编辑</button>
+                <button v-action="['integration','edit']"  class="link-btn" @click="openEndpoint(r)">编辑</button>
                 <button class="link-btn" @click="doRotate(r)">重置密钥</button>
               </td>
             </tr>
@@ -82,7 +82,7 @@
         </table>
       </div>
 
-      <div v-if="epModal" class="modal-mask" @click.self="epModal = false">
+      <div v-if="epModal" class="modal-mask">
         <div class="modal wide">
           <div class="modal-head"><h3>{{ epForm.id ? '编辑接入点' : '新增接入点' }}</h3><button class="link-btn" @click="epModal = false">关闭</button></div>
           <div class="modal-body">
@@ -202,7 +202,7 @@
               <td v-if="canWrite" class="nowrap">
                 <button v-if="!r.pending_correction" class="link-btn" @click="openCorrect(r)">校正</button>
                 <button v-if="r.pending_correction" class="link-btn" @click="doApproveCorrect(r)">批准</button>
-                <button v-if="r.pending_correction" class="link-btn danger" @click="doRejectCorrect(r)">驳回</button>
+                <button v-action="['integration','reject']" v-if="r.pending_correction" class="link-btn danger" @click="doRejectCorrect(r)">驳回</button>
               </td>
             </tr>
             <tr v-if="!shipments.length"><td :colspan="canWrite ? 8 : 7" class="empty-cell">暂无物流事件</td></tr>
@@ -210,7 +210,7 @@
         </table>
       </div>
 
-      <div v-if="corModal" class="modal-mask" @click.self="corModal = false">
+      <div v-if="corModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>人工校正物流事件</h3><button class="link-btn" @click="corModal = false">关闭</button></div>
           <div class="modal-body">

@@ -1,5 +1,5 @@
 <template>
-  <div v-if="modelValue" class="modal-mask" @click.self="close">
+  <div v-if="modelValue" class="modal-mask">
     <div class="modal trc-modal">
       <div class="modal-head">
         <h3>订单号反查</h3>
@@ -238,7 +238,7 @@ onBeforeUnmount(() => clearTimeout(timer));
 
 .trc-intro {
   font-size: 12px; line-height: 1.75; color: #4a5a72;
-  background: #f7f9fd; border: 1px solid #e6ecf5; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid #e6ecf5; border-radius: 8px;
   padding: 9px 12px; margin-bottom: 14px;
 }
 
@@ -248,38 +248,38 @@ onBeforeUnmount(() => clearTimeout(timer));
 }
 .trc-flag.ok { background: #eaf8f0; border: 1px solid #bfe8d2; color: #15803d; }
 .trc-flag.warn { background: #fff6e6; border: 1px solid #fadfae; color: #b45309; }
-.trc-flag.miss { background: #f4f6fa; border: 1px solid #e3e8f0; color: #475569; }
+.trc-flag.miss { background: var(--bg); border: 1px solid var(--line); color: var(--ink-soft); }
 .trc-dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; display: inline-block; }
 .trc-no { font-size: 13.5px; font-weight: 700; }
 
 .trc-grid {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 18px;
-  font-size: 12.5px; padding: 12px 14px; background: #fbfcfe;
-  border: 1px solid #eef2f7; border-radius: 8px; margin-bottom: 12px;
+  font-size: 12.5px; padding: 12px 14px; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px;
 }
 .trc-grid > div { display: flex; gap: 8px; align-items: baseline; }
-.trc-grid label { color: #8a94a6; min-width: 56px; }
-.trc-grid span { color: #16233b; }
+.trc-grid label { color: var(--ink-mute); min-width: 56px; }
+.trc-grid span { color: var(--ink); }
 
 .trc-tbl { width: 100%; margin-bottom: 4px; }
 .trc-tbl td { font-size: 12.5px; }
-.trc-samples { color: #4a5a72; font-size: 11.5px; }
+.trc-samples { color: #4a5a72; font-size: 12px; }
 
 .trc-box { font-size: 12.5px; line-height: 1.8; padding: 11px 13px; border-radius: 8px; }
 .trc-box.warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; margin-bottom: 12px; }
 
 .trc-mut { font-size: 12.5px; color: #7b8698; line-height: 1.8; padding: 6px 0; }
-.trc-sub { font-size: 11.5px; color: #8a94a6; margin-top: 6px; line-height: 1.7; }
+.trc-sub { font-size: 12px; color: var(--ink-mute); margin-top: 6px; line-height: 1.7; }
 .trc-sub2 { font-size: 12.5px; color: #33425c; margin: 10px 0 8px; }
 
 .trc-sim { display: flex; flex-direction: column; gap: 6px; }
 .trc-sim-item {
   display: flex; align-items: baseline; gap: 10px;
   padding: 9px 12px; border: 1px solid #e6ecf5; border-radius: 8px;
-  background: #fbfcfe; cursor: pointer; text-decoration: none;
+  background: var(--surface-2); cursor: pointer; text-decoration: none;
 }
 .trc-sim-item:hover { border-color: #b9cdf5; background: #f4f8ff; }
-.trc-sim-item b { color: #2563eb; font-size: 13px; }
-.trc-sim-meta { font-size: 11.5px; color: #8a94a6; }
+.trc-sim-item b { color: var(--brand); font-size: 13px; }
+.trc-sim-meta { font-size: 12px; color: var(--ink-mute); }
 
 </style>

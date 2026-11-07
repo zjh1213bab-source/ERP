@@ -13,7 +13,7 @@
       <div class="head-ops">
         <input v-model="period" type="month" style="width:140px" @change="reloadAll" />
         <button class="btn btn-ghost" @click="reloadAll">刷新</button>
-        <button class="btn btn-ghost" @click="exportCsv">导出 CSV</button>
+        <button v-action="['segments','export']" class="btn btn-ghost" @click="exportCsv">导出 CSV</button>
         <button v-if="canWrite" class="btn btn-primary" @click="doReport">出报告</button>
       </div>
     </div>
@@ -179,7 +179,7 @@
               <td class="num tiny" :class="{ red: a.amount < 0 }">{{ money(a.amount) }}</td>
               <td class="tiny wrap">{{ a.note }}</td>
               <td class="tiny muted">{{ a.created_by }} · {{ String(a.created_at).slice(0, 10) }}</td>
-              <td v-if="canWrite"><button class="btn btn-ghost btn-sm" @click="delAdj(a)">删除</button></td>
+              <td v-if="canWrite"><button v-action="['segments','delete']" class="btn btn-ghost btn-sm" @click="delAdj(a)">删除</button></td>
             </tr>
             <tr v-if="!adjustments.length"><td :colspan="canWrite ? 6 : 5" class="empty-cell">本期没有调整，账载净利 = 可比净利</td></tr>
           </tbody>
@@ -226,7 +226,7 @@
     </div>
 
     <!-- ==================== 下钻 ==================== -->
-    <div v-if="drill.open" class="modal-mask" @click.self="drill.open = false">
+    <div v-if="drill.open" class="modal-mask">
       <div class="modal xxwide">
         <div class="modal-head">
           <h3>{{ drillData.company && drillData.company.short_name }} · {{ period }}</h3>
@@ -303,7 +303,7 @@
     </div>
 
     <!-- ==================== 调整弹窗 ==================== -->
-    <div v-if="adj.open" class="modal-mask" @click.self="adj.open = false">
+    <div v-if="adj.open" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>登记可比口径调整</h3>
@@ -337,7 +337,7 @@
     </div>
 
     <!-- ==================== 报告快照查看 ==================== -->
-    <div v-if="snap.open" class="modal-mask" @click.self="snap.open = false">
+    <div v-if="snap.open" class="modal-mask">
       <div class="modal xxwide">
         <div class="modal-head">
           <h3>{{ snap.data && snap.data.report_no }} · {{ snap.data && snap.data.period }}（{{ snap.data && snap.data.status === 'confirmed' ? '已确认·冻结' : '草稿' }}）</h3>
@@ -509,27 +509,27 @@ onMounted(reloadAll);
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 20px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.15; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-warn { border-color: #f7d9a8; background: #fffaf1; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
 table.data th, table.data td { white-space: nowrap; }
 table.data td.wrap { white-space: normal; }
-table.data tfoot .foot td { background: #f7f9fd; font-weight: 700; border-top: 2px solid #e6ebf3; }
+table.data tfoot .foot td { background: var(--surface-2); font-weight: 700; border-top: 2px solid #e6ebf3; }
 
 .tag { white-space: nowrap; margin: 0 4px 3px 0; }
 table.data td.wrap .tag { display: inline-block; }
-.rank { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: #eaf1ff; color: #2563eb; font-weight: 700; font-size: 11px; }
+.rank { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: #eaf1ff; color: var(--brand); font-weight: 700; font-size: 12px; }
 .sec-title { font-size: 14px; color: #16305f; margin: 20px 0 10px; }
 .green { color: #16a34a; }
 .ops { white-space: nowrap; }
 
 .dgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.dgrid div { background: #f7f9fd; border: 1px solid #eef2f7; border-radius: 8px; padding: 8px 10px; }
-.dgrid span { display: block; font-size: 11.5px; color: #8a94a6; }
+.dgrid div { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.dgrid span { display: block; font-size: 12px; color: var(--ink-mute); }
 .dgrid b { display: block; font-size: 15px; color: #16305f; margin-top: 3px; }
 
 @media (max-width: 900px) {

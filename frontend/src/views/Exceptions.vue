@@ -178,7 +178,7 @@
     </div>
 
     <!-- 详情 / 处理 -->
-    <div class="modal-mask" v-if="detail" @click.self="closeDetail">
+    <div class="modal-mask" v-if="detail">
       <div class="modal wide">
         <div class="m-head">
           <div>
@@ -298,7 +298,7 @@
     </div>
 
     <!-- 规则与阈值 -->
-    <div class="modal-mask" v-if="rulesOpen" @click.self="rulesOpen = false">
+    <div class="modal-mask" v-if="rulesOpen">
       <div class="modal wide">
         <div class="m-head">
           <div>
@@ -571,14 +571,14 @@ onMounted(load);
 </script>
 
 <style scoped>
-.stamp { font-size: 12px; color: #8a94a6; margin-right: 8px; }
+.stamp { font-size: 12px; color: var(--ink-mute); margin-right: 8px; }
 .cards.cat { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .cards.cat .stat-card { cursor: pointer; }
 .stat-card.danger { border-color: #f5c2c7; background: #fff8f8; }
-.ttl { font-weight: 600; color: #16233b; cursor: pointer; }
-.ttl:hover { color: #2563eb; }
-.mut { color: #8a94a6; font-size: 11.8px; line-height: 1.5; }
-.muted { color: #8a94a6; font-size: 12px; }
+.ttl { font-weight: 600; color: var(--ink); cursor: pointer; }
+.ttl:hover { color: var(--brand); }
+.mut { color: var(--ink-mute); font-size: 12px; line-height: 1.5; }
+.muted { color: var(--ink-mute); font-size: 12px; }
 .ops { white-space: nowrap; }
 .ops .btn + .btn { margin-left: 8px; }
 
@@ -588,12 +588,12 @@ onMounted(load);
 
 .report .rep-note { background: #f5f8fd; border-left: 3px solid #2b6de5; padding: 10px 14px; font-size: 12.5px; color: #4a5875; margin-bottom: 14px; border-radius: 6px; }
 .rep-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-.rep-col { border: 1px solid #eef2f7; border-radius: 10px; padding: 12px 14px; }
-.rep-h { font-size: 13px; font-weight: 700; color: #16233b; margin-bottom: 8px; }
-.rep-h b { color: #2563eb; }
-.rep-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px dashed #eef2f7; cursor: pointer; }
+.rep-col { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.rep-h { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+.rep-h b { color: var(--brand); }
+.rep-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px dashed var(--line); cursor: pointer; }
 .rep-row:last-child { border-bottom: none; }
-.rep-row:hover .rep-t { color: #2563eb; }
+.rep-row:hover .rep-t { color: var(--brand); }
 .rep-t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rep-owner { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .rep-owner .rep-h { margin: 0 6px 0 0; }
@@ -604,25 +604,25 @@ onMounted(load);
 .m-body { max-height: 68vh; overflow-y: auto; }
 .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; font-size: 12.8px; margin-bottom: 12px; }
 .kv > div { display: flex; gap: 8px; }
-.kv span { color: #8a94a6; min-width: 62px; }
-.kv b { font-weight: 600; color: #16233b; }
+.kv span { color: var(--ink-mute); min-width: 62px; }
+.kv b { font-weight: 600; color: var(--ink); }
 .desc { background: #f8fafd; border-radius: 8px; padding: 10px 12px; font-size: 13px; color: #3d4a63; margin-bottom: 12px; }
 .warn-box { background: #fff5f5; border: 1px solid #f8d7da; border-radius: 8px; padding: 10px 12px; font-size: 12.6px; color: #a32035; margin-bottom: 12px; }
 .done-box { background: #f4fbf6; border: 1px solid #cfe9d8; border-radius: 8px; padding: 10px 12px; font-size: 12.8px; margin-bottom: 12px; }
 .done-box > div { display: flex; gap: 10px; padding: 3px 0; }
-.done-box span:first-child { color: #6b7688; min-width: 52px; }
+.done-box span:first-child { color: var(--ink-soft); min-width: 52px; }
 .act-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .form-box { background: #f8fafd; border: 1px solid #e6ebf3; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-.form-box .lbl { font-size: 12px; color: #6b7688; margin: 6px 0 4px; }
+.form-box .lbl { font-size: 12px; color: var(--ink-soft); margin: 6px 0 4px; }
 .form-box .input, .form-box .select { width: 100%; }
 .form-foot { margin-top: 8px; display: flex; gap: 8px; }
-.acts { border-top: 1px solid #eef2f7; padding-top: 10px; }
-.acts-h { font-size: 12.5px; font-weight: 700; color: #16233b; margin-bottom: 6px; }
+.acts { border-top: 1px solid var(--line); padding-top: 10px; }
+.acts-h { font-size: 12.5px; font-weight: 700; color: var(--ink); margin-bottom: 6px; }
 .act-row { display: flex; gap: 10px; align-items: baseline; font-size: 12.3px; padding: 4px 0; border-bottom: 1px dashed #f0f3f8; }
 .act-t { color: #9aa4b5; width: 118px; flex: none; }
 .act-o { color: #4a5875; width: 76px; flex: none; }
 .act-r { color: #3d4a63; flex: 1; }
-a { color: #2563eb; }
+a { color: var(--brand); }
 
 /* 窄屏：标题与按钮要换行，否则「重新扫描」会被挤出屏幕右边缘；
    tabs 不许把「已关闭」拆成两行 */

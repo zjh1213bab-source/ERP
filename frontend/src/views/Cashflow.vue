@@ -262,23 +262,23 @@ onMounted(load);
 
 <style scoped>
 .cards.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.stat-card .foot { margin-top: 8px; font-size: 11.5px; color: #8a94a6; }
-.stat-card.danger { border-color: #f6c9d0; background: #fffafb; }
-.stat-card.warn { border-color: #f3ddb5; background: #fffdf7; }
+.stat-card .foot { margin-top: 8px; font-size: 12px; color: var(--ink-mute); }
+.stat-card.danger { border-color: #f6c9d0; background: color-mix(in srgb, var(--danger) 6%, var(--surface)); }
+.stat-card.warn { border-color: #f3ddb5; background: color-mix(in srgb, var(--warning) 6%, var(--surface)); }
 .cards.c5 .stat-card .value { font-size: 22px; }
 
 .banner { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; font-size: 13px; line-height: 1.7; border: 1px solid transparent; }
-.banner.warn { background: #fff8ec; border-color: #f3ddb5; color: #8a5a12; }
+.banner.warn { background: color-mix(in srgb, var(--warning) 8%, var(--surface)); border-color: #f3ddb5; color: var(--warning); }
 
 .data td.num, .data th.num { white-space: nowrap; }
 .data .tag { white-space: nowrap; }
 .nowrap { white-space: nowrap; }
-.row-cur td { background: #f6f9ff; }
-.row-neg td { background: #fffafa; }
+.row-cur td { background: var(--brand-soft); }
+.row-neg td { background: color-mix(in srgb, var(--danger) 6%, var(--surface)); }
 .row-open td { border-bottom: none; }
-.detail-row > td { background: #fafbfd; padding: 12px 14px 16px; }
+.detail-row > td { background: var(--surface-2); padding: 12px 14px 16px; }
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-.detail-grid h4 { margin: 0 0 8px; font-size: 12.5px; color: #16233b; }
+.detail-grid h4 { margin: 0 0 8px; font-size: 12.5px; color: var(--ink); }
 /* 第 1 周动辄 40 笔明细，不限高会把整页撑到 4000px，后面的周全被挤下去 */
 .scroll-box { max-height: 320px; overflow-y: auto; }
 

@@ -12,7 +12,7 @@
       <div class="head-ops">
         <button class="btn btn-ghost" @click="reload">刷新</button>
         <button class="btn btn-ghost" :disabled="busy" @click="doVerify">校验链</button>
-        <button class="btn btn-ghost" :disabled="busy || !total" @click="doExport">导出 CSV</button>
+        <button v-action="['audit','export']" class="btn btn-ghost" :disabled="busy || !total" @click="doExport">导出 CSV</button>
         <button v-if="isAdmin" class="btn" :disabled="busy" @click="doArchive">归档</button>
       </div>
     </div>
@@ -173,7 +173,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { globalPageSize } from '../composables/useListPagination';
 import { api, downloadFile } from '../api';
 import { can } from '../store/permissions';
 
@@ -184,7 +185,8 @@ const rows = ref([]);
 const total = ref(0);
 const page = ref(1);
 const pages = ref(1);
-const pageSize = 50;
+const pageSize = globalPageSize;
+watch(pageSize, () => { search(); });
 const stats = ref({});
 const chain = ref(null);
 const archives = ref([]);
@@ -210,7 +212,7 @@ function rangeParams() {
 }
 
 async function loadList() {
-  const d = await api.auditLogs({ ...rangeParams(), page: page.value, pageSize });
+  const d = await api.auditLogs({ ...rangeParams(), page: page.value, pageSize: pageSize.value });
   rows.value = d.rows || [];
   total.value = d.total || 0;
   pages.value = d.pages || 1;
@@ -326,7 +328,7 @@ onMounted(reload);
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  color: #6b7688;
+  color: var(--ink-soft);
 }
 .flt .input,
 .flt .select {

@@ -241,7 +241,7 @@
     </div>
 
     <!-- ============ 生成评价 ============ -->
-    <div v-if="collectOpen" class="modal-mask" @click.self="collectOpen = false">
+    <div v-if="collectOpen" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>生成供应商评价</h3>
@@ -281,7 +281,7 @@
     </div>
 
     <!-- ============ 落供货资格 ============ -->
-    <div v-if="decideRow" class="modal-mask" @click.self="decideRow = null">
+    <div v-if="decideRow" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>落供货资格 · {{ decideRow.name }}</h3>
@@ -328,7 +328,7 @@
     </div>
 
     <!-- ============ 评价明细 ============ -->
-    <div v-if="detail" class="modal-mask" @click.self="detail = null">
+    <div v-if="detail" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>{{ detail.supplier.name }} · 评价明细</h3>
@@ -402,7 +402,7 @@
     </div>
 
     <!-- ============ 提交整改 ============ -->
-    <div v-if="rectSub" class="modal-mask" @click.self="rectSub = null">
+    <div v-if="rectSub" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>提交整改 · {{ rectSub.rect_no }}</h3><button class="x" @click="rectSub = null">×</button></div>
         <div class="modal-body">
@@ -418,7 +418,7 @@
     </div>
 
     <!-- ============ 验证整改 ============ -->
-    <div v-if="rectVer" class="modal-mask" @click.self="rectVer = null">
+    <div v-if="rectVer" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>验证整改 · {{ rectVer.rect_no }}</h3><button class="x" @click="rectVer = null">×</button></div>
         <div class="modal-body">
@@ -437,7 +437,7 @@
     </div>
 
     <!-- ============ 登记备用产能 ============ -->
-    <div v-if="bakForm" class="modal-mask" @click.self="bakForm = null">
+    <div v-if="bakForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>{{ bakForm.id ? '编辑' : '登记' }}备用产能</h3><button class="x" @click="bakForm = null">×</button></div>
         <div class="modal-body">
@@ -468,7 +468,7 @@
     </div>
 
     <!-- ============ 备用三项验证 ============ -->
-    <div v-if="bakVer" class="modal-mask" @click.self="bakVer = null">
+    <div v-if="bakVer" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>三项验证 · {{ bakVer.supplier_name }}</h3><button class="x" @click="bakVer = null">×</button></div>
         <div class="modal-body">
@@ -750,44 +750,44 @@ onMounted(() => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a !important; }
 .amt-red { color: #d92d45 !important; }
 .amt-orange { color: #d97706 !important; }
-.amt-blue { color: #2b6de5 !important; }
+.amt-blue { color: var(--brand) !important; }
 @media (max-width: 1280px) { .stat-row { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 760px) { .stat-row { grid-template-columns: repeat(2, 1fr); } }
 .eval-tbl { min-width: 1080px; }
 .row-suspend { background: #fff7f8; }
 .center { text-align: center; }
 .num { text-align: right; }
-.rank { display: inline-block; min-width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 11px; background: #eaf1ff; color: #2563eb; font-weight: 700; font-size: 12px; }
+.rank { display: inline-block; min-width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 11px; background: #eaf1ff; color: var(--brand); font-weight: 700; font-size: 12px; }
 .na { color: #b6bfcc; }
-.sup-name { font-weight: 600; color: #16233b; }
-.tiny { font-size: 11.5px; color: #8a94a6; line-height: 1.5; }
-.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
-.score { margin-left: 6px; font-weight: 700; color: #16233b; }
+.sup-name { font-weight: 600; color: var(--ink); }
+.tiny { font-size: 12px; color: var(--ink-mute); line-height: 1.5; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.score { margin-left: 6px; font-weight: 700; color: var(--ink); }
 .warn { color: #d92d45; }
 .ops { white-space: nowrap; }
 .wrap { white-space: normal !important; line-height: 1.55; }
-.rule-note { margin: 10px 0 0; font-size: 11.5px; color: #8a94a6; line-height: 1.6; }
-.sec-title { font-size: 12.5px; font-weight: 700; color: #16233b; margin: 4px 0 8px; }
-.mini-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px dashed #eef2f7; }
-.pill { display: inline-block; background: #f2f5fa; color: #5b6474; border-radius: 10px; padding: 1px 8px; font-size: 11.5px; margin-right: 4px; }
+.rule-note { margin: 10px 0 0; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
+.sec-title { font-size: 12.5px; font-weight: 700; color: var(--ink); margin: 4px 0 8px; }
+.mini-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.pill { display: inline-block; background: var(--bg); color: #5b6474; border-radius: 10px; padding: 1px 8px; font-size: 12px; margin-right: 4px; }
 .pill.price { background: #fff7e8; color: #a4670a; }
 .pick-box { border: 1px solid #dbe4f5; background: #f7faff; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
-.pick-title { font-size: 12px; font-weight: 700; color: #2563eb; margin-bottom: 8px; }
+.pick-title { font-size: 12px; font-weight: 700; color: var(--brand); margin-bottom: 8px; }
 .pick-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; padding: 4px 0; }
-.vchk { display: inline-block; font-size: 11px; border-radius: 9px; padding: 1px 7px; background: #f2f5fa; color: #a6b0c0; margin-right: 4px; }
+.vchk { display: inline-block; font-size: 12px; border-radius: 9px; padding: 1px 7px; background: var(--bg); color: #a6b0c0; margin-right: 4px; }
 .vchk.on { background: #e9f8ef; color: #12864a; font-weight: 600; }
 .dec-sum { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .radio-list { display: flex; flex-direction: column; gap: 8px; }
 .radio-list label { display: flex; align-items: flex-start; gap: 8px; border: 1px solid #e8edf4; border-radius: 9px; padding: 9px 11px; cursor: pointer; }
 .radio-list label.dis { opacity: .5; cursor: not-allowed; }
 .radio-list span { display: flex; flex-direction: column; gap: 2px; }
-.radio-list b { font-size: 12.5px; color: #16233b; font-weight: 600; }
-.radio-list i { font-size: 11.5px; color: #8a94a6; font-style: normal; }
+.radio-list b { font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.radio-list i { font-size: 12px; color: var(--ink-mute); font-style: normal; }
 </style>

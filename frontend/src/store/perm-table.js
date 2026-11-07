@@ -4,9 +4,10 @@
  * 真正生效的权限以 GET /api/access/me 为准（含一人多岗与用户级收回）。
  */
 
-export const ROLES = ["admin","boss","sales","tech","production","warehouse","finance","hr"];
+export const ROLES = ["employee","admin","boss","sales","tech","production","warehouse","finance","hr"];
 
 export const ROLE_LABELS = {
+  "employee": "普通员工",
   "admin": "系统管理员",
   "boss": "总经理",
   "sales": "销售跟单",
@@ -111,8 +112,8 @@ export const PERM_TABLE = {
   'skill.read': ["admin","boss","hr","production","tech"],
   'skill.write': ["admin","hr","production"],
   'skill.rule': ["admin","hr"],
-  'self.read': ["admin","boss","sales","tech","production","warehouse","finance","hr"],
-  'self.submit': ["admin","boss","sales","tech","production","warehouse","finance","hr"],
+  'self.read': ["employee","admin","boss","sales","tech","production","warehouse","finance","hr"],
+  'self.submit': ["employee","admin","boss","sales","tech","production","warehouse","finance","hr"],
   'self.manage': ["admin","hr","finance"],
   'self.bind': ["admin","hr"],
   'custprogress.read': ["admin","boss","sales","tech","production"],

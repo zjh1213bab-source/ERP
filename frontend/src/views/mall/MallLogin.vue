@@ -62,15 +62,15 @@ async function doLogin() {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
   background: linear-gradient(140deg, #12365f, #1f5fae 60%, #2f7bc9); padding: 20px;
 }
-.mll-box { width: 420px; max-width: 100%; background: #fff; border-radius: 16px; padding: 26px 26px 22px; box-shadow: 0 22px 60px rgba(8, 24, 46, 0.3); }
+.mll-box { width: 420px; max-width: 100%; background: var(--surface); border-radius: 16px; padding: 26px 26px 22px; box-shadow: 0 22px 60px rgba(8, 24, 46, 0.3); }
 .mll-brand { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 20px; }
 .mll-logo {
   width: 40px; height: 40px; border-radius: 11px; flex: none;
   background: linear-gradient(140deg, #1f5fae, #2f7bc9); color: #fff;
   display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px;
 }
-.mll-co { font-size: 16px; font-weight: 800; color: #16233b; }
-.mll-sub { font-size: 11.5px; color: #8a9ab0; margin-top: 4px; line-height: 1.6; }
+.mll-co { font-size: 16px; font-weight: 800; color: var(--ink); }
+.mll-sub { font-size: 12px; color: #8a9ab0; margin-top: 4px; line-height: 1.6; }
 .mll-label { display: block; font-size: 12.5px; font-weight: 600; color: #5b6b80; margin: 12px 0 6px; }
 .mll-input { width: 100%; box-sizing: border-box; padding: 11px 13px; border: 1px solid #d8e1ee; border-radius: 10px; font-size: 14px; }
 .mll-input:focus { outline: none; border-color: #1f5fae; box-shadow: 0 0 0 3px rgba(31, 95, 174, 0.12); }
@@ -80,7 +80,7 @@ async function doLogin() {
 }
 .mll-btn:disabled { opacity: 0.6; }
 .mll-err { color: #c0392b; font-size: 12.5px; margin: 10px 0 0; }
-.mll-tip { font-size: 11.5px; color: #8a9ab0; margin-top: 14px; line-height: 1.7; }
+.mll-tip { font-size: 12px; color: #8a9ab0; margin-top: 14px; line-height: 1.7; }
 .mll-tip code { background: #f1f5fb; padding: 1px 5px; border-radius: 4px; color: #1f5fae; }
 .mll-guest { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e8eef7; font-size: 12px; color: #8a9ab0; display: flex; justify-content: space-between; }
 .mll-guest a { color: #1f5fae; }

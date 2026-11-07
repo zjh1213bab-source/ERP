@@ -141,6 +141,8 @@ draft → tech → finance → assigned → production → instock → shipped �
 
 ## 8. 前端雷区
 
+- 全局弹窗禁止点击遮罩或空白区域关闭；使用明确的关闭／取消按钮。不要重新加回 `@click.self="close"` 等事件，避免填写内容意外丢失。
+- 工作空间外观使用 `assets/workspace.css` 的设计变量；新增业务页须适配深浅色，避免硬编码中性底色与文字色。节日背景通过右上角“外观”发布，配置与汇率分开保存，打印不显示背景；详见 `docs/APPEARANCE.md`。
 - path 首字符必须是 `/`；业务页必须挂 `children`。
 - `@click="fn"` 会把 MouseEvent 当第一参，函数有参数时必须写 `fn()`。
 - 自定义列表项别用 `.row`（全局是 flex）；`.panel-head` / `.panel-card` 不是全局样式。

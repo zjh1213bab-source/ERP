@@ -192,7 +192,7 @@
     </div>
 
     <!-- ============ 登记停机 ============ -->
-    <div v-if="dtForm" class="modal-mask" @click.self="dtForm = null">
+    <div v-if="dtForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>登记停机 / 保养</h3><button class="x" @click="dtForm = null">×</button></div>
         <div class="modal-body">
@@ -248,7 +248,7 @@
     </div>
 
     <!-- ============ 安全放行 ============ -->
-    <div v-if="safety" class="modal-mask" @click.self="safety = null">
+    <div v-if="safety" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>安全复核放行 · {{ safety.dt_no }}</h3><button class="x" @click="safety = null">×</button></div>
         <div class="modal-body">
@@ -423,15 +423,15 @@ onMounted(() => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a !important; }
 .amt-red { color: #d92d45 !important; }
 .amt-orange { color: #d97706 !important; }
-.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
-.tiny { font-size: 11.5px; color: #8a94a6; line-height: 1.5; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.tiny { font-size: 12px; color: var(--ink-mute); line-height: 1.5; }
 .warn { color: #d92d45; }
 .muted { color: #b6bfcc; }
 .ops { white-space: nowrap; }
@@ -439,17 +439,17 @@ onMounted(() => {
 .num { text-align: right; }
 .row-down { background: #fffaf2; }
 :deep(.tag) { white-space: nowrap; }
-.rule-note { margin: 10px 0 0; font-size: 11.5px; color: #8a94a6; line-height: 1.6; }
-.pill { display: inline-block; background: #f2f5fa; color: #5b6474; border-radius: 10px; padding: 1px 8px; font-size: 11.5px; margin: 2px 4px 0 0; }
+.rule-note { margin: 10px 0 0; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
+.pill { display: inline-block; background: var(--bg); color: #5b6474; border-radius: 10px; padding: 1px 8px; font-size: 12px; margin: 2px 4px 0 0; }
 .pill.price { background: #fff7e8; color: #a4670a; }
-.cap-box { background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; padding: 14px 16px; }
-.cap-title { font-size: 13px; font-weight: 700; color: #16233b; display: flex; align-items: center; gap: 8px; }
+.cap-box { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px; padding: 14px 16px; }
+.cap-title { font-size: 13px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; }
 .cap-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
-.cap-grid > div { background: #f8fafc; border: 1px solid #e8edf4; border-radius: 10px; padding: 9px 11px; }
-.cap-grid span { display: block; font-size: 11.5px; color: #7c8798; }
-.cap-grid b { font-size: 16px; color: #16233b; }
-.sec-title { font-size: 12.5px; font-weight: 700; color: #16233b; margin: 6px 0 6px; }
-.mini-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px dashed #eef2f7; }
+.cap-grid > div { background: var(--surface-2); border: 1px solid #e8edf4; border-radius: 10px; padding: 9px 11px; }
+.cap-grid span { display: block; font-size: 12px; color: #7c8798; }
+.cap-grid b { font-size: 16px; color: var(--ink); }
+.sec-title { font-size: 12.5px; font-weight: 700; color: var(--ink); margin: 6px 0 6px; }
+.mini-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
 .bar { height: 6px; background: #eef2f7; border-radius: 4px; overflow: hidden; margin-bottom: 3px; }
 .bar i { display: block; height: 100%; background: #22c55e; }
 .bar i.low { background: #f59e0b; }

@@ -112,7 +112,7 @@
     </template>
 
     <!-- 大图 -->
-    <div v-if="preview" class="mp-mask" @click.self="preview = null">
+    <div v-if="preview" class="mp-mask">
       <div class="mp-view">
         <img :src="preview.url" alt="" />
         <div class="mp-view-meta">
@@ -297,59 +297,59 @@ onMounted(async () => {
   margin: 0 auto;
   padding: 14px 14px 40px;
   min-height: 100vh;
-  background: #f2f5fa;
+  background: var(--bg);
 }
 .mp-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .mp-back {
   width: 34px; height: 34px; border-radius: 10px; border: 1px solid #dbe3ef;
-  background: #fff; font-size: 20px; line-height: 1; color: #33415a; cursor: pointer;
+  background: var(--surface); font-size: 20px; line-height: 1; color: var(--ink); cursor: pointer;
 }
 .mp-bar b { font-size: 15px; }
-.mp-no { margin-left: auto; font-size: 12px; color: #8a94a6; }
+.mp-no { margin-left: auto; font-size: 12px; color: var(--ink-mute); }
 .mp-card {
-  background: #fff; border-radius: 14px; padding: 16px 14px;
+  background: var(--surface); border-radius: 14px; padding: 16px 14px;
   border: 1px solid #e6ebf3; margin-bottom: 12px;
 }
-.mp-label { font-size: 12.5px; color: #6b7688; margin-bottom: 8px; font-weight: 600; }
+.mp-label { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 8px; font-weight: 600; }
 .mp-req {
-  margin-left: 6px; font-size: 10.5px; color: #d92d45; background: #fef5f6;
+  margin-left: 6px; font-size: 12px; color: #d92d45; background: #fef5f6;
   border: 1px solid #f3c3cb; border-radius: 20px; padding: 1px 7px; font-weight: 700;
 }
 .mp-scan { display: flex; gap: 8px; }
 .mp-input {
   flex: 1; width: 100%; border: 1px solid #d9e1ee; border-radius: 11px;
-  padding: 13px; font-size: 15px; background: #fff;
+  padding: 13px; font-size: 15px; background: var(--surface);
 }
 .mp-select { appearance: none; }
 .mp-go {
-  flex: none; width: 58px; border: none; border-radius: 11px; background: #2563eb;
-  color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
+  flex: none; width: 58px; border: none; border-radius: 11px; background: var(--brand);
+  color: var(--on-brand); font-size: 15px; font-weight: 700; cursor: pointer;
 }
-.mp-hint { font-size: 11.5px; color: #a6b0c0; margin: 8px 0 0; line-height: 1.7; }
+.mp-hint { font-size: 12px; color: #a6b0c0; margin: 8px 0 0; line-height: 1.7; }
 .mp-err {
   margin-top: 10px; font-size: 12.5px; color: #d92d45; background: #fef5f6;
   border: 1px solid #f3c3cb; border-radius: 9px; padding: 8px 11px; line-height: 1.7;
 }
 .mp-order { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.mp-style { font-size: 15px; font-weight: 700; color: #16233b; }
+.mp-style { font-size: 15px; font-weight: 700; color: var(--ink); }
 .mp-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-.mp-tag { font-size: 11px; padding: 2px 9px; border-radius: 20px; font-weight: 700; }
-.mp-tag.blue { background: #e8f0ff; color: #2563eb; }
-.mp-tag.gray { background: #eef1f6; color: #6b7688; }
-.mp-link { border: none; background: none; color: #2563eb; font-size: 12.5px; cursor: pointer; }
+.mp-tag { font-size: 12px; padding: 2px 9px; border-radius: 20px; font-weight: 700; }
+.mp-tag.blue { background: #e8f0ff; color: var(--brand); }
+.mp-tag.gray { background: #eef1f6; color: var(--ink-soft); }
+.mp-link { border: none; background: none; color: var(--brand); font-size: 12.5px; cursor: pointer; }
 .mp-cats { display: flex; flex-wrap: wrap; gap: 8px; }
 .mp-cat {
-  padding: 9px 16px; border-radius: 22px; border: 1px solid #dbe3ef; background: #fff;
+  padding: 9px 16px; border-radius: 22px; border: 1px solid #dbe3ef; background: var(--surface);
   font-size: 13.5px; color: #4a5769; cursor: pointer; min-height: 38px;
 }
-.mp-cat.on { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 700; }
+.mp-cat.on { background: var(--brand); border-color: #2563eb; color: var(--on-brand); font-weight: 700; }
 .mp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mp-shot-btn {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 16px 10px; border-radius: 13px; border: 1px solid #2563eb;
-  background: #2563eb; color: #fff; font-size: 13.5px; cursor: pointer;
+  background: var(--brand); color: var(--on-brand); font-size: 13.5px; cursor: pointer;
 }
-.mp-shot-btn.ghost { background: #fff; color: #2563eb; }
+.mp-shot-btn.ghost { background: var(--surface); color: var(--brand); }
 .mp-shot-icon { font-size: 20px; line-height: 1; }
 .mp-file { display: none; }
 .mp-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
@@ -365,17 +365,17 @@ onMounted(async () => {
 }
 .mp-thumb-kb {
   position: absolute; left: 0; bottom: 0; right: 0; text-align: center;
-  font-size: 9.5px; color: #fff; background: rgba(20, 30, 50, 0.5); padding: 1px 0;
+  font-size: 12px; color: #fff; background: rgba(20, 30, 50, 0.5); padding: 1px 0;
 }
 .mp-thumb-cat {
-  position: absolute; left: 3px; top: 3px; font-size: 9.5px; padding: 1px 6px;
-  border-radius: 20px; background: rgba(255, 255, 255, 0.92); color: #2563eb; font-weight: 700;
+  position: absolute; left: 3px; top: 3px; font-size: 12px; padding: 1px 6px;
+  border-radius: 20px; background: rgba(255, 255, 255, 0.92); color: var(--brand); font-weight: 700;
 }
 .mp-thumb-cat.defect { color: #d92d45; }
-.mp-busy { margin-top: 12px; font-size: 12.5px; color: #2563eb; }
+.mp-busy { margin-top: 12px; font-size: 12.5px; color: var(--brand); }
 .mp-submit {
   width: 100%; margin-top: 14px; padding: 15px; border: none; border-radius: 13px;
-  background: #2563eb; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer;
+  background: var(--brand); color: var(--on-brand); font-size: 16px; font-weight: 700; cursor: pointer;
 }
 .mp-submit:disabled { background: #9db8ea; }
 .mp-empty { padding: 14px 0; text-align: center; color: #a6b0c0; font-size: 12.5px; }
@@ -387,7 +387,7 @@ onMounted(async () => {
 .mp-view img { width: 100%; border-radius: 12px; display: block; background: #000; }
 .mp-view-meta { color: #dfe6f2; font-size: 12.5px; margin-top: 10px; line-height: 1.8; }
 .mp-view-note { color: #fff; font-size: 14px; margin-top: 2px; }
-.mp-view-sub { color: #93a1b8; font-size: 11.5px; }
+.mp-view-sub { color: #93a1b8; font-size: 12px; }
 .mp-view-close {
   width: 100%; margin-top: 14px; padding: 13px; border: 1px solid #48566e;
   border-radius: 12px; background: transparent; color: #dfe6f2; font-size: 14px; cursor: pointer;

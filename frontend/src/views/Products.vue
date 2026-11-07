@@ -5,7 +5,7 @@
         <h2>产品管理</h2>
         <div class="sub">款号、主图、颜色（一款多色）、尺码、单价</div>
       </div>
-      <button v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增产品</button>
+      <button v-action="['products','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增产品</button>
     </div>
 
     <div class="toolbar" style="margin-bottom: 14px">
@@ -20,6 +20,7 @@
     </div>
 
     <div class="table-wrap">
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data prod-table">
         <thead>
           <tr>
@@ -35,7 +36,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="p in list" :key="p.id">
+          <tr v-for="p in pagination.rows" :key="p.id">
             <td>
               <img v-if="p.image_url" class="thumb" :src="p.image_url" :alt="p.name" @click="openImage(p.image_url, p.name)" />
               <span v-else class="thumb ph">无图</span>
@@ -79,8 +80,8 @@
             </td>
             <td v-if="canWrite">
               <button class="link-btn" @click="openTiers(p)">阶梯价</button>
-              <button class="link-btn" @click="openEdit(p)">编辑</button>
-              <button v-if="p.status === 'active'" class="link-btn danger" @click="disable(p)">停用</button>
+              <button v-action="['products','edit']" class="link-btn" @click="openEdit(p)">编辑</button>
+              <button v-action="['products','disable']" v-if="p.status === 'active'" class="link-btn danger" @click="disable(p)">停用</button>
             </td>
           </tr>
           <tr v-if="!list.length">
@@ -88,9 +89,10 @@
           </tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
+    <div v-if="showModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>{{ form.id ? '编辑产品' : '新增产品' }}</h3>
@@ -106,7 +108,7 @@
             <div class="fitem">
               <label>状态</label>
               <select class="select" v-model="form.status">
-                <option value="active">启用</option><option value="disabled">停用</option>
+                <option :disabled="!$canAction('products','enable')" value="active">启用</option><option :disabled="!$canAction('products','disable')" value="disabled">停用</option>
               </select>
             </div>
             <div class="fitem full">
@@ -126,7 +128,7 @@
                 <div v-for="(c, i) in form.colors" :key="i" class="color-row">
                   <ImageUpload v-model="c.image_url" size="sm" :title="c.name || '颜色图'" />
                   <input class="input" v-model="c.name" :placeholder="`印花00${i + 1}`" maxlength="40" />
-                  <button class="link-btn danger" @click="form.colors.splice(i, 1)">删除</button>
+                  <button  class="link-btn danger" @click="form.colors.splice(i, 1)">删除</button>
                 </div>
                 <button class="btn btn-ghost btn-sm" @click="addColor">＋ 添加颜色</button>
                 <span class="muted tiny" v-if="form.colors.length">共 {{ form.colors.length }} 个颜色</span>
@@ -176,7 +178,7 @@
     </div>
 
     <!-- 阶梯价 -->
-    <div v-if="tierModal" class="modal-mask" @click.self="tierModal = false">
+    <div v-if="tierModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>阶梯价 · {{ tierProduct.name }}</h3>
@@ -195,7 +197,7 @@
                 <td><input class="input" type="number" min="1" v-model.number="t.min_qty" /></td>
                 <td><input class="input" type="number" min="0" v-model.number="t.max_qty" placeholder="不限" /></td>
                 <td><input class="input" type="number" step="0.01" v-model.number="t.price_usd" /></td>
-                <td><button class="link-btn danger" @click="tierRows.splice(i, 1)">删除</button></td>
+                <td><button  class="link-btn danger" @click="tierRows.splice(i, 1)">删除</button></td>
               </tr>
               <tr v-if="!tierRows.length">
                 <td colspan="4" class="empty-cell">还没有阶梯，点下方「添加一档」</td>
@@ -215,6 +217,8 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -398,35 +402,37 @@ onMounted(() => {
   load();
   loadTiers();
 });
+
+const pagination = useListPagination(() => list.value);
 </script>
 
 <style scoped>
 /* 列表里的图片位：固定 40px，避免高矮不一把行撑歪 */
 .thumb {
   width: 40px; height: 40px; border-radius: 6px; object-fit: cover;
-  border: 1px solid #e2e8f0; display: block; cursor: zoom-in; background: #f7f9fc;
+  border: 1px solid var(--line); display: block; cursor: zoom-in; background: var(--surface-2);
 }
 .thumb.ph {
   display: flex; align-items: center; justify-content: center;
-  font-size: 10px; color: #a9b4c5; cursor: default; border-style: dashed;
+  font-size: 12px; color: var(--ink-mute); cursor: default; border-style: dashed;
 }
-.sub-line { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
-.tiny { font-size: 11.5px; }
+.sub-line { font-size: 12px; color: var(--ink-mute); margin-top: 2px; }
+.tiny { font-size: 12px; }
 
 /* 颜色 / 尺码小标签 */
 .chip {
   display: inline-flex; align-items: center; gap: 3px;
   padding: 1px 7px; margin: 0 4px 4px 0; border-radius: 10px;
-  background: #eef3fb; color: #2b4a7d; font-size: 11.5px; line-height: 18px;
+  background: #eef3fb; color: #2b4a7d; font-size: 12px; line-height: 18px;
   border: 1px solid #dbe6f7; white-space: nowrap;
 }
 .chip.clickable { cursor: zoom-in; }
 .chip.pic::before {
-  content: ''; width: 6px; height: 6px; border-radius: 50%; background: #2b6de5; display: inline-block;
+  content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); display: inline-block;
 }
-.chip.size { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+.chip.size { background: #f1f5f9; color: var(--ink-soft); border-color: var(--line); }
 .chip .x {
-  cursor: pointer; color: #94a3b8; font-weight: 400; margin-left: 2px;
+  cursor: pointer; color: var(--ink-mute); font-weight: 400; margin-left: 2px;
 }
 .chip .x:hover { color: #dc2626; }
 
@@ -447,7 +453,7 @@ onMounted(() => {
 .color-readonly { display: flex; flex-direction: column; gap: 6px; }
 .qsize {
   border: 1px solid #dbe6f7; background: #f7faff; color: #2b4a7d;
-  border-radius: 10px; padding: 1px 9px; font-size: 11.5px; cursor: pointer;
+  border-radius: 10px; padding: 1px 9px; font-size: 12px; cursor: pointer;
 }
-.qsize:hover { border-color: #2b6de5; color: #2b6de5; }
+.qsize:hover { border-color: #2b6de5; color: var(--brand); }
 </style>

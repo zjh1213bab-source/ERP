@@ -168,7 +168,7 @@
     </template>
 
     <!-- ================= 新建评估 ================= -->
-    <div class="modal-mask" v-if="newForm.open" @click.self="newForm.open = false">
+    <div class="modal-mask" v-if="newForm.open">
       <div class="modal">
         <div class="modal-head"><b>新建一轮评估</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="newForm.open = false">关闭</button>
@@ -206,7 +206,7 @@
     </div>
 
     <!-- ================= 人工判定 ================= -->
-    <div class="modal-mask" v-if="mf.open" @click.self="mf.open = false">
+    <div class="modal-mask" v-if="mf.open">
       <div class="modal wide">
         <div class="modal-head"><b>判定 · {{ mf.item ? mf.item.title : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="mf.open = false">关闭</button>
@@ -252,7 +252,7 @@
     </div>
 
     <!-- ================= 签署 ================= -->
-    <div class="modal-mask" v-if="sf.open" @click.self="sf.open = false">
+    <div class="modal-mask" v-if="sf.open">
       <div class="modal">
         <div class="modal-head"><b>签署 · {{ cur ? cur.round_no : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="sf.open = false">关闭</button>
@@ -288,7 +288,7 @@
     </div>
 
     <!-- ================= 撤回 ================= -->
-    <div class="modal-mask" v-if="wf.open" @click.self="wf.open = false">
+    <div class="modal-mask" v-if="wf.open">
       <div class="modal">
         <div class="modal-head"><b>撤回已签署的结论</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="wf.open = false">关闭</button>
@@ -482,56 +482,56 @@ onMounted(async () => {
 .empty-box { padding: 34px 22px; text-align: center; color: #5b6b80; font-size: 13px; line-height: 1.9; }
 
 .verdict { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-  border-radius: 14px; padding: 14px 18px; margin-bottom: 18px; border: 1px solid #e6ebf3; background: #fff; }
+  border-radius: 14px; padding: 14px 18px; margin-bottom: 18px; border: 1px solid #e6ebf3; background: var(--surface); }
 .verdict.ok { background: #f0faf3; border-color: #cdebd8; }
 .verdict.bad { background: #fdf3f4; border-color: #f7d3d7; }
-.verdict.idle { background: #f7f9fd; border-color: #e2e9f5; }
+.verdict.idle { background: var(--surface-2); border-color: #e2e9f5; }
 .verdict.mute { background: #f6f7f9; border-color: #e6e9ef; }
 .v-left { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
 .v-badge { background: #16233b; color: #fff; border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .verdict.ok .v-badge { background: #16a34a; }
 .verdict.bad .v-badge { background: #d92d45; }
-.v-title { font-size: 14px; color: #16233b; line-height: 1.6; }
+.v-title { font-size: 14px; color: var(--ink); line-height: 1.6; }
 .v-note { font-size: 12.5px; color: #5b6b80; margin-top: 5px; line-height: 1.7; max-width: 900px; }
 .v-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 .cards.c6 { grid-template-columns: repeat(6, 1fr); }
 .stat-card .value.sm { font-size: 15px; line-height: 1.5; padding-top: 6px; }
 /* 六列时每张只有 190px 左右，说明文字不控行高会挤成三四行 */
-.stat-card .foot { font-size: 11px; line-height: 1.65; margin-top: 6px; color: #95a0b3; }
+.stat-card .foot { font-size: 12px; line-height: 1.65; margin-top: 6px; color: #95a0b3; }
 
-.blocker-box { background: #fff; border: 1px solid #f7d3d7; border-radius: 14px; padding: 14px 18px; margin-bottom: 18px; }
+.blocker-box { background: var(--surface); border: 1px solid #f7d3d7; border-radius: 14px; padding: 14px 18px; margin-bottom: 18px; }
 .bb-head { font-size: 13px; font-weight: 700; color: #d92d45; margin-bottom: 10px; }
 .bb-row { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; padding: 5px 0; border-top: 1px dashed #f4e3e5; flex-wrap: wrap; }
 .bb-row:first-of-type { border-top: none; }
 
 .panel-card h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
-.sec-note { font-size: 11.5px; color: #95a0b3; font-weight: 400; }
-.sec-meta { font-size: 12px; color: #6b7688; white-space: nowrap; }
+.sec-note { font-size: 12px; color: #95a0b3; font-weight: 400; }
+.sec-meta { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
 
 .item-list { display: flex; flex-direction: column; }
 .item { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
   padding: 12px 0; border-top: 1px solid #f0f4f9; }
 .item:first-child { border-top: none; }
-.item.st-fail { background: linear-gradient(90deg, #fdf6f6 0%, #fff 60%); margin: 0 -10px; padding-left: 10px; padding-right: 10px; border-radius: 8px; }
+.item.st-fail { background: linear-gradient(90deg, #fdf6f6 0%, var(--surface) 60%); margin: 0 -10px; padding-left: 10px; padding-right: 10px; border-radius: 8px; }
 .i-main { min-width: 0; flex: 1; }
 .i-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.i-name { font-size: 13.5px; color: #16233b; }
+.i-name { font-size: 13.5px; color: var(--ink); }
 .i-detail { font-size: 12px; color: #7d8798; line-height: 1.75; margin-top: 5px; }
 .i-result { font-size: 12.5px; color: #33425c; line-height: 1.75; margin-top: 6px;
-  background: #f7f9fd; border-radius: 7px; padding: 6px 9px; word-break: break-word; }
+  background: var(--surface-2); border-radius: 7px; padding: 6px 9px; word-break: break-word; }
 .i-result.amber-t { background: #fffaf0; color: #92400e; }
 .i-evidence { font-size: 12px; color: #5b6b80; line-height: 1.75; margin-top: 5px; word-break: break-word; }
-.ev-label { display: inline-block; font-size: 10.5px; background: #eef3fa; color: #1f5fae; border-radius: 4px;
+.ev-label { display: inline-block; font-size: 12px; background: #eef3fa; color: #1f5fae; border-radius: 4px;
   padding: 1px 6px; margin-right: 6px; vertical-align: 1px; }
-.i-how { font-size: 11px; color: #9aa5b6; line-height: 1.7; margin-top: 5px; }
+.i-how { font-size: 12px; color: #9aa5b6; line-height: 1.7; margin-top: 5px; }
 .i-who { margin-top: 4px; }
 .i-ops { display: flex; align-items: center; gap: 6px; flex: none; padding-top: 2px; }
 .auto-hint { white-space: nowrap; }
 
 .mf-detail { font-size: 12.5px; color: #5b6b80; line-height: 1.8; margin: 10px 0 6px;
-  background: #f7f9fd; border-radius: 8px; padding: 10px 12px; }
+  background: var(--surface-2); border-radius: 8px; padding: 10px 12px; }
 .mf-how { font-size: 12px; color: #7d8798; line-height: 1.75; margin-bottom: 12px; }
 .sign-block { background: #fdf3f4; border: 1px solid #f7d3d7; border-radius: 8px;
   padding: 10px 12px; font-size: 12.5px; color: #a3283a; line-height: 1.8; margin: 10px 0; }
@@ -539,12 +539,12 @@ onMounted(async () => {
 
 .snap-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 18px; font-size: 12.5px; margin-bottom: 12px; }
 .snap-grid > div { display: flex; gap: 8px; align-items: baseline; }
-.hint-box { background: #f7f9fd; border-left: 3px solid #c9d8ef; border-radius: 6px;
+.hint-box { background: var(--surface-2); border-left: 3px solid #c9d8ef; border-radius: 6px;
   padding: 10px 12px; font-size: 12px; color: #5b6b80; line-height: 1.8; }
 
 .row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .row label { font-size: 12.5px; color: #5b6b80; white-space: nowrap; }
-.notice { background: #f7f9fd; border-radius: 8px; padding: 10px 12px; font-size: 12.5px;
+.notice { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 12.5px;
   color: #33425c; line-height: 1.8; margin-bottom: 12px; }
 
 @media (max-width: 1180px) {

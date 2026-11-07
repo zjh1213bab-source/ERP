@@ -10,6 +10,7 @@
       </div>
       <div class="head-ops">
         <span class="tag" :class="ov.bound ? 'green' : 'orange'">{{ ov.bound ? (ov.me && ov.me.name) : '未绑定员工档案' }}</span>
+        <router-link v-if="ov.bound" class="btn btn-primary" to="/m/report">扫码计件报工</router-link>
         <button class="btn btn-ghost" @click="reload">刷新</button>
       </div>
     </div>
@@ -295,7 +296,7 @@
               <td>
                 <template v-if="['submitted', 'reviewing'].includes(r.status)">
                   <button class="btn btn-sm btn-ghost" @click="openReview(r, true)">批准</button>
-                  <button class="btn btn-sm btn-ghost" @click="openReview(r, false)">驳回</button>
+                  <button  class="btn btn-sm btn-ghost" @click="openReview(r, false)">驳回</button>
                 </template>
                 <span v-else class="mut tiny">{{ r.decided_by || '—' }}</span>
               </td>
@@ -621,12 +622,12 @@ onMounted(reload);
 .panel-head .tabs button { flex: 0 0 auto; white-space: nowrap; }
 .panel .tag { white-space: nowrap; }
 
-.card-note { background: #f8fafc; border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+.card-note { background: var(--surface-2); border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
 .cards.c4 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card, .cards.c4 .stat-card { min-height: 104px; padding: 14px 12px; }
 .cards.c6 .stat-card .value, .cards.c4 .stat-card .value { font-size: 22px; margin-top: 6px; }
-.cards .stat-card .foot { font-size: 11px; line-height: 1.45; }
+.cards .stat-card .foot { font-size: 12px; line-height: 1.45; }
 
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
@@ -635,8 +636,8 @@ onMounted(reload);
 
 table.kv { width: 100%; font-size: 12.5px; }
 table.kv td { padding: 5px 6px; border-bottom: 1px dashed #eef1f6; vertical-align: top; }
-table.kv td:first-child { width: 110px; color: #64748b; }
-table.kv.two-col td:first-child, table.kv.two-col td:nth-child(3) { width: 96px; color: #64748b; }
+table.kv td:first-child { width: 110px; color: var(--ink-soft); }
+table.kv.two-col td:first-child, table.kv.two-col td:nth-child(3) { width: 96px; color: var(--ink-soft); }
 
 .detail { border: 1px solid #e6ebf3; border-radius: 10px; padding: 12px 14px; margin-top: 12px; background: #fcfdff; }
 .detail-h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
@@ -646,14 +647,14 @@ table.kv.two-col td:first-child, table.kv.two-col td:nth-child(3) { width: 96px;
 .form-box { border: 1px solid #e6ebf3; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; background: #fcfdff; }
 .form-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
 .form-box .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-.form-box .row label { font-size: 12px; color: #64748b; min-width: 52px; }
+.form-box .row label { font-size: 12px; color: var(--ink-soft); min-width: 52px; }
 .form-box .row .input { flex: 1; min-width: 100px; }
 .form-foot { display: flex; gap: 8px; justify-content: flex-end; }
 
 .notice { border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
 .notice.warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
 .notice p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.6; }
-.hint { font-size: 11.5px; color: #64748b; background: #f8fafc; border-radius: 6px; padding: 7px 9px; margin: 6px 0; }
+.hint { font-size: 12px; color: var(--ink-soft); background: var(--surface-2); border-radius: 6px; padding: 7px 9px; margin: 6px 0; }
 .red { color: #b91c1c; }
 
 @media (max-width: 620px) {

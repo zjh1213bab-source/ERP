@@ -108,22 +108,15 @@ function countWhere(t, where) {
 /** 引用探测：谁在引用这张表（逻辑外键，靠列名猜） */
 const refCache = new Map();
 function refsOf(t) {
-  if (refCache.has(t)) return refCache.get(t);
-  const sing = t.replace(/ies$/, 'y').replace(/s$/, '');
-  const patterns = [`${t}_id`, `${sing}_id`];
-  const out = [];
-  TABLES().forEach((child) => {
-    if (child === t) return;
-    const names = cols(child).map((c) => c.name);
-    names.forEach((c) => {
-      if (patterns.includes(c)) {
-        const n = countWhere(child, `${c} IS NOT NULL`);
-        if (n) out.push({ child, col: c, rows: n });
-      }
-    });
-  });
-  refCache.set(t, out);
-  return out;
+  // 缓存关系定义，不缓存当时行数；测试中途还会新增子行。
+  if(!refCache.has(t)){
+    const sing=t.replace(/ies$/, 'y').replace(/s$/, ''),patterns=[`${t}_id`,`${sing}_id`],out=[];
+    TABLES().forEach(child=>{if(child===t)return;for(const c of cols(child).map(c=>c.name))if(patterns.includes(c))out.push({child,col:c});});
+    // item_id / flow_id 这类通用列名不能猜，使用与孤儿审计相同的显式关系。
+    for(const [child,col,parent]of PARENT_PAIRS)if(parent===t&&cols(child).some(c=>c.name===col)&&!out.some(r=>r.child===child&&r.col===col))out.push({child,col});
+    refCache.set(t,out);
+  }
+  return refCache.get(t).map(r=>({...r,rows:countWhere(r.child,`${r.col} IS NOT NULL`)}));
 }
 
 /* ============================================================
@@ -516,6 +509,22 @@ function clean(opts = {}) {
  * 猜错了会删掉别人的明细。宁可少覆盖，不要错删。
  */
 const PARENT_PAIRS = [
+  ['order_entry_drafts','user_id','users'],
+  ['order_entry_drafts','company_id','companies'],
+  ['order_entry_drafts','order_id','orders'],
+  ['pre_order_items','sample_archive_id','sample_archives'],
+  ['tech_packs','source_archive_id','sample_archives'],
+  ['sample_seals','order_item_id','order_items'],
+  ['sample_seals','archive_id','sample_archives'],
+  ['delivery_changes','source_change_id','order_changes'],
+  ['tech_packs','order_item_id','order_items'],
+  ['tech_packs','pre_order_item_id','pre_order_items'],
+  ['material_dev_requests','pre_order_item_id','pre_order_items'],
+  ['orders', 'source_pre_order_id', 'pre_orders'],
+  ['order_items', 'source_pre_order_item_id', 'pre_order_items'],
+  ['pre_order_items', 'pre_order_id', 'pre_orders'],
+  ['pre_order_events', 'pre_order_id', 'pre_orders'],
+  ['material_changes', 'material_id', 'materials'],
   ['order_items', 'order_id', 'orders'],
   ['order_item_sizes', 'item_id', 'order_items'],
   ['mall_inquiry_items', 'inquiry_id', 'mall_inquiries'],

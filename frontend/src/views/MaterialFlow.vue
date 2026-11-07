@@ -245,7 +245,7 @@
     </div>
 
     <!-- ==================== 新建备料单 ==================== -->
-    <div v-if="newIssue.open" class="modal-mask" @click.self="newIssue.open = false">
+    <div v-if="newIssue.open" class="modal-mask">
       <div class="modal xwide">
         <h3>新建备料单</h3>
         <div class="fgrid">
@@ -351,7 +351,7 @@
     </div>
 
     <!-- ==================== 领料单详情 ==================== -->
-    <div v-if="detail.open" class="modal-mask" @click.self="detail.open = false">
+    <div v-if="detail.open" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           {{ detail.data.issue_no }}
@@ -460,7 +460,7 @@
     </div>
 
     <!-- ==================== 发料 ==================== -->
-    <div v-if="out.open" class="modal-mask" @click.self="out.open = false">
+    <div v-if="out.open" class="modal-mask">
       <div class="modal xwide">
         <h3>发料出库</h3>
         <div class="help-inline">
@@ -491,7 +491,7 @@
     </div>
 
     <!-- ==================== 退料弹窗 ==================== -->
-    <div v-if="ret.open" class="modal-mask" @click.self="ret.open = false">
+    <div v-if="ret.open" class="modal-mask">
       <div class="modal wide">
         <h3>新建退料</h3>
         <div class="fgrid">
@@ -538,7 +538,7 @@
     </div>
 
     <!-- ==================== 盘点详情 ==================== -->
-    <div v-if="take.open" class="modal-mask" @click.self="take.open = false">
+    <div v-if="take.open" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           {{ take.data.take_no }}
@@ -615,7 +615,7 @@
     </div>
 
     <!-- ==================== 流水弹窗 ==================== -->
-    <div v-if="ledger.open" class="modal-mask" @click.self="ledger.open = false">
+    <div v-if="ledger.open" class="modal-mask">
       <div class="modal wide">
         <h3>{{ ledger.material ? ledger.material.name : '原料流水' }} <span class="tiny muted">每一条增减的来路</span></h3>
         <div class="table-wrap" style="max-height: 420px">
@@ -1080,13 +1080,13 @@ onMounted(async () => {
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
 /* 本页弹窗用「标题 + 内容 + 底部操作」的简结构，补上内边距与底栏（全局 .modal 本身不带 padding） */
 .modal { padding: 18px 20px; }
-.modal > h3 { margin: 0 0 12px; font-size: 16px; color: #16233b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.modal-ops { display: flex; align-items: center; gap: 8px; padding-top: 13px; margin-top: 14px; border-top: 1px solid #eef2f7; flex-wrap: wrap; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.modal > h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.modal-ops { display: flex; align-items: center; gap: 8px; padding-top: 13px; margin-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
 .stat strong.sm { font-size: 15px; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-warn { border-color: #f7d9a8; background: #fffaf1; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
@@ -1096,15 +1096,15 @@ onMounted(async () => {
 
 .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .grow { flex: 1; }
-.inp { padding: 5px 8px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; }
+.inp { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; }
 .chk { display: flex; align-items: center; gap: 5px; }
 .chk input { width: auto; }
 
 table.data th, table.data td { white-space: nowrap; }
 table.data td.wrap { white-space: normal; }
 table.data .mini-inp { width: 80px; min-width: 80px; box-sizing: border-box; }
-.mini-inp { width: 80px; min-width: 80px; padding: 3px 6px; border: 1px solid #dfe5ef; border-radius: 6px; font-size: 12px; text-align: right; }
-.reason-inp { width: 100%; min-width: 220px; box-sizing: border-box; padding: 4px 7px; border: 1px solid #dfe5ef; border-radius: 6px; font-size: 12px; }
+.mini-inp { width: 80px; min-width: 80px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; text-align: right; }
+.reason-inp { width: 100%; min-width: 220px; box-sizing: border-box; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
 .ops { white-space: nowrap; }
 .empty { text-align: center; color: #9aa4b5; padding: 22px 0 !important; font-size: 12.5px; }
 .row-bad { background: #fff6f7; }
@@ -1116,11 +1116,11 @@ table.data .mini-inp { width: 80px; min-width: 80px; box-sizing: border-box; }
 .line-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px dashed #eef1f6; flex-wrap: wrap; }
 .kv { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
 .kv > div { background: #f8fafd; border-radius: 8px; padding: 7px 9px; }
-.kv span { display: block; font-size: 11px; color: #8a94a6; }
+.kv span { display: block; font-size: 12px; color: var(--ink-mute); }
 .kv b { font-size: 13px; color: #16305f; }
-.kv small { display: block; font-size: 10.5px; color: #9aa4b5; }
+.kv small { display: block; font-size: 12px; color: #9aa4b5; }
 .fl { display: block; font-size: 12px; color: #5b6474; margin: 6px 0 0; }
-.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
+.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
 .ops-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 
 @media (max-width: 900px) {

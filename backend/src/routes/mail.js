@@ -30,7 +30,7 @@ const router = express.Router();
 const EPS = 0.005;
 
 // 内部邮件对所有有效员工开放（admin 恒通过）
-const ANY = ['admin', 'sales', 'tech', 'finance', 'production', 'warehouse'];
+const ANY = ['admin', 'boss', 'employee', 'hr', 'sales', 'tech', 'finance', 'production', 'warehouse'];
 
 const TYPE_LABEL = { normal: '普通沟通', confirm: '需确认', task: '需办理' };
 const DELIVERY = { queued: '排队中', delivered: '已送达', failed: '投递失败', recalled: '已撤回' };

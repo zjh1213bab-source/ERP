@@ -110,6 +110,7 @@ function addDispatch({ orderId, factory_id = null, factory_name = '', type = '',
 
   const fac = factory_id ? db.prepare('SELECT * FROM factories WHERE id = ?').get(factory_id) : null;
   if (factory_id && !fac) throw bad('工厂不存在');
+  if (fac && String(fac.status || 'active') !== 'active') throw bad('工厂已停用，不能分配订单');
   const factoryName = fac ? fac.name : String(factory_name || '').trim();
   if (!factoryName) throw bad('请选择实际承做的工厂/车间');
 

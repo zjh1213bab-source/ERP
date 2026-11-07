@@ -146,7 +146,7 @@
     </div>
 
     <!-- ==================== 新建外发单 ==================== -->
-    <div v-if="newDoc.open" class="modal-mask" @click.self="newDoc.open = false">
+    <div v-if="newDoc.open" class="modal-mask">
       <div class="modal xxwide">
         <h3>新建裁片外发单</h3>
         <div class="fgrid">
@@ -211,7 +211,7 @@
     </div>
 
     <!-- ==================== 外发单详情 ==================== -->
-    <div v-if="detail.open" class="modal-mask" @click.self="detail.open = false">
+    <div v-if="detail.open" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           {{ detail.data.dispatch_no }}
@@ -297,7 +297,7 @@
     </div>
 
     <!-- ==================== 回货验收 ==================== -->
-    <div v-if="recv.open" class="modal-mask" @click.self="recv.open = false">
+    <div v-if="recv.open" class="modal-mask">
       <div class="modal xxwide">
         <h3>登记回货验收</h3>
         <div class="help-inline">
@@ -515,11 +515,11 @@ onMounted(reloadAll);
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
-.stat strong i { font-size: 13px; font-style: normal; color: #8a94a6; margin-left: 2px; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat strong i { font-size: 13px; font-style: normal; color: var(--ink-mute); margin-left: 2px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-warn { border-color: #f7d9a8; background: #fffaf1; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
@@ -530,11 +530,11 @@ onMounted(reloadAll);
 .sec { font-size: 13px; color: #16305f; margin: 18px 0 8px; }
 .kv { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
 .kv > div { background: #f8fafd; border-radius: 8px; padding: 7px 9px; }
-.kv span { display: block; font-size: 11px; color: #8a94a6; }
+.kv span { display: block; font-size: 12px; color: var(--ink-mute); }
 .kv b { font-size: 13px; color: #16305f; }
-.kv small { display: block; font-size: 10.5px; color: #9aa4b5; }
+.kv small { display: block; font-size: 12px; color: #9aa4b5; }
 .fl { display: block; font-size: 12px; color: #5b6474; margin: 8px 0 0; }
-.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
+.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
 
 .sug-bar { display: flex; gap: 16px; flex-wrap: wrap; background: #f8fafd; border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: #5b6474; margin: 10px 0; }
 .sug-bar b { color: #16305f; }
@@ -542,8 +542,8 @@ onMounted(reloadAll);
 table.data th, table.data td { white-space: nowrap; }
 table.data td.wrap { white-space: normal; }
 table.data .mini-inp { width: 80px; min-width: 80px; box-sizing: border-box; }
-.mini-inp { width: 80px; min-width: 80px; padding: 3px 6px; border: 1px solid #dfe5ef; border-radius: 6px; font-size: 12px; text-align: right; }
-.reason-inp { width: 100%; min-width: 170px; box-sizing: border-box; padding: 4px 7px; border: 1px solid #dfe5ef; border-radius: 6px; font-size: 12px; }
+.mini-inp { width: 80px; min-width: 80px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; text-align: right; }
+.reason-inp { width: 100%; min-width: 170px; box-sizing: border-box; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
 .ops { white-space: nowrap; }
 .empty { text-align: center; color: #9aa4b5; padding: 22px 0 !important; font-size: 12.5px; }
 .row-bad { background: #fff6f7; }
@@ -554,8 +554,8 @@ table.data .mini-inp { width: 80px; min-width: 80px; box-sizing: border-box; }
 .orange { color: #d97706; }
 
 .modal { padding: 18px 20px; }
-.modal > h3 { margin: 0 0 12px; font-size: 16px; color: #16233b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.modal-ops { display: flex; align-items: center; gap: 8px; padding-top: 13px; margin-top: 14px; border-top: 1px solid #eef2f7; flex-wrap: wrap; }
+.modal > h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.modal-ops { display: flex; align-items: center; gap: 8px; padding-top: 13px; margin-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -56,7 +56,6 @@ const CutDispatch = () => import('./views/CutDispatch.vue');
 const DevMaster = () => import('./views/DevMaster.vue');
 const SupReview = () => import('./views/SupReview.vue');
 const ImportData = () => import('./views/ImportData.vue');
-const AccessReview = () => import('./views/AccessReview.vue');
 const Backup = () => import('./views/Backup.vue');
 const Suppliers = () => import('./views/Suppliers.vue');
 const CraftTypes = () => import('./views/CraftTypes.vue');
@@ -230,7 +229,9 @@ const routes = [
       { path: 'dev-master', component: DevMaster, meta: { title: '研发立项与 SKU 配码' } },
       { path: 'sup-review', component: SupReview, meta: { title: '供方协同与技术复审' } },
       { path: 'import-data', component: ImportData, meta: { title: '真实数据导入' } },
-      { path: 'access-review', component: AccessReview, meta: { title: '权限复核' } },
+      { path: 'permission-management', component: () => import('./views/PositionPermissions.vue'), meta: { title: '权限管理' } },
+      { path: 'position-permissions', redirect: '/permission-management' },
+      { path: 'access-review', redirect: '/permission-management' },
       { path: 'backup', component: Backup, meta: { title: '备份与恢复' } },
       { path: 'mail', component: Mail, meta: { title: '内部邮件' } },
       { path: 'materials', component: Materials, meta: { title: '面辅料档案' } },
@@ -238,14 +239,15 @@ const routes = [
       { path: 'materials/:id', component: MaterialEdit, meta: { title: '编辑物料档案' } },
       { path: 'suppliers', component: Suppliers, meta: { title: '供应商档案' } },
       { path: 'craft-types', component: CraftTypes, meta: { title: '工序类别' } },
-      { path: 'order-tracking', component: OrderTracking, meta: { title: '订单跟踪' } },
+      { path: 'order-allocation', component: OrderTracking, props: { assignment: true }, meta: { title: '分配订单' } },
+      { path: 'order-tracking', component: OrderTracking, props: { assignment: false }, meta: { title: '订单跟踪' } },
       { path: 'production', component: Production, meta: { title: '生产管理' } },
       { path: 'node-flow', component: NodeFlow, meta: { title: '工序流程配置' } },
       { path: 'quality', component: Quality, meta: { title: '质量与合规' } },
       { path: 'factories', component: Factories, meta: { title: '工厂管理' } },
       { path: 'outsource-recon', component: OutsourceRecon, meta: { title: '外协对账' } },
       { path: 'inventory', component: Inventory, meta: { title: '库存管理' } },
-      { path: 'purchases', component: Purchases, meta: { title: '采购管理' } },
+      { path: 'purchases', component: Purchases, meta: { title: '采购列表' } },
       { path: 'us-ship', component: UsShip, meta: { title: '美仓发货' } },
       { path: 'reports', component: Reports, meta: { title: '报表中心' } },
       { path: 'blueprint', component: Blueprint, meta: { title: '业务蓝图' } },
@@ -253,6 +255,7 @@ const routes = [
       { path: 'users', component: Users, meta: { title: '用户与角色' } }
     ]
   },
+  { path: '/print/purchase/:id', component: () => import('./views/PurchasePrint.vue'), meta: { title: '打印采购单' } },
   { path: '/print/batch', component: PrintBatch, meta: { title: '批量打印' } },
   // 扫码直达：手机扫工单二维码 → 打开这个页面（独立布局，不套侧栏）
   { path: '/s/:code', component: ScanGo, meta: { title: '扫码结果' } },
@@ -292,6 +295,8 @@ router.beforeEach(async (to) => {
       await syncPerms();
     } catch (e) { /* 兜底 */ }
   }
+  const roles = permState.loaded ? permState.roles : [auth.user?.role];
+  if (!permState.positionDirect && roles.length && roles.every(r => r === 'employee') && !['/self','/exceptions','/scan','/assistant','/mail','/m','/m/report'].includes(to.path)) return '/self';
   return true;
 });
 

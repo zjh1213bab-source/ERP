@@ -24,6 +24,9 @@ export { ROLE_LABELS, ROLES };
 export const permState = reactive({
   loaded: false,
   perms: [],
+  positionName: '',
+  positionDirect: false,
+  positionPermissions: null,
   denied: [],
   roles: [],
   isAdmin: false,
@@ -41,6 +44,9 @@ export async function syncPerms() {
     const d = (await api.accessMe()) || {};
     permState.loaded = true;
     permState.perms = d.perms || [];
+    permState.positionPermissions = d.position_permissions ?? null;
+    permState.positionDirect = !!d.position_direct;
+    permState.positionName = d.position_name || '';
     permState.denied = d.denied || [];
     permState.roles = d.roles || [];
     permState.isAdmin = !!d.is_admin;
@@ -54,6 +60,9 @@ export async function syncPerms() {
 export function resetPerms() {
   permState.loaded = false;
   permState.perms = [];
+  permState.positionPermissions = null;
+  permState.positionDirect = false;
+  permState.positionName = '';
   permState.denied = [];
   permState.roles = [];
   permState.isAdmin = false;
@@ -80,4 +89,13 @@ export function isRevoked(perm) {
 export function myRoles() {
   if (permState.roles.length) return permState.roles;
   return auth.user ? [auth.user.role] : [];
+}
+
+/** 普通岗位的按钮权限由 /access/me 同步。旧账号继续使用原角色规则。 */
+export function canAction(module, action) {
+ if (!auth.user) return false;
+ if (auth.user.role === 'admin') return true;
+ if (!permState.loaded) return false;
+ if (permState.positionPermissions === null) return true;
+ return permState.positionPermissions.includes('action.'+module+'.'+action);
 }

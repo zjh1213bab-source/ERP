@@ -229,7 +229,7 @@ onMounted(async () => {
   max-width: 1000px;
   margin: 0 auto 12px;
   padding: 10px 14px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #e6ebf3;
   border-radius: 12px;
 }
@@ -239,7 +239,7 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  color: #6b7688;
+  color: var(--ink-soft);
 }
 .st-bar .input { width: auto; }
 .st-warn,
@@ -268,7 +268,7 @@ onMounted(async () => {
 .st-sheet {
   max-width: 1000px;
   margin: 0 auto;
-  background: #fff;
+  background: var(--surface);
   border-radius: 12px;
   padding: 24px 30px 20px;
   box-shadow: 0 2px 12px rgba(16, 32, 64, 0.06);
@@ -283,10 +283,10 @@ onMounted(async () => {
   margin: 0;
   font-size: 22px;
   letter-spacing: 6px;
-  color: #16233b;
+  color: var(--ink);
 }
 .st-sub {
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 3px;
   color: #9aa4b5;
   margin-top: 2px;
@@ -296,7 +296,7 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 20px;
   font-size: 13px;
-  color: #16233b;
+  color: var(--ink);
   margin-bottom: 14px;
 }
 .st-to div { margin-bottom: 3px; }
@@ -312,13 +312,13 @@ onMounted(async () => {
   padding: 8px 12px;
   width: 25%;
 }
-.st-sum .k { font-size: 11.5px; color: #6b7688; }
-.st-sum .v { font-size: 17px; font-weight: 700; color: #16233b; margin-top: 2px; }
+.st-sum .k { font-size: 12px; color: var(--ink-soft); }
+.st-sum .v { font-size: 17px; font-weight: 700; color: var(--ink); margin-top: 2px; }
 .st-sum .v.add { color: #1d4ed8; }
 .st-sum .v.sub { color: #15803d; }
 .st-sum td.hl { background: #f4f7ff; }
 .st-unalloc {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #92600a;
   background: #fff8e8;
   border: 1px solid #f5dfae;
@@ -338,31 +338,31 @@ onMounted(async () => {
   padding: 6px 7px;
 }
 .st-table th {
-  background: #f4f6fa;
+  background: var(--bg);
   font-weight: 700;
-  color: #16233b;
+  color: var(--ink);
 }
 .st-table .r { text-align: right; }
 .st-table .b { font-weight: 700; }
 .st-table .opening td { background: #f9fafc; }
-.st-table tfoot td { background: #f4f6fa; font-weight: 700; }
+.st-table tfoot td { background: var(--bg); font-weight: 700; }
 .st-table .empty { text-align: center; color: #9aa4b5; }
-.mono { font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .st-notes {
   margin-top: 14px;
-  font-size: 11px;
-  color: #4b5568;
+  font-size: 12px;
+  color: var(--ink-soft);
   line-height: 1.8;
 }
-.st-notes b { color: #16233b; }
+.st-notes b { color: var(--ink); }
 .st-notes ol { margin: 4px 0 0 18px; padding: 0; }
 .st-seal {
   display: flex;
   gap: 40px;
   margin-top: 20px;
 }
-.st-seal-col { flex: 1; font-size: 12px; color: #4b5568; }
-.st-seal-h { font-weight: 700; color: #16233b; margin-bottom: 6px; }
+.st-seal-col { flex: 1; font-size: 12px; color: var(--ink-soft); }
+.st-seal-h { font-weight: 700; color: var(--ink); margin-bottom: 6px; }
 .st-seal-box {
   height: 74px;
   border: 1px dashed #b9c2d0;
@@ -371,7 +371,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   color: #c3cad6;
-  font-size: 11px;
+  font-size: 12px;
   margin-bottom: 8px;
 }
 .st-seal-line { margin-bottom: 4px; }

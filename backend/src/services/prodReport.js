@@ -797,7 +797,7 @@ function overview(q = {}) {
     },
     {
       item: '工序效率（标准工时）', available: eff.total_reports - eff.reports_without_std, total: eff.total_reports, rate: eff.std_coverage,
-      note: eff.reports_without_std ? `${eff.reports_without_std} 条报工的工序没有标准工时` : null
+      note: !eff.total_reports ? '本期没有报工记录，无法计算工序效率覆盖率' : (eff.reports_without_std ? `${eff.reports_without_std} 条报工的工序没有标准工时` : null)
     },
     {
       item: '计划 vs 实际', available: pva.with_plan_total, total: pva.done_total, rate: pva.coverage,

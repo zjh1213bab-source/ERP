@@ -471,13 +471,13 @@ onMounted(load);
 .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .bar-name { width: 82px; flex: none; font-size: 12.5px; color: #5b6474; }
 .bar-track { flex: 1; background: #f0f3f8; border-radius: 4px; height: 14px; overflow: hidden; }
-.bar-fill { height: 100%; background: #2b6de5; }
+.bar-fill { height: 100%; background: var(--brand); }
 .bar-fill.warn { background: #d92d45; }
 .bar-val { width: 96px; flex: none; text-align: right; font-weight: 700; font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.bar-legend { width: 96px; flex: none; font-size: 11.5px; color: #8a94a6; }
+.bar-legend { width: 96px; flex: none; font-size: 12px; color: var(--ink-mute); }
 .alert-bar { background: #fff7e6; border: 1px solid #ffd591; color: #ad6800; border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
 .num { text-align: right; }
 .mini-track { display: inline-block; vertical-align: middle; width: 54px; height: 6px; background: #eef2f7; border-radius: 3px; overflow: hidden; margin-right: 6px; }
-.mini-fill { height: 100%; background: #2b6de5; }
+.mini-fill { height: 100%; background: var(--brand); }
 .table-wrap { overflow-x: auto; }
 </style>

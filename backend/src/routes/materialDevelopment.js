@@ -48,7 +48,10 @@ router.post('/', authRequired, requireRole(REQUEST), wrap(async (req, res) => {
   const scopedPreOrder = scope.assertRow(req.user, 'pre_orders', preOrderId, '预下单');
   if (!scopedPreOrder.ok) return fail(res, 400, '请选择系统中已录入的预下单');
   const preOrder = scopedPreOrder.row;
-  if (preOrder.status !== 'open') return fail(res, 409, '该预下单当前不可用于新品寻样');
+  if (!['open','ready'].includes(preOrder.status)) return fail(res, 409, '该预下单当前不可用于新品寻样');
+  const preItems=db.prepare('SELECT * FROM pre_order_items WHERE pre_order_id=?').all(preOrderId);
+  const preItem=preItems.find(i=>i.id===Number(b.pre_order_item_id)) || (preItems.length===1?preItems[0]:null);
+  if(preItems.length && !preItem)return fail(res,400,'多款预下单须选择具体款式');
   const type = ['fabric', 'accessory'].includes(b.material_type) ? b.material_type : '';
   if (!type || !String(b.material_name || '').trim() || !String(b.customer_requirements || '').trim()) return fail(res, 400, '面辅料类型、名称和客户要求为必填项');
   const referenceImageUrl = String(b.reference_image_url || '').trim();
@@ -56,8 +59,8 @@ router.post('/', authRequired, requireRole(REQUEST), wrap(async (req, res) => {
   const user = actor(req), ts = now();
   // 单号取「当日最大号 +1」（COUNT(*)+1 在删过记录后会撞号 → UNIQUE 报 500）
   const no = nextNo('MD', 'material_dev_requests', 'request_no');
-  const info = db.prepare(`INSERT INTO material_dev_requests(request_no,company_id,order_id,order_no,style_name,material_type,material_name,customer_requirements,requested_spec,requested_color,requester_id,requester_name,status,created_by,created_at,updated_at,pre_order_id,reference_image_url)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'search_required',?,?,?,?,?)`).run(no, preOrder.company_id || 1, 0, preOrder.pre_order_no, preOrder.style_name || '', type, String(b.material_name).trim(), String(b.customer_requirements).trim(), b.requested_spec || '', b.requested_color || '', user.id, user.name, user.id, ts, ts, preOrderId, referenceImageUrl || null);
+  const info = db.prepare(`INSERT INTO material_dev_requests(request_no,company_id,order_id,order_no,style_name,material_type,material_name,customer_requirements,requested_spec,requested_color,requester_id,requester_name,status,created_by,created_at,updated_at,pre_order_id,reference_image_url,pre_order_item_id)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'search_required',?,?,?,?,?,?)`).run(no, preOrder.company_id || 1, 0, preOrder.pre_order_no, preItem?.product_name || preOrder.style_name || '', type, String(b.material_name).trim(), String(b.customer_requirements).trim(), b.requested_spec || '', b.requested_color || '', user.id, user.name, user.id, ts, ts, preOrderId, referenceImageUrl || null,preItem?.id || null);
   event(info.lastInsertRowid, null, 'request_created', user, '业务确认订单后发起新品寻样');
   return ok(res, getRequest(info.lastInsertRowid));
 }));
@@ -128,7 +131,8 @@ router.post('/rounds/:roundId/approve', authRequired, requireRole(REVIEW), wrap(
   try {
     if (addMaterial) {
       const candidate = db.prepare('SELECT * FROM material_dev_rounds WHERE id=?').get(round.id);
-      const inserted = db.prepare(`INSERT INTO materials(type,name,spec,supplier,status,created_at,updated_at,color,remark) VALUES(?,?,?,?, 'active',?,?,?,?)`).run(round.material_type, candidate.candidate_name, candidate.candidate_spec || '', candidate.candidate_supplier || '', ts, ts, candidate.candidate_color || '', `新品开发申请 ${round.request_id} 确认可用`);
+      const supplier = candidate.candidate_supplier ? db.prepare("SELECT * FROM suppliers WHERE name=? AND status='active' ORDER BY id LIMIT 1").get(candidate.candidate_supplier) : null;
+      const inserted = db.prepare(`INSERT INTO materials(type,name,spec,supplier,supplier_id,supplier_info,status,created_at,updated_at,remark) VALUES(?,?,?,?,?,?,'active',?,?,?)`).run(round.material_type, candidate.candidate_name, candidate.candidate_spec || '', supplier?.name || null, supplier?.id || null, supplier ? [supplier.address,supplier.contact,supplier.phone].filter(Boolean).join(' / ') : null, ts, ts, `新品开发申请 ${round.request_id} 确认可用`);
       materialId = inserted.lastInsertRowid;
     }
     db.prepare("UPDATE material_dev_rounds SET decision='approved',decided_at=?,decided_by=?,decided_by_name=? WHERE id=?").run(ts, user.id, user.name, round.id);
@@ -161,17 +165,23 @@ router.post('/:id/pattern-review', authRequired, requireRole(['admin', 'tech']),
   try {
     if (approve) {
       let tp = techPackId && db.prepare('SELECT * FROM tech_packs WHERE id=?').get(techPackId);
+      if(!tp&&row.pre_order_item_id)tp=db.prepare('SELECT * FROM tech_packs WHERE pre_order_item_id=? ORDER BY id DESC LIMIT 1').get(row.pre_order_item_id);
+      if(tp){techPackId=tp.id;if(tp.source_archive_id)throw Object.assign(new Error('该款复用锁定样衣，请通过样衣变更申请调整'),{status:409});}
       if (!tp) {
         const materialSummary = [row.candidate_name, row.candidate_spec, row.candidate_color].filter(Boolean).join(' · ');
         const info = db.prepare(`INSERT INTO tech_packs(order_id,pre_order_id,product_name,version,fabric_info,accessory_info,customer_req,image_url,status,remark,created_by,created_at,updated_at)
           VALUES(?, ?, ?, 'V1', ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`).run(
-          0, row.pre_order_id, row.pre_style || row.style_name || row.material_name,
+          row.order_id || 0, row.pre_order_id, row.style_name || row.pre_style || row.material_name,
           row.material_type === 'fabric' ? materialSummary : '', row.material_type === 'accessory' ? materialSummary : '',
           row.customer_requirements, row.candidate_image_url || row.reference_image_url || null,
           `由面辅料新品开发 ${row.request_no} 审核准入`, user.id, ts, ts
         );
         techPackId = Number(info.lastInsertRowid);
-        saveMaterials(techPackId, [{
+        db.prepare('UPDATE tech_packs SET pre_order_item_id=? WHERE id=?').run(row.pre_order_item_id || null,techPackId);
+        const converted=db.prepare('SELECT converted_order_id FROM pre_orders WHERE id=?').get(row.pre_order_id);
+        if(converted?.converted_order_id)require('../services/confirmation').linkPreOrder(converted.converted_order_id,row.pre_order_id);
+      }
+        saveMaterials(techPackId, [...db.prepare('SELECT * FROM tech_pack_materials WHERE tech_pack_id=? ORDER BY sort,id').all(techPackId),{
           material_id: row.accepted_material_id || null,
           mat_type: row.material_type,
           material_name: row.candidate_name || row.material_name,
@@ -182,8 +192,7 @@ router.post('/:id/pattern-review', authRequired, requireRole(['admin', 'tech']),
           unit_price: row.candidate_price || 0,
           image_url: row.candidate_image_url || row.reference_image_url || '',
           remark: row.candidate_note || `面辅料新品开发 ${row.request_no} 已确认可用`
-        }]);
-      }
+        }],{developmentRequestId:id});
       const flow = ensureFlow(techPackId, user.id);
       flowId = Number(flow.id);
       db.prepare("UPDATE pattern_flows SET current_stage='pattern',status='running' WHERE id=?").run(flowId);

@@ -41,7 +41,7 @@ onMounted(load);
 </script>
 
 <style scoped>
-.mg-wrap { min-height: 100vh; background: #f5f7fb; }
+.mg-wrap { min-height: 100vh; background: var(--surface-2); }
 .mg-head { background: linear-gradient(90deg, #12365f, #1f5fae); color: #fff; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .mg-brand { display: flex; align-items: center; gap: 9px; font-size: 14.5px; font-weight: 700; }
 .mg-logo { width: 30px; height: 30px; border-radius: 9px; background: rgba(255, 255, 255, 0.18); display: flex; align-items: center; justify-content: center; font-weight: 800; }
@@ -50,12 +50,12 @@ onMounted(load);
 .mg-search { display: flex; gap: 8px; }
 .mg-search input { flex: 1; padding: 10px 13px; border: 1px solid #d8e1ee; border-radius: 10px; font-size: 13.5px; }
 .mg-search button { padding: 10px 16px; border: 1px solid #1f5fae; background: #1f5fae; color: #fff; border-radius: 10px; cursor: pointer; }
-.mg-tip { font-size: 11.5px; color: #8a9ab0; margin: 10px 0 14px; }
+.mg-tip { font-size: 12px; color: #8a9ab0; margin: 10px 0 14px; }
 .mg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
-.mg-card { background: #fff; border: 1px solid #e8eef7; border-radius: 12px; overflow: hidden; padding-bottom: 10px; }
+.mg-card { background: var(--surface); border: 1px solid #e8eef7; border-radius: 12px; overflow: hidden; padding-bottom: 10px; }
 .mg-cover { height: 120px; background: #eef3fa center/cover no-repeat; display: flex; align-items: center; justify-content: center; color: #b9c9dd; font-weight: 800; font-size: 20px; }
-.mg-name { padding: 9px 12px 0; font-size: 13.5px; font-weight: 700; color: #16233b; }
-.mg-sub { padding: 2px 12px 0; font-size: 11.5px; color: #8a9ab0; }
-.mg-lock { padding: 6px 12px 0; font-size: 11.5px; color: #b0894b; }
+.mg-name { padding: 9px 12px 0; font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.mg-sub { padding: 2px 12px 0; font-size: 12px; color: #8a9ab0; }
+.mg-lock { padding: 6px 12px 0; font-size: 12px; color: #b0894b; }
 .mg-empty { text-align: center; color: #9aa8bc; padding: 60px 0; font-size: 13px; }
 </style>

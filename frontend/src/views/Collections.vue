@@ -10,7 +10,7 @@
       </div>
       <div class="head-ops">
         <button class="btn btn-ghost" @click="reload">刷新</button>
-        <button class="btn btn-ghost" @click="doExport">导出 CSV</button>
+        <button v-action="['collections','export']" class="btn btn-ghost" @click="doExport">导出 CSV</button>
         <button class="btn btn-ghost" @click="openBoard">逾期台账</button>
         <button v-if="canClose" class="btn btn-primary" @click="genAll">一键生成催收单</button>
       </div>
@@ -127,7 +127,7 @@
     </div>
 
     <!-- ================= 逾期台账 ================= -->
-    <div v-if="boardOpen" class="modal-mask" @click.self="boardOpen = false">
+    <div v-if="boardOpen" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>逾期台账（还没派单的）</h3>
@@ -189,7 +189,7 @@
     </div>
 
     <!-- ================= 详情 / 跟进 ================= -->
-    <div v-if="cur" class="modal-mask" @click.self="cur = null">
+    <div v-if="cur" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>
@@ -339,7 +339,7 @@
     </div>
 
     <!-- ================= 指派 ================= -->
-    <div v-if="assignTarget" class="modal-mask" @click.self="assignTarget = null">
+    <div v-if="assignTarget" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>指派负责人</h3>
@@ -371,7 +371,7 @@
     </div>
 
     <!-- ================= 结案 ================= -->
-    <div v-if="closeTarget" class="modal-mask" @click.self="closeTarget = null">
+    <div v-if="closeTarget" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>结案</h3>
@@ -660,10 +660,10 @@ onMounted(reload);
 .tabs button {
   padding: 6px 14px;
   border: 1px solid #e2e8f2;
-  background: #fff;
+  background: var(--surface);
   border-radius: 8px;
   font-size: 12.5px;
-  color: #4b5568;
+  color: var(--ink-soft);
   cursor: pointer;
 }
 .tabs button.on {
@@ -676,7 +676,7 @@ onMounted(reload);
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  color: #4b5568;
+  color: var(--ink-soft);
 }
 .data td.num,
 .data th.num {
@@ -691,7 +691,7 @@ onMounted(reload);
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12.5px;
-  color: #33415a;
+  color: var(--ink);
 }
 /* 名字可省略，标签不能省略：用 flex + min-width:0 只压名字 */
 .cust-wrap {
@@ -747,8 +747,8 @@ onMounted(reload);
   border-radius: 4px;
 }
 .bar-line .pct {
-  font-size: 11.5px;
-  color: #6b7688;
+  font-size: 12px;
+  color: var(--ink-soft);
   flex: none;
 }
 /* 表单 */
@@ -767,13 +767,13 @@ onMounted(reload);
 }
 .fld > span {
   font-size: 12.5px;
-  color: #6b7688;
+  color: var(--ink-soft);
 }
 .form-sec {
   padding: 14px 16px;
-  border: 1px solid #eef2f7;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: #fbfcfe;
+  background: var(--surface-2);
 }
 .log-foot {
   display: flex;
@@ -797,12 +797,12 @@ onMounted(reload);
   gap: 3px;
 }
 .dgrid span {
-  font-size: 11.5px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
 }
 .dgrid b {
   font-size: 13px;
-  color: #16233b;
+  color: var(--ink);
   font-weight: 600;
 }
 .dgrid b.big {
@@ -815,7 +815,7 @@ onMounted(reload);
 .sec h4 {
   margin: 0 0 8px;
   font-size: 12.5px;
-  color: #16233b;
+  color: var(--ink);
   font-weight: 700;
 }
 /* 跟进时间线 */
@@ -848,15 +848,15 @@ onMounted(reload);
   background: #d92d45;
 }
 .tl-dot.partial {
-  background: #2563eb;
+  background: var(--brand);
 }
 .tl-body {
   flex: 1;
   min-width: 0;
   padding: 8px 12px;
   border-radius: 10px;
-  background: #fbfcfe;
-  border: 1px solid #eef2f7;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
 }
 .tl-head {
   display: flex;
@@ -871,7 +871,7 @@ onMounted(reload);
 .tl-note {
   margin-top: 5px;
   font-size: 12.5px;
-  color: #4b5568;
+  color: var(--ink-soft);
   line-height: 1.65;
 }
 .banner {

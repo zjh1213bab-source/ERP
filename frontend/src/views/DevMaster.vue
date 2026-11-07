@@ -243,7 +243,7 @@
     </div>
 
     <!-- ============ 新建立项 ============ -->
-    <div v-if="pnew.open" class="modal-mask" @click.self="pnew.open = false">
+    <div v-if="pnew.open" class="modal-mask">
       <div class="modal wide">
         <h3>新建研发立项</h3>
         <div class="fgrid">
@@ -287,7 +287,7 @@
     </div>
 
     <!-- ============ 项目详情 ============ -->
-    <div v-if="pdet.open && pdet.data" class="modal-mask" @click.self="pdet.open = false">
+    <div v-if="pdet.open && pdet.data" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           {{ pdet.data.project_no }}
@@ -391,7 +391,7 @@
     </div>
 
     <!-- ============ 新建 SKU ============ -->
-    <div v-if="snew.open" class="modal-mask" @click.self="snew.open = false">
+    <div v-if="snew.open" class="modal-mask">
       <div class="modal wide">
         <h3>新建 SKU</h3>
         <div class="fgrid">
@@ -420,7 +420,7 @@
     </div>
 
     <!-- ============ SKU 详情 ============ -->
-    <div v-if="sdet.open && sdet.data" class="modal-mask" @click.self="sdet.open = false">
+    <div v-if="sdet.open && sdet.data" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           {{ sdet.data.sku }}
@@ -535,7 +535,7 @@
     </div>
 
     <!-- ============ 任务弹窗 ============ -->
-    <div v-if="tsk.open" class="modal-mask" @click.self="tsk.open = false">
+    <div v-if="tsk.open" class="modal-mask">
       <div class="modal">
         <h3>{{ tsk.mode === 'done' ? '完成任务' : '标记阻塞' }}</h3>
         <p class="tiny muted" style="margin-bottom: 8px">{{ tsk.title }}</p>
@@ -840,10 +840,10 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-warn { border-color: #f7d9a8; background: #fffaf1; }
 
 .help-bar { background: #f6f9fe; border: 1px solid #e2ebf8; border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: #4a5568; line-height: 1.8; margin-bottom: 12px; }
@@ -853,9 +853,9 @@ onMounted(async () => {
 .sec { font-size: 13px; color: #16305f; margin: 18px 0 8px; font-weight: 700; }
 .kv { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
 .kv > div { background: #f8fafd; border-radius: 8px; padding: 7px 9px; }
-.kv span { display: block; font-size: 11px; color: #8a94a6; }
+.kv span { display: block; font-size: 12px; color: var(--ink-mute); }
 .kv b { font-size: 13px; color: #16305f; }
-.kv small { display: block; font-size: 10.5px; color: #9aa4b5; }
+.kv small { display: block; font-size: 12px; color: #9aa4b5; }
 
 .bar-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
 .bar-label { width: 84px; color: #5b6474; flex: none; }
@@ -873,14 +873,14 @@ onMounted(async () => {
 
 .ms-line { border-left: 2px solid #e6ebf3; padding-left: 12px; margin: 6px 0 4px; }
 .ms-item { display: flex; gap: 8px; margin-bottom: 10px; }
-.ms-node { width: 20px; height: 20px; border-radius: 50%; background: #eef2f8; color: #5b6474; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
+.ms-node { width: 20px; height: 20px; border-radius: 50%; background: #eef2f8; color: #5b6474; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
 .ms-node.counted { background: #7c5cff; color: #fff; }
 .ms-body b { font-size: 12.5px; color: #16305f; }
 
 .ms-form { background: #f8fafd; border-radius: 10px; padding: 10px 12px; margin: 6px 0 4px; }
 .ms-form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 6px; }
 .fl { display: block; font-size: 12px; color: #5b6474; }
-.fl input, .fl select { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
+.fl input, .fl select { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
 
 .checks { display: flex; flex-wrap: wrap; gap: 8px; }
 .check { font-size: 12px; padding: 5px 10px; border-radius: 8px; background: #f4f8f4; color: #166534; border: 1px solid #d6ebd9; }
@@ -892,9 +892,9 @@ onMounted(async () => {
 .explode-result { font-size: 12.5px; color: #16305f; }
 .alias-line { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
 .alias { background: #f8fafd; border: 1px solid #e6ebf3; border-radius: 8px; padding: 5px 9px; font-size: 12px; color: #16305f; }
-.alias small { color: #8a94a6; margin-left: 6px; font-size: 10.5px; }
+.alias small { color: var(--ink-mute); margin-left: 6px; font-size: 12px; }
 .alias.off { opacity: 0.55; text-decoration: line-through; }
-.lnk { background: none; border: none; color: #2f6fed; font-size: 11.5px; cursor: pointer; padding: 0 2px; margin-left: 6px; }
+.lnk { background: none; border: none; color: #2f6fed; font-size: 12px; cursor: pointer; padding: 0 2px; margin-left: 6px; }
 .pitem { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 
 table.data th, table.data td { white-space: nowrap; }

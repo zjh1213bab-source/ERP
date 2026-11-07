@@ -598,8 +598,20 @@ function board({
   customerId = null, manager = '', dueFrom = '', dueTo = '', orderFrom = '', orderTo = '',
   overdue = false, noDue = false, dueSoon = false,
   nodeCode = '', nodeStatus = '', sort = 'due',
+  tracking = false, po = '', poMode = 'like', style = '', batch = '', communication = '',
+  trackingView = '',
+  completedFrom = '', completedTo = '', orderType = '', noNodes = false, outCraft = false, sortDir = '',
   companyId = null
 } = {}) {
+  if (!['', 'factory', 'assignment'].includes(trackingView)) throw bad('订单跟踪视图不存在');
+  // 跟踪页独立字段，不再把 PO / 款号 / 沟通混在同一个 q 中。所有条件均绑定参数。
+  for (const [name, value] of Object.entries({ po, style, manager, communication, batch })) {
+    if (typeof value !== 'string' || value.length > (name === 'batch' ? 10000 : 200)) throw bad(`${name} 搜索内容过长或格式错误`);
+  }
+  for (const value of [orderFrom, orderTo, dueFrom, dueTo, completedFrom, completedTo]) {
+    if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)))) throw bad('日期格式错误');
+  }
+  if ((orderFrom && orderTo && orderFrom > orderTo) || (dueFrom && dueTo && dueFrom > dueTo) || (completedFrom && completedTo && completedFrom > completedTo)) throw bad('开始日期不能晚于结束日期');
   const tpl = templateId
     ? db.prepare('SELECT * FROM node_templates WHERE id = ?').get(templateId)
     : defaultTemplate();
@@ -626,8 +638,8 @@ function board({
 
   /* ---------- 1. 统计：只受模板与状态范围影响，不受其他筛选项影响 ----------
      否则点「超期 3」之后数字变 1，人以为筛错了。 */
-  const baseWhere = ['o.node_template_id = ?'];
-  const baseArgs = [tpl.id];
+  const baseWhere = [tracking && !templateId ? '1=1' : tracking ? '(o.node_template_id = ? OR o.node_template_id IS NULL)' : 'o.node_template_id = ?'];
+  const baseArgs = tracking && !templateId ? [] : [tpl.id];
   /**
    * 主体条件放这里，而不是只加在明细查询上：baseWhere 同时给「上面的统计卡片」
    * 和「下面的明细列表」用。只改一处 → 卡片显示 12 张、点进去 3 条，
@@ -635,7 +647,7 @@ function board({
    */
   if (companyId) { baseWhere.push('o.company_id = ?'); baseArgs.push(Number(companyId)); }
   if (status) { baseWhere.push('o.status = ?'); baseArgs.push(status); }
-  else baseWhere.push("o.status IN ('assigned','production','instock')");
+  else baseWhere.push(tracking ? "o.status IN ('finance','assigned','production','instock','shipped','closed','cancelled')" : "o.status IN ('assigned','production','instock')");
 
   const st = db.prepare(`
     SELECT COUNT(*) total,
@@ -657,6 +669,29 @@ function board({
   /* ---------- 2. 明细：叠加用户选的筛选 ---------- */
   const where = [...baseWhere];
   const args = [...baseArgs];
+  // 模块分流基于有效分单事实，先在数据库过滤，再分页/统计；不创建另一套生产方式标记。
+  const assignedOwn = "EXISTS (SELECT 1 FROM dispatch_orders d WHERE d.order_id=o.id AND d.type='own' AND IFNULL(d.status,'')!='cancelled' AND d.qty>0 AND (d.factory_id>0 OR TRIM(IFNULL(d.factory_name,'')) NOT IN ('','未指定')))";
+  const assignedOut = assignedOwn.replace("d.type='own'", "d.type='outsource'");
+  const sentCut = "EXISTS (SELECT 1 FROM cut_dispatches cd WHERE cd.order_id=o.id AND cd.status IN ('sent','partial','returned','closed'))";
+  if (trackingView === 'factory') where.push(`((${assignedOwn} OR ${sentCut}) AND NOT (${assignedOut} AND NOT ${assignedOwn}))`);
+  if (trackingView === 'assignment') where.push(`(o.status IN ('finance','assigned') OR (${assignedOut} AND NOT ${assignedOwn}))`);
+  const COMPLETE = "(SELECT MAX(n.actual_date) FROM order_nodes n WHERE n.order_id=o.id AND n.code='ship' AND n.status='done')";
+  if (po) {
+    where.push(poMode === 'exact' ? '(o.order_no = ? OR o.cus_order_no = ?)' : '(o.order_no LIKE ? OR o.cus_order_no LIKE ?)');
+    const value = poMode === 'exact' ? po : `%${po}%`; args.push(value, value);
+  }
+  if (style) { where.push('(o.style_name LIKE ? OR EXISTS (SELECT 1 FROM order_items i WHERE i.order_id=o.id AND (i.style_no LIKE ? OR i.product_name LIKE ?)))'); args.push(...Array(3).fill(`%${style}%`)); }
+  if (batch) {
+    const terms = [...new Set(batch.split(/[\s,，;；]+/).filter(Boolean))];
+    if (terms.length > 100) throw bad('一次最多搜索 100 个 PO / 款号');
+    if (terms.length) { const slots = terms.map(() => '?').join(','); where.push(`(o.order_no IN (${slots}) OR o.cus_order_no IN (${slots}) OR o.style_name IN (${slots}) OR EXISTS (SELECT 1 FROM order_items i WHERE i.order_id=o.id AND i.style_no IN (${slots})))`); args.push(...terms, ...terms, ...terms, ...terms); }
+  }
+  if (communication) { where.push("EXISTS (SELECT 1 FROM order_node_logs l WHERE l.order_id=o.id AND l.action='remark' AND l.detail LIKE ?)"); args.push(`%${communication}%`); }
+  if (completedFrom) { where.push(`date(${COMPLETE}) >= date(?)`); args.push(completedFrom); }
+  if (completedTo) { where.push(`date(${COMPLETE}) <= date(?)`); args.push(completedTo); }
+  if (orderType) { where.push('o.type=?'); args.push(orderType); }
+  if (noNodes) where.push('NOT EXISTS (SELECT 1 FROM order_nodes n WHERE n.order_id=o.id)');
+  if (outCraft) where.push('EXISTS (SELECT 1 FROM order_crafts oc WHERE oc.order_id=o.id AND oc.is_out=1)');
   if (q) {
     // 注意引号：SQL 里只能用单引号。写成 IFNULL(c.name,"") 时 SQLite 把 "" 当列名，
     // 报 `no such column: ""` —— 于是**搜索框一输入就 500**，而页面上只是列表没变化。
@@ -689,15 +724,25 @@ function board({
     }
   }
 
-  const ORDER = {
+  const direction = sortDir === 'desc' ? 'DESC' : 'ASC';
+  const trackingOrder = { due: 'o.delivery_date', order: 'o.order_date', completed: COMPLETE }[sort] || 'o.delivery_date';
+  const ORDER = tracking ? `${trackingOrder} IS NULL, ${trackingOrder} ${direction}, o.id DESC` : {
     due: 'o.delivery_date IS NULL, o.delivery_date, o.id DESC',
     order: 'o.order_date IS NULL, o.order_date DESC, o.id DESC',
     no_due: "IFNULL(o.delivery_date,'') <> '', o.delivery_date, o.id DESC"
   }[sort] || 'o.delivery_date IS NULL, o.delivery_date, o.id DESC';
 
   const orders = db.prepare(`
-    SELECT o.id, o.order_no, o.status, o.type, o.style_name, o.cus_order_no,
+    SELECT o.id, o.order_no, o.status, o.type, o.style_name, o.cus_order_no, o.node_template_id,
            o.order_date, o.delivery_date, o.total_usd, o.image_url, o.manager, o.customer_id,
+           o.created_at, ${COMPLETE} AS completed_at,
+           (SELECT COALESCE(SUM(i.qty),0) FROM order_items i WHERE i.order_id=o.id) AS order_qty,
+           (SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(i.style_no,''),i.product_name)) FROM order_items i WHERE i.order_id=o.id) AS styles,
+           (SELECT GROUP_CONCAT(DISTINCT i.color) FROM order_items i WHERE i.order_id=o.id) AS colors,
+           (SELECT COUNT(*) FROM rework_orders rw WHERE rw.order_id=o.id AND rw.status NOT IN ('closed','rejected')) AS rework_count,
+           (SELECT COUNT(*) FROM exception_items ex WHERE ex.source_type='order' AND ex.source_id=o.id AND ex.company_id=o.company_id AND ex.status IN ('open','claimed','handling','waiting')) AS exception_count,
+           (SELECT COUNT(*) FROM cost_sheets cs WHERE cs.order_id=o.id AND cs.status='rejected') AS cost_exception_count,
+           (SELECT COALESCE(SUM(sl.qty),0) FROM stock_ledger sl WHERE sl.ref_type='order' AND sl.ref_id=o.id) AS stock_qty,
            /* 款图两处可放：订单自己的 image_url，或打版（技术资料）里的图。
               大多数单实际上只填了打版那张 —— 所以不能只看订单表，否则看板上
               十张有九张是空白占位。取最新一版有图的。
@@ -719,7 +764,9 @@ function board({
                AND ((d.factory_id IS NOT NULL AND d.factory_id > 0)
                     OR TRIM(IFNULL(d.factory_name,'')) NOT IN ('','未指定'))) AS alloc_out,
            (SELECT COUNT(*) FROM cut_dispatches c
-             WHERE c.order_id = o.id AND IFNULL(c.status,'') != 'cancelled') AS cut_cnt,
+             WHERE c.order_id = o.id AND c.status IN ('sent','partial','returned','closed')) AS cut_cnt,
+           (SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(cd.factory_name,''),f.name)) FROM cut_dispatches cd LEFT JOIN factories f ON f.id=cd.factory_id
+             WHERE cd.order_id=o.id AND cd.status IN ('sent','partial','returned','closed')) AS cut_factory_names,
            (SELECT GROUP_CONCAT(DISTINCT d.factory_name) FROM dispatch_orders d
              WHERE d.order_id = o.id AND IFNULL(d.status,'') != 'cancelled'
                AND ((d.factory_id IS NOT NULL AND d.factory_id > 0)
@@ -730,7 +777,8 @@ function board({
       FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
      WHERE ${where.join(' AND ')}
      ORDER BY ${ORDER}
-     LIMIT ?`).all(...args, Number(limit) || 200);
+     LIMIT ?`).all(...args, Math.max(1, Math.min(5000, Number(limit) || 200)));
+  const matchedTotal = db.prepare(`SELECT COUNT(*) n FROM orders o LEFT JOIN customers c ON c.id=o.customer_id WHERE ${where.join(' AND ')}`).get(...args).n;
 
   /**
    * 看板列 = 模板里 `visible=1` 的节点。
@@ -753,6 +801,13 @@ function board({
 
   const rows = orders.map((o) => {
     const nodes = db.prepare('SELECT * FROM order_nodes WHERE order_id = ? ORDER BY seq, id').all(o.id);
+    // 跟踪“全部”包含不同流程模板，逐单按自身模板展示，不能套默认模板丢掉自定义工序。
+    const ownItems = tracking && o.node_template_id && o.node_template_id !== tpl.id ? templateItems(o.node_template_id) : items;
+    const rowColumns = ownItems.filter(it => Number(it.visible) !== 0);
+    const rowScanItems = ownItems.filter(it => Number(it.visible) === 0);
+    const rowScanCodes = new Set(rowScanItems.map(it => it.code));
+    // 每个节点只用本节点的合格报工量；不能把多道工序数量相加当成整单进度。
+    const reported = new Map(db.prepare('SELECT node_id, SUM(qty_ok) qty FROM production_reports WHERE order_id=? GROUP BY node_id').all(o.id).map(r => [r.node_id, Number(r.qty)]));
     const byCode = new Map(nodes.map((n) => [n.code, n]));
     /**
      * 格子名用**模板当前名**，不用 order_nodes 里的快照名。
@@ -762,10 +817,12 @@ function board({
      * 列头本来就来自模板，格子必须跟列头一致。
      * 历史名字仍留在 order_nodes 里（订单详情能查），这里只是显示层取当前名。
      */
-    const cells = columns.map((c) => {
+    let cells = rowColumns.map((c) => {
       const n = byCode.get(c.code);
       return n
-        ? { node_id: n.id, code: c.code, name: c.name, status: n.status, actual_date: n.actual_date, plan_date: n.plan_date, operator: n.operator, skip_reason: n.skip_reason, missing: false }
+        ? { node_id: n.id, code: c.code, name: c.name, status: n.status, actual_date: n.actual_date, plan_date: n.plan_date, operator: n.operator, skip_reason: n.skip_reason, missing: false,
+            qty_ok: reported.get(n.id) || 0, progress: Number(o.order_qty) > 0 ? Math.min(100, Math.round((reported.get(n.id) || 0) / o.order_qty * 100)) : null,
+            overdue: !!n.plan_date && n.plan_date.slice(0,10) < TODAY && !['done','skipped'].includes(n.status) }
         : { node_id: null, code: c.code, name: c.name, status: 'none', missing: true };
     });
     /**
@@ -775,14 +832,14 @@ function board({
      * 每行尾巴还挂着 6 个灰格子只会让人以为流程没配好。
      * 历史记录仍在 order_nodes 里，订单详情能查。
      */
-    const extra = nodes
+    let extra = nodes
       .filter((n) => Number(n.is_custom) === 1
-        && !columns.some((c) => c.code === n.code)
-        && !scanCodes.has(n.code))
+        && !rowColumns.some((c) => c.code === n.code)
+        && !rowScanCodes.has(n.code))
       .map((n) => ({ node_id: n.id, code: n.code, name: n.name, status: n.status, actual_date: n.actual_date, plan_date: n.plan_date, operator: n.operator, skip_reason: n.skip_reason, missing: false, extra: true }));
 
     /* 仅扫码的节点：不进列，但要进进度。 */
-    const scanCells = scanItems
+    const scanCells = rowScanItems
       .map((it) => {
         const n = byCode.get(it.code);
         return n ? { node_id: n.id, code: it.code, name: it.name, status: n.status } : null;
@@ -800,6 +857,20 @@ function board({
       || cells.find((c) => c.status === 'pending')
       || null;
 
+    // 只改变跟踪展示，不删除/跳过前段节点、不影响生产报工及库存闸门。
+    // 使用稳定 code，业务把“整烫”改名为“尾整”仍从同一节点开始。
+    if (tracking) {
+      if (Number(o.alloc_out) > 0 && Number(o.alloc_own) <= 0) {
+        const finishing = rowColumns.find(c => c.code === 'iron');
+        const downstream = new Set(['iron','inspect','pack','instock','ship']);
+        cells = cells.filter(c => finishing ? rowColumns.find(x => x.code === c.code).seq >= finishing.seq : downstream.has(c.code));
+        extra = extra.filter(c => finishing ? nodes.find(n => n.id === c.node_id).seq >= finishing.seq : downstream.has(c.code));
+      } else if (o.cut_factory_names) {
+        cells = cells.map(c => c.code === 'sew' ? { ...c, name: `${c.name}（外发至 ${o.cut_factory_names}）` } : c);
+      }
+    }
+    const visibleCurrent = tracking ? cells.find(c => c.status === 'doing') || cells.find(c => c.status === 'pending') : cur;
+
     return {
       ...o,
       cells,
@@ -812,6 +883,7 @@ function board({
        */
       alloc_own: Number(o.alloc_own) || 0,
       alloc_out: Number(o.alloc_out) || 0,
+      pending_allocation: Math.max(0, Number(o.order_qty) - Number(o.alloc_own) - Number(o.alloc_out)),
       cut_dispatches: Number(o.cut_cnt) || 0,
       assign_names: o.assign_names || '',
       assign_mode: (() => {
@@ -832,8 +904,8 @@ function board({
       total_count: total,
       skipped_count: skipped,
       progress: total ? Math.round((done / total) * 100) : 0,
-      current: cur ? cur.name : null,
-      current_code: cur ? cur.code : null,
+      current: visibleCurrent ? visibleCurrent.name : null,
+      current_code: visibleCurrent ? visibleCurrent.code : null,
       /**
        * 仅扫码的步骤状态 —— 单独返回，不占列。
        *
@@ -852,6 +924,7 @@ function board({
     /** 仅扫码的节点清单（不进列，但它是流程的一部分，得让人知道有这几步） */
     scan_items: scanItems.map((it) => ({ code: it.code, name: it.name, seq: it.seq })),
     rows,
+    matched_total: Number(matchedTotal), truncated: Number(matchedTotal) > rows.length,
     stats,
     filters: {
       status, q, customer_id: customerId, manager,
@@ -952,7 +1025,41 @@ function setNode(nodeId, b) {
   return db.prepare('SELECT * FROM order_nodes WHERE id = ?').get(nodeId);
 }
 
+/** 两个模块共用查询参数与过滤规则，分配入口固定为 assignment，不能用查询串越过模块边界。 */
+function boardFromQuery(query, companyId, forcedView = '') {
+  return board({
+    companyId,
+  templateId: query.template_id || null,
+  status: query.status || '',
+  q: query.q || '',
+  tracking: query.tracking === '1',
+  trackingView: query.tracking_view || '',
+  po: query.po || '', poMode: query.po_mode || 'like',
+  style: query.style || '', batch: query.batch || '',
+  communication: query.communication || '',
+  completedFrom: query.completed_from || '', completedTo: query.completed_to || '',
+  orderType: query.order_type || '', noNodes: query.no_nodes === '1',
+  outCraft: query.out_craft === '1', sortDir: query.sort_dir || '',
+  limit: query.limit || 200,
+  customerId: query.customer_id || null,
+  manager: query.manager || '',
+  orderFrom: query.order_from || '',
+  orderTo: query.order_to || '',
+  dueFrom: query.due_from || '',
+  dueTo: query.due_to || '',
+  // 查询串里传 "1"/"0"：`!!'0'` 是 true，这里显式比字符串
+  overdue: String(query.overdue || '') === '1',
+  noDue: String(query.no_due || '') === '1',
+  dueSoon: String(query.due_soon || '') === '1',
+  nodeCode: query.node_code || '',
+  nodeStatus: query.node_status || '',
+  sort: query.sort || 'due',
+    ...(forcedView ? { tracking: true, trackingView: forcedView } : {})
+  });
+}
+
 module.exports = {
+  boardFromQuery,
   BUILTIN_CODES,
   BUILTIN_ORDER,
   STATUS_LABEL,

@@ -135,7 +135,7 @@
         <select v-model="planYear" @change="loadList">
           <option v-for="y in dict.years" :key="y" :value="y">{{ y }} 年</option>
         </select>
-        <button v-if="canWrite" class="btn btn-primary" @click="openNew">＋ 新建编制</button>
+        <button v-action="['budget','create']" v-if="canWrite" class="btn btn-primary" @click="openNew">＋ 新建编制</button>
         <span class="muted tiny">同一年只能有一份「生效中」，新的生效会把旧的自动关闭</span>
       </div>
 
@@ -158,7 +158,7 @@
               <td class="ops">
                 <button class="btn btn-ghost btn-sm" @click="openEdit(b)">{{ b.status === 'draft' ? '编辑' : '查看' }}</button>
                 <button v-if="b.status === 'draft' && canApprove" class="btn btn-ghost btn-sm" @click="doApprove(b)">批准</button>
-                <button v-if="b.status === 'draft' && canApprove" class="btn btn-ghost btn-sm" @click="openReject(b)">驳回</button>
+                <button v-action="['budget','reject']" v-if="b.status === 'draft' && canApprove" class="btn btn-ghost btn-sm" @click="openReject(b)">驳回</button>
                 <button v-if="b.status === 'approved' && isAdmin" class="btn btn-primary btn-sm" @click="doActivate(b)">生效</button>
                 <button v-if="b.status === 'active' && isAdmin" class="btn btn-ghost btn-sm" @click="doClose(b)">关闭</button>
               </td>
@@ -239,7 +239,7 @@
               <td class="ops">
                 <template v-if="a.status === 'pending' && canApprove">
                   <button class="btn btn-primary btn-sm" @click="doApproveAdj(a)">批准</button>
-                  <button class="btn btn-ghost btn-sm" @click="openRejectAdj(a)">驳回</button>
+                  <button v-action="['budget','reject']" class="btn btn-ghost btn-sm" @click="openRejectAdj(a)">驳回</button>
                 </template>
                 <span v-else-if="a.status === 'rejected'" class="tiny muted">{{ a.reject_reason }}</span>
               </td>
@@ -285,7 +285,7 @@
     </div>
 
     <!-- ========== 弹窗：新建编制 ========== -->
-    <div v-if="modal === 'new'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'new'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建预算编制</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -309,7 +309,7 @@
     </div>
 
     <!-- ========== 弹窗：驳回 ========== -->
-    <div v-if="modal === 'reject'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'reject'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>驳回</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -324,7 +324,7 @@
     </div>
 
     <!-- ========== 弹窗：调整申请 ========== -->
-    <div v-if="modal === 'adj'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'adj'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>申请预算调整</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -377,7 +377,7 @@
     </div>
 
     <!-- ========== 弹窗：确认超支 ========== -->
-    <div v-if="modal === 'ack'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'ack'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>确认超支并写处理意见</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -687,10 +687,10 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 19px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 19px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .stat.st-warn { background: #fffaf2; border-color: #f3e0c2; }
 .stat.st-warn strong { color: #d97706; }
 .stat.st-bad { background: #fff5f6; border-color: #f6d4d9; }
@@ -700,55 +700,55 @@ onMounted(async () => {
 .amt-orange { color: #d97706; }
 .amt-green { color: #16a34a; }
 .muted { color: #9aa4b5; }
-.tiny { font-size: 11.5px; }
+.tiny { font-size: 12px; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
 .tb-tbl td.mono { white-space: nowrap; }
 .num { text-align: right; }
 .wrap { white-space: normal; line-height: 1.55; }
 .ops { white-space: nowrap; }
-.empty { text-align: center; color: #a9b4c5; font-size: 12px; padding: 18px 0; }
-.empty-box { color: #a9b4c5; font-size: 12.5px; text-align: center; padding: 34px 0; grid-column: 1 / -1; }
+.empty { text-align: center; color: var(--ink-mute); font-size: 12px; padding: 18px 0; }
+.empty-box { color: var(--ink-mute); font-size: 12.5px; text-align: center; padding: 34px 0; grid-column: 1 / -1; }
 .row-warn { background: #fffdf7; }
 .row-bad { background: #fff7f8; }
 .row-active { background: #f7fcf9; }
 
 .hint-bar { background: #f6f9ff; border: 1px solid #dbe4f5; border-radius: 9px; padding: 9px 12px; font-size: 12.5px; color: #3d4a63; line-height: 1.75; margin: 0 0 12px; }
 .block { margin-top: 14px; }
-.block h4 { margin: 0 0 8px; font-size: 13px; color: #16233b; }
-.block h4 small { margin-left: 8px; font-weight: 400; font-size: 11.5px; color: #9aa4b5; }
+.block h4 { margin: 0 0 8px; font-size: 13px; color: var(--ink); }
+.block h4 small { margin-left: 8px; font-weight: 400; font-size: 12px; color: #9aa4b5; }
 
 .tabbar { display: flex; align-items: flex-start; margin-bottom: 6px; }
 .tabbar .tabs { margin-left: 0; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
 .tabbar .tabs button { flex: 0 0 auto; white-space: nowrap; }
-.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; font-size: 10px; border-radius: 8px; padding: 0 5px; vertical-align: middle; }
+.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; font-size: 12px; border-radius: 8px; padding: 0 5px; vertical-align: middle; }
 
-.pill { display: inline-block; white-space: nowrap; font-size: 11px; border-radius: 5px; padding: 1px 6px; }
+.pill { display: inline-block; white-space: nowrap; font-size: 12px; border-radius: 5px; padding: 1px 6px; }
 .p-green { background: #eaf7ef; color: #16803c; }
 .p-orange { background: #fff4e5; color: #b46207; }
 .p-red { background: #fdecef; color: #c0243c; }
 .p-gray { background: #eef1f6; color: #6b7789; }
-.p-blue { background: #eaf1ff; color: #2563eb; }
+.p-blue { background: #eaf1ff; color: var(--brand); }
 
 /* 部门卡片 */
 .dept-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.dept-card { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 10px 12px; }
+.dept-card { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 10px 12px; }
 .dept-card.dc-warn { border-color: #f3e0c2; background: #fffdf7; }
 .dept-card.dc-bad { border-color: #f6d4d9; background: #fff7f8; }
 .dc-head { display: flex; justify-content: space-between; align-items: baseline; }
-.dc-head b { font-size: 12.5px; color: #16233b; }
+.dc-head b { font-size: 12.5px; color: var(--ink); }
 .dc-head span { font-size: 13px; font-weight: 700; color: #4a566e; }
 .dc-bar { height: 5px; background: #eef1f6; border-radius: 3px; margin: 7px 0 6px; overflow: hidden; }
 .dc-bar i { display: block; height: 100%; background: #3b82f6; border-radius: 3px; }
 .dc-bar i.bar-warn { background: #d97706; }
 .dc-bar i.bar-bad { background: #d92d45; }
-.dc-num { font-size: 11.5px; color: #4a566e; display: flex; gap: 4px; flex-wrap: wrap; }
-.dc-foot { font-size: 11.5px; color: #8a94a6; margin-top: 4px; display: flex; justify-content: space-between; align-items: center; }
+.dc-num { font-size: 12px; color: #4a566e; display: flex; gap: 4px; flex-wrap: wrap; }
+.dc-foot { font-size: 12px; color: var(--ink-mute); margin-top: 4px; display: flex; justify-content: space-between; align-items: center; }
 
 /* 编制矩阵 */
-.plan-box { margin-top: 16px; background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.plan-box { margin-top: 16px; background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
 .pb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-.pb-head b { font-size: 13px; color: #16233b; font-family: ui-monospace, Menlo, Consolas, monospace; }
-.pb-total { margin-left: auto; font-size: 13px; font-weight: 700; color: #16233b; }
+.pb-head b { font-size: 13px; color: var(--ink); font-family: ui-monospace, Menlo, Consolas, monospace; }
+.pb-total { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--ink); }
 .cell-input { width: 96px; text-align: right; border: 1px solid #dfe5ee; border-radius: 6px; padding: 3px 6px; font-size: 12px; }
 .sum-row td { background: #f8fafd; font-weight: 600; }
 
@@ -764,7 +764,7 @@ textarea { width: 100%; border: 1px solid #dfe5ee; border-radius: 8px; padding: 
 .tb-tbl th.num { text-align: right; padding-right: 12px; }
 .tb-tbl td.num { padding-right: 12px; }
 
-.modal-body label { display: block; font-size: 12px; color: #8a94a6; margin: 8px 0 4px; }
+.modal-body label { display: block; font-size: 12px; color: var(--ink-mute); margin: 8px 0 4px; }
 .modal-body input, .modal-body select { width: 100%; }
 .modal-body textarea { width: 100%; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

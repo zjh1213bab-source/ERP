@@ -1008,6 +1008,7 @@ function list(q = {}) {
   if (q.category) { where.push('i.category = ?'); args.push(q.category); }
   if (q.rule) { where.push('i.rule_code = ?'); args.push(q.rule); }
   if (q.escalated === '1' || q.escalated === true) where.push('i.escalated = 1');
+  if (q.viewer_username) { where.push('i.owner_username = ?'); args.push(q.viewer_username); }
   if (q.owner) { where.push('(i.owner_username = ? OR i.owner_name = ?)'); args.push(q.owner, q.owner); }
   if (q.no_owner === '1') where.push("i.owner_source = 'none'");
   if (q.q) {

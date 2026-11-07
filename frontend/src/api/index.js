@@ -5,13 +5,14 @@ import { auth, clearAuth } from '../store/auth';
 
 const BASE = import.meta.env.VITE_API_BASE || '';
 
-async function req(path, { method = 'GET', body, headers = {} } = {}) {
+async function req(path, { method = 'GET', body, headers = {}, signal } = {}) {
   const h = { 'Content-Type': 'application/json', ...headers };
   if (auth.token) h.Authorization = `Bearer ${auth.token}`;
 
   const res = await fetch(BASE + path, {
     method,
     headers: h,
+    signal,
     body: body !== undefined ? JSON.stringify(body) : undefined
   });
 
@@ -88,7 +89,11 @@ async function download(url, filename) {
   setTimeout(() => URL.revokeObjectURL(href), 4000);
 }
 
-export const api = {  // 登录
+export const api = {
+  accessPositions: () => req('/api/access/positions'),
+  saveAccessPositions: body => req('/api/access/positions', { method:'PUT', body }),
+  appearance: () => req('/api/settings/appearance'),
+  saveAppearance: (d) => req('/api/settings/appearance',{method:'PUT',body:d}),  // 登录
   login: (username, password) => req('/api/auth/login', { method: 'POST', body: { username, password } }),
   me: () => req('/api/auth/me'),
 
@@ -108,8 +113,11 @@ export const api = {  // 登录
   deleteProductColor: (id, colorId) => req(`/api/products/${id}/colors/${colorId}`, { method: 'DELETE' }),
 
   // 订单
+  preOrderProducts: () => req('/api/pre-orders/available-products'),
   preOrders: (params) => req('/api/pre-orders' + qs(params)),
   createPreOrder: (d) => req('/api/pre-orders', { method: 'POST', body: d }),
+  completePreOrder: (id,d) => req(`/api/pre-orders/${id}/complete`, {method:'POST',body:d}),
+  preOrderDraft: (id) => req(`/api/pre-orders/${id}/order-draft`),
   updatePreOrder: (id, d) => req(`/api/pre-orders/${id}`, { method: 'PUT', body: d }),
   orders: (params) => req('/api/orders' + qs(params)),
   order: (id) => req(`/api/orders/${id}`),
@@ -117,8 +125,7 @@ export const api = {  // 登录
   lanInfo: () => req('/api/settings/lan'),
 
   /** 按标签码 / 订单号查单（扫码直达用；带 '-' 的标签码只取第一段） */
-  findOrder: (no) => req('/api/orders/find?no=' + encodeURIComponent(no)),
-  findOrder: (no) => req('/api/orders/find?no=' + encodeURIComponent(no)),
+  findOrder: (no, options = {}) => req('/api/orders/find?no=' + encodeURIComponent(no), { signal: options.signal }),
   orderMeta: () => req('/api/orders/meta'),
   orderStats: () => req('/api/orders/stats/summary'),
   createOrder: (d) => req('/api/orders', { method: 'POST', body: d }),
@@ -163,6 +170,9 @@ export const api = {  // 登录
   techpackCrafts: (id) => req(`/api/techpacks/${id}/crafts`),
   saveTechpackCrafts: (id, d) => req(`/api/techpacks/${id}/crafts`, { method: 'PUT', body: d }),
   techpackCurrent: (orderId) => req(`/api/techpacks/by-order/${orderId}/current`),
+  submitDevelopment: (id,d) => req(`/api/techpacks/${id}/submit-development`,{method:'POST',body:d}),
+  requestDevelopmentChange: (id,d) => req(`/api/techpacks/${id}/request-development-change`,{method:'POST',body:d}),
+  saveDevelopmentDetail: (id, d) => req(`/api/techpacks/${id}/development-detail`, { method: 'PUT', body: d }),
   saveTechpackDetail: (id, d) => req(`/api/techpacks/${id}/detail`, { method: 'PUT', body: d }),
   techpackSizesFromOrder: (id, d) => req(`/api/techpacks/${id}/sizes/from-order`, { method: 'POST', body: d || {} }),
   newTechpackVersion: (id) => req(`/api/techpacks/${id}/new-version`, { method: 'POST' }),
@@ -228,6 +238,15 @@ export const api = {  // 登录
   nodeFlowBuiltin: () => req('/api/node-flow/builtin'),
 
   // 库存
+  createSalesOrder: (body) => req('/api/orders',{method:'POST',body,signal:AbortSignal.timeout(30000)}),
+  orderSampleMaterials: id => req('/api/orders/entry/sample-materials/'+id),
+  orderSamples: () => req('/api/orders/entry/samples'),
+  orderProductMaterials: (id) => req('/api/orders/entry/product-materials/'+id),
+  orderMaterialTemplates: () => req('/api/orders/entry/material-templates'),
+  saveOrderMaterialTemplate: (body) => req('/api/orders/entry/material-templates',{method:'POST',body}),
+  orderEntryDraft: (scope_key) => req('/api/orders/entry/draft'+qs({scope_key})),
+  saveOrderEntryDraft: (body) => req('/api/orders/entry/draft',{method:'PUT',body,signal:AbortSignal.timeout(30000)}),
+  orderSalespeople: () => req('/api/orders/entry/salespeople'),
   stock: (params) => req('/api/stock' + qs(params)),
   stockSummary: () => req('/api/stock/summary'),
   stockLedger: (params) => req('/api/stock/ledger' + qs(params)),
@@ -258,6 +277,8 @@ export const api = {  // 登录
   createFactory: (d) => req('/api/factories', { method: 'POST', body: d }),
   updateFactory: (id, d) => req(`/api/factories/${id}`, { method: 'PUT', body: d }),
   deleteFactory: (id) => req(`/api/factories/${id}`, { method: 'DELETE' }),
+  dispatchBoard: (params) => req('/api/dispatch/board' + qs(params)),
+  dispatchContext: (id) => req(`/api/dispatch/${id}/context`),
   dispatches: (orderId) => req(`/api/dispatch?order_id=${orderId}`),
   dispatchList: (params) => req('/api/dispatch' + qs(params)),
   dispatchRecon: () => req('/api/dispatch/recon'),
@@ -407,6 +428,10 @@ export const api = {  // 登录
   skOverride: (d) => req('/api/skills/overrides', { method: 'POST', body: d }),
 
   // 员工自助（只看自己；范围由服务端按账号绑定关系卡）
+  selfWorkFind: (no) => req('/api/self/work-find'+qs({no})),
+  selfWorkOrder: (id) => req('/api/self/work-order/'+id),
+  selfWorkQuote: (params) => req('/api/self/work-quote'+qs(params)),
+  selfWorkReport: (d) => req('/api/self/work-report',{method:'POST',body:d}),
   selfMeta: () => req('/api/self/meta'),
   selfOverview: () => req('/api/self/overview'),
   selfPayslips: () => req('/api/self/payslips'),
@@ -571,9 +596,11 @@ export const api = {  // 登录
 
   // 审批 / 人事
   approvals: () => req('/api/approvals/pending'),
+  reviewNotices: () => req('/api/self/review-notices'),
   myApprovalTasks: () => req('/api/approvals/my-tasks'),
   actApprovalTask: (id, approve, remark) => req(`/api/approvals/tasks/${id}/act`, { method: 'POST', body: { approve, remark } }),
   employees: (params) => req('/api/employees' + qs(params)),
+  syncEmployeeAccounts: () => req('/api/employees/accounts/sync', { method: 'POST', body: {} }),
   departments: () => req('/api/employees/departments'),
   createEmployee: (d) => req('/api/employees', { method: 'POST', body: d }),
   updateEmployee: (id, d) => req(`/api/employees/${id}`, { method: 'PUT', body: d }),
@@ -593,7 +620,7 @@ export const api = {  // 登录
   auditArchives: () => req('/api/audit/archives'),
   insights: () => req('/api/assistant/insights'),
   assistantReport: (period) => req('/api/assistant/report?period=' + encodeURIComponent(period)),
-  assistantQuery: (q) => req('/api/assistant/query', { method: 'POST', body: { q } }),
+  assistantQuery: (q, options = {}) => req('/api/assistant/query', { method: 'POST', body: { q }, signal: options.signal }),
   aiChat: (message) => req('/api/ai/chat', { method: 'POST', body: { message } }),
 
   // 审批流配置 / 考勤
@@ -614,6 +641,8 @@ export const api = {  // 登录
   dingtalkContactsImport: (d) => req('/api/integration/dingtalk/contacts/import', { method: 'POST', body: d }),
 
   // 采购
+  purchaseWorkspace: () => req('/api/purchases/workspace'),
+  purchaseNote: (id,body) => req(`/api/purchases/${id}/note`, {method:'POST',body}),
   purchases: (params) => req('/api/purchases' + qs(params)),
   purchase: (id) => req(`/api/purchases/${id}`),
   createPurchase: (d) => req('/api/purchases', { method: 'POST', body: d }),
@@ -879,19 +908,21 @@ export const api = {  // 登录
   cancelHrAdjustment: (id) => req(`/api/hr/adjustments/${id}/cancel`, { method: 'POST' }),
 
   // 客户订单与资料确认
+  confirmationSources: (id) => req(`/api/confirm/sources/${id}`),
+  linkConfirmationSource: (id,d) => req(`/api/confirm/sources/${id}/link`,{method:'POST',body:d}),
   confirmStats: () => req('/api/confirm/stats'),
   seals: (params) => req('/api/confirm/seals' + qs(params)),
   sealGate: (orderId) => req('/api/confirm/seals/gate/' + orderId),
   createSeal: (d) => req('/api/confirm/seals', { method: 'POST', body: d }),
-  techApproveSeal: (id) => req(`/api/confirm/seals/${id}/tech-approve`, { method: 'POST' }),
-  sendSeal: (id) => req(`/api/confirm/seals/${id}/send`, { method: 'POST' }),
+  techApproveSeal: (id, d) => req(`/api/confirm/seals/${id}/tech-approve`, { method: 'POST',body:d }),
+  sendSeal: (id, d) => req(`/api/confirm/seals/${id}/send`, { method: 'POST',body:d }),
   rejectSeal: (id, d) => req(`/api/confirm/seals/${id}/reject`, { method: 'POST', body: d || {} }),
   deleteSeal: (id) => req('/api/confirm/seals/' + id, { method: 'DELETE' }),
   orderChanges: (params) => req('/api/confirm/changes' + qs(params)),
   createOrderChange: (d) => req('/api/confirm/changes', { method: 'POST', body: d }),
   updateOrderChange: (id, d) => req('/api/confirm/changes/' + id, { method: 'PUT', body: d }),
-  approveOrderChange: (id) => req(`/api/confirm/changes/${id}/approve`, { method: 'POST' }),
-  signOrderChange: (id) => req(`/api/confirm/changes/${id}/sign`, { method: 'POST' }),
+  approveOrderChange: (id, d) => req(`/api/confirm/changes/${id}/approve`, { method: 'POST',body:d }),
+  signOrderChange: (id, d) => req(`/api/confirm/changes/${id}/sign`, { method: 'POST',body:d }),
   rejectOrderChange: (id, d) => req(`/api/confirm/changes/${id}/reject`, { method: 'POST', body: d || {} }),
   deliveries: (params) => req('/api/confirm/deliveries' + qs(params)),
   createDeliveryChange: (d) => req('/api/confirm/deliveries', { method: 'POST', body: d }),
@@ -998,6 +1029,7 @@ export const api = {  // 登录
   // 面辅料主数据
   materials: (params) => req('/api/materials' + qs(params)),
   material: (id) => req(`/api/materials/${id}`),
+  materialHistory: (id) => req(`/api/materials/${id}/history`),
   createMaterial: (d) => req('/api/materials', { method: 'POST', body: d }),
   updateMaterial: (id, d) => req(`/api/materials/${id}`, { method: 'PUT', body: d }),
   duplicateMaterial: (id) => req(`/api/materials/${id}/duplicate`, { method: 'POST' }),
@@ -1055,6 +1087,8 @@ export const api = {  // 登录
   setRequirementAction: (id, d) => req(`/api/requirements/${id}/action`, { method: 'POST', body: d }),
 
   // 裁床与扎包
+  layoutRequirements: id=>req('/api/cuts/layout-requirements/'+id),
+  saveLayoutRequirements: (id,rows)=>req('/api/cuts/layout-requirements/'+id,{method:'PUT',body:{rows}}),
   cutBoard: (params) => req('/api/cuts/board' + qs(params)),
   cutByOrder: (orderId) => req(`/api/cuts/order/${orderId}`),
   startCut: (id) => req(`/api/cuts/${id}/start`, { method: 'POST', body: { fabric_ready: true } }),
@@ -1068,7 +1102,7 @@ export const api = {  // 登录
 
   // 首件确认与工位工艺
   faBoard: (params) => req('/api/first-articles/board' + qs(params)),
-  faByOrder: (orderId) => req(`/api/first-articles/order/${orderId}`),
+  faByOrder: (orderId, params) => req(`/api/first-articles/order/${orderId}` + qs(params)),
   faGate: (orderId) => req(`/api/first-articles/gate/${orderId}`),
   faDetail: (id) => req(`/api/first-articles/${id}`),
   createFa: (d) => req('/api/first-articles', { method: 'POST', body: d }),
@@ -1087,6 +1121,10 @@ export const api = {  // 登录
   deleteWorkstation: (id) => req(`/api/first-articles/workstations/${id}`, { method: 'DELETE' }),
 
   // 打版流程
+  sampleCostEvidence: id => req(`/api/techpacks/${id}/cost-evidence`),
+  patternManagement:()=>req('/api/pattern-flows/management'),
+  savePatternManagement:d=>req('/api/pattern-flows/management',{method:'PUT',body:d}),
+  followPattern:(id,d)=>req('/api/pattern-flows/'+id+'/follow',{method:'POST',body:d}),
   patternBoard: () => req('/api/pattern-flows/board'),
   patternByTechpack: (tpId) => req(`/api/pattern-flows/by-techpack/${tpId}`),
   createPatternChangeRequest: (flowId, d) => req(`/api/pattern-flows/${flowId}/changes`, { method: 'POST', body: d }),
@@ -1102,15 +1140,19 @@ export const api = {  // 登录
 
   // 样衣档案
   sampleArchives: (params) => req('/api/sample-archives' + qs(params)),
+  sampleImageSearch: (body) => req('/api/sample-archives/image-search', { method: 'POST', body }),
+  sampleImageSearchResult: (id) => req('/api/sample-archives/image-search/' + encodeURIComponent(id)),
   sampleArchive: (id) => req(`/api/sample-archives/${id}`),
   requestSampleChange: (id, d) => req(`/api/sample-archives/${id}/change-request`, { method: 'POST', body: d }),
   sampleChanges: (params) => req('/api/sample-archives/changes' + qs(params)),
   reviewSampleChange: (id, d) => req(`/api/sample-archives/changes/${id}/review`, { method: 'POST', body: d }),
 
   // 用户
+  customerSalespeople: () => req('/api/customers/salespeople'),
   users: () => req('/api/users'),
   createUser: (d) => req('/api/users', { method: 'POST', body: d }),
   updateUser: (id, d) => req(`/api/users/${id}`, { method: 'PUT', body: d }),
+  bindEmployee: (id, body) => req(`/api/users/${id}/bind-employee`, { method: 'POST', body }),
 
   // 业务蓝图（原脑图）
   blueprint: () => req('/api/mindmap'),
@@ -1777,6 +1819,9 @@ export const api = {  // 登录
   backupChecks: () => req('/api/backup/checks'),
 
   // 岗位权限复核
+  wageMultipliers: () => req('/api/settings/piece-multipliers'),
+  saveWageMultipliers: (d) => req('/api/settings/piece-multipliers', {method:'PUT',body:d}),
+  reportWageQuote: (params) => req('/api/reports/wage-quote'+qs(params)),
   accessMe: () => req('/api/access/me'),
   accessPermissions: () => req('/api/access/permissions'),
   accessRoles: () => req('/api/access/roles'),

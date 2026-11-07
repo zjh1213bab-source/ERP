@@ -61,7 +61,7 @@
         <button v-if="canWrite" class="btn btn-primary" @click="openSeal()">＋ 新建封样版本</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
-        客户确认 ≠ 总部技术批准，<strong>两条都要有</strong>才算封样完成。确认绑定的是「内容校验值」：附件或规格一改，校验值就变，必须重新确认。新建版本后旧版本自动置「已被替代」，<strong>旧版本的确认不能解除新版本的阻塞</strong>。
+        客户确认 ≠ 总部技术批准，<strong>两条都要有</strong>才算封样完成。每款分别确认，定制订单全部款式通过才能推进。确认绑定的是「内容校验值」：附件或规格一改，校验值就变，必须重新确认。新建版本后旧版本自动置「已被替代」，<strong>旧版本的确认不能解除新版本的阻塞</strong>。
       </div>
 
       <div class="table-wrap">
@@ -90,7 +90,7 @@
                 <div v-if="r.customer_comment" class="muted" style="font-size: 11.5px; max-width: 180px; white-space: normal">{{ r.customer_comment }}</div>
               </td>
               <td class="nowrap">
-                <span class="tag" :class="r.tech_approved ? 'green' : 'gray'">{{ r.tech_approved ? '已批准' : '未批准' }}</span>
+                <span class="tag" :class="r.tech_approved ? 'green' : 'gray'">{{ r.stale ? '资料已变更' : r.tech_approved ? '已批准' : '未批准' }}</span>
               </td>
               <td class="nowrap">
                 <span class="tag" :class="sealTag(r.status)">{{ r.status_label }}</span>
@@ -108,7 +108,7 @@
         </table>
       </div>
 
-      <div v-if="sealModal" class="modal-mask" @click.self="sealModal = false">
+      <div v-if="sealModal" class="modal-mask" >
         <div class="modal">
           <div class="modal-head"><h3>新建封样版本</h3><button class="link-btn" @click="sealModal = false">关闭</button></div>
           <div class="modal-body">
@@ -120,13 +120,15 @@
                   <option v-for="o in orders" :key="o.id" :value="o.id">{{ o.order_no }} · {{ o.style_name || '-' }}（{{ o.customer_name }}）</option>
                 </select>
               </div>
-              <div class="fitem"><label>款号</label><input class="input" v-model="sealForm.style_no" /></div>
+              <div class="fitem"><label>订单款式 *</label><select class="select" v-model.number="sealForm.order_item_id" @change="sealForm.archive_id=null"><option :value="null">请选择具体款式</option><option v-for="item in sealSources.items" :key="item.id" :value="item.id">{{item.product_name}} · {{item.style_no}}</option></select></div>
+              <div class="fitem"><label>开发成果关联</label><select class="select" v-model.number="sealForm.tech_pack_id"><option :value="null">选择开发单</option><option v-for="tp in sealSources.techpacks.filter(t=>!t.order_item_id || t.order_item_id===sealForm.order_item_id)" :key="tp.id" :value="tp.id">{{tp.product_name}}</option></select><button v-if="sealForm.tech_pack_id && sealForm.order_item_id" class="link-btn" @click="linkSource()">关联到本款并刷新样衣来源</button></div>
+              <div class="fitem"><label>样衣库版本（冻结快照）</label><select class="select" v-model.number="sealForm.archive_id"><option :value="null">使用订单款式资料</option><option v-for="a in sealSources.archives.filter(a=>a.order_item_id===sealForm.order_item_id)" :key="a.id" :value="a.id">{{a.archive_no}} · {{a.version}} · {{a.sample_name}}</option></select></div>
               <div class="fitem"><label>样衣名称</label><input class="input" v-model="sealForm.sample_name" placeholder="如 主样·藏青" /></div>
               <div class="fitem"><label>版本（留空自动递增）</label><input class="input" v-model="sealForm.version" placeholder="V1 / V2" /></div>
               <div class="fitem"><label>附件（名称|地址，每行一条）</label><input class="input" v-model="sealForm.attachText" placeholder="正面.jpg|/uploads/a.jpg" /></div>
               <div class="fitem full"><label>备注（参与校验值计算）</label><input class="input" v-model="sealForm.remark" /></div>
             </div>
-            <p class="muted" style="font-size: 12px; margin-top: 10px">创建后同订单的旧版本会自动置「已被替代」。校验值由款号、名称、版本、附件与备注一起算出。</p>
+            <p class="muted" style="font-size: 12px; margin-top: 10px">只替代当前款式的旧版本，不影响其他款。校验值同时绑定订单款图与所选样衣快照。</p>
             <p v-if="formMsg" class="form-msg err">{{ formMsg }}</p>
           </div>
           <div class="modal-foot">
@@ -153,7 +155,7 @@
         <button v-if="canWrite" class="btn btn-primary" @click="openChange()">＋ 新建变更</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
-        必经链路：<strong>影响评估 → 总部批准 → 客户双向确认 → 生产工位签收 → 生效</strong>。变更只作用于「剩余数量」（总件数 − 已交数量），不追溯已交付部分；未做影响评估不能提交客户。
+        必经链路：<strong>影响评估 → 总部批准 → 客户双向确认 → 生产工位签收 → 生效</strong>。已有交付的非交期变更须先拆分剩余订单；数量/价格须在分单前变更，且需财务审核，不覆盖已交付历史。
       </div>
 
       <div class="table-wrap">
@@ -166,7 +168,7 @@
               <td class="nowrap"><strong>{{ r.change_no }}</strong><div class="muted" style="font-size: 12px">{{ r.customer_name }}</div></td>
               <td class="nowrap">{{ r.order_no }}<div class="muted" style="font-size: 12px">{{ r.style_name || '-' }}</div></td>
               <td class="nowrap">{{ r.type_label }}</td>
-              <td class="nowrap" style="max-width: 240px; white-space: normal">{{ r.title }}</td>
+              <td class="nowrap" style="max-width: 240px; white-space: normal">{{ r.title }}<div class="muted">{{ patchDescription(r.patch?.next) }}</div><div v-if="r.approval?.status==='pending'"><RouterLink to="/approvals">统一审批中 · 查看审批中心</RouterLink></div></td>
               <td class="nowrap">
                 在制 {{ r.affected_in_production }} · 已交 {{ r.delivered_qty }}
                 <div class="muted" style="font-size: 11.5px">金额 {{ r.price_delta }} · 交期 {{ r.delivery_delta_days }} 天</div>
@@ -177,10 +179,10 @@
                 <div v-if="r.status === 'confirmed' && !r.workstation_signed" class="muted" style="font-size: 11.5px; color: #b07b12">待工位签收</div>
               </td>
               <td v-if="canWrite" class="nowrap">
-                <button v-if="!['confirmed','effective','rejected'].includes(r.status)" class="link-btn" @click="openAssess(r)">评估</button>
-                <button v-if="['draft','assessing'].includes(r.status)" class="link-btn" @click="doApproveChange(r)">提交客户</button>
+                <button v-if="['draft','assessing','rejected'].includes(r.status) && r.approval?.status!=='pending'" class="link-btn" @click="openAssess(r)">评估</button>
+                <button v-if="['draft','assessing'].includes(r.status) && r.approval?.status!=='pending'" class="link-btn" @click="doApproveChange(r)">提交审批</button>
                 <button v-if="r.status === 'confirmed' && !r.workstation_signed" class="link-btn" @click="doSignChange(r)">工位签收</button>
-                <button v-if="!['effective','rejected'].includes(r.status)" class="link-btn danger" @click="doRejectChange(r)">驳回</button>
+                <button v-if="!['effective','rejected'].includes(r.status) && r.approval?.status!=='pending'" class="link-btn danger" @click="doRejectChange(r)">驳回</button>
               </td>
             </tr>
             <tr v-if="!changes.length"><td :colspan="canWrite ? 8 : 7" class="empty-cell">暂无变更单</td></tr>
@@ -188,21 +190,21 @@
         </table>
       </div>
 
-      <div v-if="changeModal" class="modal-mask" @click.self="changeModal = false">
+      <div v-if="changeModal" class="modal-mask" >
         <div class="modal wide">
           <div class="modal-head"><h3>{{ changeForm.id ? '影响评估 · ' + changeForm.change_no : '新建变更' }}</h3><button class="link-btn" @click="changeModal = false">关闭</button></div>
           <div class="modal-body">
             <div class="form-grid">
               <div class="fitem full" v-if="!changeForm.id">
                 <label>订单 *</label>
-                <select class="select" v-model.number="changeForm.order_id">
+                <select class="select" v-model.number="changeForm.order_id" :disabled="!!changeForm.id" @change="changeForm.patch={}">
                   <option :value="null">— 请选择 —</option>
                   <option v-for="o in orders" :key="o.id" :value="o.id">{{ o.order_no }} · {{ o.style_name || '-' }}</option>
                 </select>
               </div>
               <div class="fitem">
                 <label>变更类型</label>
-                <select class="select" v-model="changeForm.type">
+                <select class="select" v-model="changeForm.type" @change="changeForm.patch={}">
                   <option value="craft">工艺</option>
                   <option value="qty">数量</option>
                   <option value="price">价格</option>
@@ -211,9 +213,10 @@
                 </select>
               </div>
               <div class="fitem"><label>变更内容 *</label><input class="input" v-model="changeForm.title" placeholder="如 袖口改为 2×2 罗纹" /></div>
+              <ChangePatchFields :order-id="changeForm.order_id" :type="changeForm.type" v-model="changeForm.patch" />
               <div class="fitem"><label>影响在制数量</label><input class="input" type="number" v-model.number="changeForm.affected_in_production" /></div>
-              <div class="fitem"><label>已交数量</label><input class="input" type="number" v-model.number="changeForm.delivered_qty" /></div>
-              <div class="fitem"><label>剩余可变更数量</label><input class="input" type="number" v-model.number="changeForm.remaining_qty" /></div>
+              <div class="fitem"><label>已交数量</label><input class="input" type="number" v-model.number="changeForm.delivered_qty" disabled /></div>
+              <div class="fitem"><label>剩余可变更数量</label><input class="input" type="number" v-model.number="changeForm.remaining_qty" disabled /></div>
               <div class="fitem"><label>金额影响（元/件）</label><input class="input" type="number" step="0.01" v-model.number="changeForm.price_delta" /></div>
               <div class="fitem"><label>成本影响（元/件）</label><input class="input" type="number" step="0.01" v-model.number="changeForm.cost_delta" /></div>
               <div class="fitem"><label>交期影响（天）</label><input class="input" type="number" v-model.number="changeForm.delivery_delta_days" /></div>
@@ -225,7 +228,7 @@
               <div class="fitem"><label>变更后</label><input class="input" v-model="changeForm.afterText" placeholder="如 2×2 罗纹" /></div>
             </div>
             <p class="muted" style="font-size: 12px; margin-top: 10px">
-              交期类变更提交客户时会自动登记一条交期变动记录（原承诺保留不覆盖）。
+              提交后进入统一审批中心；全部批准后才发送客户，工位签收成功才应用实际数据。
             </p>
             <p v-if="formMsg" class="form-msg err">{{ formMsg }}</p>
           </div>
@@ -269,7 +272,7 @@
               <td style="max-width: 220px; white-space: normal">{{ r.reason || '-' }}</td>
               <td class="nowrap"><span class="tag" :class="r.status === 'confirmed' ? 'green' : r.status === 'rejected' ? 'red' : 'orange'">{{ r.status_label }}</span></td>
               <td v-if="canWrite" class="nowrap">
-                <button v-if="r.status === 'pending'" class="link-btn" @click="doConfirmDelivery(r)">代录客户确认</button>
+                <button v-if="r.status === 'pending' && !r.source_change_id" class="link-btn" @click="doConfirmDelivery(r)">代录客户确认</button>
               </td>
             </tr>
             <tr v-if="!deliveries.length"><td :colspan="canWrite ? 8 : 7" class="empty-cell">暂无交期变动</td></tr>
@@ -294,7 +297,7 @@
               <td class="nowrap"><span class="tag" :class="e.verified ? 'green' : 'orange'">{{ e.verified_label }}</span></td>
               <td v-if="canWrite" class="nowrap">
                 <button v-if="!e.verified" class="link-btn" @click="doVerifyEvent(e)">标记已核实</button>
-                <button class="link-btn danger" @click="doDeleteEvent(e)">删除</button>
+                <button v-action="['confirm','delete']" class="link-btn danger" @click="doDeleteEvent(e)">删除</button>
               </td>
             </tr>
             <tr v-if="!shipments.length"><td :colspan="canWrite ? 8 : 7" class="empty-cell">暂无物流事件</td></tr>
@@ -302,7 +305,7 @@
         </table>
       </div>
 
-      <div v-if="deliveryModal" class="modal-mask" @click.self="deliveryModal = false">
+      <div v-if="deliveryModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>登记交期变动</h3><button class="link-btn" @click="deliveryModal = false">关闭</button></div>
           <div class="modal-body">
@@ -335,7 +338,7 @@
         </div>
       </div>
 
-      <div v-if="eventModal" class="modal-mask" @click.self="eventModal = false">
+      <div v-if="eventModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>登记物流事件</h3><button class="link-btn" @click="eventModal = false">关闭</button></div>
           <div class="modal-body">
@@ -380,6 +383,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api } from '../api';
+import ChangePatchFields from '../components/ChangePatchFields.vue';
 import { can } from '../store/permissions';
 
 const TABS = [
@@ -399,6 +403,7 @@ const seals = ref([]);
 const sealStatus = ref('');
 const sealModal = ref(false);
 const sealForm = reactive({});
+const sealSources=ref({items:[],archives:[],techpacks:[]});
 
 const changes = ref([]);
 const changeStatus = ref('');
@@ -416,6 +421,7 @@ const eventForm = reactive({});
 function sealTag(v) {
   return { draft: 'gray', sent: 'orange', confirmed: 'green', rejected: 'red', superseded: 'gray' }[v] || 'gray';
 }
+function patchDescription(next){const labels={row_id:'明细',qty:'数量',usd_price:'美元单价',new_date:'预计交期',instruction:'工艺',ingredient:'成分',mat_color:'颜色/色号',remark:'备注'};return Object.entries(next || {}).map(([k,v])=>(labels[k]||k)+'：'+v).join('；');}
 function changeTag(v) {
   return {
     draft: 'gray', assessing: 'orange', pending_customer: 'blue',
@@ -447,16 +453,18 @@ function openSeal(orderId) {
   formMsg.value = '';
   Object.keys(sealForm).forEach((k) => delete sealForm[k]);
   Object.assign(sealForm, {
-    order_id: orderId || null, style_no: '', sample_name: '', version: '', attachText: '', remark: ''
+    order_id: orderId || null, order_item_id:null,archive_id:null,tech_pack_id:null,style_no: '', sample_name: '', version: '', attachText: '', remark: ''
   });
   if (orderId) pickOrderStyle();
   sealModal.value = true;
 }
 
-function pickOrderStyle() {
-  const o = orders.value.find((x) => x.id === sealForm.order_id);
-  if (o && !sealForm.style_no) sealForm.style_no = o.style_name || '';
+async function pickOrderStyle() {
+ sealSources.value={items:[],archives:[],techpacks:[]};sealForm.order_item_id=null;sealForm.archive_id=null;sealForm.tech_pack_id=null;
+ if(!sealForm.order_id)return;
+ try{sealSources.value=await api.confirmationSources(sealForm.order_id);if(sealSources.value.items.length===1)sealForm.order_item_id=sealSources.value.items[0].id;}catch(e){formMsg.value=e.message;}
 }
+async function linkSource(){try{await api.linkConfirmationSource(sealForm.order_id,{order_item_id:sealForm.order_item_id,tech_pack_id:sealForm.tech_pack_id});sealSources.value=await api.confirmationSources(sealForm.order_id);}catch(e){formMsg.value=e.message;}}
 
 async function saveSeal() {
   formMsg.value = '';
@@ -470,7 +478,7 @@ async function saveSeal() {
         return { name: (name || '').trim(), url: (url || '').trim() };
       });
     await api.createSeal({
-      order_id: sealForm.order_id, style_no: sealForm.style_no, sample_name: sealForm.sample_name,
+      order_id: sealForm.order_id,order_item_id:sealForm.order_item_id,archive_id:sealForm.archive_id,tech_pack_id:sealForm.tech_pack_id, style_no: sealForm.style_no, sample_name: sealForm.sample_name,
       version: sealForm.version || undefined, remark: sealForm.remark, attachments
     });
     sealModal.value = false;
@@ -479,15 +487,15 @@ async function saveSeal() {
 }
 
 async function doTechApprove(r) {
-  try { await api.techApproveSeal(r.id); await loadAll(); } catch (e) { alert(e.message); }
+  try { await api.techApproveSeal(r.id,{row_version:r.row_version}); await loadAll(); } catch (e) { alert(e.message); }
 }
 async function doSendSeal(r) {
-  try { await api.sendSeal(r.id); await loadAll(); } catch (e) { alert(e.message); }
+  try { await api.sendSeal(r.id,{row_version:r.row_version}); await loadAll(); } catch (e) { alert(e.message); }
 }
 async function doRejectSeal(r) {
   const comment = prompt('客户提出的修改意见');
   if (!comment) return;
-  try { await api.rejectSeal(r.id, { comment }); await loadAll(); } catch (e) { alert(e.message); }
+  try { await api.rejectSeal(r.id, { comment,row_version:r.row_version }); await loadAll(); } catch (e) { alert(e.message); }
 }
 
 // ---------- 变更 ----------
@@ -495,14 +503,14 @@ function openChange(r) {
   formMsg.value = '';
   Object.keys(changeForm).forEach((k) => delete changeForm[k]);
   Object.assign(changeForm, r ? {
-    id: r.id, change_no: r.change_no, order_id: r.order_id, type: r.type, title: r.title,
+    id: r.id,row_version:r.row_version,patch:{...(r.patch?.next || {})}, change_no: r.change_no, order_id: r.order_id, type: r.type, title: r.title,
     affected_in_production: r.affected_in_production, delivered_qty: r.delivered_qty,
     remaining_qty: r.remaining_qty, price_delta: r.price_delta, cost_delta: r.cost_delta,
     delivery_delta_days: r.delivery_delta_days, affected_materials: r.affected_materials || '',
     assess_note: r.assess_note || '',
     beforeText: r.before ? JSON.stringify(r.before) : '', afterText: r.after ? JSON.stringify(r.after) : ''
   } : {
-    id: null, order_id: null, type: 'craft', title: '', affected_in_production: 0, delivered_qty: 0,
+    id: null, patch:{},order_id: null, type: 'craft', title: '', affected_in_production: 0, delivered_qty: 0,
     remaining_qty: 0, price_delta: 0, cost_delta: 0, delivery_delta_days: 0,
     affected_materials: '', assess_note: '', beforeText: '', afterText: ''
   });
@@ -518,7 +526,7 @@ async function saveChange() {
     const after = changeForm.afterText ? { value: changeForm.afterText } : null;
     if (changeForm.id) {
       await api.updateOrderChange(changeForm.id, {
-        title: changeForm.title, type: changeForm.type, before, after,
+        title: changeForm.title, type: changeForm.type, before, after,patch:changeForm.patch,row_version:changeForm.row_version,
         affected_in_production: changeForm.affected_in_production, delivered_qty: changeForm.delivered_qty,
         remaining_qty: changeForm.remaining_qty, price_delta: changeForm.price_delta,
         cost_delta: changeForm.cost_delta, delivery_delta_days: changeForm.delivery_delta_days,
@@ -527,7 +535,7 @@ async function saveChange() {
     } else {
       if (!changeForm.order_id) { formMsg.value = '请选择订单'; saving.value = false; return; }
       await api.createOrderChange({
-        order_id: changeForm.order_id, type: changeForm.type, title: changeForm.title,
+        order_id: changeForm.order_id, type: changeForm.type, title: changeForm.title,patch:changeForm.patch,
         before, after, affected_in_production: changeForm.affected_in_production,
         delivered_qty: changeForm.delivered_qty, remaining_qty: changeForm.remaining_qty,
         price_delta: changeForm.price_delta, cost_delta: changeForm.cost_delta,
@@ -542,12 +550,12 @@ async function saveChange() {
 function openAssess(r) { openChange(r); }
 
 async function doApproveChange(r) {
-  if (!confirm(`提交变更 ${r.change_no} 给客户确认？`)) return;
-  try { await api.approveOrderChange(r.id); await loadAll(); } catch (e) { alert(e.message); }
+  if (!confirm(`提交变更 ${r.change_no} 至统一审批？逐级通过后才发送客户。`)) return;
+  try { await api.approveOrderChange(r.id,{row_version:r.row_version}); await loadAll(); } catch (e) { alert(e.message); }
 }
 async function doSignChange(r) {
   if (!confirm(`确认生产工位已签收变更 ${r.change_no}？签收后变更正式生效执行。`)) return;
-  try { await api.signOrderChange(r.id); await loadAll(); } catch (e) { alert(e.message); }
+  try { await api.signOrderChange(r.id,{row_version:r.row_version}); await loadAll(); } catch (e) { alert(e.message); }
 }
 async function doRejectChange(r) {
   const reason = prompt('驳回原因');

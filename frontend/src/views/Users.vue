@@ -5,7 +5,7 @@
         <h2>用户与角色</h2>
         <div class="sub">账号、角色权限、启用停用、公司主体归属</div>
       </div>
-      <button class="btn btn-primary" @click="openCreate">＋ 新增用户</button>
+      <button v-action="['users','create']" class="btn btn-primary" @click="openCreate">＋ 新增用户</button>
     </div>
 
     <!--
@@ -19,6 +19,7 @@
     </div>
 
     <div class="table-wrap">
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data">
         <thead>
           <tr>
@@ -28,9 +29,9 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="u in list" :key="u.id">
+          <tr v-for="u in pagination.rows" :key="u.id">
             <td><strong>{{ u.username }}</strong></td>
-            <td>{{ u.name || '-' }}</td>
+            <td>{{ u.name || '-' }}<div class="hint">{{ u.employee_name ? '已关联员工：'+u.employee_name : '未关联员工档案' }}</div></td>
             <td><span class="tag blue">{{ roleLabel(u.role) }}</span></td>
             <td v-if="!single">
               <span class="tag" :class="u.company_missing ? 'red' : 'gray'">
@@ -39,16 +40,17 @@
             </td>
             <td><span class="tag" :class="u.active ? 'green' : 'gray'">{{ u.active ? '启用' : '停用' }}</span></td>
             <td>{{ dateStr(u.created_at) }}</td>
-            <td><button class="link-btn" @click="openEdit(u)">编辑</button></td>
+            <td><button v-action="['users','edit']" class="link-btn" @click="openEdit(u)">编辑</button></td>
           </tr>
           <tr v-if="!list.length">
             <td :colspan="single ? 6 : 7" class="empty-cell">暂无用户</td>
           </tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
+    <div v-if="showModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>{{ form.id ? '编辑用户' : '新增用户' }}</h3><button class="x" @click="showModal = false">×</button></div>
         <div class="modal-body">
@@ -64,7 +66,7 @@
             <div class="fitem">
               <label>状态</label>
               <select class="select" v-model="form.active">
-                <option :value="1">启用</option><option :value="0">停用</option>
+                <option :disabled="!$canAction('users','enable')" :value="1">启用</option><option :disabled="!$canAction('users','disable')" :value="0">停用</option>
               </select>
             </div>
             <!-- 单公司模式只有一个主体，不摆一个只有一项的下拉（会让人以为选错了） -->
@@ -79,6 +81,15 @@
             <div v-else class="fitem">
               <label>公司主体</label>
               <div class="readonly-box">{{ headerName || '本公司' }}<span class="muted">（单公司模式，不可选）</span></div>
+            </div>
+            <div class="fitem full">
+              <label>员工档案关联</label>
+              <div v-if="form.employee_id" class="hint">{{ form.employee_name }} · 员工档案已关联</div>
+              <template v-else-if="bindingCandidate">
+                <div class="hint">同手机号在职员工：{{ bindingCandidate.name }}。关联后同步姓名及员工归属，密码、角色和岗位权限保持不变。</div>
+                <button v-action="['users','bind-employee']" class="btn btn-ghost" :disabled="saving" @click="bindEmployee()">关联此员工</button>
+              </template>
+              <div v-else class="hint">暂无同手机号的在职员工，请先核对员工档案手机号。</div>
             </div>
             <div class="fitem full">
               <label>{{ form.id ? '重置密码（留空则不改）' : '密码 *' }}</label>
@@ -97,9 +108,12 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { ROLE_LABELS } from '../store/auth';
+import { auth, clearAuth } from '../store/auth';
 import { ROLES } from '../store/permissions';
 
 const list = ref([]);
@@ -108,6 +122,7 @@ const roles = ref([...ROLES]);
 const showModal = ref(false);
 const saving = ref(false);
 const form = ref(blank());
+const bindingCandidate = ref(null);
 
 /**
  * 单公司模式与主体清单都从后端取，前端不自己猜
@@ -154,7 +169,19 @@ function openCreate() {
   }
   showModal.value = true;
 }
-function openEdit(u) { form.value = { ...u, password: '' }; showModal.value = true; }
+async function openEdit(u) {
+  form.value = { ...u, password: '' }; bindingCandidate.value=null; showModal.value = true;
+  if(!u.employee_id)try{const rows=await api.employees({});const matches=rows.filter(e=>e.status==='active'&&String(e.phone||'').replace(/[\s-]/g,'')===u.username);if(form.value.id===u.id&&matches.length===1)bindingCandidate.value=matches[0];}catch(e){console.error(e);}
+}
+async function bindEmployee(){
+ if(!bindingCandidate.value||saving.value)return;saving.value=true;
+ try{
+  const id=form.value.id;await api.bindEmployee(id,{employee_id:bindingCandidate.value.id,expected_employee_id:form.value.employee_id||null});
+  showModal.value=false;
+  if(Number(auth.user?.id)===Number(id)){clearAuth();location.href='/login';return;}
+  await load();
+ }catch(e){alert(e.message);}finally{saving.value=false;}
+}
 
 async function save() {
   if (!form.value.username) return alert('请填写账号');
@@ -191,6 +218,8 @@ async function save() {
 }
 
 onMounted(async () => { await loadMeta(); await load(); });
+
+const pagination = useListPagination(() => list.value);
 </script>
 
 <style scoped>

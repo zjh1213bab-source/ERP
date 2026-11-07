@@ -142,7 +142,7 @@
           <option value="superseded">已被替代</option>
         </select>
         <div class="spacer"></div>
-        <button class="btn btn-primary" @click="openPolicy">＋ 新增税率</button>
+        <button v-action="['tax','create']"  class="btn btn-primary" @click="openPolicy">＋ 新增税率</button>
       </div>
 
       <div class="hint-bar">
@@ -172,7 +172,7 @@
     </div>
 
     <!-- 新增税率 -->
-    <div v-if="modal === 'policy'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'policy'" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>新增税率</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -208,7 +208,7 @@
     </div>
 
     <!-- 批次明细 -->
-    <div v-if="modal === 'run' && curRun" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'run' && curRun" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>{{ curRun.run_no }} · {{ curRun.company_name }} · {{ curRun.period }}</h3>
@@ -247,7 +247,7 @@
           <div class="warn-row" style="margin-top: 10px">测算不等于已申报；本批 {{ curRun.status === 'confirmed' ? '已内部确认' : '仍为草稿' }}，申报以税务机关核定为准。</div>
         </div>
         <div class="modal-foot">
-          <button class="btn btn-ghost" @click="exportRun(curRun)">导出底稿</button>
+          <button v-action="['tax','export']" class="btn btn-ghost" @click="exportRun(curRun)">导出底稿</button>
           <button v-if="curRun.status === 'draft'" class="btn btn-primary" @click="doConfirm">确认这一版</button>
           <button v-if="curRun.status !== 'void'" class="btn btn-ghost" @click="openVoid">作废</button>
           <button class="btn btn-ghost" @click="modal = ''">关闭</button>
@@ -255,7 +255,7 @@
       </div>
     </div>
 
-    <div v-if="modal === 'void'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'void'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>作废测算批次</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -438,14 +438,14 @@ onMounted(async () => {
 .page-head .sub { max-width: 940px; }
 .head-ops { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: nowrap; }
 .head-ops .btn { white-space: nowrap; }
-.pill { display: inline-block; white-space: nowrap; font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 4px 9px; }
-.p-gray { background: #eef1f6; color: #6b7688; }
+.pill { display: inline-block; white-space: nowrap; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 4px 9px; }
+.p-gray { background: #eef1f6; color: var(--ink-soft); }
 
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { font-size: 12px; color: #8a94a6; display: block; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { font-size: 12px; color: var(--ink-mute); display: block; }
 .stat strong { font-size: 21px; color: #16305f; display: block; margin-top: 4px; line-height: 1.1; }
-.stat small { font-size: 11px; color: #9aa4b5; display: block; margin-top: 4px; }
+.stat small { font-size: 12px; color: #9aa4b5; display: block; margin-top: 4px; }
 .stat.st-warn { border-color: #f5d9a8; background: #fffdf7; }
 .stat.st-bad { border-color: #f3c2c9; background: #fffafb; }
 .tiny-strong { font-size: 15px !important; }
@@ -453,67 +453,67 @@ onMounted(async () => {
 .tabbar { display: flex; margin-bottom: 10px; }
 .tabs { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
 .tabs button {
-  flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; border: 1px solid #e2e8f2; background: #fff;
-  border-radius: 9px; font-size: 13px; color: #4b5568; cursor: pointer; font-family: inherit;
+  flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; border: 1px solid #e2e8f2; background: var(--surface);
+  border-radius: 9px; font-size: 13px; color: var(--ink-soft); cursor: pointer; font-family: inherit;
 }
-.tabs button.on { background: #2b6de5; border-color: #2b6de5; color: #fff; font-weight: 700; }
-.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 10.5px; }
+.tabs button.on { background: var(--brand); border-color: #2b6de5; color: var(--on-brand); font-weight: 700; }
+.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 12px; }
 
-.toolbar select, .toolbar input { padding: 7px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px; font-family: inherit; }
+.toolbar select, .toolbar input { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; }
 .spacer { flex: 1; }
-.tiny { font-size: 11.5px; }
-.muted { color: #8a94a6; }
-.blue { color: #2563eb; }
+.tiny { font-size: 12px; }
+.muted { color: var(--ink-mute); }
+.blue { color: var(--brand); }
 .red { color: #d92d45; font-weight: 700; }
 .nowrap { white-space: nowrap; }
-.lnk { color: #2563eb; cursor: pointer; font-weight: 600; }
+.lnk { color: var(--brand); cursor: pointer; font-weight: 600; }
 .lnk:hover { text-decoration: underline; }
-.link-btn { background: none; border: none; color: #2563eb; cursor: pointer; font-size: 12.5px; padding: 2px 4px; font-family: inherit; }
+.link-btn { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 12.5px; padding: 2px 4px; font-family: inherit; }
 .empty-box { text-align: center; color: #9aa4b5; padding: 20px 0; font-size: 13px; }
-.row-off { background: #fbfcfe; color: #8a94a6; }
-.hint-bar { background: #f2f7ff; border: 1px solid #d6e4ff; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: #33415a; margin-bottom: 12px; line-height: 1.7; }
+.row-off { background: var(--surface-2); color: var(--ink-mute); }
+.hint-bar { background: #f2f7ff; border: 1px solid #d6e4ff; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: var(--ink); margin-bottom: 12px; line-height: 1.7; }
 .hint-bar b { color: #16305f; }
 
-.calc-card { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 14px 16px; margin-bottom: 6px; }
+.calc-card { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 14px 16px; margin-bottom: 6px; }
 .cc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .cc-head .spacer { flex: 1; }
-.cc-head b { font-size: 14px; color: #16233b; }
+.cc-head b { font-size: 14px; color: var(--ink); }
 .calc-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
-.cg-item { border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; background: #fbfcfe; }
-.cg-item span { font-size: 11.5px; color: #8a94a6; display: block; }
+.cg-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface-2); }
+.cg-item span { font-size: 12px; color: var(--ink-mute); display: block; }
 .cg-item b { font-size: 16px; color: #16305f; display: block; margin-top: 3px; }
-.cg-item small { font-size: 10.5px; color: #9aa4b5; display: block; margin-top: 4px; line-height: 1.4; }
+.cg-item small { font-size: 12px; color: #9aa4b5; display: block; margin-top: 4px; line-height: 1.4; }
 .cg-item.cg-bad { background: #fffdf7; border-color: #f5d9a8; }
 .calc-total { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; padding: 10px 12px; background: #f7faff; border: 1px solid #dbe7ff; border-radius: 10px; }
-.calc-total span { font-size: 12px; color: #4b5568; }
+.calc-total span { font-size: 12px; color: var(--ink-soft); }
 .calc-total b { font-size: 20px; color: #16305f; }
 .warn-row { margin-top: 8px; font-size: 12px; color: #8a5b00; background: #fffdf5; border: 1px solid #f5e3b3; border-radius: 8px; padding: 7px 10px; line-height: 1.6; }
 
-.trend { display: flex; align-items: flex-end; gap: 18px; background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 16px 18px; min-height: 140px; }
+.trend { display: flex; align-items: flex-end; gap: 18px; background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 16px 18px; min-height: 140px; }
 .tr-col { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 60px; }
 .tr-bar { height: 92px; width: 26px; display: flex; align-items: flex-end; }
 .tr-bar i { display: block; width: 100%; border-radius: 5px 5px 0 0; }
-.bar-ok { background: #2b6de5; }
+.bar-ok { background: var(--brand); }
 .bar-blue { background: #8fb4f5; }
 .tr-col b { font-size: 12px; color: #16305f; }
-.tr-col span { font-size: 11px; color: #9aa4b5; }
+.tr-col span { font-size: 12px; color: #9aa4b5; }
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-grid .wide { grid-column: 1/-1; }
-.fld { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: #4b5568; }
+.fld { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--ink-soft); }
 .fld > span { font-weight: 600; }
 .fld input, .fld select, .fld textarea {
-  padding: 8px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px;
-  font-family: inherit; width: 100%; box-sizing: border-box; background: #fff;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px;
+  font-family: inherit; width: 100%; box-sizing: border-box; background: var(--surface);
 }
 .det-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.det-line { margin: 0 0 8px; font-size: 13.5px; color: #16233b; }
-.modal-body h4 { font-size: 13px; color: #16233b; margin: 0 0 8px; }
-.modal-body h4 small { font-weight: 400; color: #9aa4b5; margin-left: 6px; font-size: 11px; }
+.det-line { margin: 0 0 8px; font-size: 13.5px; color: var(--ink); }
+.modal-body h4 { font-size: 13px; color: var(--ink); margin: 0 0 8px; }
+.modal-body h4 small { font-weight: 400; color: #9aa4b5; margin-left: 6px; font-size: 12px; }
 .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
 .kv > div { display: flex; gap: 10px; font-size: 12.5px; border-bottom: 1px dashed #f0f3f8; padding-bottom: 5px; }
-.kv span { color: #8a94a6; width: 110px; flex: none; }
-.kv b { color: #16233b; font-weight: 600; }
+.kv span { color: var(--ink-mute); width: 110px; flex: none; }
+.kv b { color: var(--ink); font-weight: 600; }
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, 1fr); }

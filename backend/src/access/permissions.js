@@ -22,9 +22,10 @@
  *   hr         人事行政：员工档案、考勤、请假审批、薪酬、绩效、用印、后勤
  */
 
-const ROLES = ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'];
+const ROLES = ['employee', 'admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'];
 
 const ROLE_LABELS = {
+  employee: '普通员工',
   admin: '系统管理员',
   boss: '总经理',
   sales: '销售跟单',
@@ -239,8 +240,8 @@ const PERMS = {
   // ===== 员工自助（TS-N13-10）=====
   // 自助是「人人都有」的权限，但**范围由服务端的绑定关系卡死**：只能看自己。
   // 给所有角色 read/submit 不等于给了看别人的能力 —— 越权在服务层按 employee_id 拦。
-  'self.read': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
-  'self.submit': ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'self.read': ['employee', 'admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
+  'self.submit': ['employee', 'admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'],
   // 受理申请：人事（补卡/请假/资料）与财务（薪资申诉）都要能处理
   'self.manage': ['admin', 'hr', 'finance'],
   // 绑定账号 ↔ 员工：绑错了就是「看到别人的工资」，只给人事与管理员
@@ -622,3 +623,99 @@ module.exports = {
   ROLES, ROLE_LABELS, PERMS, GUARDED, SOD_RULES, WRITE_METHODS,
   permsOfRole, allPerms
 };
+
+/** 岗位入口权限同样在此目录定义，从实际挂载的业务路由生成，新增接口默认拒绝。 */
+function positionModules() {
+ const source=require('fs').readFileSync(require('path').join(__dirname,'../server.js'),'utf8');
+ return [...new Set([...source.matchAll(/app\.use\('\/api\/([\w-]+)'/g)].map(x=>x[1]))].filter(x=>!['auth','access','health'].includes(x));
+}
+// 细粒度订单动作补充到统一门禁表，岗位授权与原有收回机制复用。
+GUARDED.push(
+ {perm:'order.create',method:'POST',prefix:'/api/orders',exact:true},
+ {perm:'order.dispatch',method:'POST',prefix:'/api/dispatch'},
+ {perm:'order.dispatch',method:'DELETE',prefix:'/api/dispatch'}
+);
+module.exports.positionModules=positionModules;
+
+/** 按钮动作是岗位权限目录的一部分；后端与前端目录均使用此规则。
+ * DELETE 档案接口实际为软停用，不能错误归到“删除”。子资源 DELETE 仍属删除。
+ */
+const POSITION_MASTER = {
+ customers:{table:'customers'}, suppliers:{table:'suppliers'}, materials:{table:'materials'},
+ factories:{table:'factories'}, 'craft-types':{table:'craft_types'}, products:{table:'products'},
+ employees:{table:'employees',disabled:'left',enabled:'active'}, 'approval-flows':{table:'approval_flows',field:'active',disabled:0,enabled:1}, users:{table:'users',field:'active',disabled:0,enabled:1}
+};
+const POSITION_ACTION_LABELS={create:'新增',edit:'编辑',delete:'删除',disable:'停用 / 离职',enable:'启用 / 恢复',export:'导出',approve:'审核通过',reject:'驳回',duplicate:'复制',submit:'提交',confirm:'确认',cancel:'取消',close:'关闭',publish:'发布',convert:'转正式订单',transition:'推进流程',adjust:'调整',pay:'付款',upload:'上传',import:'导入',default:'设为默认',send:'发送',withdraw:'撤回',reset:'重置',bind:'绑定',unbind:'解绑',assign:'分配',restore:'恢复',execute:'执行',save:'保存',batch:'批量处理',colors:'颜色维护',sizes:'尺码维护',items:'明细维护',nodes:'工序节点',steps:'流程步骤',attachments:'附件维护',review:'审核',complete:'完成',finish:'完成',start:'开始',accept:'接受',return:'退回',reopen:'重新打开',sign:'签字',commit:'正式导入',preview:'预览'};
+Object.assign(POSITION_ACTION_LABELS,{'image-search':'样衣以图搜款',
+ image:'修改图片','order-no':'修改单号',rollback:'退回上一步',crafts:'工艺维护',detail:'明细维护','from-order':'从订单创建','new-version':'创建新版本',stage:'推进阶段',status:'变更状态',appearance:'发布外观',changes:'变更申请',done:'标记完成',ensure:'生成工序',materials:'物料维护',recheck:'复核','change-request':'申请修改','pattern-review':'打版审核','resubmit-pattern-review':'重新送审','start-search':'开始寻料',init:'初始化',apply:'应用',reorder:'调整顺序',templates:'模板维护','auto-transfer':'自动调拨',instock:'入库',ship:'出库发货',transfer:'调拨',settle:'结算',act:'执行动作',sync:'同步',archive:'归档',query:'查询',clock:'登记时间',ack:'签收',ask:'提问',explain:'说明',extract:'提取',faq:'知识维护',gateway:'接口调用',generate:'生成',handovers:'交接',reply:'回复',run:'运行',take:'领取',test:'测试','link-order':'关联订单',order:'下单',receive:'收货',file:'文件维护','signed-url':'生成下载链接',reprice:'重新计价',config:'配置',rates:'费率维护',void:'作废',hold:'暂缓',overrides:'例外授权',log:'记录',claim:'认领',ignore:'忽略',note:'备注',rules:'规则维护',scan:'扫码',trial:'试算',reveal:'查看敏感信息',assess:'评估',revoke:'撤销',refund:'退款',issue:'发放',scrap:'报废',annotate:'批注',diff:'差异比较',download:'下载','run-due':'执行到期任务',manual:'人工登记',refresh:'刷新',policy:'策略设置',post:'过账','change-pwd':'修改密码',login:'登录',members:'成员维护',read:'标为已读','read-all':'全部已读','reset-pwd':'重置密码',invites:'邀请',notify:'通知',quote:'报价','check-pay':'核对付款','confirm-refund':'确认退款','receive-return':'退货收货',reserve:'预留',verify:'核验',link:'关联','tech-approve':'技术批准',deliver:'交付',hire:'录用',renew:'续期',terminate:'终止',checkin:'入住',checkout:'退宿',lost:'挂失',reissue:'补发',correct:'更正',dispatch:'分配',drop:'取消',retry:'重试','rotate-key':'更新密钥',reverse:'冲销',collect:'收取',snapshot:'保存快照',calc:'计算',handover:'交接','refresh-version':'刷新版本',release:'放行',dispose:'处置',inspect:'检验',recall:'召回',decide:'审批决定',recollect:'重新收集',effective:'生效',physical:'实物登记','supplier-confirm':'供应商确认',freeze:'冻结',simulate:'模拟',borrow:'借用',use:'使用',waive:'豁免',delegate:'委派',escalate:'升级处理',remind:'催办',retire:'停用',fix:'修复','fix-all':'全部修复',arrive:'到货',kit:'齐套确认',match:'匹配',putaway:'上架',resolve:'解决',unbundle:'拆包',carry:'结转',check:'检查','auto-match':'自动匹配',unmatch:'取消匹配','sweep-expired':'清理过期',end:'结束','accept-inference':'接受推断',merge:'合并',recycle:'回收',expire:'标为过期',move:'移动',picked:'拣货完成',short:'登记缺货',split:'拆分','confirm-email':'确认邮件',skip:'跳过',pack:'包装',pick:'拣货',fill:'填报',count:'盘点',prepare:'准备',distribute:'分配',revert:'撤销变更',assignment:'分配任务',confirms:'确认'
+});
+function positionAction(module,method,route){
+ if(module==='orders' && route==='/entry/material-templates' && method.toUpperCase()==='POST')return 'create';
+ if(module==='orders' && method.toUpperCase()==='PUT' && route==='/entry/draft')return 'create';
+ method=method.toUpperCase(); const parts=String(route||'/').split('/').filter(Boolean);
+ if(['GET','HEAD'].includes(method))return parts.some(x=>/^(export|download|print)([-.]|$)/.test(x))?'export':null;
+ if(method==='DELETE')return POSITION_MASTER[module]&&parts.length===1&&parts[0].startsWith(':')?'disable':'delete';
+ if(!parts.length)return method==='POST'?'create':'edit';
+ if(parts.every(x=>x.startsWith(':'))||['PUT','PATCH'].includes(method)&&parts.at(-1).startsWith(':'))return 'edit';
+ if(method==='POST'&&/^(templates|shops|accounts|items|products|prices|members|requests|records|batches|standards|inspections|issues|contracts|recruitments|candidates|certificates|rooms|repairs|entries|bundles|lots|checks|workstations|policies|tasks|assets|leads|followups|targets|events|channels|waves|projects|skus|positions|reports|vouchers|companies|parties|milestones)$/.test(parts.at(-1)))return 'create';
+ const last=[...parts].reverse().find(x=>!x.startsWith(':'));
+ const aliases={approve:'approve',approved:'approve',reject:'reject',rejected:'reject',deactivate:'disable',activate:'enable',leave:'disable',restore:'enable',remove:'delete',copy:'duplicate'};
+ return aliases[last]||last.replace(/[^a-zA-Z0-9_-]/g,'-');
+}
+let _positionActions;
+function positionActions(){
+ if(_positionActions)return _positionActions;
+ const fs=require('fs'),path=require('path'),source=fs.readFileSync(path.join(__dirname,'../server.js'),'utf8');
+ const imports=new Map([...source.matchAll(/const\s+(\w+)\s*=\s*require\('\.\/routes\/([^']+)'\)/g)].map(x=>[x[1],x[2]]));
+ const result={};
+ for(const match of source.matchAll(/app\.use\('\/api\/([\w-]+)',\s*(\w+)/g)){
+  const module=match[1],file=imports.get(match[2]);if(!file||!positionModules().includes(module))continue;
+  const actions=new Set(),routes={};
+  const routeSource=fs.readFileSync(path.join(__dirname,'../routes',file+'.js'),'utf8');
+  for(const r of routeSource.matchAll(/router\.(get|head|post|put|patch|delete)\(\s*['"]([^'"\n]+)['"]/g)){
+   const action=positionAction(module,r[1],r[2]);if(action){actions.add(action);(routes[action]??=[]).push({method:r[1].toUpperCase(),path:'/api/'+module+(r[2]==='/'?'':r[2])});}
+  }
+  if(POSITION_MASTER[module])['enable','disable'].forEach(a=>actions.add(a));
+  result[module]=[...actions].sort().map(action=>({code:'action.'+module+'.'+action,action,routes:routes[action]||[],label:POSITION_ACTION_LABELS[action]||('操作：'+action)}));
+ }
+ return _positionActions=result;
+}
+module.exports.positionAction=positionAction;
+module.exports.positionActions=positionActions;
+module.exports.POSITION_MASTER=POSITION_MASTER;
+
+/** 普通员工的基础工作入口。更细的数据范围由对应路由执行。 */
+function employeePortalRequest(req) {
+ const url=String(req.originalUrl||req.url||'').split('?')[0];
+ if (/^\/api\/mail(?:\/|$)/.test(url)) return true;
+ if (req.method==='GET' && (/^\/api\/exceptions(?:\/|$)/.test(url) || url==='/api/orders/find' || /^\/api\/assistant\/(insights|report)$/.test(url))) return true;
+ return req.method==='POST' && url==='/api/assistant/query';
+}
+module.exports.employeePortalRequest=employeePortalRequest;
+
+/** 兼容既有业务页 can()，授权入口始终是模块/按钮，无需另选旧角色或写权限。 */
+const POSITION_LEGACY_MODULES={order:'orders',photo:'photos',production:'production-close',node:'node-flow',quote:'quotations',development:'techpacks',cost:'costs',craft:'crafts',material:'materials',report:'reports',fa:'first-articles',customer:'customers',product:'products',factory:'factories',purchase:'purchases',supplier:'suppliers',receipt:'receipts',employee:'employees',leave:'hr',payroll:'payrolls',piecewage:'piece-wage',admincontract:'admin-contracts',asset:'assets',expense:'admin-expenses',spot:'spot',ai:'ai',pattern:'pattern-flows',user:'users',baddebt:'bad-debt',collection:'collections',exception:'exceptions',prodreport:'prod-report',flowchange:'flow-changes',skill:'skills',custprogress:'customer-progress',aftersale:'after-sales',statementfile:'statement-files',office:'office-supply',adminops:'admin-ops',paycheck:'payroll-check',export:'exports',golive:'go-live',bankaccount:'bank',contract:'admin-contracts',paymentreq:'payment-requests',approvalflow:'approval-flows',whplan:'whplan',spotops:'spotops',segment:'segments',matflow:'matflow',cutdispatch:'cut-dispatch',devmaster:'dev-master',supreview:'sup-review',importops:'import'};
+const POSITION_FIELD_PERMS=['hr.pii','crm.pii','supplier.pii','payroll.sensitive','adminops.detail'];
+function positionGrants(selected){
+ const grants=new Set(selected);
+ const crossModule={'action.stock.instock':['order.instock'],'action.stock.ship':['order.ship'],'action.dispatch.create':['order.dispatch'],'action.dispatch.delete':['order.dispatch']};
+ for(const code of selected)for(const perm of crossModule[code]||[])grants.add(perm);
+ for(const code of selected){const match=/^action\.([\w-]+)\.(.+)$/.exec(code);if(match){grants.add('module.'+match[1]+'.read');grants.add('module.'+match[1]+'.write');}}
+ // 把按钮对应接口所需的旧敏感权限一并派生，避免前端旧 can() 形成重复授权。
+ // 此处仅派生兼容标识，接口仍逐项校验所选 action，不能借宽权限执行其他动作。
+ for(const code of selected){
+  const match=/^action\.([\w-]+)\.(.+)$/.exec(code);if(!match)continue;
+  for(const route of positionActions()[match[1]]?.find(a=>a.action===match[2])?.routes||[]){
+   for(const guard of GUARDED)if((guard.method==='*'||guard.method===route.method)&&(route.path===guard.prefix||!guard.exact&&route.path.startsWith(guard.prefix+'/')))grants.add(guard.perm);
+  }
+ }
+ for(const perm of Object.keys(PERMS)){
+  if(POSITION_FIELD_PERMS.includes(perm))continue;
+  const [prefix,action]=perm.split('.'),module=POSITION_LEGACY_MODULES[prefix]||prefix;
+  const actions=[...grants].filter(x=>x.startsWith('action.'+module+'.')).map(x=>x.slice(('action.'+module+'.').length));
+  if(action==='read'&&grants.has('module.'+module+'.read') || ['write','manage'].includes(action)&&actions.some(a=>a!=='export') || actions.includes(action) || action==='review'&&actions.some(a=>['approve','reject','decide','tech-approve'].includes(a)))grants.add(perm);
+ }
+ return [...grants];
+}
+module.exports.positionGrants=positionGrants;
+module.exports.positionFieldPermissions=POSITION_FIELD_PERMS;

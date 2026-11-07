@@ -13,7 +13,7 @@
       <div class="head-ops">
         <button class="btn btn-ghost" @click="reload">刷新</button>
         <button v-if="canWrite" class="btn btn-ghost" @click="openCfg">参数</button>
-        <button class="btn btn-ghost" @click="doExport">导出 CSV</button>
+        <button v-action="['credit','export']" class="btn btn-ghost" @click="doExport">导出 CSV</button>
       </div>
     </div>
 
@@ -145,7 +145,7 @@
     </div>
 
     <!-- ================= 客户明细 ================= -->
-    <div v-if="detail" class="modal-mask" @click.self="detail = null">
+    <div v-if="detail" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ detail.customer.name }} · 信用明细</h3>
@@ -240,7 +240,7 @@
     </div>
 
     <!-- ================= 调额度 ================= -->
-    <div v-if="limitForm.open" class="modal-mask" @click.self="limitForm.open = false">
+    <div v-if="limitForm.open" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>调整信用 · {{ limitForm.name }}</h3>
@@ -279,7 +279,7 @@
     </div>
 
     <!-- ================= 冻结 / 解冻 ================= -->
-    <div v-if="holdForm.open" class="modal-mask" @click.self="holdForm.open = false">
+    <div v-if="holdForm.open" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>{{ holdForm.action === 'hold' ? '冻结信用' : '解除冻结' }} · {{ holdForm.name }}</h3>
@@ -311,7 +311,7 @@
     </div>
 
     <!-- ================= 参数 ================= -->
-    <div v-if="cfgOpen" class="modal-mask" @click.self="cfgOpen = false">
+    <div v-if="cfgOpen" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>判定参数</h3>
@@ -522,7 +522,7 @@ onMounted(load);
 
 <style scoped>
 .cards.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.stat-card .foot { margin-top: 8px; font-size: 11.5px; color: #8a94a6; }
+.stat-card .foot { margin-top: 8px; font-size: 12px; color: var(--ink-mute); }
 .stat-card.danger { border-color: #f6c9d0; background: #fffafb; }
 .cards.c5 .stat-card .value { font-size: 24px; }
 
@@ -538,23 +538,23 @@ onMounted(load);
 .usage { display: flex; align-items: center; gap: 8px; min-width: 108px; }
 .usage .bar { flex: 1 1 auto; min-width: 52px; height: 6px; border-radius: 4px; background: #eef1f6; overflow: hidden; }
 .usage .bar i { display: block; height: 100%; border-radius: 4px; }
-.usage .pct { font-size: 11.5px; font-weight: 700; min-width: 40px; text-align: right; }
+.usage .pct { font-size: 12px; font-weight: 700; min-width: 40px; text-align: right; }
 
-.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #4b5568; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-soft); }
 .warn-text { color: #d97706 !important; }
 .strong { font-weight: 700; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
 
 .dgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 18px; padding: 4px 0 12px; }
-.dgrid label { display: block; font-size: 11.5px; color: #8a94a6; margin-bottom: 4px; }
-.dgrid b { font-size: 15px; color: #16233b; }
-.sec { margin: 18px 0 8px; font-size: 13.5px; color: #16233b; }
+.dgrid label { display: block; font-size: 12px; color: var(--ink-mute); margin-bottom: 4px; }
+.dgrid b { font-size: 15px; color: var(--ink); }
+.sec { margin: 18px 0 8px; font-size: 13.5px; color: var(--ink); }
 .events { display: flex; flex-direction: column; gap: 10px; }
 .ev { display: flex; gap: 10px; align-items: flex-start; }
-.ev-main b { font-size: 13px; color: #16233b; font-weight: 600; }
+.ev-main b { font-size: 13px; color: var(--ink); font-weight: 600; }
 
 .frow { margin-bottom: 14px; }
-.frow label { display: block; font-size: 12.5px; color: #6b7688; margin-bottom: 5px; }
+.frow label { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 5px; }
 .frow .tiny { margin: 6px 0 0; }
 .preview { padding: 10px 12px; border-radius: 10px; background: #f6f8fc; font-size: 13px; margin-bottom: 8px; }
 .preview .red { color: #d92d45; font-weight: 700; }

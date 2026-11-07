@@ -11,8 +11,8 @@
       <div class="head-ops">
         <input v-model="period" type="month" class="input" style="width: 150px" @change="reload" />
         <button class="btn btn-ghost" @click="reload">刷新</button>
-        <button class="btn btn-ghost" @click="doExport('on_time')">导出准交</button>
-        <button class="btn btn-ghost" @click="doExport('efficiency')">导出效率</button>
+        <button v-action="['prod-report','export']" class="btn btn-ghost" @click="doExport('on_time')">导出准交</button>
+        <button v-action="['prod-report','export']" class="btn btn-ghost" @click="doExport('efficiency')">导出效率</button>
       </div>
     </div>
 
@@ -436,21 +436,21 @@ onMounted(load);
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card { min-height: 112px; padding: 14px 12px; }
 .cards.c6 .stat-card .value { font-size: 23px; margin-top: 6px; }
-.cards.c6 .stat-card .foot { font-size: 11px; line-height: 1.45; }
-.caliber { background: #f7f9fd; border: 1px solid #e2e9f4; border-radius: 12px; padding: 10px 16px; margin-bottom: 16px; }
+.cards.c6 .stat-card .foot { font-size: 12px; line-height: 1.45; }
+.caliber { background: var(--surface-2); border: 1px solid #e2e9f4; border-radius: 12px; padding: 10px 16px; margin-bottom: 16px; }
 .caliber summary { cursor: pointer; font-size: 13px; font-weight: 700; color: #16305f; }
 .caliber ol { margin: 10px 0 4px; padding-left: 20px; color: #4a5875; font-size: 12.5px; line-height: 1.75; }
-.cov-box { background: #fbfcfe; border: 1px solid #eef2f7; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
-.cov-h { font-size: 12.8px; font-weight: 700; color: #16233b; margin-bottom: 8px; }
+.cov-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+.cov-h { font-size: 12.8px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
 .cov-table { background: transparent; }
 .cov-table thead th { background: transparent; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.mini { border: 1px solid #eef2f7; border-radius: 10px; padding: 12px 14px; }
-.mini-h { font-size: 12.5px; color: #6b7688; }
+.mini { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.mini-h { font-size: 12.5px; color: var(--ink-soft); }
 .mini-v { font-size: 26px; font-weight: 800; color: #16305f; margin: 6px 0 4px; }
-.sec-h { font-size: 13px; font-weight: 700; color: #16233b; margin: 0 0 8px; }
-.mut { color: #8a94a6; font-size: 11.8px; line-height: 1.6; }
-.muted { color: #8a94a6; font-size: 12px; }
+.sec-h { font-size: 13px; font-weight: 700; color: var(--ink); margin: 0 0 8px; }
+.mut { color: var(--ink-mute); font-size: 12px; line-height: 1.6; }
+.muted { color: var(--ink-mute); font-size: 12px; }
 .warnText { color: #d92d45; font-weight: 600; }
 .warn-box { background: #fffaf0; border: 1px solid #f2dfae; border-radius: 10px; padding: 10px 14px; font-size: 12.6px; color: #7a6420; line-height: 1.7; margin-bottom: 14px; }
 .stat-card.danger { border-color: #f5c2c7; background: #fff8f8; }

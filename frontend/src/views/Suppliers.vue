@@ -5,7 +5,7 @@
         <h2>供应商档案</h2>
         <div class="sub">面辅料 / 加工 / 服务供应商统一维护，开发单与采购从这里调用</div>
       </div>
-      <button v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增供应商</button>
+      <button v-action="['suppliers','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增供应商</button>
     </div>
 
     <div class="toolbar" style="margin-bottom: 14px">
@@ -19,6 +19,7 @@
     </div>
 
     <div class="table-wrap">
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data">
         <thead>
           <tr>
@@ -37,7 +38,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="s in list" :key="s.id">
+          <tr v-for="s in pagination.rows" :key="s.id">
             <td>
               <div class="thumb" :class="{ clickable: s.image_url }" @click="s.image_url && openImage(s.image_url, s.name || '')">
                 <img v-if="s.image_url" :src="s.image_url" />
@@ -57,16 +58,17 @@
               <span class="tag" :class="s.status === 'active' ? 'green' : 'gray'">{{ s.status === 'active' ? '启用' : '停用' }}</span>
             </td>
             <td v-if="canWrite">
-              <button class="link-btn" @click="openEdit(s)">编辑</button>
-              <button v-if="s.status === 'active'" class="link-btn danger" @click="disable(s)">停用</button>
+              <button v-action="['suppliers','edit']" class="link-btn" @click="openEdit(s)">编辑</button>
+              <button v-action="['suppliers','disable']" v-if="s.status === 'active'" class="link-btn danger" @click="disable(s)">停用</button>
             </td>
           </tr>
           <tr v-if="!list.length"><td :colspan="canWrite ? 12 : 11" class="empty-cell">暂无供应商，点右上角「新增供应商」</td></tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
+    <div v-if="showModal" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ form.id ? '编辑供应商' : '新增供应商' }}</h3>
@@ -105,8 +107,12 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
+import { useRoute } from 'vue-router';
+const route = useRoute();
 import { can } from '../store/permissions';
 import ImageUpload from '../components/ImageUpload.vue';
 
@@ -157,18 +163,20 @@ async function disable(s) {
   try { await api.deleteSupplier(s.id); await load(); } catch (e) { alert(e.message); }
 }
 
-onMounted(load);
+onMounted(async () => { await load(); if (route.query.create === '1') openCreate(); });
+
+const pagination = useListPagination(() => list.value);
 </script>
 
 <style scoped>
-.hint { font-size: 12px; color: #8a94a6; }
-.tip { font-weight: 400; font-size: 11.5px; color: #2b6de5; margin-left: 6px; }
+.hint { font-size: 12px; color: var(--ink-mute); }
+.tip { font-weight: 400; font-size: 12px; color: var(--brand); margin-left: 6px; }
 .thumb {
-  width: 38px; height: 38px; border-radius: 6px; overflow: hidden; background: #f7f9fc;
-  border: 1px solid #eef2f7; display: flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 6px; overflow: hidden; background: var(--surface-2);
+  border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
 }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
-.thumb .ph { font-size: 11px; color: #a9b4c5; }
+.thumb .ph { font-size: 12px; color: var(--ink-mute); }
 .addr { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :deep(.tag) { white-space: nowrap; }
 /* 窄列锁死不换行：否则视口一窄就被压成竖排单字 */

@@ -1,5 +1,5 @@
 <template>
-  <div v-if="open" class="modal-mask" @click.self="close">
+  <div v-if="open" class="modal-mask">
     <div class="modal np-modal">
       <div class="modal-head">
         <h3 class="np-title">
@@ -390,22 +390,22 @@ async function onPick(e) {
 /* `.mono` 只定义在各页的 scoped 样式里，全局没有 —— 组件必须自带，否则等于没样式 */
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .np-title { display: flex; align-items: center; gap: 8px; }
-.np-no { font-size: 12.5px; color: #8a94a6; font-weight: 400; }
-.np-kind { font-size: 11px; color: #2563eb; background: #eef4ff; border-radius: 3px; padding: 1px 6px; font-weight: 400; }
+.np-no { font-size: 12.5px; color: var(--ink-mute); font-weight: 400; }
+.np-kind { font-size: 12px; color: var(--brand); background: #eef4ff; border-radius: 3px; padding: 1px 6px; font-weight: 400; }
 .np-body { max-height: 62vh; overflow: auto; }
-.np-loading { padding: 40px 0; text-align: center; color: #8a94a6; }
+.np-loading { padding: 40px 0; text-align: center; color: var(--ink-mute); }
 
 .np-strip {
   display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: #606266;
-  background: #f7f9fc; border: 1px solid #eef2f7; border-radius: 4px; padding: 7px 10px; margin-bottom: 12px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px; margin-bottom: 12px;
 }
 .np-skip { color: #b45309; }
 
 .np-sec { margin-bottom: 14px; }
-.np-sec-h { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 13px; color: #16233b; }
+.np-sec-h { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 13px; color: var(--ink); }
 .np-sum { font-size: 12px; color: #606266; font-weight: 400; }
 .np-gap { color: #d92d45; font-weight: 700; }
-.np-tiny { font-size: 11px; color: #98a2b3; }
+.np-tiny { font-size: 12px; color: var(--ink-mute); }
 
 .np-tblwrap { max-height: 300px; overflow: auto; border: 1px solid #e6ecf5; border-radius: 4px; }
 .np-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -417,36 +417,36 @@ async function onPick(e) {
 .np-tbl tbody tr:hover { background: #fafbfd; }
 .np-tbl .r { text-align: right; }
 .np-name { font-weight: 600; }
-.np-spec { color: #8a94a6; max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
-.np-ty { font-size: 11px; border-radius: 3px; padding: 1px 5px; background: #eef4ff; color: #2563eb; }
+.np-spec { color: var(--ink-mute); max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+.np-ty { font-size: 12px; border-radius: 3px; padding: 1px 5px; background: #eef4ff; color: var(--brand); }
 .np-ty.accessory { background: #fff7ea; color: #b45309; }
 
-.np-empty { padding: 18px 10px; text-align: center; color: #98a2b3; font-size: 12.5px; background: #fafbfd; border: 1px dashed #e6ecf5; border-radius: 4px; }
+.np-empty { padding: 18px 10px; text-align: center; color: var(--ink-mute); font-size: 12.5px; background: #fafbfd; border: 1px dashed #e6ecf5; border-radius: 4px; }
 .np-empty-s { padding: 10px; }
 
 .np-traces { display: flex; flex-direction: column; gap: 5px; }
 .np-trace { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.np-tlabel { color: #8a94a6; min-width: 52px; }
+.np-tlabel { color: var(--ink-mute); min-width: 52px; }
 .np-tno { background: #f4f7fb; border: 1px solid #e6ecf5; border-radius: 3px; padding: 1px 6px; color: #33425c; }
-.np-tno em { font-style: normal; color: #98a2b3; margin-left: 4px; }
+.np-tno em { font-style: normal; color: var(--ink-mute); margin-left: 4px; }
 
 .np-ta { width: 100%; font-family: inherit; line-height: 1.6; }
 .np-up { cursor: pointer; }
 
 /* ---------- 生产分配 ---------- */
-.np-astrip { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: #4a5568; padding: 8px 10px; background: #f7f9fc; border-radius: 6px; }
-.np-astrip b { color: #16233b; font-size: 15px; }
-.np-abadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: #eef1f6; color: #6b7688; }
-.np-abadge.m-own { background: #e8f0ff; color: #2563eb; }
+.np-astrip { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: #4a5568; padding: 8px 10px; background: var(--surface-2); border-radius: 6px; }
+.np-astrip b { color: var(--ink); font-size: 15px; }
+.np-abadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: #eef1f6; color: var(--ink-soft); }
+.np-abadge.m-own { background: #e8f0ff; color: var(--brand); }
 .np-abadge.m-outsource { background: #f0eaff; color: #7c3aed; }
 .np-abadge.m-mixed { background: #fff2e0; color: #d97706; }
 .np-dlist { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
-.np-drow { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 5px 8px; border: 1px solid #eef2f7; border-radius: 5px; }
+.np-drow { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; }
 .np-dfac { flex: 1; color: #33425c; }
-.np-dqty { font-family: ui-monospace, Menlo, monospace; color: #16233b; font-weight: 700; }
+.np-dqty { font-family: ui-monospace, Menlo, monospace; color: var(--ink); font-weight: 700; }
 .np-warn { margin-top: 8px; padding: 8px 10px; background: #fff8ec; border: 1px solid #f7e2bd; color: #a35f00; border-radius: 5px; font-size: 12px; line-height: 1.6; }
 .np-aform { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-.np-aform label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: #8a94a6; }
+.np-aform label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-mute); }
 .np-aform label.wide { flex: 1; min-width: 200px; }
 .np-aform input, .np-aform select { min-width: 110px; }
 .np-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
@@ -454,23 +454,23 @@ async function onPick(e) {
 .np-photos { display: flex; gap: 8px; flex-wrap: wrap; }
 .np-photo { width: 96px; cursor: pointer; }
 .np-photo img { width: 96px; height: 96px; object-fit: cover; border-radius: 5px; border: 1px solid #e6ecf5; display: block; }
-.np-photo-meta { display: block; font-size: 10.5px; color: #98a2b3; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-photo-meta { display: block; font-size: 12px; color: var(--ink-mute); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.np-time { border-left: 2px solid #eef2f7; padding-left: 12px; }
+.np-time { border-left: 2px solid var(--line); padding-left: 12px; }
 .np-ev { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; font-size: 12px; }
-.np-ev-at { color: #98a2b3; white-space: nowrap; }
-.np-ev-badge { font-size: 10.5px; border-radius: 3px; padding: 1px 5px; background: #f2f6fc; color: #5b6b80; white-space: nowrap; }
-.np-ev-badge.a-status { background: #eef4ff; color: #2563eb; }
+.np-ev-at { color: var(--ink-mute); white-space: nowrap; }
+.np-ev-badge { font-size: 12px; border-radius: 3px; padding: 1px 5px; background: #f2f6fc; color: #5b6b80; white-space: nowrap; }
+.np-ev-badge.a-status { background: #eef4ff; color: var(--brand); }
 .np-ev-badge.a-photo { background: #eef7f2; color: #15803d; }
 .np-ev-badge.a-remark { background: #fff7ea; color: #b45309; }
 .np-ev-detail { color: #33425c; flex: 1; min-width: 0; word-break: break-all; }
-.np-ev-op { color: #8a94a6; white-space: nowrap; }
+.np-ev-op { color: var(--ink-mute); white-space: nowrap; }
 
 .np-foot { flex-wrap: wrap; gap: 8px; }
 .np-set { display: flex; align-items: center; gap: 6px; margin-right: auto; flex-wrap: wrap; font-size: 12.5px; color: #606266; }
-.np-set-l { margin-left: 6px; color: #8a94a6; }
+.np-set-l { margin-left: 6px; color: var(--ink-mute); }
 .np-chip {
-  border: 1px solid #dcdfe6; background: #fff; color: #606266; border-radius: 3px;
+  border: 1px solid #dcdfe6; background: var(--surface); color: #606266; border-radius: 3px;
   padding: 3px 9px; font-size: 12px; cursor: pointer;
 }
 .np-chip.on { border-color: #1890ff; color: #1890ff; background: #eef4ff; }

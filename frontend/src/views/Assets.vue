@@ -5,7 +5,7 @@
         <h2>固定资产</h2>
         <div class="sub">办公设备 / 车辆 / 机器 · 直线法折旧，车辆年检到期提醒</div>
       </div>
-      <button v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增资产</button>
+      <button v-action="['assets','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增资产</button>
     </div>
 
     <div class="cards">
@@ -35,6 +35,7 @@
     </div>
 
     <div class="table-wrap">
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data">
         <thead>
           <tr>
@@ -45,7 +46,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="a in list" :key="a.id">
+          <tr v-for="a in pagination.rows" :key="a.id">
             <td class="nowrap">{{ a.code || '-' }}</td>
             <td class="nowrap"><strong>{{ a.name }}</strong><span v-if="a.plate_no" class="muted"> · {{ a.plate_no }}</span></td>
             <td class="nowrap">{{ a.category || '-' }}</td>
@@ -63,18 +64,19 @@
             </td>
             <td class="nowrap"><span class="tag" :class="a.status === 'in_use' ? 'green' : a.status === 'idle' ? 'orange' : 'gray'">{{ a.status_label }}</span></td>
             <td v-if="canWrite" style="white-space: nowrap">
-              <button class="link-btn" @click="openEdit(a)">编辑</button>
+              <button v-action="['assets','edit']" class="link-btn" @click="openEdit(a)">编辑</button>
               <button v-if="a.status !== 'scrapped'" class="link-btn" @click="setStatus(a, 'scrapped')">报废</button>
-              <button v-if="a.status === 'idle'" class="link-btn" @click="setStatus(a, 'in_use')">启用</button>
-              <button class="link-btn danger" @click="remove(a)">删除</button>
+              <button  v-if="a.status === 'idle'" class="link-btn" @click="setStatus(a, 'in_use')">启用</button>
+              <button v-action="['assets','delete']" class="link-btn danger" @click="remove(a)">删除</button>
             </td>
           </tr>
           <tr v-if="!list.length"><td :colspan="canWrite ? 14 : 13" class="empty-cell">暂无资产</td></tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
+    <div v-if="showModal" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ form.id ? '编辑资产' : '新增资产' }}</h3>
@@ -117,6 +119,8 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -212,6 +216,8 @@ async function remove(a) {
 }
 
 onMounted(load);
+
+const pagination = useListPagination(() => list.value);
 </script>
 
 <style scoped>

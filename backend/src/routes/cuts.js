@@ -18,6 +18,8 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const { findByCode } = require('../services/nodeFlow');
 
 const router = express.Router();
+router.get('/layout-requirements/:orderId',authRequired,requireRole(['admin','production','warehouse','tech']),wrap(async(req,res)=>{const r=require('../access/companyScope').assertOrder(req.user,req.params.orderId);if(!r.ok)return fail(res,r.status,r.reason);return ok(res,require('../services/purchaseOrderExport').rows(r.row.id));}));
+router.put('/layout-requirements/:orderId',authRequired,requireRole(['admin','production','warehouse']),wrap(async(req,res)=>{const r=require('../access/companyScope').assertOrder(req.user,req.params.orderId);if(!r.ok)return fail(res,r.status,r.reason);return ok(res,require('../services/purchaseOrderExport').save(r.row.id,req.body,req.user));}));
 const WRITE = ['admin', 'production', 'warehouse'];
 
 const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;

@@ -73,6 +73,9 @@ function bad(msg, status = 400) {
   return e;
 }
 
+// 档案规格由服务器取值，客户端仅能修改本单成分与颜色，不回写主数据。
+const { archiveInput } = require('../services/orderMaterialInput');
+
 router.get('/', authRequired, wrap(async (req, res) => {
   const { order_id } = req.query;
   if (!order_id) return fail(res, 400, '缺少 order_id');
@@ -93,7 +96,7 @@ router.get('/:id/colors', authRequired, wrap(async (req, res) => {
 }));
 
 router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
-  const b = req.body || {};
+  const b = archiveInput(req.body || {});
   if (!b.order_id) return fail(res, 400, '缺少 order_id');
   if (!b.name) return fail(res, 400, '料名必填');
   if (!db.prepare('SELECT 1 AS x FROM orders WHERE id = ?').get(b.order_id)) return fail(res, 404, '订单不存在');
@@ -102,6 +105,8 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const { itemId, allColors, colors } = readTarget(b, b.order_id, null);
 
   const t = now();
+  db.exec('BEGIN IMMEDIATE');
+  try {
   const info = db.prepare(
     `INSERT INTO order_materials
       (order_id, item_id, all_colors, material_id, type, name, unit, one_use, loss, total_use, price, amount,
@@ -116,15 +121,20 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const id = Number(info.lastInsertRowid);
   if (allColors === 0 && colors && colors.length) svc.replaceColors(id, colors);
   svc.recalc(id);
-  return ok(res, svc.listByOrder(b.order_id).find((x) => x.id === id));
+  const result = svc.listByOrder(b.order_id).find((x) => x.id === id);
+  db.exec('COMMIT');
+  return ok(res, result);
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
 }));
 
 router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = db.prepare('SELECT * FROM order_materials WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '记录不存在');
-  const b = req.body || {};
+  const b = archiveInput(req.body || {}, row);
   const { itemId, allColors, colors } = readTarget(b, row.order_id, row);
 
+  db.exec('BEGIN IMMEDIATE');
+  try {
   db.prepare(
     `UPDATE order_materials SET item_id=?, all_colors=?, material_id=?, type=?, name=?, unit=?, one_use=?,
         loss=?, price=?, spec=?, ingredient=?, supplier=?, mat_color=?, remark=? WHERE id=?`
@@ -151,7 +161,10 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   else if (colors !== null) svc.replaceColors(row.id, colors);
 
   svc.recalc(row.id);
-  return ok(res, svc.listByOrder(row.order_id).find((x) => x.id === row.id));
+  const result = svc.listByOrder(row.order_id).find((x) => x.id === row.id);
+  db.exec('COMMIT');
+  return ok(res, result);
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
 }));
 
 /** 只改颜色（配色弹窗保存用，不动物料主字段） */
@@ -160,10 +173,16 @@ router.put('/:id/colors', authRequired, requireRole(WRITE), wrap(async (req, res
   if (!row) return fail(res, 404, '记录不存在');
 
   const { itemId, allColors, colors } = readTarget(req.body || {}, row.order_id, row);
-  db.prepare('UPDATE order_materials SET item_id = ?, all_colors = ? WHERE id = ?').run(itemId, allColors, row.id);
-  svc.replaceColors(row.id, allColors === 1 ? [] : (colors || []));
-  svc.recalc(row.id);
-  return ok(res, svc.listByOrder(row.order_id).find((x) => x.id === row.id));
+  let result;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('UPDATE order_materials SET item_id = ?, all_colors = ? WHERE id = ?').run(itemId, allColors, row.id);
+    svc.replaceColors(row.id, allColors === 1 ? [] : (colors || []));
+    svc.recalc(row.id);
+    result = svc.listByOrder(row.order_id).find((x) => x.id === row.id);
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+  return ok(res, result);
 }));
 
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {

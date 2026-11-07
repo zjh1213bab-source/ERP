@@ -8,7 +8,7 @@
         </div>
       </div>
       <div style="display: flex; gap: 8px">
-        <button v-if="canWrite" class="btn btn-ghost" @click="openTplNew">＋ 新建流程</button>
+        <button v-action="['node-flow','create']" v-if="canWrite" class="btn btn-ghost" @click="openTplNew">＋ 新建流程</button>
         <button class="btn btn-ghost" @click="$router.push('/order-tracking')">去订单跟踪</button>
       </div>
     </div>
@@ -46,7 +46,7 @@
               <button v-if="canWrite && !cur.is_default" class="btn btn-ghost btn-sm" @click="makeDefault">设为默认</button>
               <button v-if="canWrite" class="btn btn-ghost btn-sm" @click="openTplEdit">改名称/备注</button>
               <button v-if="canWrite" class="btn btn-ghost btn-sm" @click="openApply">应用到已有订单</button>
-              <button v-if="canWrite" class="btn btn-primary btn-sm" @click="openItemNew">＋ 新增节点</button>
+              <button v-action="['node-flow','create']"  v-if="canWrite" class="btn btn-primary btn-sm" @click="openItemNew">＋ 新增节点</button>
             </div>
           </div>
 
@@ -147,7 +147,7 @@
     </div>
 
     <!-- 新建 / 改流程 -->
-    <div v-if="tplDlg.open" class="modal-mask" @click.self="tplDlg.open = false">
+    <div v-if="tplDlg.open" class="modal-mask">
       <div class="modal" style="width: 460px">
         <div class="modal-head">
           <h3>{{ tplDlg.id ? '改流程' : '新建流程' }}</h3>
@@ -171,7 +171,7 @@
     </div>
 
     <!-- 新增节点 -->
-    <div v-if="itemDlg.open" class="modal-mask" @click.self="itemDlg.open = false">
+    <div v-if="itemDlg.open" class="modal-mask">
       <div class="modal" style="width: 460px">
         <div class="modal-head">
           <h3>新增节点</h3>
@@ -205,7 +205,7 @@
     </div>
 
     <!-- 应用到已有订单：先看影响面 -->
-    <div v-if="applyDlg.open" class="modal-mask" @click.self="applyDlg.open = false">
+    <div v-if="applyDlg.open" class="modal-mask">
       <div class="modal" style="width: 640px">
         <div class="modal-head">
           <h3>应用到已有订单 · {{ cur ? cur.name : '' }}</h3>
@@ -435,52 +435,52 @@ void router;
 <style scoped>
 .nf-layout { display: flex; gap: 14px; align-items: flex-start; }
 .nf-side {
-  width: 230px; flex: none; background: #fff; border: 1px solid #eef2f7;
+  width: 230px; flex: none; background: var(--surface); border: 1px solid var(--line);
   border-radius: 10px; overflow: hidden;
 }
 .nf-side-head {
   padding: 10px 12px; font-size: 12px; font-weight: 700; color: #5b6b80;
-  background: #f7f9fd; border-bottom: 1px solid #eef2f7;
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
 }
 .nf-tpl { padding: 10px 12px; border-bottom: 1px solid #f4f7fb; cursor: pointer; }
-.nf-tpl:hover { background: #f9fbfe; }
+.nf-tpl:hover { background: var(--surface-2); }
 .nf-tpl.on { background: #eef4ff; border-left: 3px solid #2563eb; padding-left: 9px; }
-.nf-tpl-name { font-size: 13px; color: #16233b; font-weight: 700; display: flex; align-items: center; gap: 5px; }
-.nf-tpl-meta { font-size: 11px; color: #8a94a6; margin-top: 3px; }
-.nf-empty { padding: 20px 12px; font-size: 12px; color: #98a2b3; text-align: center; }
+.nf-tpl-name { font-size: 13px; color: var(--ink); font-weight: 700; display: flex; align-items: center; gap: 5px; }
+.nf-tpl-meta { font-size: 12px; color: var(--ink-mute); margin-top: 3px; }
+.nf-empty { padding: 20px 12px; font-size: 12px; color: var(--ink-mute); text-align: center; }
 
-.nf-main { flex: 1; min-width: 0; background: #fff; border: 1px solid #eef2f7; border-radius: 10px; padding: 14px 16px; }
+.nf-main { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
 .nf-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.nf-head h3 { margin: 0 0 4px; font-size: 15px; color: #16233b; }
+.nf-head h3 { margin: 0 0 4px; font-size: 15px; color: var(--ink); }
 
 .nf-tip {
   font-size: 12px; line-height: 1.75; color: #33425c;
-  background: #f7f9fd; border: 1px solid #e6ecf5; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid #e6ecf5; border-radius: 8px;
   padding: 10px 12px; margin-bottom: 12px;
 }
 .nf-tip code, .nf-code {
   font-family: ui-monospace, Menlo, Consolas, monospace;
-  background: #eef2f7; border-radius: 3px; padding: 0 4px; font-size: 11px; color: #7c3aed;
+  background: #eef2f7; border-radius: 3px; padding: 0 4px; font-size: 12px; color: #7c3aed;
 }
 
 .nf-req-tgl {
-  border: 1px solid #e0e7f1; background: #f7f9fd; color: #5b6b80;
-  border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer;
+  border: 1px solid #e0e7f1; background: var(--surface-2); color: #5b6b80;
+  border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer;
 }
 .nf-req-tgl.opt { border-color: #fadfae; background: #fff7ea; color: #b45309; }
 /* 仅扫码：用灰蓝，和「可选」的橙色区分开 —— 两个概念，别长得一样 */
 .nf-req-tgl.scan { border-color: #ccd7e6; background: #f2f6fc; color: #5b6b80; }
 .nf-panel {
-  height: 26px; border: 1px solid #e0e7f1; border-radius: 4px; background: #fff;
-  font-size: 11.5px; color: #33425c; padding: 0 4px; max-width: 108px;
+  height: 26px; border: 1px solid #e0e7f1; border-radius: 4px; background: var(--surface);
+  font-size: 12px; color: #33425c; padding: 0 4px; max-width: 108px;
 }
 .nf-req-tgl:disabled { opacity: .75; cursor: not-allowed; }
-.nf-bi { font-size: 9px; color: #2563eb; background: #e8f0ff; border-radius: 3px; padding: 0 3px; margin-left: 4px; }
+.nf-bi { font-size: 12px; color: var(--brand); background: #e8f0ff; border-radius: 3px; padding: 0 3px; margin-left: 4px; }
 .nf-off { opacity: .5; }
-.nf-foot-note { font-size: 11.5px; color: #8a94a6; line-height: 1.7; margin-top: 12px; }
+.nf-foot-note { font-size: 12px; color: var(--ink-mute); line-height: 1.7; margin-top: 12px; }
 .nf-check { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; color: #33425c; line-height: 1.6; }
 
-.ap-list { max-height: 260px; overflow: auto; border: 1px solid #eef2f7; border-radius: 8px; }
+.ap-list { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 /* 用 grid 而不是 flex：flex 会把「生产中」这样的标签压成竖排两行，
    grid 的 auto auto 1fr 让前两列按内容宽度、第三列占剩余，不压缩 */
 .ap-row {
@@ -490,7 +490,7 @@ void router;
 }
 .ap-row > .mono, .ap-row > .tag { white-space: nowrap; }
 .ap-row:last-child { border-bottom: none; }
-.ap-add { color: #15803d; font-size: 11.5px; }
+.ap-add { color: #15803d; font-size: 12px; }
 .ok-box { background: #f0faf4; border: 1px solid #bfe8d2; color: #15803d; border-radius: 8px; padding: 11px 13px; font-size: 12.5px; }
 .warn-box { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 8px; padding: 11px 13px; font-size: 12.5px; margin-bottom: 10px; }
 </style>

@@ -46,11 +46,11 @@
     </div>
 
     <!-- 调整 -->
-    <div v-if="adj" class="modal-mask" @click.self="adj = null">
+    <div v-if="adj" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>库存调整</h3><button class="x" @click="adj = null">×</button></div>
         <div class="modal-body">
-          <p style="font-size: 13px; color: #33415a">{{ adj.product_name }} / {{ adj.color || '-' }} / {{ adj.size || '-' }} · 现有 {{ adj.qty }}</p>
+          <p style="font-size: 13px; color: var(--ink)">{{ adj.product_name }} / {{ adj.color || '-' }} / {{ adj.size || '-' }} · 现有 {{ adj.qty }}</p>
           <div class="form-grid">
             <div class="fitem"><label>调整数量（正数增加，负数减少）</label><input class="input" type="number" v-model.number="adjQty" /></div>
             <div class="fitem"><label>备注</label><input class="input" v-model="adjRemark" /></div>
@@ -64,7 +64,7 @@
     </div>
 
     <!-- 调拨 -->
-    <div v-if="showTransfer" class="modal-mask" @click.self="showTransfer = false">
+    <div v-if="showTransfer" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>库存调拨</h3><button class="x" @click="showTransfer = false">×</button></div>
         <div class="modal-body">

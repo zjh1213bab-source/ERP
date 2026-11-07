@@ -1,0 +1,95 @@
+/** 独立数据库与浏览器验证按钮显隐、普通员工入口及附加岗位路由。 */
+const fs=require('fs'),os=require('os'),path=require('path'),assert=require('assert/strict'),{spawn}=require('child_process');
+require('dotenv').config();const folder=fs.mkdtempSync(path.join(os.tmpdir(),'erp-preorder-ui-'));
+process.env.DB_PATH=path.join(folder,'__SMOKE.db');process.env.ERP_SCHEDULER='0';
+const {db,now}=require('../src/db'),patterns=require('../src/routes/patternFlows');
+const port=39674,debug=9964,base='http://127.0.0.1:'+port;let uploadedUrl,server,chrome,ws,checks=0;const uploadedUrls=[];const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const check=(v,msg)=>{assert.ok(v,msg);checks++;};
+(async()=>{
+ const templateId=Number(db.prepare("INSERT INTO size_templates(name,sizes,created_at) VALUES('__SMOKE模板','M,L',?)").run(now()).lastInsertRowid);
+ const oldOrder=Number(db.prepare("INSERT INTO orders(order_no,status,company_id,created_at,updated_at) VALUES('__SMOKE-SOURCE-UI','draft',1,?,?)").run(now(),now()).lastInsertRowid);
+ const tp=Number(db.prepare("INSERT INTO tech_packs(order_id,product_name,customer_style_no,status,stage,created_at,updated_at) VALUES(?,'__SMOKE 已打版商品','UI-ST-READY','confirmed','confirmed',?,?)").run(oldOrder,now(),now()).lastInsertRowid);
+ const flow=patterns.ensureFlow(tp,1);db.prepare("UPDATE pattern_stages SET status='done' WHERE flow_id=?").run(flow.id);db.prepare("UPDATE pattern_flows SET status='done',current_stage='done' WHERE id=?").run(flow.id);
+ const archive=require('../src/services/sampleArchive').archiveFromFlow(flow,'__SMOKE');
+ const customer=Number(db.prepare("INSERT INTO customers(name,status,created_at,updated_at) VALUES('__SMOKE转单客户','active',?,?)").run(now(),now()).lastInsertRowid);
+ const unfinished=Number(db.prepare("INSERT INTO tech_packs(order_id,product_name,customer_style_no,status,stage,created_at,updated_at) VALUES(?,'__SMOKE 未完成','UI-ST-UNFINISHED','draft','pattern',?,?)").run(oldOrder,now(),now()).lastInsertRowid);
+ const unfinishedFlow=patterns.ensureFlow(unfinished,1);require('../src/services/sampleArchive').archiveFromFlow(unfinishedFlow,'__SMOKE');
+ server=spawn(process.execPath,['src/server.js'],{env:{...process.env,PORT:String(port)},windowsHide:true,stdio:'ignore'});
+ for(let i=0;i<100;i++){await sleep(100);try{if((await fetch(base+'/api/health')).ok)break;}catch{}}
+ chrome=spawn('C:/Program Files/Google/Chrome/Application/chrome.exe',['--headless=new','--no-sandbox','--disable-gpu','--window-size=1920,1080','--user-data-dir='+path.join(folder,'chrome'),'--remote-debugging-port='+debug,'about:blank'],{windowsHide:true,stdio:'ignore'});
+ let target;for(let i=0;i<80;i++){await sleep(100);try{target=(await(await fetch('http://127.0.0.1:'+debug+'/json')).json()).find(x=>x.type==='page');if(target)break;}catch{}}
+ ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const pending=new Map(),errors=[];
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)?.(m.result);pending.delete(m.id);}if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);if(m.method==='Page.javascriptDialogOpening'){if(!m.params.message.includes('已保存'))errors.push('Dialog: '+m.params.message);send('Page.handleJavaScriptDialog',{accept:true});}};
+ const send=(method,params={})=>new Promise(r=>{const n=++id;const timeout=setTimeout(()=>{pending.delete(n);r({result:{value:null}})},8000);pending.set(n,result=>{clearTimeout(timeout);r(result)});ws.send(JSON.stringify({id:n,method,params}));});
+ const ev=async expression=>(await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true}))?.result?.value;
+ await send('Page.enable');await send('Runtime.enable');await send('Page.navigate',{url:base+'/login'});await sleep(500);
+
+ const adminId=db.prepare("SELECT id FROM users WHERE username='admin'").get().id,token=require('jsonwebtoken').sign({sub:adminId,tv:0},require('../src/config').jwtSecret);
+ await ev('localStorage.setItem("erp_token",'+JSON.stringify(token)+');localStorage.setItem("erp_user",'+JSON.stringify(JSON.stringify({id:adminId,username:'admin',role:'admin'}))+')');
+ const fill=async(label,value)=>ev('(()=>{const item=Array.from(document.querySelectorAll(".modal-mask .fitem")).find(n=>n.querySelector("label")?.textContent.startsWith('+JSON.stringify(label)+'));const input=item.querySelector("input");input.value='+JSON.stringify(value)+';input.dispatchEvent(new Event("input",{bubbles:true}));})()');
+ await send('Page.navigate',{url:base+'/pre-orders'});await sleep(900);
+ await ev('Array.from(document.querySelectorAll("button")).find(b=>b.textContent.includes("新增预下单")).click()');await sleep(150);
+ check(await ev('document.querySelector(".pre-style-toolbar").compareDocumentPosition(document.querySelector(".pre-upload-panel"))&Node.DOCUMENT_POSITION_FOLLOWING'),'Product selection precedes new-image upload');
+ check(await ev('document.querySelector(".pre-upload-panel").compareDocumentPosition(document.querySelector(".pre-style"))&Node.DOCUMENT_POSITION_FOLLOWING'),'Uploaded style details follow upload panel');
+ await fill('订单号','__SMOKE-IMAGE-UI');await fill('客户名称','__SMOKE客户');
+ await fill('订单总金额','1500.50');await fill('付款比例','30');await fill('设计师','__SMOKE设计师');
+ check(await ev('document.querySelector(".pre-payment").textContent==="450.15"'),'Agreement amount computed accurately');
+ check(await ev('document.querySelector(".pre-form").getBoundingClientRect().width>=innerWidth-2'),'Upload form fills desktop width');
+ check(await ev('!Array.from(document.querySelectorAll(".pre-style .fitem")).find(n=>n.querySelector("label")?.textContent.startsWith("款式名称")).querySelector("input").required'),'Image style name not required');
+ check(await ev('Array.from(document.querySelectorAll(".pre-style .fitem")).find(n=>n.querySelector("label")?.textContent==="款号").querySelector("input").readOnly'),'Workshop owns style number');
+ await ev('(async()=>{const data="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jv1sAAAAASUVORK5CYII=";const blob=await(await fetch(data)).blob();const dt=new DataTransfer();dt.items.add(new File([blob],"__SMOKE.png",{type:"image/png"}));const input=document.querySelector(".pre-style input[type=file]");input.files=dt.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()');await sleep(700);
+ uploadedUrl=await ev('document.querySelector(".pre-style .style-images img")?.getAttribute("src")');uploadedUrls.push(uploadedUrl);check(/^\/uploads\//.test(uploadedUrl||''),'Reference image uploaded in UI');
+ await ev('Array.from(document.querySelectorAll(".pre-price-foot button")).find(b=>b.textContent.includes("增加尺码")).click()');await sleep(40);
+ await ev('(()=>{const inputs=document.querySelectorAll(".pre-size-pricing tbody input");for(const [i,v] of [[0,"S"],[1,"2"],[2,"750.25"]]){inputs[i].value=v;inputs[i].dispatchEvent(new Event("input",{bubbles:true}));}})()');await sleep(60);
+ check(await ev('document.querySelector(".pre-price-foot b").textContent.includes("1500.50")'),'Card derives size pricing amount');
+ await ev('document.querySelector(".pre-style").scrollIntoView({block:"start"})');await sleep(100);
+ await ev('(()=>{const e=document.querySelector(".pre-template-tools select");e.value='+JSON.stringify(String(templateId))+';e.dispatchEvent(new Event("change",{bubbles:true}));})()');await sleep(40);check(await ev('document.querySelectorAll(".pre-size-pricing tbody tr").length===3'),'Template appends sizes');await ev('(()=>{const e=document.querySelector(".pre-template-tools select");e.value='+JSON.stringify(String(templateId))+';e.dispatchEvent(new Event("change",{bubbles:true}));})()');await sleep(40);check(await ev('document.querySelectorAll(".pre-size-pricing tbody tr").length===3&&document.querySelector(".pre-price-foot b").textContent.includes("1500.50")'),'Repeat template preserves sizes and prices');check(await ev('Array.from(document.querySelectorAll(".pre-size-pricing tbody select option")).some(o=>o.value==="款式2")'),'Shared business color options available');
+ const shotFolder=path.resolve('../shots/pre-pricing');fs.mkdirSync(shotFolder,{recursive:true});fs.writeFileSync(path.join(shotFolder,'01-size-pricing.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ await ev('Array.from(document.querySelectorAll(".pre-form button")).find(b=>b.textContent.trim()==="保存预下单").click()');await sleep(600);
+ const pre=db.prepare("SELECT * FROM pre_orders WHERE order_no='__SMOKE-IMAGE-UI'").get();check(!!pre,'Image-only pre-order saved');
+ check(pre.total_usd===1500.5&&pre.payment_ratio===30,'UI saves financial terms and metadata');
+ const item=db.prepare('SELECT * FROM pre_order_items WHERE pre_order_id=?').get(pre.id);check(/^新款-[A-F0-9]{12}$/.test(item.product_name)&&item.effect_image_url===uploadedUrl,'Unique generated name saved');check(JSON.parse(item.pricing_json)[0].qty===2&&item.expected_qty===2,'Card size prices and derived quantity saved');
+ const development=db.prepare('SELECT * FROM tech_packs WHERE pre_order_item_id=?').get(item.id);check(!!development,'Development auto-created');
+ await ev('Array.from(document.querySelectorAll("button")).find(b=>b.textContent.includes("新增预下单")).click()');await sleep(100);
+ await fill('订单号','__SMOKE-ARCHIVE-UI');await fill('客户名称','__SMOKE客户');
+ await fill('订单总金额','1000');await fill('付款比例','30');
+ await ev('(()=>{const s=document.querySelector(".pre-basics select");s.value='+JSON.stringify(String(customer))+';s.dispatchEvent(new Event("change",{bubbles:true}));})()');
+ await ev('Array.from(document.querySelectorAll(".pre-style-toolbar button")).find(b=>b.textContent.includes("从样衣管理")).click()');await sleep(300);
+ check(await ev('document.querySelector(".pre-archive-grid").textContent.includes("UI-ST-READY")&&!document.querySelector(".pre-archive-grid").textContent.includes("UNFINISHED")'),'Picker hides unfinished pattern despite archive row');
+ await ev('document.querySelector(".pre-archive-grid input[type=checkbox]").click()');await ev('Array.from(document.querySelectorAll(".pre-archive-dialog button")).find(b=>b.textContent.includes("添加到预下单")).click()');await sleep(150);
+ check(await ev('Array.from(document.querySelectorAll(".pre-style input")).some(i=>i.value==="UI-ST-READY"&&i.readOnly)'),'Completed sample brings immutable style code');
+ await ev('Array.from(document.querySelectorAll(".pre-style-toolbar button")).find(b=>b.textContent.includes("从样衣管理")).click()');await sleep(200);check(await ev('document.querySelector(".pre-archive-grid input").disabled'),'Already chosen sample disabled in preorder picker');await ev('document.querySelector(".pre-archive-dialog .x").click()');
+ check(await ev('!document.querySelector(".pre-form").textContent.includes("保存并转业务下单")'),'New preorder cannot directly transfer');
+ await ev('Array.from(document.querySelectorAll(".pre-form button")).find(b=>b.textContent.trim()==="保存预下单").click()');await sleep(500);
+ await ev('Array.from(document.querySelectorAll(".pre-list-table .pre-link")).find(b=>b.textContent.trim()==="__SMOKE-ARCHIVE-UI").click()');await sleep(80);await ev('Array.from(document.querySelectorAll(".pre-reference-detail button")).find(b=>b.textContent.trim()==="完成预下单").click()');await sleep(200);await ev('Array.from(document.querySelectorAll(".pre-reference-detail button")).find(b=>b.textContent.trim()==="转业务下单").click()');await sleep(650);
+ const selected=db.prepare("SELECT i.* FROM pre_order_items i JOIN pre_orders p ON p.id=i.pre_order_id WHERE p.order_no='__SMOKE-ARCHIVE-UI'").get();check(selected?.sample_archive_id===archive.id,'Selected sample is persisted');
+ check(await ev('document.querySelector(".sales-entry .entry-notice")?.textContent.includes("1000.00")&&document.querySelector(".sales-entry .entry-notice")?.textContent.includes("30%")'),'Agreement and payment ratio carried into business form');
+ await ev('window.__entrySet=(selector,value)=>{const el=document.querySelector(selector);el.value=value;el.dispatchEvent(new Event("input",{bubbles:true}));};__entrySet("input[placeholder=填写店铺名称]","__SMOKE店铺");__entrySet("input[placeholder=填写店铺订单编号]","__SMOKE-STORE-01");__entrySet("input[placeholder=请输入货期]","30");__entrySet("input[placeholder=标签，多个以逗号分隔]","__SMOKE");__entrySet(".quantity-scroll tbody input","10");__entrySet(".item-summary input","100")');await sleep(40);
+ check(await ev('document.querySelector(".sales-entry-foot").textContent.includes("定金 300.00")'),'Agreed deposit initializes from percentage');
+ await ev('Array.from(document.querySelectorAll(".sales-entry-foot button")).find(b=>b.textContent.trim()==="保存").click()');await sleep(600);
+ const converted=db.prepare("SELECT * FROM orders WHERE order_no='__SMOKE-ARCHIVE-UI'").get();check(converted?.total_usd===1000&&JSON.parse(converted.entry_json).deposit_usd===300,'Completed sample transfers and business order saves with correct deposit');
+ await send('Page.navigate',{url:base+'/pre-orders'});await sleep(500);
+ await ev('Array.from(document.querySelectorAll("button")).find(b=>b.textContent.includes("新增预下单")).click()');await sleep(80);
+ await fill('订单号','__SMOKE-BATCH-UI');await fill('客户名称','__SMOKE客户');
+ await ev('window.__imageFiles=async(n)=>{const blob=await(await fetch("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jv1sAAAAASUVORK5CYII=")).blob();const dt=new DataTransfer();for(let i=0;i<n;i++)dt.items.add(new File([blob],"__SMOKE"+i+".png",{type:"image/png"}));return dt;};(async()=>document.querySelector(".pre-upload-panel").dispatchEvent(new DragEvent("drop",{bubbles:true,cancelable:true,dataTransfer:await __imageFiles(2)})))()');await sleep(650);
+ check(await ev('document.querySelectorAll(".pre-style").length===2&&document.querySelectorAll(".pre-style .style-images img").length===2'),'Dropping two images creates two styles without extra blank row');
+ await ev('document.querySelector(".pre-style-toolbar").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));(async()=>document.body.dispatchEvent(new ClipboardEvent("paste",{bubbles:true,cancelable:true,clipboardData:await __imageFiles(1)})))()');await sleep(450);
+ check(await ev('document.querySelectorAll(".pre-style").length===3'),'Paste on blank area adds a third image style');
+ uploadedUrls.push(...await ev('Array.from(document.querySelectorAll(".pre-style .style-images img")).map(i=>i.getAttribute("src"))'));
+ await fill('款式要求','__SMOKE第一款备注');await ev('Array.from(document.querySelectorAll(".pre-style-head button")).find(b=>b.textContent==="后移").click()');await sleep(40);
+ check(await ev('Array.from(document.querySelectorAll(".pre-style"))[1].querySelector(`input[maxlength="2000"]`).value==="__SMOKE第一款备注"'),'Reordering keeps notes attached to corresponding image');
+ await ev('document.querySelector(".pre-form .modal-body").scrollTop=0');const shot=await send('Page.captureScreenshot',{format:'png'});fs.mkdirSync(path.resolve('../shots/preorder-upload'),{recursive:true});fs.writeFileSync(path.resolve('../shots/preorder-upload/01-create.png'),Buffer.from(shot.data,'base64'));
+ await ev('document.documentElement.dataset.theme="dark"');check(await ev('getComputedStyle(document.querySelector(".pre-upload-panel")).backgroundColor!=="rgb(255, 255, 255)"'),'Upload panel supports dark theme');await ev('document.documentElement.dataset.theme="light"');
+ await ev('Array.from(document.querySelectorAll(".pre-form button")).find(b=>b.textContent.trim()==="保存预下单").click()');await sleep(400);
+ const batch=db.prepare("SELECT * FROM pre_orders WHERE order_no='__SMOKE-BATCH-UI'").get();check(db.prepare('SELECT COUNT(*) AS n FROM pre_order_items WHERE pre_order_id=?').get(batch.id).n===3,'All batch pictures saved with order');
+ await send('Page.navigate',{url:base+'/development'});await sleep(650);await ev('(()=>{const e=Array.from(document.querySelectorAll("input")).find(e=>e.placeholder==="搜索订单号");e.value="__SMOKE-IMAGE-UI";e.dispatchEvent(new Event("input",{bubbles:true}));})()');await sleep(80);check(await ev('document.querySelectorAll(".dev-reference-card").length===1&&document.querySelector(".dev-pager").textContent.includes("共 1 款")'),'Development UI searches manual order number and shows style count');
+ const developmentFlow=db.prepare('SELECT * FROM pattern_flows WHERE tech_pack_id=?').get(development.id);db.prepare("UPDATE pattern_stages SET status='done' WHERE flow_id=? AND stage='material'").run(developmentFlow.id);db.prepare("UPDATE pattern_flows SET current_stage='pattern' WHERE id=?").run(developmentFlow.id);
+ await send('Page.navigate',{url:base+'/pattern-board'});await sleep(700);
+ await ev('(()=>{const col=Array.from(document.querySelectorAll(".pcol")).find(n=>n.querySelector(".pcol-head")?.textContent.includes("制版"));Array.from(col.querySelectorAll(".pcard")).find(n=>n.textContent.includes("' + item.product_name + '")).click()})()');await sleep(250);
+ await fill('款号（版房填写）','__SMOKE-UI-NEW-ST');await ev('Array.from(document.querySelectorAll(".modal-foot button")).find(b=>b.textContent.trim()==="保存").click()');await sleep(500);
+ check(db.prepare('SELECT style_no FROM pre_order_items WHERE id=?').get(item.id).style_no==='__SMOKE-UI-NEW-ST','Workshop UI propagates style number');
+ check(errors.length===0,'Browser errors: '+errors.join(','));console.log('PASS '+checks+' pre-order browser assertions');
+})().catch(e=>{console.error(e.stack);process.exitCode=1}).finally(async()=>{
+ for(const url of uploadedUrls)if(url&&/^\/uploads\/[a-f0-9]{20}\.(png|jpg|jpeg|webp|gif)$/.test(url)){const root=path.resolve('data/uploads'),file=path.resolve(root,path.basename(url));if(path.dirname(file)===root&&fs.existsSync(file))fs.unlinkSync(file);}
+ ws?.close();if(chrome){chrome.kill();await new Promise(r=>chrome.once('exit',r));}if(server){server.kill();await new Promise(r=>server.once('exit',r));}db.close();try{fs.rmSync(folder,{recursive:true,force:true,maxRetries:8,retryDelay:200});}catch(e){console.error('Temporary browser folder cleanup: '+e.message);}
+});

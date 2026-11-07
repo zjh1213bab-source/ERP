@@ -64,7 +64,7 @@
             <td class="ops">
               <button v-if="canWrite && r.status === 'draft'" class="link-btn" @click="doSubmit(r)">提交批准</button>
               <button v-if="canWrite && r.status === 'pending_approve'" class="link-btn" @click="doApprove(r, true)">批准</button>
-              <button v-if="canWrite && r.status === 'pending_approve'" class="link-btn danger" @click="doApprove(r, false)">驳回</button>
+              <button  v-if="canWrite && r.status === 'pending_approve'" class="link-btn danger" @click="doApprove(r, false)">驳回</button>
               <button v-if="canWrite && r.status === 'approved' && r.type === 'rework'" class="link-btn" @click="doStart(r)">开始返工</button>
               <button v-if="canWrite && r.status === 'in_progress'" class="link-btn" @click="openReinspect(r)">复验</button>
               <button v-if="canWrite && r.status === 'approved' && r.type === 'scrap'" class="link-btn" @click="doScrap(r)">核销报废</button>
@@ -125,7 +125,7 @@
     </div>
 
     <!-- ============ 新建返工/报废单 ============ -->
-    <div v-if="form" class="modal-mask" @click.self="form = null">
+    <div v-if="form" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建返工 / 报废单</h3><button class="x" @click="form = null">×</button></div>
         <div class="modal-body">
@@ -178,7 +178,7 @@
     </div>
 
     <!-- ============ 复验 ============ -->
-    <div v-if="reinspect" class="modal-mask" @click.self="reinspect = null">
+    <div v-if="reinspect" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>复验 · {{ reinspect.rw_no }}</h3><button class="x" @click="reinspect = null">×</button></div>
         <div class="modal-body">
@@ -199,7 +199,7 @@
     </div>
 
     <!-- ============ 结单检查 ============ -->
-    <div v-if="gate" class="modal-mask" @click.self="gate = null">
+    <div v-if="gate" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>结单检查 · {{ gate.order.order_no }}</h3><button class="x" @click="gate = null">×</button></div>
         <div class="modal-body">
@@ -244,7 +244,7 @@
     </div>
 
     <!-- ============ 结单 ============ -->
-    <div v-if="closeForm" class="modal-mask" @click.self="closeForm = null">
+    <div v-if="closeForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>生产结单 · {{ closeForm.order_no }}</h3><button class="x" @click="closeForm = null">×</button></div>
         <div class="modal-body">
@@ -460,27 +460,27 @@ onMounted(() => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a !important; }
 .amt-red { color: #d92d45 !important; }
 .amt-orange { color: #d97706 !important; }
-.amt-blue { color: #2b6de5 !important; }
-.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
-.tiny { font-size: 11.5px; color: #8a94a6; line-height: 1.5; }
+.amt-blue { color: var(--brand) !important; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.tiny { font-size: 12px; color: var(--ink-mute); line-height: 1.5; }
 .warn { color: #d92d45; }
 .muted { color: #b6bfcc; }
 .ops { white-space: nowrap; }
 .wrap { white-space: normal !important; line-height: 1.55; }
 .num { text-align: right; }
-.rule-note { margin: 10px 0 0; font-size: 11.5px; color: #8a94a6; line-height: 1.6; }
+.rule-note { margin: 10px 0 0; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
 .chk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
 .chk { border: 1px solid #e8edf4; border-radius: 10px; padding: 9px 11px; background: #fafbfd; }
-.chk span { display: block; font-size: 11.5px; color: #8a94a6; }
-.chk b { display: block; font-size: 15px; color: #16233b; margin: 3px 0 1px; }
-.chk i { font-size: 11px; color: #a9b4c5; font-style: normal; }
+.chk span { display: block; font-size: 12px; color: var(--ink-mute); }
+.chk b { display: block; font-size: 15px; color: var(--ink); margin: 3px 0 1px; }
+.chk i { font-size: 12px; color: var(--ink-mute); font-style: normal; }
 .chk.ok { background: #f4fbf6; border-color: #d6efdd; }
 .chk.warn { background: #fffaf2; border-color: #f3e2c4; }
 .chk.bad { background: #fff6f7; border-color: #f6d9dd; }
@@ -492,8 +492,8 @@ onMounted(() => {
 .radio-list { display: flex; flex-direction: column; gap: 8px; }
 .radio-list label { display: flex; align-items: flex-start; gap: 8px; border: 1px solid #e8edf4; border-radius: 9px; padding: 9px 11px; cursor: pointer; }
 .radio-list span { display: flex; flex-direction: column; gap: 2px; }
-.radio-list b { font-size: 12.5px; color: #16233b; font-weight: 600; }
-.radio-list i { font-size: 11.5px; color: #8a94a6; font-style: normal; }
+.radio-list b { font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.radio-list i { font-size: 12px; color: var(--ink-mute); font-style: normal; }
 @media (max-width: 1280px) { .stat-row { grid-template-columns: repeat(4, 1fr); } .chk-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 760px) { .stat-row { grid-template-columns: repeat(2, 1fr); } .chk-grid { grid-template-columns: 1fr; } }
 </style>

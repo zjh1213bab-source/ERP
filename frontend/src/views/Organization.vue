@@ -76,7 +76,7 @@
           <button :class="{ on: posView === 'tree' }" @click="posView = 'tree'">汇报关系</button>
         </div>
         <div class="spacer"></div>
-        <button v-if="canWrite" class="btn btn-primary" @click="openPosition()">＋ 新建岗位</button>
+        <button v-action="['org','create']" v-if="canWrite" class="btn btn-primary" @click="openPosition()">＋ 新建岗位</button>
       </div>
 
       <div v-if="posView === 'card'" class="dept-grid">
@@ -138,7 +138,7 @@
         </select>
         <input v-model="empFilter.q" class="input" placeholder="搜工号 / 姓名 / 单号" @keyup.enter="loadEmployments" />
         <div class="spacer"></div>
-        <button v-if="canWrite" class="btn btn-primary" @click="openEmployment()">＋ 新建任职</button>
+        <button v-action="['org','create']" v-if="canWrite" class="btn btn-primary" @click="openEmployment()">＋ 新建任职</button>
       </div>
 
       <div class="table-wrap">
@@ -210,7 +210,7 @@
             <span v-else class="tiny muted">无服务协议</span>
             <div class="spacer"></div>
             <button v-if="canApprove && r.status !== 'confirmed' && r.status !== 'disabled'" class="link-btn" @click="confirmRoute(r)">确认</button>
-            <button v-if="canApprove && r.status === 'confirmed'" class="link-btn danger" @click="disableRoute(r)">停用</button>
+            <button  v-if="canApprove && r.status === 'confirmed'" class="link-btn danger" @click="disableRoute(r)">停用</button>
             <button class="link-btn" @click="openRouteDetail(r.id)">详情</button>
           </div>
         </div>
@@ -257,7 +257,7 @@
               <td class="ops">
                 <button v-if="canWrite && s.status === 'draft'" class="link-btn" @click="submitScope(s)">提交</button>
                 <button v-if="canApprove && s.status === 'pending'" class="link-btn" @click="approveScope(s)">批准</button>
-                <button v-if="canApprove && s.status === 'pending'" class="link-btn danger" @click="openRejectScope(s)">驳回</button>
+                <button v-action="['org','reject']" v-if="canApprove && s.status === 'pending'" class="link-btn danger" @click="openRejectScope(s)">驳回</button>
                 <button v-if="(canWrite || canApprove) && (s.status === 'effective' || s.status === 'expired')" class="link-btn" @click="renewScope(s)">续期</button>
               </td>
             </tr>
@@ -268,7 +268,7 @@
     </div>
 
     <!-- ==================== 新建/编辑岗位 ==================== -->
-    <div v-if="modal === 'position'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'position'" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ posForm.id ? '编辑岗位' : '新建岗位' }}</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -309,7 +309,7 @@
     </div>
 
     <!-- 岗位详情 -->
-    <div v-if="modal === 'posDetail' && curPos" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'posDetail' && curPos" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ curPos.title }} <span class="mono tiny">{{ curPos.code }}</span></h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -363,7 +363,7 @@
     </div>
 
     <!-- 新建任职 -->
-    <div v-if="modal === 'employment'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'employment'" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>新建任职</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -408,7 +408,7 @@
     </div>
 
     <!-- 任职详情 -->
-    <div v-if="modal === 'empDetail' && curEmp" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'empDetail' && curEmp" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ curEmp.employment_no }} · {{ curEmp.employee_name }}</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -454,7 +454,7 @@
     </div>
 
     <!-- 批准（含超编特批） -->
-    <div v-if="modal === 'approveEmp' && approveTarget" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'approveEmp' && approveTarget" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>批准任职</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -482,7 +482,7 @@
     </div>
 
     <!-- 调岗 -->
-    <div v-if="modal === 'transfer' && transferTarget" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'transfer' && transferTarget" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>调岗 · {{ transferTarget.employee_name }}</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -506,7 +506,7 @@
     </div>
 
     <!-- 结束任职 -->
-    <div v-if="modal === 'endEmp' && endTarget" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'endEmp' && endTarget" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>结束任职</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -522,7 +522,7 @@
     </div>
 
     <!-- 交易路线 -->
-    <div v-if="modal === 'route'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'route'" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>登记交易路线</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -561,7 +561,7 @@
       </div>
     </div>
 
-    <div v-if="modal === 'routeDetail' && curRoute" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'routeDetail' && curRoute" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ curRoute.name }}</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -590,7 +590,7 @@
     </div>
 
     <!-- 申请授权范围 -->
-    <div v-if="modal === 'scope'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'scope'" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>申请授权范围</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -626,7 +626,7 @@
       </div>
     </div>
 
-    <div v-if="modal === 'scopeDetail' && curScope" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'scopeDetail' && curScope" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ curScope.scope_no }} · {{ curScope.username }}</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -651,7 +651,7 @@
       </div>
     </div>
 
-    <div v-if="modal === 'rejectScope' && rejectTarget" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'rejectScope' && rejectTarget" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>驳回授权申请</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -1047,14 +1047,14 @@ onMounted(async () => {
 .page { max-width: 1500px; }
 .head-ops { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: nowrap; }
 .head-ops .btn { white-space: nowrap; }
-.pill { display: inline-block; white-space: nowrap; font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 4px 9px; }
-.p-gray { background: #eef1f6; color: #6b7688; }
+.pill { display: inline-block; white-space: nowrap; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 4px 9px; }
+.p-gray { background: #eef1f6; color: var(--ink-soft); }
 
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { font-size: 12px; color: #8a94a6; display: block; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { font-size: 12px; color: var(--ink-mute); display: block; }
 .stat strong { font-size: 22px; color: #16305f; display: block; margin-top: 4px; line-height: 1.1; }
-.stat small { font-size: 11px; color: #9aa4b5; display: block; margin-top: 4px; }
+.stat small { font-size: 12px; color: #9aa4b5; display: block; margin-top: 4px; }
 .stat.st-warn { border-color: #f5d9a8; background: #fffdf7; }
 .stat.st-bad { border-color: #f3c2c9; background: #fffafb; }
 .tiny-strong { font-size: 15px !important; }
@@ -1062,58 +1062,58 @@ onMounted(async () => {
 .tabbar { display: flex; margin-bottom: 10px; }
 .tabs { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
 .tabs button {
-  flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; border: 1px solid #e2e8f2; background: #fff;
-  border-radius: 9px; font-size: 13px; color: #4b5568; cursor: pointer; font-family: inherit;
+  flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; border: 1px solid #e2e8f2; background: var(--surface);
+  border-radius: 9px; font-size: 13px; color: var(--ink-soft); cursor: pointer; font-family: inherit;
 }
-.tabs button.on { background: #2b6de5; border-color: #2b6de5; color: #fff; font-weight: 700; }
-.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 10.5px; }
+.tabs button.on { background: var(--brand); border-color: #2b6de5; color: var(--on-brand); font-weight: 700; }
+.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 12px; }
 
-.toolbar select, .toolbar .input { padding: 7px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px; font-family: inherit; }
+.toolbar select, .toolbar .input { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; }
 .toolbar .input { min-width: 180px; }
-.chk { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: #4b5568; }
+.chk { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--ink-soft); }
 .ck-list { display: flex; flex-wrap: wrap; gap: 12px; }
 .spacer { flex: 1; }
-.tiny { font-size: 11.5px; }
-.muted { color: #8a94a6; }
+.tiny { font-size: 12px; }
+.muted { color: var(--ink-mute); }
 .red { color: #d92d45; }
 .orange { color: #d97706; }
-.lnk { color: #2563eb; cursor: pointer; font-weight: 600; }
+.lnk { color: var(--brand); cursor: pointer; font-weight: 600; }
 .lnk:hover { text-decoration: underline; }
-.seg { display: inline-flex; border: 1px solid #dfe5ef; border-radius: 8px; overflow: hidden; }
-.seg button { border: none; background: #fff; padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit; color: #4b5568; }
-.seg button.on { background: #eef4ff; color: #2563eb; font-weight: 700; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: none; background: var(--surface); padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit; color: var(--ink-soft); }
+.seg button.on { background: #eef4ff; color: var(--brand); font-weight: 700; }
 .empty-box { grid-column: 1/-1; text-align: center; color: #9aa4b5; padding: 34px 0; font-size: 13px; }
-.hint-bar { background: #f2f7ff; border: 1px solid #d6e4ff; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: #33415a; margin-bottom: 12px; line-height: 1.7; }
+.hint-bar { background: #f2f7ff; border: 1px solid #d6e4ff; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: var(--ink); margin-bottom: 12px; line-height: 1.7; }
 .hint-bar b { color: #16305f; }
 .nowrap { white-space: nowrap; }
-.link-btn { background: none; border: none; color: #2563eb; cursor: pointer; font-size: 12.5px; padding: 2px 4px; font-family: inherit; }
+.link-btn { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 12.5px; padding: 2px 4px; font-family: inherit; }
 .link-btn.danger { color: #d92d45; }
 .row-pending { background: #fffdf7; }
 .bar { height: 6px; background: #eef2f7; border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; }
-.bar-ok { background: #2b6de5; }
+.bar-ok { background: var(--brand); }
 .bar-warn { background: #f59e0b; }
 .bar-bad { background: #d92d45; }
 
 /* 编制卡 */
 .dept-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; align-items: start; }
-.dept-card { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.dept-card { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
 .dc-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
-.dc-head b { font-size: 14px; color: #16233b; }
+.dc-head b { font-size: 14px; color: var(--ink); }
 .pos-row { padding: 8px 6px; border-radius: 8px; cursor: pointer; border-bottom: 1px dashed #f0f3f8; }
 .pos-row:hover { background: #f8fafd; }
 .pos-row.pr-bad { background: #fffafa; }
 .pos-row.pr-warn { background: #fffdf7; }
 .pr-main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.pr-title { font-size: 13px; font-weight: 600; color: #1f2937; }
+.pr-title { font-size: 13px; font-weight: 600; color: var(--ink); }
 .pr-num { display: flex; align-items: baseline; gap: 8px; margin-top: 3px; }
 .pr-num b { font-size: 13px; color: #16305f; }
-.pr-num b i { font-style: normal; font-size: 11px; color: #9aa4b5; }
+.pr-num b i { font-style: normal; font-size: 12px; color: #9aa4b5; }
 .pr-bar { margin-top: 4px; height: 5px; background: #eef2f7; border-radius: 4px; overflow: hidden; }
 .pr-bar i { display: block; height: 100%; }
 
 /* 汇报树 */
-.tree { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 8px 6px; }
+.tree { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 8px 6px; }
 .tree-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .tree-row:hover { background: #f8fafd; }
 .tree-line { color: #b9c4d6; width: 14px; }
@@ -1121,51 +1121,51 @@ onMounted(async () => {
 
 /* 路线卡 */
 .route-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 12px; align-items: start; }
-.route-card { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 14px; }
+.route-card { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 14px; }
 .route-card.rc-bad { border-color: #f3c2c9; background: #fffafa; }
 .rc-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .rc-top .spacer { flex: 1; }
-.route-card h5 { margin: 8px 0; font-size: 14px; color: #16233b; }
-.route-map { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: #33415a; }
+.route-card h5 { margin: 8px 0; font-size: 14px; color: var(--ink); }
+.route-map { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink); }
 .route-map.big { font-size: 12.5px; gap: 10px 22px; }
 .route-map span { display: flex; align-items: baseline; gap: 5px; }
-.route-map i { font-style: normal; color: #9aa4b5; font-size: 11px; }
-.rc-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; border-top: 1px dashed #eef2f7; padding-top: 8px; }
+.route-map i { font-style: normal; color: #9aa4b5; font-size: 12px; }
+.rc-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
 .rc-foot .spacer { flex: 1; }
 
 /* 弹窗内 */
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-grid .wide { grid-column: 1/-1; }
-.fld { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: #4b5568; }
+.fld { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--ink-soft); }
 .fld > span { font-weight: 600; }
 .fld input, .fld select, .fld textarea {
-  padding: 8px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px;
-  font-family: inherit; width: 100%; box-sizing: border-box; background: #fff;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px;
+  font-family: inherit; width: 100%; box-sizing: border-box; background: var(--surface);
 }
 .det-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.det-line { margin: 0 0 8px; font-size: 13.5px; color: #16233b; }
+.det-line { margin: 0 0 8px; font-size: 13.5px; color: var(--ink); }
 .gate-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 6px; }
 .gate { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; }
 .gate-ok { background: #f6fdf9; border-color: #c6ecd5; }
 .gate-bad { background: #fffafa; border-color: #f3c2c9; }
-.gate-na { background: #fbfcfe; border-style: dashed; }
-.g-head { display: flex; justify-content: space-between; font-size: 12.5px; color: #16233b; }
+.gate-na { background: var(--surface-2); border-style: dashed; }
+.g-head { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink); }
 .g-head span { font-weight: 700; }
 .gate-ok .g-head span { color: #16a34a; }
 .gate-bad .g-head span { color: #d92d45; }
 .gate-na .g-head span { color: #9aa4b5; }
-.g-detail { font-size: 11.5px; color: #6b7688; margin-top: 4px; }
-.modal-body h4 { font-size: 13px; color: #16233b; margin: 14px 0 8px; }
-.modal-body h4 small { font-weight: 400; color: #9aa4b5; margin-left: 6px; font-size: 11px; }
+.g-detail { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+.modal-body h4 { font-size: 13px; color: var(--ink); margin: 14px 0 8px; }
+.modal-body h4 small { font-weight: 400; color: #9aa4b5; margin-left: 6px; font-size: 12px; }
 .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; margin-bottom: 12px; }
 .kv > div { display: flex; gap: 10px; font-size: 12.5px; border-bottom: 1px dashed #f0f3f8; padding-bottom: 5px; }
 .kv > div.wide { grid-column: 1/-1; }
-.kv span { color: #8a94a6; width: 90px; flex: none; }
-.kv b { color: #16233b; font-weight: 600; }
-.chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: #33415a; }
-.chain-item em { font-style: normal; color: #9aa4b5; font-size: 11px; }
+.kv span { color: var(--ink-mute); width: 90px; flex: none; }
+.kv b { color: var(--ink); font-weight: 600; }
+.chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink); }
+.chain-item em { font-style: normal; color: #9aa4b5; font-size: 12px; }
 .chain-sep { color: #b9c4d6; margin-left: 6px; }
-.pw-blocked { background: #fffafa; border: 1px solid #f3c2c9; border-radius: 9px; padding: 10px 12px; font-size: 12.5px; color: #33415a; line-height: 1.7; }
+.pw-blocked { background: #fffafa; border: 1px solid #f3c2c9; border-radius: 9px; padding: 10px 12px; font-size: 12.5px; color: var(--ink); line-height: 1.7; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
 
 @media (max-width: 900px) {

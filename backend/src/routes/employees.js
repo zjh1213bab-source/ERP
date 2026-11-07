@@ -34,6 +34,7 @@ function empOr404(req, id) {
   return r.row;
 }
 
+const accounts = require('../services/employeeAccounts');
 const router = express.Router();
 const WRITE = ['admin', 'hr'];
 
@@ -60,13 +61,22 @@ router.get('/departments', authRequired, wrap(async (req, res) => {
   return ok(res, db.prepare('SELECT id, name FROM departments ORDER BY id').all());
 }));
 
+router.post('/accounts/sync', authRequired, requireRole(WRITE), wrap(async (req, res) => ok(res, accounts.syncAll(cidOf(req)))));
+
 router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const b = req.body || {};
   if (!b.name) return fail(res, 400, '姓名必填');
+  db.exec('BEGIN IMMEDIATE');
+  try {
   const info = db.prepare(
     'INSERT INTO employees (code, name, department_id, position, phone, hire_date, status, base_salary, remark, image_url, created_at, company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
   ).run(b.code || null, b.name, b.department_id || null, b.position || null, b.phone || null, b.hire_date || null, b.status || 'active', Number(b.base_salary) || 0, b.remark || null, b.image_url || null, now(), scope.writeCompanyOf(req.user));
-  return ok(res, db.prepare('SELECT * FROM employees WHERE id = ?').get(Number(info.lastInsertRowid)));
+  const employee = db.prepare('SELECT * FROM employees WHERE id=?').get(Number(info.lastInsertRowid));
+  const account = accounts.sync(employee);
+  if (account.action === 'conflict') throw Object.assign(new Error(account.reason), { status: 409 });
+  db.exec('COMMIT');
+  return ok(res, { ...employee, account_sync: account });
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
 }));
 
 router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
@@ -85,19 +95,34 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   if (b.employment_type !== undefined && !empType) {
     return fail(res, 400, `员工类型只能是 ${EMP_TYPES.join(' / ')}`);
   }
+  if (b.status && !['active','left'].includes(b.status)) return fail(res, 400, '员工状态无效');
+  db.exec('BEGIN IMMEDIATE');
+  try {
   db.prepare('UPDATE employees SET code=?, name=?, department_id=?, position=?, phone=?, hire_date=?, status=?, base_salary=?, remark=?, image_url=?, employment_type=? WHERE id=?').run(
     b.code ?? row.code, b.name || row.name, b.department_id ?? row.department_id, b.position ?? row.position,
     b.phone ?? row.phone, b.hire_date ?? row.hire_date, b.status || row.status,
     b.base_salary !== undefined ? Number(b.base_salary) || 0 : row.base_salary, b.remark ?? row.remark,
     b.image_url ?? row.image_url, empType, req.params.id
   );
-  return ok(res, db.prepare('SELECT * FROM employees WHERE id = ?').get(req.params.id));
+  const employee = db.prepare('SELECT * FROM employees WHERE id=?').get(row.id);
+  const account = accounts.sync(employee);
+  if (account.action === 'conflict') throw Object.assign(new Error(account.reason), { status: 409 });
+  db.exec('COMMIT');
+  accounts.clearEmployeeCache(row.id);
+  return ok(res, { ...employee, account_sync: account });
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
 }));
 
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = empOr404(req, req.params.id);
   if (!row) return fail(res, 404, '员工不存在');
-  db.prepare("UPDATE employees SET status='left' WHERE id=?").run(req.params.id);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare("UPDATE employees SET status='left' WHERE id=?").run(row.id);
+    accounts.disable(row.id);
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+  accounts.clearEmployeeCache(row.id);
   return ok(res, { id: Number(req.params.id), status: 'left' });
 }));
 

@@ -56,11 +56,16 @@ function authRequired(req, res, next) {
       return fail(res, 401, '登录状态已失效（账号权限或密码已变更），请重新登录');
     }
 
-    req.user = { ...payload, role: sess.role, name: sess.name || payload.name };
+    req.user = { ...payload, username: sess.username, role: sess.role, name: sess.name || payload.name };
     // 附加岗 + 生效权限（带 20s 缓存，避免每个请求都读库）
     const eff = access.effective(payload.sub, sess.role);
     req.user.roles = eff.roles;
     req.user.permDeny = eff.deny;
+    const position = require('../services/positionAccess').assigned(payload.sub);
+    req.user.positionDirect=!!position?.direct;
+    if (position && sess.role !== 'admin') req.user.role = position.roles[0];
+    const positionError = require('../services/positionAccess').check(req);
+    if (positionError) return fail(res, 403, positionError);
     /**
      * 主体归属：从库里取（20s 缓存），不信 token ——
      * token 里没有 company_id，而就算加进去，人换了主体也要等 12 小时才生效。
@@ -77,6 +82,13 @@ function authRequired(req, res, next) {
     const scopeErr = companyScope.scopeProblem(req.user);
     if (scopeErr && !UNBOUND_ALLOW.test(String(req.originalUrl || req.url || '').split('?')[0])) {
       return fail(res, 403, scopeErr);
+    }
+
+    // 普通员工只能访问本人自助接口；附加业务岗位经管理员授权后按正常权限处理。
+    if (!req.user.positionDirect && req.user.roles.every(role => role === 'employee')) {
+      const pathname = String(req.originalUrl || req.url || '').split('?')[0];
+      const allowed = /^\/api\/auth\/(me|logout)$|^\/api\/access\/me$|^\/api\/self\/(meta|overview|payslips|requests|work-find|work-order|work-quote|work-report)(\/|$)/;
+      if (!allowed.test(pathname) && !require('../access/permissions').employeePortalRequest(req) && !(req.method==='GET' && pathname==='/api/settings/appearance')) return fail(res, 403, '普通员工账号仅可使用本人自助功能');
     }
 
     // 高危动作被收回 → 直接拒绝（只覆盖改钱/改库存/改人事/改权限）
@@ -105,6 +117,9 @@ function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return fail(res, 401, '未登录');
     if (req.user.role === 'admin') return next();
+    // 岗位模块与动作已经在 authRequired 校验，旧角色不再形成第二道授权。
+    // 管理员专属接口仍不向普通岗位开放。
+    if(req.user.positionDirect && list.some(r=>!['admin','boss'].includes(r)))return next();
     const mine = req.user.roles && req.user.roles.length ? req.user.roles : [req.user.role];
     if (mine.some((r) => list.includes(r))) return next();
     // 总经理（boss）只读：GET 放行，写动作仍按岗位判断

@@ -823,6 +823,8 @@ function adjustTask(taskId, body, operator) {
     patch.locked = Number(body.locked) ? 1 : 0;
   }
   if (!Object.keys(patch).length) throw new Error('没有需要调整的字段');
+  // 所有计划变动均需原因，不能仅在锁定任务时要求，工时变化同样影响产能。
+  if (!reason) throw new Error('调整排程任务必须写原因');
 
   Object.keys(patch).forEach((k) => {
     if (k === 'start_at' || k === 'end_at') {

@@ -5,7 +5,7 @@
         <h2>请假管理</h2>
         <div class="sub">员工请假申请与审批</div>
       </div>
-      <button v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增请假</button>
+      <button v-action="['leaves','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增请假</button>
     </div>
 
     <div class="toolbar" style="margin-bottom: 14px">
@@ -32,7 +32,7 @@
             <td><span class="tag" :class="r.status === 'approved' ? 'green' : r.status === 'rejected' ? 'red' : 'orange'">{{ statusLabel(r.status) }}</span></td>
             <td v-if="canWrite">
               <button v-if="r.status === 'pending'" class="link-btn" @click="review(r, true)">通过</button>
-              <button v-if="r.status === 'pending'" class="link-btn danger" @click="review(r, false)">驳回</button>
+              <button  v-if="r.status === 'pending'" class="link-btn danger" @click="review(r, false)">驳回</button>
               <button class="link-btn danger" @click="remove(r)">删</button>
             </td>
           </tr>
@@ -41,7 +41,7 @@
       </table>
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
+    <div v-if="showModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新增请假</h3><button class="x" @click="showModal = false">×</button></div>
         <div class="modal-body">

@@ -110,19 +110,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.iv-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, #eef3fb 0%, #f7f9fc 60%, #eef6f3 100%); padding: 24px; }
-.iv-card { width: 460px; max-width: 100%; background: #fff; border: 1px solid #e6ebf3; border-radius: 16px; padding: 26px 26px 22px; box-shadow: 0 12px 32px rgba(22, 35, 59, 0.08); }
+.iv-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, #eef3fb 0%, var(--surface-2) 60%, #eef6f3 100%); padding: 24px; }
+.iv-card { width: 460px; max-width: 100%; background: var(--surface); border: 1px solid #e6ebf3; border-radius: 16px; padding: 26px 26px 22px; box-shadow: 0 12px 32px rgba(22, 35, 59, 0.08); }
 .iv-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
 .iv-logo { width: 38px; height: 38px; border-radius: 11px; background: #16233b; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; }
-.iv-co { font-size: 14.5px; font-weight: 700; color: #16233b; }
-.iv-sub { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
-.iv-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #f8fafd; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; margin-bottom: 16px; }
-.iv-info span { display: block; font-size: 11.5px; color: #8a94a6; }
-.iv-info b { font-size: 13px; color: #16233b; }
+.iv-co { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.iv-sub { font-size: 12px; color: var(--ink-mute); margin-top: 2px; }
+.iv-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #f8fafd; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 16px; }
+.iv-info span { display: block; font-size: 12px; color: var(--ink-mute); }
+.iv-info b { font-size: 13px; color: var(--ink); }
 .iv-form { display: flex; flex-direction: column; gap: 10px; }
 .iv-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #5b6474; }
-.iv-btn { margin-top: 6px; border: none; border-radius: 10px; background: #2b6de5; color: #fff; font-size: 14px; font-weight: 600; padding: 11px 0; cursor: pointer; }
+.iv-btn { margin-top: 6px; border: none; border-radius: 10px; background: var(--brand); color: var(--on-brand); font-size: 14px; font-weight: 600; padding: 11px 0; cursor: pointer; }
 .iv-btn:disabled { background: #a8c0ee; cursor: default; }
 .iv-err { background: #fff8f9; border: 1px solid #f8d3d8; border-radius: 8px; padding: 9px 11px; font-size: 12.5px; color: #b91c1c; line-height: 1.6; }
-.iv-muted { font-size: 12.5px; color: #8a94a6; }
+.iv-muted { font-size: 12.5px; color: var(--ink-mute); }
 </style>

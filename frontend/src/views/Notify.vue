@@ -105,7 +105,7 @@
               <td class="tiny nowrap">{{ r.quiet_start }} – {{ r.quiet_end }}</td>
               <td class="num tiny">{{ r.digest_hour }}:00</td>
               <td class="tiny muted">{{ r.note || '—' }}</td>
-              <td><button v-if="canApprove" class="link-btn" @click="openFreq(r)">编辑</button></td>
+              <td><button v-action="['notify','edit']"  v-if="canApprove" class="link-btn" @click="openFreq(r)">编辑</button></td>
             </tr>
             <tr v-if="!rules.length"><td colspan="9" class="empty-cell">还没有频控规则</td></tr>
           </tbody>
@@ -128,7 +128,7 @@
           <option v-for="s in dict.sub_status || []" :key="s.k" :value="s.k">{{ s.v }}</option>
         </select>
         <div class="spacer"></div>
-        <button v-if="canWrite" class="btn btn-primary btn-sm" @click="openSub()">＋ 新增订阅</button>
+        <button v-action="['notify','create']"  v-if="canWrite" class="btn btn-primary btn-sm" @click="openSub()">＋ 新增订阅</button>
       </div>
 
       <div class="table-wrap">
@@ -200,7 +200,7 @@
           <option v-for="s in dict.template_status || []" :key="s.k" :value="s.k">{{ s.v }}</option>
         </select>
         <div class="spacer"></div>
-        <button v-if="canWrite" class="btn btn-primary btn-sm" @click="openTpl()">＋ 新建模板</button>
+        <button v-action="['notify','create']" v-if="canWrite" class="btn btn-primary btn-sm" @click="openTpl()">＋ 新建模板</button>
       </div>
 
       <div class="table-wrap">
@@ -224,8 +224,8 @@
                 <button class="link-btn" @click="openTplDetail(t.id)">查看</button>
                 <button v-if="canWrite && t.status === 'draft'" class="link-btn" @click="submitTpl(t)">提交审核</button>
                 <button v-if="canApprove && t.status === 'pending'" class="link-btn" @click="approveTpl(t)">批准</button>
-                <button v-if="canApprove && t.status === 'approved'" class="link-btn danger" @click="retireTpl(t)">停用</button>
-                <button v-if="isAdmin && ['draft','pending'].includes(t.status)" class="link-btn danger" @click="deleteTpl(t)">删除</button>
+                <button  v-if="canApprove && t.status === 'approved'" class="link-btn danger" @click="retireTpl(t)">停用</button>
+                <button v-action="['notify','delete']" v-if="isAdmin && ['draft','pending'].includes(t.status)" class="link-btn danger" @click="deleteTpl(t)">删除</button>
               </td>
             </tr>
             <tr v-if="!tpls.length"><td colspan="10" class="empty-cell">没有模板</td></tr>
@@ -444,7 +444,7 @@
     </div>
 
     <!-- ==================== 弹窗：渠道设置 ==================== -->
-    <div v-if="modal === 'cap'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'cap'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>渠道能力：{{ capForm.channel_label }}</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -481,7 +481,7 @@
     </div>
 
     <!-- ==================== 弹窗：订阅 ==================== -->
-    <div v-if="modal === 'sub'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'sub'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新增 / 修改订阅</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -527,7 +527,7 @@
     </div>
 
     <!-- ==================== 弹窗：频控 ==================== -->
-    <div v-if="modal === 'freq'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'freq'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>发送频控</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -561,7 +561,7 @@
     </div>
 
     <!-- ==================== 弹窗：模板 ==================== -->
-    <div v-if="modal === 'tpl'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'tpl'" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>新建模板</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -594,7 +594,7 @@
       </div>
     </div>
 
-    <div v-if="modal === 'tplDetail' && tplDetail" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'tplDetail' && tplDetail" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ tplDetail.subject }}<span class="mono tiny" style="margin-left: 8px">{{ tplDetail.template_no }}</span></h3>
           <button class="x" @click="closeModal">×</button></div>
@@ -628,7 +628,7 @@
     </div>
 
     <!-- ==================== 弹窗：发送详情 ==================== -->
-    <div v-if="modal === 'box' && boxDetail" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'box' && boxDetail" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ boxDetail.subject }}<span class="mono tiny" style="margin-left: 8px">{{ boxDetail.outbox_no }}</span></h3>
           <button class="x" @click="closeModal">×</button></div>
@@ -683,7 +683,7 @@
     </div>
 
     <!-- ==================== 弹窗：到货提醒 ==================== -->
-    <div v-if="modal === 'alert'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'alert'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>登记到货 / 上新提醒</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -1045,85 +1045,85 @@ onMounted(async () => {
 .page-head .sub { max-width: 1040px; }
 .head-ops { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: nowrap; }
 .head-ops .btn { white-space: nowrap; }
-.pill { display: inline-block; white-space: nowrap; font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 4px 9px; }
-.p-gray { background: #eef1f6; color: #6b7688; }
+.pill { display: inline-block; white-space: nowrap; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 4px 9px; }
+.p-gray { background: #eef1f6; color: var(--ink-soft); }
 
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { font-size: 12px; color: #8a94a6; display: block; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { font-size: 12px; color: var(--ink-mute); display: block; }
 .stat strong { font-size: 21px; color: #16305f; display: block; margin-top: 4px; line-height: 1.1; }
-.stat small { font-size: 11px; color: #9aa4b5; display: block; margin-top: 4px; }
+.stat small { font-size: 12px; color: #9aa4b5; display: block; margin-top: 4px; }
 .stat.st-warn { border-color: #f5d9a8; background: #fffdf7; }
 .stat.st-bad { border-color: #f3c2c9; background: #fffafb; }
 
 .tabbar { display: flex; margin-bottom: 10px; }
 .tabs { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
-.tabs button { flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; border: 1px solid #e2e8f2; background: #fff; border-radius: 9px; font-size: 13px; color: #4b5568; cursor: pointer; font-family: inherit; }
-.tabs button.on { background: #2b6de5; border-color: #2b6de5; color: #fff; font-weight: 700; }
-.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 10.5px; }
+.tabs button { flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; border: 1px solid #e2e8f2; background: var(--surface); border-radius: 9px; font-size: 13px; color: var(--ink-soft); cursor: pointer; font-family: inherit; }
+.tabs button.on { background: var(--brand); border-color: #2b6de5; color: var(--on-brand); font-weight: 700; }
+.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 12px; }
 
-.toolbar select, .toolbar input, .kw { padding: 7px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px; font-family: inherit; }
+.toolbar select, .toolbar input, .kw { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; }
 .spacer { flex: 1; }
-.tiny { font-size: 11.5px; }
-.muted { color: #8a94a6; }
-.blue { color: #2563eb; }
+.tiny { font-size: 12px; }
+.muted { color: var(--ink-mute); }
+.blue { color: var(--brand); }
 .green { color: #16a34a; }
 .red { color: #d92d45; }
 .orange { color: #d97706; }
 .nowrap { white-space: nowrap; }
 .wrap { word-break: break-word; }
 .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, Consolas, monospace; }
-.lnk { color: #2563eb; cursor: pointer; font-weight: 600; }
+.lnk { color: var(--brand); cursor: pointer; font-weight: 600; }
 .lnk:hover { text-decoration: underline; }
-.link-btn { background: none; border: none; color: #2563eb; cursor: pointer; font-size: 12.5px; padding: 2px 4px; font-family: inherit; }
+.link-btn { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 12.5px; padding: 2px 4px; font-family: inherit; }
 .link-btn.danger { color: #d92d45; }
 .empty-cell { text-align: center; color: #9aa4b5; padding: 28px 0 !important; }
 .empty-box { text-align: center; color: #9aa4b5; padding: 18px 0; font-size: 13px; }
 .tag { white-space: nowrap; }
 .row-bad { background: #fffafb; }
 .row-warn { background: #fffdf7; }
-.sec { margin: 18px 0 8px; font-size: 13.5px; color: #16233b; }
-.sec small { margin-left: 8px; font-size: 11.5px; color: #9aa4b5; font-weight: 400; }
+.sec { margin: 18px 0 8px; font-size: 13.5px; color: var(--ink); }
+.sec small { margin-left: 8px; font-size: 12px; color: #9aa4b5; font-weight: 400; }
 
 .cap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; align-items: start; }
-.cap-card { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; position: relative; }
+.cap-card { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; position: relative; }
 .cap-card.cap-ok { border-color: #cfe9d8; background: #fbfefc; }
 .cap-card.cap-no { border-color: #f3d2d6; background: #fffbfb; }
 .cap-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.cap-top b { font-size: 13.5px; color: #16233b; }
-.cap-line { font-size: 11.5px; color: #6b7688; line-height: 1.7; display: flex; gap: 6px; }
+.cap-top b { font-size: 13.5px; color: var(--ink); }
+.cap-line { font-size: 12px; color: var(--ink-soft); line-height: 1.7; display: flex; gap: 6px; }
 .cap-line span { flex: none; color: #9aa4b5; }
 .cap-btn { margin-top: 8px; }
 
 .note-box { margin-top: 12px; background: #fffaf2; border: 1px solid #f3dcb6; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: #6b5a3b; }
 .mini-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.mini { background: #fff; border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; }
-.mini span { display: block; font-size: 11.5px; color: #8a94a6; }
+.mini { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; }
+.mini span { display: block; font-size: 12px; color: var(--ink-mute); }
 .mini b { font-size: 18px; color: #16305f; }
-.mini small { display: block; font-size: 10.5px; color: #9aa4b5; }
+.mini small { display: block; font-size: 12px; color: #9aa4b5; }
 .mini.mini-warn { border-color: #f5d9a8; background: #fffdf7; }
 
-.rule-list { margin: 0; padding-left: 20px; font-size: 12.5px; color: #4b5568; line-height: 1.9; }
+.rule-list { margin: 0; padding-left: 20px; font-size: 12.5px; color: var(--ink-soft); line-height: 1.9; }
 
 .ob-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
-.body-pre { margin: 0 0 10px; padding: 12px 14px; background: #f8fafd; border: 1px solid #eef2f7; border-radius: 9px;
-  font-size: 12.5px; line-height: 1.75; color: #1f2937; white-space: pre-wrap; word-break: break-word; font-family: inherit; }
+.body-pre { margin: 0 0 10px; padding: 12px 14px; background: #f8fafd; border: 1px solid var(--line); border-radius: 9px;
+  font-size: 12.5px; line-height: 1.75; color: var(--ink); white-space: pre-wrap; word-break: break-word; font-family: inherit; }
 .skip-box { background: #fffafb; border: 1px solid #f3c2c9; border-radius: 9px; padding: 9px 12px; font-size: 12.5px; color: #8a3b46; margin-bottom: 10px; }
 
 .timeline { display: flex; flex-direction: column; gap: 6px; }
 .tl-row { display: flex; align-items: center; gap: 8px; font-size: 12px; border-bottom: 1px dashed #f0f3f8; padding-bottom: 6px; }
-.tl-time { color: #8a94a6; flex: none; }
-.tl-detail { flex: 1; color: #33415a; }
+.tl-time { color: var(--ink-mute); flex: none; }
+.tl-detail { flex: 1; color: var(--ink); }
 
 .act-row { display: flex; gap: 8px; margin-top: 12px; }
 .receipt-box { margin-top: 14px; border-top: 1px dashed #e8edf6; padding-top: 12px; }
-.rb-title { font-size: 13px; color: #16233b; font-weight: 700; margin-bottom: 8px; }
-.rb-title small { margin-left: 8px; font-weight: 400; font-size: 11.5px; color: #9aa4b5; }
+.rb-title { font-size: 13px; color: var(--ink); font-weight: 700; margin-bottom: 8px; }
+.rb-title small { margin-left: 8px; font-weight: 400; font-size: 12px; color: #9aa4b5; }
 .rb-row { display: flex; gap: 8px; align-items: center; }
-.rb-row select { padding: 7px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px; font-family: inherit; }
+.rb-row select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; }
 .rb-row .kw { flex: 1; }
 
-.ta { padding: 8px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; }
+.ta { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; }
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, 1fr); }

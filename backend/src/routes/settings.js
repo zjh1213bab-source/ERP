@@ -12,6 +12,13 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const scope = require('../access/companyScope');
 
 const router = express.Router();
+const wageMultiplier=require('../services/wageMultiplier');
+router.get('/piece-multipliers',authRequired,requireRole(['admin','hr','finance','production']),wrap(async(req,res)=>ok(res,wageMultiplier.view())));
+router.put('/piece-multipliers',authRequired,requireRole(['admin']),wrap(async(req,res)=>ok(res,wageMultiplier.save(req.body,req.user))));
+const appearance=require('../services/appearance');
+// 装饰性外观可由所有已登录员工读取；只有管理员能发布全站修改。
+router.get('/appearance',authRequired,wrap(async(req,res)=>ok(res,appearance.readAppearance())));
+router.put('/appearance',authRequired,requireRole(['admin']),wrap(async(req,res)=>ok(res,appearance.saveAppearance(req.body,req.user))));
 
 /**
  * 系统设置（汇率等）

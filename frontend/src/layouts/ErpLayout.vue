@@ -3,50 +3,30 @@
     <!-- 侧边栏 -->
     <aside class="erp-sidebar" :class="{ open: navOpen }">
       <div class="brand">
-        <span class="dot"></span>
-        跳色科技 ERP
+        <span class="brand-mark">跳</span>
+        <span class="brand-copy"><strong>跳色科技</strong><small>业务协同 · ERP</small></span>
       </div>
       <nav class="erp-nav">
         <template v-for="item in visibleModel" :key="item.key">
           <router-link v-if="item.to" :to="item.to" class="nav-item">
-            <span class="nav-ico">{{ item.icon }}</span>{{ item.label }}
+            <UiIcon class="nav-ico" :name="item.key" />{{ item.label }}
           </router-link>
 
           <div v-else class="nav-group">
             <button class="group-head" :class="{ open: openMap[item.key] }" @click="toggle(item.key)">
-              <span class="nav-ico">{{ item.icon }}</span>
-              <span class="g-label">{{ item.label }}</span>
+              <UiIcon class="nav-ico" :name="item.key" />
+              <span class="g-label">{{ item.label }}</span><span v-if="(item.children||[]).reduce((n,c)=>n+reviewCount(c.to),0)" class="review-nav-badge">{{(item.children||[]).reduce((n,c)=>n+reviewCount(c.to),0)}}</span>
               <span class="g-arrow">{{ openMap[item.key] ? '▾' : '▸' }}</span>
             </button>
             <div v-show="openMap[item.key]" class="group-body">
               <router-link v-for="c in visibleChildren(item)" :key="c.to" :to="c.to" class="sub">
-                {{ c.label }}
+                {{ c.label }} <span v-if="reviewCount(c.to)" class="review-nav-badge">{{reviewCount(c.to)}}</span>
               </router-link>
             </div>
           </div>
         </template>
       </nav>
-      <div class="side-foot">
-        <span>100-500人企业版 · v1.0</span>
-        <button class="nav-palette-trigger" type="button" :aria-expanded="navPaletteOpen" aria-label="自定义导航配色" title="自定义导航配色" @click.stop="navPaletteOpen = !navPaletteOpen">🎨</button>
-        <div v-if="navPaletteOpen" class="nav-palette" role="dialog" aria-label="导航配色设置" @click.stop>
-          <div class="nav-palette-head">
-            <strong>导航配色</strong>
-            <button type="button" class="nav-palette-close" aria-label="关闭配色设置" @click="navPaletteOpen = false">×</button>
-          </div>
-          <div class="nav-palette-options">
-            <button v-for="preset in navPalettePresets" :key="preset.id" type="button" class="nav-palette-option" :class="{ selected: navPaletteId === preset.id }" :aria-label="`${preset.label}导航配色`" :title="preset.label" @click="selectNavPalette(preset.id)">
-              <span class="nav-swatch" :style="{ '--swatch': preset.bg, '--swatch-accent': preset.accent }"><i></i></span>
-              <span>{{ preset.label }}</span>
-            </button>
-          </div>
-          <label class="nav-custom-option" :class="{ selected: navPaletteId === 'custom' }">
-            <span class="nav-swatch custom" :style="{ '--swatch': customNavColor, '--swatch-accent': '#315ee8' }"><i></i></span>
-            <span>自定义颜色</span>
-            <input type="color" :value="customNavColor" aria-label="选择自定义导航背景色" @input="updateCustomNavColor">
-          </label>
-        </div>
-      </div>
+      <div class="side-foot"><span>企业协同工作空间</span><button class="appearance-trigger" type="button" aria-label="打开外观设置" @click="appearanceOpen=true"><UiIcon name="palette" /></button></div>
     </aside>
 
     <!-- 主区 -->
@@ -56,15 +36,16 @@
 
       <header class="erp-topbar">
         <button class="nav-toggle" @click="navOpen = true" aria-label="打开菜单">☰</button>
-        <div class="crumb">{{ pageTitle }}</div>
+        <div class="crumb"><span class="crumb-home">工作空间</span><span class="crumb-separator">/</span><strong>{{ pageTitle }}</strong></div>
         <router-link to="/mail" class="mail-bell" :title="mailTitle">
-          📧
+          <UiIcon name="mail" />
           <span v-if="mailUnread > 0" class="mb-badge">{{ mailUnread > 99 ? '99+' : mailUnread }}</span>
         </router-link>
         <button class="theme-toggle" type="button" @click="toggleTheme" :aria-label="theme.mode === 'dark' ? '切换浅色模式' : '切换深色模式'" :title="theme.mode === 'dark' ? '切换浅色模式' : '切换深色模式'">
           <span class="theme-toggle-icon">{{ theme.mode === 'dark' ? '☀' : '☾' }}</span>
           <span class="theme-toggle-label">{{ theme.mode === 'dark' ? '浅色' : '深色' }}</span>
         </button>
+        <button class="appearance-top-trigger" type="button" @click="appearanceOpen=true"><UiIcon name="palette" /><span>外观</span></button>
         <div class="userbox">
           <span class="tag blue">{{ roleLabel }}</span>
           <span>{{ auth.user?.name || auth.user?.username }}</span>
@@ -77,16 +58,38 @@
         <router-view />
       </section>
     </div>
+    <AssistantWidget />
+    <AppearanceSettings v-model="appearanceOpen"><template #navigation>
+          <div class="nav-palette-options">
+            <button v-for="preset in navPalettePresets" :key="preset.id" type="button" class="nav-palette-option" :class="{ selected: navPaletteId === preset.id }" :aria-label="`${preset.label}导航配色`" :title="preset.label" @click="selectNavPalette(preset.id)">
+              <span class="nav-swatch" :style="{ '--swatch': preset.bg, '--swatch-accent': preset.accent }"><i></i></span>
+              <span>{{ preset.label }}</span>
+            </button>
+          </div>
+          <label class="nav-custom-option" :class="{ selected: navPaletteId === 'custom' }">
+            <span class="nav-swatch custom" :style="{ '--swatch': customNavColor, '--swatch-accent': '#315ee8' }"><i></i></span>
+            <span>自定义颜色</span>
+            <input type="color" :value="customNavColor" aria-label="选择自定义导航背景色" @input="updateCustomNavColor">
+          </label>
+
+      <label class="appearance-field">所有列表每页条数<select class="select" v-model.number="globalPageSize"><option v-for="size in PAGE_SIZES" :key="size" :value="size">{{size}} 条</option></select></label>
+    </template></AppearanceSettings>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import {reviewCount,refreshReviewNotices} from '../store/reviewNotices';
+import UiIcon from '../components/UiIcon.vue';
+import AppearanceSettings from '../components/AppearanceSettings.vue';
+import { globalPageSize, PAGE_SIZES } from '../composables/useListPagination';
+import { computed, onMounted, reactive, ref, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { auth, clearAuth, ROLE_LABELS } from '../store/auth';
 import { api } from '../api';
-import { myRoles } from '../store/permissions';
+import { myRoles, permState } from '../store/permissions';
 import { theme, toggleTheme } from '../store/theme';
+import AssistantWidget from '../components/AssistantWidget.vue';
+import { canVisit } from '../store/navigation';
 
 
 const route = useRoute();
@@ -112,6 +115,7 @@ async function loadMailUnread() {
   } catch (e) { mailUnread.value = 0; }
 }
 onMounted(loadMailUnread);
+let reviewTimer;onMounted(()=>{refreshReviewNotices();reviewTimer=setInterval(refreshReviewNotices,45000);window.addEventListener('focus',refreshReviewNotices);});onBeforeUnmount(()=>{clearInterval(reviewTimer);window.removeEventListener('focus',refreshReviewNotices);});watch(()=>route.fullPath,refreshReviewNotices);watch(()=>auth.token,refreshReviewNotices);
 onMounted(async () => {
   try {
     const s = await api.settings();
@@ -181,9 +185,19 @@ const navModel = [
       { label: '研发立项与 SKU 配码', to: '/dev-master' },
       { label: '供方协同与技术复审', to: '/sup-review' },
       { label: '打版流程', to: '/pattern-board' },
+      {label:'打样室',to:'/pattern-board?workbench=sample'},
       { label: '样衣管理', to: '/sample-archive' }
     ]
   },
+  {
+    key: 'purchase', label: '供应链部', icon: '🛍',
+    children: [
+      { label: '采购列表', to: '/purchases' },
+      { label: '分配订单', to: '/order-allocation' }
+    ]
+  },
+  {key:'front',label:'生产前端',icon:'✂',children:[{label:'订单',to:'/order-tracking'},{label:'裁床',to:'/production?station=cut'},{label:'仓库',to:'/production?station=warehouse'}]},
+  {key:'back',label:'生产后端',icon:'🏭',children:[{label:'车间',to:'/production?station=workshop'},{label:'后整',to:'/production?station=finish'}]},
   {
     key: 'prod', label: '生产', icon: '🏭',
     children: [
@@ -209,7 +223,6 @@ const navModel = [
     key: 'stock', label: '仓储', icon: '📦',
     children: [
       { label: '库存管理', to: '/inventory' },
-      { label: '采购管理', to: '/purchases' },
       { label: '供应商评价', to: '/supplier-eval' },
       { label: '停单改量退料', to: '/purchase-changes' },
       { label: '原料收货检验', to: '/receipts' },
@@ -233,15 +246,15 @@ const navModel = [
     ]
   },
   {
-    key: 'finance', label: '财务', icon: '💰',
+    key: 'finance', label: '财务管理', icon: '💰',
     children: [
-      { label: '往来账', to: '/finance' },
+      { label: '财务数据', to: '/finance' },
       { label: '应收催收', to: '/collections' },
       { label: '客户信用与账期', to: '/credit' },
       { label: '应付与付款计划', to: '/payable' },
       { label: '资金计划（13 周）', to: '/cashflow' },
       { label: '付款申请', to: '/payment-requests' },
-      { label: '成本与毛利', to: '/costing' },
+      { label: '成本核算', to: '/costing' },
       { label: '价格快照与费用池', to: '/pricing' },
       { label: '财务报表与关账', to: '/finance-books' },
       { label: '预算管理', to: '/budget' },
@@ -284,7 +297,7 @@ const navModel = [
       { label: '真实数据导入', to: '/import-data' },
       { label: '系统设置', to: '/settings' },
       { label: '外部接口', to: '/integration' },
-      { label: '权限复核', to: '/access-review', roles: ['admin', 'hr'] },
+      { label: '权限管理', to: '/permission-management', adminOnly: true },
       { label: '上线检查清单', to: '/go-live' },
       { label: '数据导出与订阅', to: '/export-center' },
       { label: '备份与恢复', to: '/backup', adminOnly: true },
@@ -296,9 +309,13 @@ const navModel = [
 ];
 
 const isAdmin = computed(() => auth.user?.role === 'admin');
+/** 菜单显示与模块授权同步，旧账号仍沿用既有导航。 */
+function canNavigate(to){
+ return canVisit(to);
+}
 function visibleChildren(item) {
   return (item.children || []).filter((c) =>
-    (!c.adminOnly || isAdmin.value)
+    (!c.adminOnly || isAdmin.value) && canNavigate(c.to)
     /**
      * groupOnly = 只对多主体有意义的入口（集团合并 / 内部投资抵消 / 分部对比）。
      * 单公司模式下隐藏；切回多主体（SINGLE_COMPANY=0）会自动重新出现。
@@ -307,25 +324,30 @@ function visibleChildren(item) {
   );
 }
 const visibleModel = computed(() =>
-  navModel.filter((item) => item.to || visibleChildren(item).length > 0)
+  navModel.filter((item) => {
+    if(!permState.positionDirect&&myRoles().length&&myRoles().every(r=>r==='employee'))return ['/self','/exceptions','/scan','/assistant','/mail'].includes(item.to);
+    return item.to ? canNavigate(item.to) : visibleChildren(item).length > 0;
+  })
 );
 
 const navOpen = ref(false); // 移动端抽屉开关
 const openMap = reactive({});
+const appearanceOpen=ref(false);
 const navPalettePresets = [
+  {id:'pearl',label:'雾白',bg:'#f9fbfb',accent:'#1d7066'},
   { id: 'navy', label: '海军蓝', bg: '#10203f', accent: '#2b6de5' },
   { id: 'graphite', label: '石墨灰', bg: '#272d38', accent: '#5388f4' },
   { id: 'forest', label: '森林绿', bg: '#173b35', accent: '#27a47e' },
   { id: 'violet', label: '暮紫', bg: '#302341', accent: '#8a67e8' },
   { id: 'ocean', label: '深海蓝', bg: '#17364b', accent: '#28a3c7' }
 ];
-const savedNavPalette = localStorage.getItem('erp_nav_palette') || 'navy';
-const navPaletteId = ref(navPalettePresets.some((preset) => preset.id === savedNavPalette) || savedNavPalette === 'custom' ? savedNavPalette : 'navy');
+const savedNavPalette = localStorage.getItem('erp_nav_palette') || 'pearl';
+const navPaletteId = ref(navPalettePresets.some((preset) => preset.id === savedNavPalette) || savedNavPalette === 'custom' ? savedNavPalette : 'pearl');
 const customNavColor = ref(localStorage.getItem('erp_nav_custom_color') || '#26394b');
-const navPaletteOpen = ref(false);
+
 const navPaletteStyle = computed(() => {
   const preset = navPalettePresets.find((item) => item.id === navPaletteId.value);
-  const bg = navPaletteId.value === 'custom' ? customNavColor.value : (preset?.bg || '#10203f');
+  const bg = navPaletteId.value==='pearl' ? (theme.mode==='dark'?'#151e26':'#f9fbfb') : navPaletteId.value === 'custom' ? customNavColor.value : (preset?.bg || '#f9fbfb');
   const rgb = bg.match(/[\da-f]{2}/gi)?.slice(0, 3).map((part) => parseInt(part, 16)) || [16, 32, 63];
   const light = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000 > 155;
   return {
@@ -358,7 +380,7 @@ watch(() => route.path, (p) => { openGroupForPath(p); navOpen.value = false; });
 function toggle(key) { openMap[key] = !openMap[key]; }
 
 const pageTitle = computed(() => route.meta.title || '工作台');
-const roleLabel = computed(() => ROLE_LABELS[auth.user?.role] || auth.user?.role || '');
+const roleLabel = computed(() => permState.positionName || ROLE_LABELS[auth.user?.role] || auth.user?.role || '');
 const initial = computed(() => {
   const n = auth.user?.name || auth.user?.username || '?';
   return n.slice(0, 1);
@@ -369,3 +391,10 @@ function logout() {
   router.push('/login');
 }
 </script>
+
+<style scoped>
+.global-page-size { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
+.global-page-size .select { width: 88px; padding: 5px 8px; }
+@media(max-width: 760px) { .global-page-size > span { display: none; } }
+.review-nav-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border-radius:10px;background:#e94f61;color:#fff;font-size:10px;margin-left:6px}
+</style>

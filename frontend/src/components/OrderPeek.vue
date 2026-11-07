@@ -1,5 +1,5 @@
 <template>
-  <div v-if="open" class="modal-mask" @click.self="close">
+  <div v-if="open" class="modal-mask">
     <div class="modal pk-modal">
       <div class="modal-head">
         <h3>
@@ -131,7 +131,7 @@
     </div>
 
     <!-- 打印字段勾选 -->
-    <div v-if="printDlg.open" class="modal-mask" @click.self="printDlg.open = false">
+    <div v-if="printDlg.open" class="modal-mask">
       <div class="modal" style="width: 560px">
         <div class="modal-head">
           <h3>选择要打印的信息</h3>
@@ -295,52 +295,52 @@ function doPrint() {
 
 <style scoped>
 .pk-modal { width: 900px; max-width: 96vw; }
-.pk-mut { font-size: 12.5px; color: #8a94a6; line-height: 1.8; }
-.pk-no { font-size: 13px; color: #2563eb; margin-left: 6px; }
+.pk-mut { font-size: 12.5px; color: var(--ink-mute); line-height: 1.8; }
+.pk-no { font-size: 13px; color: var(--brand); margin-left: 6px; }
 
 .pk-top { display: flex; gap: 14px; margin-bottom: 4px; }
 .pk-pic {
   width: 120px; height: 120px; flex: none; border-radius: 10px; overflow: hidden;
-  background: #f4f6fa; border: 1px solid #e6ecf5; cursor: pointer;
+  background: var(--bg); border: 1px solid #e6ecf5; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
 .pk-pic img { width: 100%; height: 100%; object-fit: cover; }
 .pk-pic.empty { cursor: default; flex-direction: column; gap: 4px; }
 .pk-pic-ico { font-size: 12px; color: #b6bfcc; font-weight: 700; }
-.pk-pic-tip { font-size: 10px; color: #c3cbd8; text-align: center; padding: 0 8px; line-height: 1.4; }
+.pk-pic-tip { font-size: 12px; color: #c3cbd8; text-align: center; padding: 0 8px; line-height: 1.4; }
 
 .pk-hero { flex: 1; min-width: 0; }
-.pk-hero-name { font-size: 15px; font-weight: 700; color: #16233b; }
+.pk-hero-name { font-size: 15px; font-weight: 700; color: var(--ink); }
 .pk-hero-line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0 9px; }
 .pk-hero-kv { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 5px 10px; font-size: 12.5px; align-items: baseline; }
 .pk-hero-kv > div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
-.pk-hero-kv label { color: #8a94a6; white-space: nowrap; }
-.pk-hero-kv b { color: #16233b; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pk-usd { color: #98a2b3; font-weight: 400; }
+.pk-hero-kv label { color: var(--ink-mute); white-space: nowrap; }
+.pk-hero-kv b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-usd { color: var(--ink-mute); font-weight: 400; }
 .late { color: #d92d45 !important; }
 
-.pk-block { border-top: 1px solid #eef2f7; padding-top: 11px; margin-top: 12px; }
+.pk-block { border-top: 1px solid var(--line); padding-top: 11px; margin-top: 12px; }
 .pk-sec {
-  font-size: 13px; font-weight: 700; color: #16233b; margin-bottom: 8px;
+  font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 8px;
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
 }
-.pk-sub { font-size: 11.5px; font-weight: 400; color: #8a94a6; }
+.pk-sub { font-size: 12px; font-weight: 400; color: var(--ink-mute); }
 
 /* 字段网格：两列，长文本（面料/工艺/客户要求）占整行 */
 .pk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }
 .pk-cell { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; min-width: 0; }
 .pk-cell.wide { grid-column: 1 / -1; }
-.pk-cell label { color: #8a94a6; min-width: 84px; flex: none; }
-.pk-cell span { color: #16233b; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.pk-cell label { color: var(--ink-mute); min-width: 84px; flex: none; }
+.pk-cell span { color: var(--ink); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
 .pk-cell.blank span { color: #c3cbd8; }
 
 .pk-tbl { width: 100%; }
-.pk-tbl th { font-size: 11px; }
-.pk-tbl td { font-size: 11.5px; padding: 6px 10px !important; }
+.pk-tbl th { font-size: 12px; }
+.pk-tbl td { font-size: 12px; padding: 6px 10px !important; }
 
 /* 打印勾选 */
-.pr-grp { border: 1px solid #eef2f7; border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; }
-.pr-grp-head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #16233b; cursor: pointer; }
+.pr-grp { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; }
+.pr-grp-head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
 .pr-fields { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; padding-left: 22px; }
 .pr-field { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #4a5a72; cursor: pointer; }
 .pr-opt { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #33425c; margin-top: 6px; }

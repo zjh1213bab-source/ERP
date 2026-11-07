@@ -16,6 +16,17 @@ const assignSvc = require('../services/orderAssign');
 const router = express.Router();
 const WRITE = ['admin', 'sales', 'production'];
 
+// 独立分配模块的只读工作台，与节点跟踪共用查询实现及主体过滤。
+router.get('/board', authRequired, wrap(async (req, res) => ok(res,
+  require('../services/nodeFlow').boardFromQuery(req.query, require('../access/companyScope').filterCompanyId(req.user), 'assignment')
+)));
+
+router.get('/:orderId/context', authRequired, wrap(async (req, res) => {
+  const check = require('../access/companyScope').assertOrder(req.user, req.params.orderId);
+  if (!check.ok) return fail(res, check.status, check.reason);
+  return ok(res, assignSvc.snapshot(Number(req.params.orderId)));
+}));
+
 router.get('/', authRequired, wrap(async (req, res) => {
   const { order_id, factory_id, status } = req.query;
   const where = [];

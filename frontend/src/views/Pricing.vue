@@ -14,8 +14,8 @@
       <div class="head-ops">
         <span class="pill p-gray">{{ dict.today || '—' }}</span>
         <button class="btn btn-ghost" @click="reloadAll">刷新</button>
-        <button v-if="canWrite && tab === 'pool'" class="btn btn-primary" @click="openNewPool">新建费用池</button>
-        <button v-if="canPrice && tab === 'book'" class="btn btn-primary" @click="openNewBook">新建价格本</button>
+        <button v-action="['pricing','create']" v-if="canWrite && tab === 'pool'" class="btn btn-primary" @click="openNewPool">新建费用池</button>
+        <button v-action="['pricing','create']" v-if="canPrice && tab === 'book'" class="btn btn-primary" @click="openNewBook">新建价格本</button>
       </div>
     </div>
 
@@ -177,7 +177,7 @@
     </div>
 
     <!-- ==================== 费用池详情 ==================== -->
-    <div v-if="pool.open" class="modal-mask" @click.self="pool.open = false">
+    <div v-if="pool.open" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           {{ pool.data.pool_no }}
@@ -286,7 +286,7 @@
     </div>
 
     <!-- ==================== 新建费用池 ==================== -->
-    <div v-if="newPool.open" class="modal-mask" @click.self="newPool.open = false">
+    <div v-if="newPool.open" class="modal-mask">
       <div class="modal">
         <h3>新建费用池</h3>
         <div class="fgrid">
@@ -321,7 +321,7 @@
     </div>
 
     <!-- ==================== 价格本详情 ==================== -->
-    <div v-if="book.open" class="modal-mask" @click.self="book.open = false">
+    <div v-if="book.open" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           {{ book.data.book_no }}
@@ -400,7 +400,7 @@
     </div>
 
     <!-- ==================== 新建价格本 ==================== -->
-    <div v-if="newBook.open" class="modal-mask" @click.self="newBook.open = false">
+    <div v-if="newBook.open" class="modal-mask">
       <div class="modal">
         <h3>新建价格本</h3>
         <div class="fgrid">
@@ -702,11 +702,11 @@ onMounted(loadAll);
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
 .stat strong.sm { font-size: 16px; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-warn { border-color: #f7d9a8; background: #fffaf1; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
@@ -717,20 +717,20 @@ onMounted(loadAll);
 
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .grow { flex: 1; }
-.inp { padding: 5px 8px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; }
+.inp { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; }
 .add-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .sec { font-size: 13px; color: #16305f; margin: 16px 0 8px; }
 .kv { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
 .kv > div { background: #f8fafd; border-radius: 8px; padding: 7px 9px; }
-.kv span { display: block; font-size: 11px; color: #8a94a6; }
+.kv span { display: block; font-size: 12px; color: var(--ink-mute); }
 .kv b { font-size: 13px; color: #16305f; }
-.kv small { display: block; font-size: 10.5px; color: #9aa4b5; }
+.kv small { display: block; font-size: 12px; color: #9aa4b5; }
 .fl { display: block; font-size: 12px; color: #5b6474; margin: 8px 0 0; }
-.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
+.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
 
 .q-head { font-size: 13.5px; color: #14532d; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .q-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
-.q-grid span { display: block; font-size: 11px; color: #6a8f78; }
+.q-grid span { display: block; font-size: 12px; color: #6a8f78; }
 .q-grid b { font-size: 15px; color: #14532d; }
 
 table.data th, table.data td { white-space: nowrap; }
@@ -743,8 +743,8 @@ table.data td.wrap { white-space: normal; }
 .red { color: #d92d45; }
 
 .modal { padding: 18px 20px; }
-.modal > h3 { margin: 0 0 12px; font-size: 16px; color: #16233b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.modal-ops { display: flex; align-items: center; gap: 8px; padding-top: 13px; margin-top: 14px; border-top: 1px solid #eef2f7; flex-wrap: wrap; }
+.modal > h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.modal-ops { display: flex; align-items: center; gap: 8px; padding-top: 13px; margin-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }

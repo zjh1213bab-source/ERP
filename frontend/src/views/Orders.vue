@@ -1,58 +1,38 @@
 <template>
-  <div>
-    <div class="page-head">
-      <div>
-        <h2>销售订单</h2>
-        <div class="sub">一款多色 · 每色每码数量与美金单价 · 汇率 {{ rate }}</div>
-      </div>
-      <button v-if="canCreate" class="btn btn-primary" @click="openCreate">＋ 新建订单</button>
-    </div>
-
-    <div class="toolbar" style="margin-bottom: 14px">
-      <input class="input" v-model="q" placeholder="搜索订单号 / 客户" @keyup.enter="load" style="width: 240px" />
-      <select class="select" v-model="status" @change="load">
-        <option value="">全部状态</option>
-        <option v-for="(lb, k) in labels" :key="k" :value="k">{{ lb }}</option>
-      </select>
-      <select class="select" v-model="type" @change="load">
-        <option value="">全部类型</option>
-        <option value="custom">定制</option>
-        <option value="stock">现货</option>
-      </select>
-      <button class="btn btn-ghost" @click="load">查询</button>
-      <button class="btn btn-ghost" title="按订单号查它挂着哪些单：采购、排产、领料、计件、售后" @click="openTrace">号反查</button>
-      <button v-if="canExport" class="btn btn-ghost" @click="exportCsv">导出 Excel</button>
-      <button class="btn btn-ghost" @click="batchPrint">批量打印工单</button>
-    </div>
-
-    <div class="table-wrap">
-      <table class="data">
-        <thead>
-          <tr>
-            <th style="width: 34px">
-              <input type="checkbox" :checked="allChecked" :title="allChecked ? '取消全选' : '全选本页'" @change="toggleAll" />
-            </th>
-            <th>订单号</th><th>类型</th><th>客户</th><th>金额(USD)</th><th>金额(CNY)</th><th>状态</th><th>交期</th><th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="o in list" :key="o.id" :class="{ 'row-sel': selected.includes(o.id) }">
-            <td>
-              <input type="checkbox" :checked="selected.includes(o.id)" @change="toggleOne(o.id)" />
-            </td>
-            <td><a class="lnk mono" @click="openDetail(o.id)"><strong>{{ o.order_no }}</strong></a></td>
-            <td><span class="tag" :class="o.type === 'stock' ? 'blue' : 'purple'">{{ o.type === 'stock' ? '现货' : '定制' }}</span></td>
-            <td>{{ o.customer_name || '-' }}</td>
-            <td>${{ money(o.total_usd) }}</td>
-            <td>¥{{ money(o.total_amount) }}</td>
-            <td><span class="tag" :class="tagOf(o.status)">{{ labels[o.status] || o.status }}</span></td>
-            <td>{{ o.delivery_date || '-' }}</td>
-            <td><button class="link-btn" @click="openDetail(o.id)">查看 / 流转</button></td>
-          </tr>
-          <tr v-if="!list.length"><td colspan="9" class="empty-cell">暂无订单，点右上角「新建订单」</td></tr>
-        </tbody>
-      </table>
-    </div>
+  <div class="sales-reference">
+    <div class="sales-reference-crumb">首页 / 销售 / <b>业务订单</b></div>
+    <section class="sales-list-filters">
+      <label>PO单号<input v-model="q" placeholder="搜索PO单号 / 销售单号" /></label>
+      <label>店铺信息<input v-model="salesFilters.shop" placeholder="搜索店铺信息" /></label>
+      <label>店铺订单号<input v-model="salesFilters.shopOrder" placeholder="搜索店铺订单号" /></label>
+      <label>客户<select v-model="salesFilters.customer"><option value="">选择客户</option><option v-for="c in salesCustomers" :key="c" :value="c">{{ c }}</option></select></label>
+      <label>业务员<select v-model="salesFilters.manager"><option value="">选择业务员</option><option v-for="m in salesManagers" :key="m" :value="m">{{ m }}</option></select></label>
+      <label>标签<select v-model="salesFilters.tag"><option value="">请选择标签</option><option v-for="t in salesTags" :key="t" :value="t">{{ t }}</option></select></label>
+      <label class="sales-date-filter">单据日期<input type="date" v-model="salesFilters.start" /> - <input type="date" v-model="salesFilters.end" /></label>
+      <label>交货天数<input type="number" min="0" v-model="salesFilters.days" placeholder="搜索交货天数" /></label>
+      <label>订单状态<select v-model="status"><option value="">全部</option><option v-for="(lb,k) in labels" :key="k" :value="k">{{ lb }}</option></select></label>
+      <label>审核状态<select v-model="salesFilters.approval"><option value="">请选择成本审核状态</option><option value="approved">成本审核通过</option><option value="pending">成本待审核</option><option value="rejected">成本已驳回</option><option value="none">未提交成本单</option></select></label>
+      <label>订单类型<select v-model="type"><option value="">全部</option><option value="custom">定制</option><option value="stock">现货</option></select></label>
+      <button @click="resetSalesFilters()">重置</button>
+    </section>
+    <section class="sales-reference-panel">
+      <div class="sales-list-toolbar"><button v-action="['orders','create']" v-if="canCreate" class="sales-primary" @click="openCreate()">新增业务下单</button><details class="sales-more"><summary>更多 ▾</summary><div><button @click="openTrace()">单号反查</button><button v-action="['orders','export']" v-if="canExport" @click="exportCsv()">导出 Excel</button><button @click="batchPrint()">批量打印工单</button></div></details><ReferencePager v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" @refresh="load()" /></div>
+      <div class="sales-list-scroll"><table class="sales-list-table"><thead><tr><th><input type="checkbox" :checked="allChecked" title="全选本页" @change="toggleAll" /> 客户</th><th>备注</th><th>客户/PO单号</th><th>店铺信息</th><th>标签</th><th>下单商品款号</th><th>下单总数量</th><th>总金额 USD</th><th>业务员</th><th>附件</th><th>日期</th><th>打版进度</th><th>生产进度</th></tr></thead><tbody>
+      <tr v-for="o in pagination.rows" :key="o.id" :class="{'row-sel':selected.includes(o.id)}">
+        <td><input type="checkbox" :checked="selected.includes(o.id)" @change="toggleOne(o.id)" /><button class="sales-text" @click="openDetail(o.id)">{{ o.customer_name||'—' }}</button></td>
+        <td><span class="sales-remark" :title="o.remark">{{ o.remark||'—' }}</span><TrialNotice :record="o" /></td>
+        <td><button class="sales-text" @click="openDetail(o.id)">{{ o.order_no }}</button></td>
+        <td class="sales-shop"><div>店铺名称：{{ o.shop_name||'—' }}</div><div>店铺订单号：{{ o.shop_order_no||'—' }}</div></td>
+        <td><span v-for="tag in o.tags" :key="tag" class="sales-label">{{ tag }}</span><span v-if="!o.tags?.length" class="sales-label">{{ o.type==='stock'?'现货':'定制' }}</span></td>
+        <td><div class="sales-style-count">共 {{ o.items?.length||0 }} 款</div><div class="sales-style-grid"><button v-for="item in o.items" :key="item.id" @click="openDetail(o.id)"><img v-if="item.effect_image_url" :src="item.effect_image_url" alt="款式图片" /><span v-else class="sales-no-photo">暂无图片</span><span :title="item.style_no||item.product_name">{{ item.style_no||item.product_name||'待命名' }}</span></button></div></td>
+        <td><button class="sales-blue" @click="openDetail(o.id)">{{ o.quantity||0 }}</button></td><td>{{ money(o.total_usd) }}</td><td>{{ o.manager||'—' }}</td>
+        <td><a v-for="(a,i) in o.attachments" :key="a.url" :href="a.url" target="_blank" rel="noopener noreferrer" class="sales-file">{{ a.filename||a.name||'附件 '+(i+1) }}</a><span v-if="!o.attachments?.length">—</span></td>
+        <td class="sales-dates"><div>货期：{{ o.delivery_days==null?'—':o.delivery_days+'天' }}</div><div>单据：{{ fmtTime(o.order_date||o.created_at) }}</div><div v-if="o.delivery_date">交期：{{ o.delivery_date }}</div></td>
+        <td><button class="sales-outline" @click="patternOrder=o">查看详情</button></td>
+        <td><span class="sales-label" :class="{'muted':!o.node_total}">{{ labels[o.status]||o.status }}</span><small v-if="o.node_total">{{ o.node_done }}/{{ o.node_total }} 节点</small><button class="sales-blue" @click="openDetail(o.id)">查看详情</button></td>
+      </tr><tr v-if="!pagination.total"><td colspan="13" class="sales-empty">暂无符合条件的业务订单</td></tr></tbody></table></div>
+    </section>
+    <div v-if="patternOrder" class="modal-mask"><section class="modal sales-pattern-dialog"><div class="modal-head"><h3>打版进度 · {{ patternOrder.order_no }}</h3><button class="x" @click="patternOrder=null">×</button></div><div class="modal-body"><article v-for="item in patternOrder.items" :key="item.id"><img v-if="item.effect_image_url" :src="item.effect_image_url" alt="款式图片" /><div><b>{{ item.style_no||item.product_name||'待命名' }}</b><p>{{ item.pattern?.flow_status==='done'?'打版完成':item.pattern?.flow_status==='running'?'打版中':item.pattern?.flow_status==='hold'?'打版暂停':'未完成打版' }} · {{ item.pattern?.version||'—' }}</p></div><button v-if="item.pattern" class="sales-outline" @click="router.push({path:'/pattern-board',query:{techpack:item.pattern.id}})">查看打版流程</button></article><p v-if="!patternOrder.items?.length">暂无商品</p></div><div class="modal-foot"><button @click="patternOrder=null">关闭</button></div></section></div>
 
     <!-- ============ 批量操作条（勾选后出现） ============ -->
     <div v-if="selected.length" class="batch-bar">
@@ -68,7 +48,7 @@
     </div>
 
     <!-- ============ 批量流转弹窗：先预检，再执行 ============ -->
-    <div v-if="batchOpen" class="modal-mask" @click.self="closeBatch">
+    <div v-if="batchOpen" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>批量流转 → {{ batchToLabel }}</h3>
@@ -171,154 +151,11 @@
       </div>
     </div>
 
-    <!-- ================= 新建订单 ================= -->
-    <div v-if="showCreate" class="modal-mask" @click.self="showCreate = false">
-      <div class="modal wide">
-        <div class="modal-head">
-          <h3>新建订单</h3>
-          <button class="x" @click="showCreate = false">×</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-grid">
-            <div class="fitem">
-              <label>订单类型</label>
-              <select class="select" v-model="form.type">
-                <option value="custom">定制订单（需开发单）</option>
-                <option value="stock">现货订单</option>
-              </select>
-            </div>
-            <div class="fitem">
-              <label>订单号 <span class="req">*</span></label>
-              <input class="input" v-model="form.order_no" placeholder="如客户 PO 号 / 平台单号（不可重复）" />
-              <div class="hint">下单后仍可修改，但会连带同步生产、领料、计件、采购等下游单据</div>
-            </div>
-            <div class="fitem">
-              <label>客户</label>
-              <select class="select" v-model.number="form.customer_id">
-                <option :value="null">— 请选择 —</option>
-                <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.name }}</option>
-              </select>
-            </div>
-            <div class="fitem"><label>交期</label><input class="input" type="date" v-model="form.delivery_date" /></div>
-            <div class="fitem"><label>款名</label><input class="input" v-model="form.style_name" placeholder="如 女式针织开衫" /></div>
-            <div class="fitem"><label>客户订单号</label><input class="input" v-model="form.cus_order_no" placeholder="客户 PO 号，可空" /></div>
-            <div class="fitem"><label>跟单员</label><input class="input" v-model="form.manager" placeholder="可空" /></div>
-            <div class="fitem"><label>下单日期</label><input class="input" type="date" v-model="form.order_date" /></div>
-            <div class="fitem">
-              <label>交货方式</label>
-              <select class="select" v-model="form.delivery_method">
-                <option value="">请选择</option><option>快递</option><option>空运</option><option>海运</option><option>客户自提</option>
-              </select>
-            </div>
-            <div class="fitem">
-              <label>贸易条款</label>
-              <select class="select" v-model="form.trade_terms">
-                <option value="">请选择</option><option>FOB</option><option>CIF</option><option>EXW</option><option>DDP</option>
-              </select>
-            </div>
-            <div class="fitem"><label>包装要求</label><input class="input" v-model="form.packaging" placeholder="如 独立包装/纸箱" /></div>
-            <div class="fitem"><label>店铺名称</label><input class="input" v-model="form.shop_name" placeholder="可空" /></div>
-            <div class="fitem"><label>店铺订单编号</label><input class="input" v-model="form.shop_order_no" placeholder="可空" /></div>
-            <div class="fitem"><label>交货天数</label><input class="input" type="number" v-model.number="form.delivery_days" /></div>
-            <div class="fitem"><label>运费</label><input class="input" type="number" v-model.number="form.freight" /></div>
-            <div class="fitem"><label>汇率（USD→CNY，可在系统设置改）</label><input class="input" :value="rate" disabled /></div>
-            <div class="fitem full"><label>备注</label><input class="input" v-model="form.remark" /></div>
-          </div>
-
-          <h3 style="margin: 18px 0 10px; font-size: 14px">订单明细（一款多色，按色按码，单位：美元）</h3>
-
-          <div v-for="(it, i) in form.items" :key="i" style="border: 1px solid #eef2f7; border-radius: 10px; padding: 12px; margin-bottom: 12px">
-            <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 10px">
-              <div class="fitem" style="flex: 2; margin: 0">
-                <label>产品 / 款号</label>
-                <select class="select" v-model.number="it.product_id" @change="pickProduct(it)">
-                  <option :value="null">— 自定义 —</option>
-                  <option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option>
-                </select>
-              </div>
-              <div class="fitem" style="flex: 1; margin: 0"><label>款号</label><input class="input" v-model="it.style_no" placeholder="如 LEJE-SY-001" /></div>
-              <div class="fitem" style="flex: 1; margin: 0"><label>SKU</label><input class="input" v-model="it.sku" placeholder="可空" /></div>
-              <button class="link-btn danger" @click="removeItem(i)" :disabled="form.items.length === 1">删除该款</button>
-            </div>
-
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px">
-              <span style="font-size: 12.5px; color: #8a94a6">套用尺码模板</span>
-              <select class="select" style="width: 200px" @change="applySizeTemplate(it, $event.target.value)">
-                <option value="">— 选择模板 —</option>
-                <option v-for="t in sizeTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
-              </select>
-            </div>
-
-            <div v-for="(c, ci) in it.colors" :key="ci" style="border: 1px dashed #dfe5ef; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #fcfdff">
-              <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 8px">
-                <div class="fitem" style="flex: 1; margin: 0">
-                  <label>颜色 / 花型</label>
-                  <!-- 选了产品就「选」颜色（产品里配好的），没选则退回手填，避免手打出现「印花1 / 印花001」两种写法 -->
-                  <select v-if="colorOptions(it).length" class="select" v-model="c.color">
-                    <option value="">— 选择颜色 —</option>
-                    <option v-for="o in colorOptions(it)" :key="o" :value="o">{{ o }}</option>
-                    <!-- 已存单据里的颜色可能不在当前产品列表（历史数据/颜色被改名），必须保留原值 -->
-                    <option v-if="c.color && !colorOptions(it).includes(c.color)" :value="c.color">{{ c.color }}（原有）</option>
-                  </select>
-                  <input v-else class="input" v-model="c.color" placeholder="该款还没配颜色，可直接填写" />
-                </div>
-                <button class="link-btn danger" @click="removeColor(it, ci)" :disabled="it.colors.length === 1">删除该色</button>
-              </div>
-              <div v-if="it.product_id && !colorOptions(it).length" class="color-hint">
-                该款在产品管理里还没有颜色 ——
-                <template v-if="canColorWrite">下面「＋ 新增颜色」可直接加；</template>
-                <template v-else>请联系技术在产品管理里补颜色，避免各人写法不一致。</template>
-              </div>
-
-              <div style="font-size: 12px; color: #8a94a6; font-weight: 600; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 8px; margin-bottom: 6px">
-                <div>尺码</div><div>数量</div><div>美金单价</div><div style="text-align: right">小计($)</div><div></div>
-              </div>
-              <div v-for="(s, si) in c.sizes" :key="si" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px">
-                <input class="input" v-model="s.size" placeholder="S/M/L" />
-                <input class="input" type="number" min="0" v-model.number="s.qty" />
-                <input class="input" type="number" min="0" step="0.01" v-model.number="s.usd_price" />
-                <div style="text-align: right; font-size: 13px; font-weight: 600; color: #33415a">${{ money((s.qty || 0) * (s.usd_price || 0)) }}</div>
-                <button class="link-btn danger" @click="removeSize(c, si)">删</button>
-              </div>
-              <button class="btn btn-ghost btn-sm" @click="addSize(c)">＋ 加尺码</button>
-              <div style="text-align: right; font-size: 12.5px; color: #8a94a6; margin-top: 6px">本色：{{ colorQty(c) }} 件 · ${{ money(colorUsd(c)) }}</div>
-            </div>
-
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
-              <button class="btn btn-ghost btn-sm" @click="addColor(it)">＋ 再加一个颜色组</button>
-              <!-- 新增颜色 = 改产品主数据，只有 product.color.write（技术/管理员）能做 -->
-              <button
-                v-if="it.product_id"
-                class="btn btn-ghost btn-sm"
-                :disabled="!canColorWrite"
-                :title="canColorWrite ? '新增的颜色会写进产品主数据，以后所有订单都能选' : '颜色由技术维护：你的账号只能选已有颜色'"
-                @click="addColorToProduct(it)"
-              >＋ 新增颜色</button>
-              <span v-if="it.product_id && !canColorWrite" class="color-hint" style="margin: 0">
-                无颜色维护权限，仅可选择已有颜色
-              </span>
-            </div>
-            <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #eef2f7; display: flex; justify-content: space-between; font-size: 13px">
-              <span style="color: #8a94a6">本款：{{ itemQty(it) }} 件</span>
-              <span>小计 <strong>${{ money(itemUsd(it)) }}</strong> · <strong>¥{{ money(itemUsd(it) * rate) }}</strong></span>
-            </div>
-          </div>
-
-          <button class="btn btn-ghost btn-sm" @click="addItem">＋ 添加一款</button>
-
-          <div style="display: flex; justify-content: flex-end; gap: 24px; margin-top: 14px; font-size: 15px; font-weight: 700; color: #16305f">
-            <span>合计：${{ money(orderUsd) }}</span><span>¥{{ money(orderCny) }}</span>
-          </div>
-        </div>
-        <div class="modal-foot">
-          <button class="btn btn-ghost" @click="showCreate = false">取消</button>
-          <button class="btn btn-primary" :disabled="saving" @click="saveOrder">{{ saving ? '提交中…' : '提交订单' }}</button>
-        </div>
-      </div>
-    </div>
+    <!-- 新下单工作台与详情复用原有订单链路，面辅料在后端同事务保存。 -->
+    <SalesOrderEntry v-if="showCreate" :initial="form" :customers="customers" :products="products" :rate="rate" :templates="sizeTemplates" @close="showCreate=false" @saved="entrySaved" @templates-changed="loadRefs()" />
 
     <!-- ================= 详情 ================= -->
-    <div v-if="detail" class="modal-mask" @click.self="detail = null">
+    <div v-if="detail" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>
@@ -331,58 +168,64 @@
           <button class="x" @click="detail = null">×</button>
         </div>
         <div class="modal-body">
+          <TrialNotice :record="detail" :compact="false" />
+          <OrderEntrySnapshot :order="detail" :materials="orderMats" />
+          <div v-if="detail.entry_json" class="order-entry-summary">
+            <span v-for="(value,key) in entrySummary(detail)" :key="key"><small>{{key}}</small> <b>{{value}}</b></span>
+          </div>
           <div class="form-grid" style="margin-bottom: 14px">
-            <div><span style="color: #8a94a6; font-size: 12.5px">客户</span><div><strong>{{ detail.customer_name || '-' }}</strong></div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">类型</span><div>{{ detail.type === 'stock' ? '现货' : '定制' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">款名</span><div>{{ detail.style_name || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">客户订单号</span><div>{{ detail.cus_order_no || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">跟单员</span><div>{{ detail.manager || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">客户</span><div><strong>{{ detail.customer_name_snapshot || detail.customer_name || '-' }}</strong></div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">类型</span><div>{{ detail.type === 'stock' ? '现货' : '定制' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">款名</span><div>{{ detail.style_name || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">客户订单号</span><div>{{ detail.cus_order_no || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">跟单员</span><div>{{ detail.manager || '-' }}</div></div>
             <div v-if="detail.order_no_logs && detail.order_no_logs.length">
-              <span style="color: #8a94a6; font-size: 12.5px">改号历史</span>
+              <span style="color: var(--ink-mute); font-size: 12.5px">改号历史</span>
               <div class="tiny">
                 <div v-for="g in detail.order_no_logs" :key="g.id" class="mut">
                   {{ g.old_no }} → <b>{{ g.new_no }}</b> · {{ g.operator }} · {{ (g.created_at || '').slice(0, 10) }}
                 </div>
               </div>
             </div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">交期</span><div>{{ detail.delivery_date || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">合计</span><div><strong>${{ money(detail.total_usd) }} / ¥{{ money(detail.total_amount) }}</strong> <span style="color:#8a94a6;font-size:12px">@{{ detail.rate }}</span></div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">交期</span><div>{{ detail.delivery_date || '-' }}</div></div><div><span class="muted">最新预计交期</span><div>{{detail.latest_delivery_date || '—'}}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">合计</span><div><strong>${{ money(detail.total_usd) }} / ¥{{ money(detail.total_amount) }}</strong> <span style="color:var(--ink-mute);font-size:12px">@{{ detail.rate }}</span></div></div>
           </div>
           <div class="form-grid" style="margin-bottom: 14px">
-            <div><span style="color: #8a94a6; font-size: 12.5px">下单日期</span><div>{{ detail.order_date || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">交货方式</span><div>{{ detail.delivery_method || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">贸易条款</span><div>{{ detail.trade_terms || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">包装要求</span><div>{{ detail.packaging || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">店铺名称</span><div>{{ detail.shop_name || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">店铺订单编号</span><div>{{ detail.shop_order_no || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">交货天数</span><div>{{ detail.delivery_days || '-' }}</div></div>
-            <div><span style="color: #8a94a6; font-size: 12.5px">运费</span><div>¥{{ money(detail.freight) }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">下单日期</span><div>{{ detail.order_date || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">交货方式</span><div>{{ detail.delivery_method || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">贸易条款</span><div>{{ detail.trade_terms || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">包装要求</span><div>{{ detail.packaging || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">店铺名称</span><div>{{ detail.shop_name || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">店铺订单编号</span><div>{{ detail.shop_order_no || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">交货天数</span><div>{{ detail.delivery_days || '-' }}</div></div>
+            <div><span style="color: var(--ink-mute); font-size: 12.5px">运费</span><div>{{ detail.entry_json ? '$' : '¥' }}{{ money(detail.freight) }}</div></div>
           </div>
 
           <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px">
             <button class="btn btn-ghost btn-sm" @click="goPrint('production')">打印生产单</button>
             <button class="btn btn-ghost btn-sm" @click="goPrint('packing')">打印装箱单</button>
+            <div class="sub">收货联系人：{{ detail.recipient_name || '—' }} · {{ detail.recipient_phone || '—' }} · 收货地址：{{ detail.shipping_address || '—' }}</div>
             <button class="btn btn-ghost btn-sm" @click="goPrint('shipping')">打印发货单</button>
             <button class="btn btn-ghost btn-sm" @click="goLabels">打印标签</button>
             <button class="btn btn-ghost btn-sm" @click="goInspection">验货报告</button>
           </div>
 
           <div style="display: flex; gap: 14px; align-items: center; margin-bottom: 14px">
-            <div style="width: 96px; height: 96px; border: 1px solid #eef2f7; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #fafcff">
+            <div style="width: 96px; height: 96px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #fafcff">
               <img v-if="detail.image_url" :src="detail.image_url" style="width: 100%; height: 100%; object-fit: cover" />
-              <span v-else style="font-size: 12px; color: #8a94a6">无款图</span>
+              <span v-else style="font-size: 12px; color: var(--ink-mute)">无款图</span>
             </div>
             <div>
               <label class="btn btn-ghost btn-sm" style="cursor: pointer">
                 上传款图<input type="file" accept="image/*" style="display: none" @change="onOrderImage" />
               </label>
-              <div style="font-size: 11.5px; color: #8a94a6; margin-top: 6px">png/jpg，≤3MB</div>
+              <div style="font-size: 11.5px; color: var(--ink-mute); margin-top: 6px">png/jpg，≤3MB</div>
             </div>
           </div>
 
           <h3 style="margin: 16px 0 8px; font-size: 14px">
             附件
-            <span v-if="photoAtts.length" style="font-size: 12px; font-weight: 500; color: #8a94a6">
+            <span v-if="photoAtts.length" style="font-size: 12px; font-weight: 500; color: var(--ink-mute)">
               · 其中现场照片 {{ photoAtts.length }} 张
             </span>
           </h3>
@@ -397,27 +240,28 @@
           </div>
 
           <div v-if="fileAtts.length" style="margin-bottom: 8px">
-            <div v-for="a in fileAtts" :key="a.id" style="display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed #eef2f7">
-              <a href="#" @click.prevent="openAtt(a)" style="color: #2563eb">{{ a.filename }}</a>
-              <span style="color: #8a94a6">{{ Math.round((a.size || 0) / 1024) }} KB</span>
+            <div v-for="a in fileAtts" :key="a.id" style="display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed var(--line)">
+              <a href="#" @click.prevent="openAtt(a)" style="color: var(--brand)">{{ a.filename }}</a>
+              <span style="color: var(--ink-mute)">{{ Math.round((a.size || 0) / 1024) }} KB</span>
               <button class="link-btn danger" @click="removeAttachment(a.id)">删</button>
             </div>
           </div>
-          <div v-if="!attachments.length" style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无附件</div>
+          <div v-if="!attachments.length" style="font-size: 12.5px; color: var(--ink-mute); margin-bottom: 8px">暂无附件</div>
           <div style="margin-bottom: 14px; display: flex; align-items: center; gap: 10px">
             <label class="btn btn-ghost btn-sm" style="cursor: pointer">
               上传附件<input type="file" multiple style="display: none" @change="onAttachments" />
             </label>
-            <span style="font-size: 11.5px; color: #8a94a6">{{ attUploading ? '上传中…' : 'PDF / 图片 / Office，单个 ≤10MB' }}</span>
+            <span style="font-size: 11.5px; color: var(--ink-mute)">{{ attUploading ? '上传中…' : 'PDF / 图片 / Office，单个 ≤10MB' }}</span>
           </div>
 
+          <div v-for="style in detail.items || []" :key="'images-'+style.id" v-show="style.effect_image_url || style.detail_images?.length"><strong>{{ style.product_name }} · {{ style.style_no || '' }}</strong><StyleImageFields :effect-image-url="style.effect_image_url || ''" :detail-images="style.detail_images || []" readonly /></div>
           <div style="margin: 12px 0 8px; display: flex; justify-content: space-between; align-items: center">
             <h3 style="margin: 0; font-size: 14px">明细（款 / 颜色 / 尺码）</h3>
             <button v-if="canEditItems" class="btn btn-ghost btn-sm" @click="openItemsEditor">完善颜色尺码</button>
           </div>
-          <div v-if="itemsEditing" style="border: 1px solid #dfe5ef; border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #fcfdff">
+          <div v-if="itemsEditing" style="border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #fcfdff">
             <div class="banner info" style="margin-bottom: 10px"><b>草稿明细</b><span>确认每款的颜色、尺码和数量；保存后会重算订单金额。订单进入技术确认后不可再改。</span></div>
-            <div v-for="(it, ii) in itemEditForm" :key="ii" style="border-bottom: 1px solid #eef2f7; padding: 8px 0 12px; margin-bottom: 8px">
+            <div v-for="(it, ii) in itemEditForm" :key="ii" style="border-bottom: 1px solid var(--line); padding: 8px 0 12px; margin-bottom: 8px">
               <div class="form-grid">
                 <div class="fitem"><label>产品名称</label><input class="input" v-model="it.product_name" /></div>
                 <div class="fitem"><label>款号</label><input class="input" v-model="it.style_no" /></div>
@@ -430,13 +274,13 @@
                     <td><input class="input" v-model="s.size" placeholder="S/M/L/均码" /></td>
                     <td><input class="input" type="number" min="0" v-model.number="s.qty" /></td>
                     <td><input class="input" type="number" min="0" step="0.01" v-model.number="s.usd_price" /></td>
-                    <td><button class="link-btn danger" @click="removeEditSize(it, si)">删除</button></td>
+                    <td><button  class="link-btn danger" @click="removeEditSize(it, si)">删除</button></td>
                   </tr>
                 </tbody>
               </table>
               <div style="display: flex; gap: 8px">
                 <button class="btn btn-ghost btn-sm" @click="addEditSize(it)">＋ 添加颜色尺码</button>
-                <button v-if="itemEditForm.length > 1" class="btn btn-ghost btn-sm" @click="itemEditForm.splice(ii, 1)">删除该款</button>
+                <button  v-if="itemEditForm.length > 1" class="btn btn-ghost btn-sm" @click="itemEditForm.splice(ii, 1)">删除该款</button>
               </div>
             </div>
             <div style="display: flex; gap: 8px; justify-content: space-between">
@@ -448,13 +292,13 @@
             </div>
           </div>
           <div v-for="it in detail.items" :key="it.id" style="margin-bottom: 12px">
-            <div style="font-size: 13px; font-weight: 700; color: #16233b; margin-bottom: 6px">
-              {{ it.product_name }} <span v-if="it.style_no" style="color:#2563eb;font-weight:600">· {{ it.style_no }}</span>
-              <span style="color:#8a94a6;font-weight:400"> · {{ it.qty }} 件 · ${{ money(it.amount_usd) }} / ¥{{ money(it.amount_cny) }}</span>
+            <div style="font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 6px">
+              {{ it.product_name }} <span v-if="it.style_no" style="color:var(--brand);font-weight:600">· {{ it.style_no }}</span>
+              <span style="color:var(--ink-mute);font-weight:400"> · {{ it.qty }} 件 · ${{ money(it.amount_usd) }} / ¥{{ money(it.amount_cny) }}</span>
             </div>
             <div v-for="(g, gi) in it.colors" :key="gi" style="margin-bottom: 8px">
-              <div style="font-size: 12.5px; color: #2563eb; font-weight: 700; margin-bottom: 4px">颜色：{{ g.color || '（未填）' }} · {{ g.qty }} 件 · ${{ money(g.amount_usd) }}</div>
-              <table class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden">
+              <div style="font-size: 12.5px; color: var(--brand); font-weight: 700; margin-bottom: 4px">颜色：{{ g.color || '（未填）' }} · {{ g.qty }} 件 · ${{ money(g.amount_usd) }}</div>
+              <table class="data" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden">
                 <thead><tr><th>尺码</th><th>数量</th><th>美金单价</th><th>人民币单价</th><th>小计($)</th></tr></thead>
                 <tbody>
                   <tr v-for="s in g.sizes" :key="s.id">
@@ -467,21 +311,21 @@
 
           <!-- 工艺明细 -->
           <h3 style="margin: 16px 0 8px; font-size: 14px">工艺明细</h3>
-          <table v-if="crafts.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
-            <thead><tr><th>工艺</th><th>数量</th><th>单价</th><th>倍率</th><th>FOB价</th><th>外发/洗水/裁剪</th><th>操作</th></tr></thead>
+          <table v-if="crafts.length" class="data" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px">
+            <thead><tr><th>工艺</th><th>数量</th><th>单价</th><th>倍率</th><th>FOB价</th><th>洗水/裁剪</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="c in crafts" :key="c.id">
                 <td><strong>{{ c.name }}</strong></td><td>{{ c.qty }}</td><td>¥{{ money(c.price) }}</td>
                 <td>{{ c.rate }}</td><td>¥{{ money(c.fob_price) }}</td>
-                <td>{{ [c.is_out ? '外发' : '', c.is_wash ? '洗水' : '', c.is_cut ? '裁剪' : ''].filter(Boolean).join('/') || '-' }}</td>
+                <td>{{ [c.is_wash ? '洗水' : '', c.is_cut ? '裁剪' : ''].filter(Boolean).join('/') || '-' }}</td>
                 <td><button class="link-btn danger" @click="delCraft(c.id)">删</button></td>
               </tr>
             </tbody>
           </table>
-          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无工艺明细</div>
+          <div v-else style="font-size: 12.5px; color: var(--ink-mute); margin-bottom: 8px">暂无工艺明细</div>
           <div v-if="canCraftWrite" style="margin-bottom: 6px">
             <button v-if="!craftAdding" class="btn btn-ghost btn-sm" @click="craftAdding = true">＋ 添加工艺</button>
-            <div v-else style="border: 1px solid #eef2f7; border-radius: 10px; padding: 12px">
+            <div v-else style="border: 1px solid var(--line); border-radius: 10px; padding: 12px">
               <div class="form-grid">
                 <div class="fitem"><label>工艺名称 *</label><input class="input" v-model="craftForm.name" placeholder="印花/绣花/洗水/车缝…" /></div>
                 <div class="fitem"><label>数量</label><input class="input" type="number" v-model.number="craftForm.qty" /></div>
@@ -491,7 +335,6 @@
                 <div class="fitem">
                   <label>标签</label>
                   <div style="display: flex; gap: 14px; padding-top: 8px; font-size: 12.5px">
-                    <label><input type="checkbox" v-model="craftForm.is_out" /> 外发</label>
                     <label><input type="checkbox" v-model="craftForm.is_wash" /> 洗水</label>
                     <label><input type="checkbox" v-model="craftForm.is_cut" /> 裁剪</label>
                   </div>
@@ -515,7 +358,7 @@
 
           <!-- 开发单 -->
           <h3 style="margin: 16px 0 8px; font-size: 14px">开发单 / 技术资料</h3>
-          <table v-if="techpacks.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
+          <table v-if="techpacks.length" class="data" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px">
             <thead><tr><th>产品/款号</th><th>版本</th><th>状态</th><th>确认人</th><th style="width: 250px">操作</th></tr></thead>
             <tbody>
               <template v-for="tp in techpacks" :key="tp.id">
@@ -532,7 +375,7 @@
                 </tr>
                 <tr v-if="tpOpen[tp.id]">
                   <td colspan="5" style="background: #fafcff">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12.5px; color: #33415a">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12.5px; color: var(--ink)">
                       <div><strong>面料：</strong>{{ matNames(tp.fabric_ids, fabrics) }}<span v-if="tp.fabric_info">（{{ tp.fabric_info }}）</span></div>
                       <div><strong>辅料：</strong>{{ matNames(tp.accessory_ids, accessories) }}<span v-if="tp.accessory_info">（{{ tp.accessory_info }}）</span></div>
                       <div><strong>工艺工序：</strong>{{ tp.craft_info || '—' }}</div>
@@ -544,11 +387,11 @@
               </template>
             </tbody>
           </table>
-          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无开发单</div>
+          <div v-else style="font-size: 12.5px; color: var(--ink-mute); margin-bottom: 8px">暂无开发单</div>
 
           <div v-if="canTechWrite" style="margin-bottom: 6px">
-            <button v-if="!tpAdding" class="btn btn-ghost btn-sm" @click="tpAdding = true">＋ 新增开发单</button>
-            <div v-else style="border: 1px solid #eef2f7; border-radius: 10px; padding: 12px">
+            <button v-action="['orders','create']"  v-if="!tpAdding" class="btn btn-ghost btn-sm" @click="tpAdding = true">＋ 新增开发单</button>
+            <div v-else style="border: 1px solid var(--line); border-radius: 10px; padding: 12px">
               <div class="form-grid">
                 <div class="fitem"><label>产品/款号 *</label><input class="input" v-model="tpForm.product_name" /></div>
                 <div class="fitem"><label>版本</label><input class="input" v-model="tpForm.version" /></div>
@@ -565,7 +408,7 @@
                 <div class="fitem full">
                   <label>工艺工序 *</label>
                   <textarea v-model="tpForm.craft_info" rows="2" placeholder="印花/绣花/水洗/车缝等"></textarea>
-                  <div style="font-size: 11.5px; color: #8a94a6; margin-top: 4px">
+                  <div style="font-size: 11.5px; color: var(--ink-mute); margin-top: 4px">
                     工序明细（类别 / 单价 / 倍率 / 负责人）在「开发管理 → 编辑开发单 → 展开填写工序明细」里填，与「订单工序」页是同一份数据。
                   </div>
                 </div>
@@ -576,7 +419,7 @@
                 <button class="btn btn-primary btn-sm" :disabled="tpBusy" @click="addTechpack">提交</button>
                 <button class="btn btn-ghost btn-sm" @click="tpAdding = false">取消</button>
               </div>
-              <p style="font-size: 11.5px; color: #8a94a6; margin: 8px 0 0">带 * 为定制订单技术确认前的必填项。</p>
+              <p style="font-size: 11.5px; color: var(--ink-mute); margin: 8px 0 0">带 * 为定制订单技术确认前的必填项。</p>
             </div>
           </div>
 
@@ -585,12 +428,12 @@
           <!-- 12 列（多了「款」「适用颜色」）在详情弹窗里放不下：给最小宽度并允许横向滚，
                否则名称与款会被压成两行，一屏只能看清四五行 -->
           <div v-if="orderMats.length" style="overflow-x: auto; margin-bottom: 8px">
-          <table class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; min-width: 1000px">
+          <table class="data" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden; min-width: 1000px">
             <thead><tr><th>类型</th><th>名称</th><th>款</th><th>适用颜色</th><th>单位</th><th>单件用量</th><th>损耗%</th><th>总用量</th><th>单价</th><th>金额</th><th>供应商</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="m in orderMats" :key="m.id">
                 <td><span class="tag" :class="m.type === 'fabric' ? 'blue' : 'purple'">{{ m.type === 'fabric' ? '面料' : '辅料' }}</span></td>
-                <td><strong>{{ m.name }}</strong><div v-if="m.spec" style="font-size: 11px; color: #8a94a6">{{ m.spec }}</div></td>
+                <td><strong>{{ m.name }}</strong><div v-if="m.spec" style="font-size: 11px; color: var(--ink-mute)">{{ m.spec }}</div></td>
                 <td>
                   <span v-if="m.item">{{ m.item.style_no || m.item.product_name }}</span>
                   <span v-else class="tag gray" style="font-size: 10px">订单通用</span>
@@ -606,19 +449,19 @@
             </tbody>
           </table>
           </div>
-          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">暂无面辅料用量</div>
+          <div v-else style="font-size: 12.5px; color: var(--ink-mute); margin-bottom: 8px">暂无面辅料用量</div>
           <div v-if="orderMats.length" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px">
             <div>面料成本 <strong>¥{{ money(fabricCost) }}</strong> · 辅料成本 <strong>¥{{ money(accessoryCost) }}</strong></div>
             <button v-if="canCostWrite" class="btn btn-ghost btn-sm" @click="applyMatCost">带入成本单</button>
           </div>
           <div v-if="canMatWrite" style="margin-bottom: 6px">
             <button v-if="!matAdding" class="btn btn-ghost btn-sm" @click="matAdding = true">＋ 添加面辅料</button>
-            <div v-else style="border: 1px solid #eef2f7; border-radius: 10px; padding: 12px">
+            <div v-else style="border: 1px solid var(--line); border-radius: 10px; padding: 12px">
               <div class="form-grid">
                 <div class="fitem">
                   <label>从料库选择</label>
                   <select class="select" v-model.number="matForm.material_id" @change="pickMat">
-                    <option :value="null">— 自定义 —</option>
+                    <option :value="null">— 请选择物料档案 —</option>
                     <option v-for="m in allMats" :key="m.id" :value="m.id">{{ m.type === 'fabric' ? '面料' : '辅料' }} · {{ m.name }}</option>
                   </select>
                 </div>
@@ -641,7 +484,7 @@
                       <label v-for="c in matItemColors" :key="c.color" style="font-size: 12.5px; display: flex; gap: 4px; align-items: center">
                         <input type="checkbox" :value="c.color" v-model="matForm.colors" /> {{ c.color }}（{{ c.qty }} 件）
                       </label>
-                      <span v-if="!matItemColors.length" style="font-size: 12px; color: #8a94a6">这个款还没录颜色</span>
+                      <span v-if="!matItemColors.length" style="font-size: 12px; color: var(--ink-mute)">这个款还没录颜色</span>
                     </template>
                   </div>
                 </div>
@@ -652,14 +495,14 @@
                 <div class="fitem"><label>损耗率 %</label><input class="input" type="number" v-model.number="matForm.loss" /></div>
                 <div class="fitem"><label>单价</label><input class="input" type="number" v-model.number="matForm.price" /></div>
                 <div class="fitem"><label>成分</label><input class="input" v-model="matForm.ingredient" /></div>
-                <div class="fitem"><label>规格</label><input class="input" v-model="matForm.spec" /></div>
+                <div class="fitem"><label>规格</label><input class="input" v-model="matForm.spec" readonly title="规格只能在物料档案中修改" /></div>
                 <div class="fitem"><label>供应商</label><input class="input" v-model="matForm.supplier" /></div>
               </div>
               <div style="display: flex; gap: 8px; margin-top: 8px">
                 <button class="btn btn-primary btn-sm" :disabled="matBusy" @click="addMat">提交</button>
                 <button class="btn btn-ghost btn-sm" @click="matAdding = false">取消</button>
               </div>
-              <p style="font-size: 11.5px; color: #8a94a6; margin: 8px 0 0">
+              <p style="font-size: 11.5px; color: var(--ink-mute); margin: 8px 0 0">
                 总用量按「所选款的件数」算（不打勾颜色时）；勾了颜色则按各色件数分别累加，都含损耗。
                 订单通用物料按整单件数算。
               </p>
@@ -670,7 +513,7 @@
           <h3 style="margin: 16px 0 8px; font-size: 14px">成本与财务审核</h3>
           <div v-if="cost" style="font-size: 13px; margin-bottom: 8px">
             <span class="tag" :class="costTag(cost.status)">{{ costLabel(cost.status) }}</span>
-            <span style="color: #8a94a6; margin-left: 8px">总成本 ¥{{ money(cost.total_cost) }} · 出厂价 ¥{{ money(cost.factory_price) }}
+            <span style="color: var(--ink-mute); margin-left: 8px">总成本 ¥{{ money(cost.total_cost) }} · 出厂价 ¥{{ money(cost.factory_price) }}
               <span v-if="cost.reviewed_by"> · 审核人 {{ cost.reviewed_by }}</span><span v-if="cost.review_opinion"> · {{ cost.review_opinion }}</span>
             </span>
           </div>
@@ -683,7 +526,7 @@
             <div class="fitem"><label>加价率 %</label><input class="input" type="number" v-model.number="costForm.profit_rate" /></div>
           </div>
           <div v-if="canCostWrite" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
-            <div style="font-size: 13px; color: #33415a">总成本 <strong>¥{{ money(costTotalPreview) }}</strong> · 出厂价 <strong style="color: #16305f">¥{{ money(costPricePreview) }}</strong></div>
+            <div style="font-size: 13px; color: var(--ink)">总成本 <strong>¥{{ money(costTotalPreview) }}</strong> · 出厂价 <strong style="color: #16305f">¥{{ money(costPricePreview) }}</strong></div>
             <button class="btn btn-primary btn-sm" :disabled="costBusy" @click="saveCost">保存成本单</button>
           </div>
           <div v-if="cost && cost.status === 'pending' && canFinanceReview" class="node-actions" style="margin-bottom: 6px">
@@ -693,7 +536,7 @@
 
           <!-- 分单 -->
           <h3 style="margin: 16px 0 8px; font-size: 14px">分单（本厂 / 外协）</h3>
-          <table v-if="dispatches.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 8px">
+          <table v-if="dispatches.length" class="data" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px">
             <thead><tr><th>工厂</th><th>类型</th><th>数量</th><th>单价</th><th>备注</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="d in dispatches" :key="d.id">
@@ -706,7 +549,7 @@
               </tr>
             </tbody>
           </table>
-          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 8px">未分单</div>
+          <div v-else style="font-size: 12.5px; color: var(--ink-mute); margin-bottom: 8px">未分单</div>
           <div v-if="orderQty > 0" class="pre-sum" style="margin-bottom: 8px">
             <span>订单总量 <b>{{ orderQty }}</b> 件</span>
             <span>已有效分单 <b>{{ dispatchedQty }}</b> 件</span>
@@ -727,26 +570,26 @@
             </div>
             <div style="margin-bottom: 6px; display: flex; align-items: center; gap: 10px">
               <button class="btn btn-primary btn-sm" :disabled="dispatchBusy" @click="doDispatch">提交分单</button>
-              <span style="font-size: 12px; color: #8a94a6">分单数量覆盖整单后才会推进到「已分单」（需财务已审核通过）</span>
+              <span style="font-size: 12px; color: var(--ink-mute)">分单数量覆盖整单后才会推进到「已分单」（需财务已审核通过）</span>
             </div>
           </template>
 
           <!-- 生产工序进度 -->
           <h3 style="margin: 16px 0 8px; font-size: 14px">
             生产工序进度
-            <span v-if="nodes.length" style="font-weight: 400; color: #8a94a6; font-size: 12.5px">（已完成 {{ doneCount }} / {{ nodes.length }}）</span>
+            <span v-if="nodes.length" style="font-weight: 400; color: var(--ink-mute); font-size: 12.5px">（已完成 {{ doneCount }} / {{ nodes.length }}）</span>
           </h3>
           <div v-if="nodes.length">
             <div style="height: 8px; background: #eef1f6; border-radius: 6px; overflow: hidden; margin-bottom: 10px">
               <div :style="{ width: (nodes.length ? (doneCount / nodes.length * 100) : 0) + '%' }" style="height: 100%; background: #16a34a"></div>
             </div>
             <div class="node-scroll">
-            <table class="data node-table" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden">
+            <table class="data node-table" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden">
               <thead><tr><th>工序</th><th>状态</th><th>计划完成</th><th>实际完成</th><th>责任人</th><th>备注</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="n in nodes" :key="n.id">
                   <td class="nowrap"><strong>{{ n.name }}</strong>
-                    <div v-if="aggOf(n.id).ok || aggOf(n.id).defect" style="font-size: 11px; color: #8a94a6">
+                    <div v-if="aggOf(n.id).ok || aggOf(n.id).defect" style="font-size: 11px; color: var(--ink-mute)">
                       已报工 {{ aggOf(n.id).ok }} 件<span v-if="aggOf(n.id).defect"> · 不良 {{ aggOf(n.id).defect }}</span>
                     </div>
                   </td>
@@ -767,9 +610,9 @@
               </tbody>
             </table>
             </div>
-            <div style="margin-top: 8px; font-size: 12px; color: #8a94a6">进入「生产中」会自动生成 13 道工序；状态改为「已完成」时自动补实际完成日期。</div>
+            <div style="margin-top: 8px; font-size: 12px; color: var(--ink-mute)">进入「生产中」会自动生成 13 道工序；状态改为「已完成」时自动补实际完成日期。</div>
           </div>
-          <div v-else style="font-size: 12.5px; color: #8a94a6">
+          <div v-else style="font-size: 12.5px; color: var(--ink-mute)">
             暂无工序。
             <button v-if="canNodeWrite" class="link-btn" :disabled="nodeBusy" @click="initNodes">初始化工序（13 道）</button>
           </div>
@@ -806,7 +649,7 @@
             <button v-if="canRollback" class="btn btn-ghost rollback-btn" :disabled="busy" @click="openRollback">
               ↩ 反审退回
             </button>
-            <span v-if="!nextStates.length && !canRollback" style="color: #8a94a6; font-size: 13px">当前状态无可执行操作</span>
+            <span v-if="!nextStates.length && !canRollback" style="color: var(--ink-mute); font-size: 13px">当前状态无可执行操作</span>
           </div>
           <p v-if="canRollback" class="rollback-tip">
             生产、技术或财务环节发现问题时，可以把订单退回前面的环节（如退回业务重新确认），退回会同步冲销库存、重置工序，并记入流转记录。
@@ -821,14 +664,14 @@
     <OrderNoTrace v-model="traceOpen" :initial-no="traceSeed" @open-order="onTraceOpenOrder" />
 
     <!-- ================= 改订单号 ================= -->
-    <div v-if="renForm.open" class="modal-mask" @click.self="renForm.open = false">
+    <div v-if="renForm.open" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>改订单号 · {{ renForm.oldNo }}</h3>
           <button class="x" @click="renForm.open = false">×</button>
         </div>
         <div class="modal-body">
-          <div class="notice" style="background:#f7f9fd;border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.8;color:#33425c;margin-bottom:12px">
+          <div class="notice" style="background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.8;color:#33425c;margin-bottom:12px">
             订单号是全流程的锚点。<b>改了之后，生产任务、裁片外发、领料单、计件明细、售后工单、采购订单上印的号会一起跟着变</b> ——
             不跟着变的话，车间按单号找货就会找不到，而系统里显示一切正常。
             所以这里先让你看清影响面，再决定要不要改。
@@ -883,7 +726,7 @@
       </div>
     </div>
 
-    <div v-if="rollbackOpen" class="modal-mask" @click.self="rollbackOpen = false">
+    <div v-if="rollbackOpen" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>反审退回 · {{ detail.order_no }}</h3>
@@ -898,7 +741,7 @@
               </select>
             </div>
             <div class="fitem">
-              <label>退回原因 * <span style="font-weight: 400; color: #8a94a6">会写进流转记录</span></label>
+              <label>退回原因 * <span style="font-weight: 400; color: var(--ink-mute)">会写进流转记录</span></label>
               <textarea rows="3" v-model="rollbackReason" placeholder="如：面料到货后发现色差，需退回业务重新与客户确认面辅料"></textarea>
             </div>
           </div>
@@ -912,11 +755,11 @@
     </div>
 
     <!-- 报工 -->
-    <div v-if="reportNode" class="modal-mask" @click.self="reportNode = null">
+    <div v-if="reportNode" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>报工 · {{ reportNode.name }}</h3><button class="x" @click="reportNode = null">×</button></div>
         <div class="modal-body">
-          <table v-if="reports.length" class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden; margin-bottom: 10px">
+          <table v-if="reports.length" class="data" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 10px">
             <thead><tr><th>日期</th><th>合格</th><th>不良</th><th>工时</th><th>操作人</th><th></th></tr></thead>
             <tbody>
               <tr v-for="r in reports" :key="r.id">
@@ -925,7 +768,8 @@
               </tr>
             </tbody>
           </table>
-          <div v-else style="font-size: 12.5px; color: #8a94a6; margin-bottom: 10px">暂无报工记录</div>
+          <div v-else style="font-size: 12.5px; color: var(--ink-mute); margin-bottom: 10px">暂无报工记录</div>
+          <ReportWageQuote :node-id="reportNode.id" :report-date="reportForm.report_date" @change="reportWageSelection=$event" />
           <div class="form-grid">
             <div class="fitem"><label>日期</label><input class="input" type="date" v-model="reportForm.report_date" /></div>
             <div class="fitem"><label>合格数</label><input class="input" type="number" v-model.number="reportForm.qty_ok" /></div>
@@ -937,7 +781,7 @@
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" @click="reportNode = null">关闭</button>
-          <button class="btn btn-primary" :disabled="reportBusy" @click="addReport">添加报工</button>
+          <button class="btn btn-primary" :disabled="reportBusy||!reportWageSelection" @click="addReport">添加报工</button>
         </div>
       </div>
     </div>
@@ -946,7 +790,7 @@
     <TechPackDetail :techpack-id="tpDetailId" @close="tpDetailId = null" @saved="reloadTechpacks" @version-created="onTpVersionCreated" />
 
     <!-- 现场照片大图（附件区缩略图点开） -->
-    <div v-if="shot" class="shot-mask" @click.self="shot = null">
+    <div v-if="shot" class="shot-mask">
       <div class="shot-box">
         <img :src="shot.url" alt="" />
         <div class="shot-meta">
@@ -962,10 +806,10 @@
     </div>
   </div>
   <!-- ================= 物料配颜色（款 × 颜色） ================= -->
-  <div v-if="colorDlg.open" class="modal-mask" @click.self="colorDlg.open = false">
+  <div v-if="colorDlg.open" class="modal-mask">
     <div class="modal" style="width: 720px">
       <div class="modal-head">
-        <h3>{{ colorDlg.name }}<span style="font-size: 12px; color: #8a94a6; margin-left: 8px">{{ colorDlg.styleNo }}</span></h3>
+        <h3>{{ colorDlg.name }}<span style="font-size: 12px; color: var(--ink-mute); margin-left: 8px">{{ colorDlg.styleNo }}</span></h3>
         <button class="x" @click="colorDlg.open = false">×</button>
       </div>
       <div class="modal-body">
@@ -986,7 +830,7 @@
           该款现用 {{ colorDlg.avail.length }} 个颜色，全部使用这条物料。以后该款加颜色，也会自动跟着用。
         </div>
 
-        <table v-else class="data" style="border: 1px solid #eef2f7; border-radius: 8px; overflow: hidden">
+        <table v-else class="data" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden">
           <thead>
             <tr>
               <th style="width: 40px"></th>
@@ -1039,7 +883,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import TrialNotice from '../components/TrialNotice.vue';
+import SalesOrderEntry from '../components/SalesOrderEntry.vue';
+import OrderEntrySnapshot from '../components/OrderEntrySnapshot.vue';
+import { localDate, fmtTime } from '../utils/time';
+import ReportWageQuote from '../components/ReportWageQuote.vue';
+import StyleImageFields from '../components/StyleImageFields.vue';
+import ReferencePager from '../components/ReferencePager.vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, exportOrders } from '../api';
 import CreditBlockModal from '../components/CreditBlockModal.vue';
@@ -1099,7 +950,7 @@ const costBusy = ref(false);
 const crafts = ref([]);
 const craftAdding = ref(false);
 const craftBusy = ref(false);
-const craftForm = ref({ name: '', qty: 0, price: 0, rate: 0, fob_price: 0, is_out: false, is_wash: false, is_cut: false, instruction: '' });
+const craftForm = ref({ name: '', qty: 0, price: 0, rate: 0, fob_price: 0, is_wash: false, is_cut: false, instruction: '' });
 
 const orderMats = ref([]);
 const matAdding = ref(false);
@@ -1188,6 +1039,8 @@ const dispatchBusy = ref(false);
 const dispatchForm = ref({ factory_id: null, qty: 0, price: 0, remark: '' });
 
 const reportNode = ref(null);
+const reportWageSelection=ref(null);
+const reportRequestNo=ref('');
 const reports = ref([]);
 const reportBusy = ref(false);
 const reportForm = ref({ report_date: '', qty_ok: 0, qty_defect: 0, hours: 0, operator: '', remark: '' });
@@ -1203,12 +1056,13 @@ const CAT_LABELS = { defect: '不良', incoming: '到货', packing: '装箱', sa
 function catLabel(c) { return CAT_LABELS[c] || '其他'; }
 const attUploading = ref(false);
 
-const allChecked = computed(() => list.value.length > 0 && selected.value.length === list.value.length);
+const allChecked = computed(() => pagination.rows.length > 0 && pagination.rows.every(o => selected.value.includes(o.id)));
 const batchToLabel = computed(() => labels.value[batchTo.value] || batchTo.value || '未选');
 const batchLabels = computed(() => Object.fromEntries(Object.entries(labels.value).filter(([key]) => !['instock', 'shipped'].includes(key))));
 
 function toggleAll() {
-  selected.value = allChecked.value ? [] : list.value.map((o) => o.id);
+  const ids = pagination.rows.map(o => o.id);
+  selected.value = allChecked.value ? selected.value.filter(id => !ids.includes(id)) : [...new Set([...selected.value, ...ids])];
 }
 function toggleOne(id) {
   const i = selected.value.indexOf(id);
@@ -1390,12 +1244,21 @@ function blankColor(color = '', sizes = null) {
   return { color, sizes: list.map((s) => ({ size: s, qty: 0, usd_price: 0 })) };
 }
 function blankItem() {
-  return { product_id: null, product_name: '', style_no: '', sku: '', colors: [blankColor()] };
+  return { product_id: null, product_name: '', style_no: '', sku: '', remark:'', effect_image_url:'', detail_images:[], source_pre_order_item_id:null, expected_qty:0, colors: [blankColor()] };
 }
 function blankForm() {
-  return { order_no: '', type: 'custom', customer_id: null, style_name: '', cus_order_no: '', manager: '', order_date: '', delivery_method: '', packaging: '', trade_terms: '', shop_name: '', shop_order_no: '', delivery_days: 0, freight: 0, delivery_date: '', remark: '', items: [blankItem()] };
+  return { source_pre_order_id:null, source_pre_order_version:null, order_no: '', type: 'custom', customer_id: null, customer_name_snapshot: '', recipient_name: '', recipient_phone: '', shipping_address: '', style_name: '', cus_order_no: '', manager: '', order_date: '', delivery_method: '', packaging: '', trade_terms: '', shop_name: '', shop_order_no: '', delivery_days: 0, freight: 0, delivery_date: '', remark: '', items: [blankItem()] };
 }
 const form = ref(blankForm());
+// 切换客户时同步重置，避免把上一客户的收货资料带到新订单。
+function fillCustomerShipping() {
+  const customer = customers.value.find(c => c.id === form.value.customer_id);
+  form.value.customer_name_snapshot = customer?.name || '';
+  form.value.recipient_name = customer?.contact || '';
+  form.value.recipient_phone = customer?.phone || '';
+  form.value.shipping_address = customer?.shipping_address || '';
+}
+
 
 const colorQty = (c) => c.sizes.reduce((s, x) => s + (Number(x.qty) || 0), 0);
 const colorUsd = (c) => c.sizes.reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.usd_price) || 0), 0);
@@ -1504,7 +1367,7 @@ async function loadRefs() {
   factories.value = fs;
 }
 async function load() {
-  try { list.value = await api.orders({ q: q.value, status: status.value, type: type.value }); }
+  try { list.value = await api.orders({view:'reference'}); }
   catch (e) { alert(e.message); }
 }
 
@@ -1618,6 +1481,17 @@ function validateForm() {
   return '';
 }
 
+function entrySummary(order) {
+  const e=JSON.parse(order.entry_json||'{}');
+  return {'标签':(e.tags||[]).join('、'),'商品 USD':money(e.goods_usd),'税费 USD':money(e.tax_usd),'运费 USD':money(e.freight_usd),'优惠 USD':money(e.discount_usd),'附加 USD':money(e.surcharge_usd),'约定定金 USD':money(e.deposit_usd),'约定尾款 USD':money(e.balance_usd)};
+}
+async function entrySaved(created) {
+  showCreate.value=false;
+  await load();
+  await router.replace({path:'/orders',query:{order:created.id}});
+  await openDetail(created.id);
+}
+
 async function saveOrder() {
   const err = validateForm();
   if (err) return alert(err);
@@ -1626,6 +1500,10 @@ async function saveOrder() {
     product_name: it.product_name || '未命名产品',
     style_no: it.style_no,
     sku: it.sku,
+    remark:it.remark,
+    effect_image_url:it.effect_image_url,
+    detail_images:it.detail_images || [],
+    source_pre_order_item_id:it.source_pre_order_item_id,
     colors: it.colors.map((c) => ({
       color: c.color,
       sizes: c.sizes.filter((s) => Number(s.qty) > 0).map((s) => ({ size: s.size, qty: s.qty, usd_price: s.usd_price }))
@@ -1638,10 +1516,15 @@ async function saveOrder() {
   }
   saving.value = true;
   try {
-    await api.createOrder({
+    const created = await api.createOrder({
+      source_pre_order_id:form.value.source_pre_order_id,
+      source_pre_order_version:form.value.source_pre_order_version,
       order_no: String(form.value.order_no).trim(),
       type: form.value.type,
       customer_id: form.value.customer_id,
+      recipient_name: form.value.recipient_name,
+      recipient_phone: form.value.recipient_phone,
+      shipping_address: form.value.shipping_address,
       style_name: form.value.style_name,
       cus_order_no: form.value.cus_order_no,
       manager: form.value.manager,
@@ -1659,6 +1542,7 @@ async function saveOrder() {
     });
     showCreate.value = false;
     await load();
+    if(form.value.source_pre_order_id) { await router.replace({path:'/orders',query:{order:created.id}});await openDetail(created.id); }
   } catch (e) { alert(e.message); } finally { saving.value = false; }
 }
 
@@ -1705,6 +1589,7 @@ async function openDetail(id) {
 function openItemsEditor() {
   if (!canEditItems.value) return;
   itemEditForm.value = (detail.value.items || []).map((it) => ({
+    id:it.id,effect_image_url:it.effect_image_url,detail_images:it.detail_images || [],
     product_id: it.product_id,
     product_name: it.product_name || '',
     style_no: it.style_no || '',
@@ -1790,7 +1675,7 @@ async function addCraft() {
   craftBusy.value = true;
   try {
     await api.createCraft({ order_id: detail.value.id, ...craftForm.value });
-    craftForm.value = { name: '', qty: 0, price: 0, rate: 0, fob_price: 0, is_out: false, is_wash: false, is_cut: false, instruction: '' };
+    craftForm.value = { name: '', qty: 0, price: 0, rate: 0, fob_price: 0, is_wash: false, is_cut: false, instruction: '' };
     craftAdding.value = false;
     crafts.value = await api.crafts(detail.value.id);
   } catch (e) { alert(e.message); } finally { craftBusy.value = false; }
@@ -1806,7 +1691,10 @@ function pickMat() {
   if (!m) return;
   matForm.value.type = m.type;
   matForm.value.name = m.name;
-  matForm.value.spec = m.spec || '';
+  matForm.value.spec = [m.width && '幅宽'+m.width, m.weight && '克重'+m.weight, m.air_gap && '空差'+m.air_gap, m.spec].filter(Boolean).join(' ');
+  matForm.value.ingredient = m.composition || '';
+  matForm.value.unit = m.unit || '';
+  matForm.value.colors = [];
   matForm.value.supplier = m.supplier || '';
 }
 async function addMat() {
@@ -2009,17 +1897,18 @@ async function openAtt(a) {
   } catch (e) { alert(e.message); }
 }
 
-async function openReport(n) {  reportNode.value = n;
-  reportForm.value = { report_date: new Date().toISOString().slice(0, 10), qty_ok: 0, qty_defect: 0, hours: 0, operator: '', remark: '' };
+async function openReport(n) { reportWageSelection.value=null;reportRequestNo.value=globalThis.crypto?.randomUUID?.()||('report_'+Date.now()+'_'+Math.random().toString(36).slice(2));reportNode.value = n;
+  reportForm.value = { report_date: localDate(), qty_ok: 0, qty_defect: 0, hours: 0, operator: '', remark: '' };
   try { reports.value = await api.reports({ node_id: n.id }); } catch (e) { reports.value = []; }
 }
 async function addReport() {
   if (!reportNode.value) return;
   reportBusy.value = true;
   try {
-    await api.createReport({ node_id: reportNode.value.id, order_id: detail.value.id, ...reportForm.value });
+    await api.createReport({ node_id: reportNode.value.id, order_id: detail.value.id, ...reportForm.value,...reportWageSelection.value,request_no:reportRequestNo.value });
     reports.value = await api.reports({ node_id: reportNode.value.id });
-    reportForm.value = { report_date: new Date().toISOString().slice(0, 10), qty_ok: 0, qty_defect: 0, hours: 0, operator: '', remark: '' };
+    reportRequestNo.value=globalThis.crypto?.randomUUID?.()||('report_'+Date.now()+'_'+Math.random().toString(36).slice(2));
+    reportForm.value = { report_date: localDate(), qty_ok: 0, qty_defect: 0, hours: 0, operator: '', remark: '' };
     await loadP2(detail.value.id);
   } catch (e) { alert(e.message); } finally { reportBusy.value = false; }
 }
@@ -2041,29 +1930,60 @@ async function doTransition(to) {
   } catch (e) { alert(e.message); } finally { busy.value = false; }
 }
 
+async function importPreOrder(id) {
+  try {
+    const draft=await api.preOrderDraft(id);
+    form.value={...blankForm(),source_pre_order_id:draft.id,source_pre_order_version:draft.version,
+      order_no:draft.order_no,customer_id:draft.customer_id,customer_name_snapshot:draft.customer_name,
+      recipient_name:draft.recipient_name || '',recipient_phone:draft.recipient_phone || '',shipping_address:draft.shipping_address || '',
+      pre_order_total_usd:draft.total_usd,pre_order_payment_ratio:draft.payment_ratio,deposit:draft.total_usd!=null&&draft.payment_ratio!=null?Math.round(Number(draft.total_usd)*Number(draft.payment_ratio))/100:0,
+      manager:draft.manager || '',delivery_date:draft.target_date || '',remark:draft.requirements || '',style_name:draft.style_name || '',
+      items:draft.items.map(item=>({...blankItem(),product_name:item.product_name||item.style_no||'图片新款（待命名）',style_no:item.style_no || '',remark:item.remark || '',expected_qty:item.expected_qty,customer_sizes:Object.fromEntries((item.size_prices||[]).filter(r=>r.customer_size).map(r=>[r.size,r.customer_size])),colors:(item.size_prices?.length?[...new Set(item.size_prices.map(r=>r.color||'待确认'))].map(color=>({color,sizes:item.size_prices.filter(r=>(r.color||'待确认')===color).map(r=>({size:r.size,qty:r.qty,usd_price:r.unit_price}))})):[]),split_price:!!item.size_prices?.length,source_pre_order_item_id:item.id,sample_archive_id:item.source_type==='archive'?item.sample_archive_id:null,effect_image_url:item.effect_image_url || '',detail_images:[...(item.detail_images || [])]}))};
+    showCreate.value=true;
+  }catch(error){alert(error.message);}
+}
+watch(()=>route.query.pre_order,id=>{if(id)importPreOrder(id);});
+
 onMounted(async () => {
   try { await Promise.all([loadMeta(), loadRefs()]); } catch (e) { /* ignore */ }
   await load();
   const oid = route.query.order;
   if (oid) openDetail(oid);
-  if (route.query.new) openCreate();
+  if (route.query.pre_order) await importPreOrder(route.query.pre_order);
+  else if (route.query.new) openCreate();
 });
+
+// List filtering is read-only: every amount remains the persisted order snapshot.
+const salesFilters=reactive({shop:'',shopOrder:'',customer:'',manager:'',tag:'',start:'',end:'',days:'',approval:''});
+const patternOrder=ref(null);
+const salesCustomers=computed(()=>[...new Set(list.value.map(o=>o.customer_name).filter(Boolean))]);
+const salesManagers=computed(()=>[...new Set(list.value.map(o=>o.manager).filter(Boolean))]);
+const salesTags=computed(()=>[...new Set(list.value.flatMap(o=>o.tags||[]))]);
+const includesText=(value,term)=>String(value||'').toLowerCase().includes(String(term).trim().toLowerCase());
+const filteredSales=computed(()=>list.value.filter(o=>{
+ const date=fmtTime(o.order_date||o.created_at,true);
+ return (!q.value||includesText(o.order_no,q.value))&&(!status.value||o.status===status.value)&&(!type.value||o.type===type.value)&&includesText(o.shop_name,salesFilters.shop)&&includesText(o.shop_order_no,salesFilters.shopOrder)&&(!salesFilters.customer||o.customer_name===salesFilters.customer)&&(!salesFilters.manager||o.manager===salesFilters.manager)&&(!salesFilters.tag||(o.tags||[]).includes(salesFilters.tag))&&(!salesFilters.start||date>=salesFilters.start)&&(!salesFilters.end||date<=salesFilters.end)&&(salesFilters.days===''||(o.delivery_days!=null&&Number(o.delivery_days)===Number(salesFilters.days)))&&(!salesFilters.approval||o.cost_status===salesFilters.approval);
+}));
+const pagination=reactive({page:1,pageSize:12,total:computed(()=>filteredSales.value.length),rows:computed(()=>filteredSales.value.slice((pagination.page-1)*pagination.pageSize,pagination.page*pagination.pageSize))});
+watch([q,status,type,()=>({...salesFilters})],()=>{pagination.page=1;});
+function resetSalesFilters(){q.value='';status.value='';type.value='';Object.keys(salesFilters).forEach(k=>salesFilters[k]='');pagination.page=1;}
+
 </script>
 
 <style scoped>
 /* 订单号必填标记与说明：全局没有这两个类，不定义就是普通文字、看不出哪项必填 */
 .req { color: #d92d45; font-weight: 700; }
-.fitem .hint { font-size: 11px; color: #98a2b3; line-height: 1.55; margin-top: 4px; }
+.fitem .hint { font-size: 12px; color: var(--ink-mute); line-height: 1.55; margin-top: 4px; }
 /* 改号弹窗里的影响面清单 */
 .ren-imp { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
-.ren-imp span { font-size: 11.5px; background: #eef3fa; color: #1f5fae; border-radius: 20px; padding: 2px 9px; }
+.ren-imp span { font-size: 12px; background: #eef3fa; color: #1f5fae; border-radius: 20px; padding: 2px 9px; }
 .ren-arrow { display: flex; align-items: center; gap: 10px; font-size: 13px; margin: 10px 0; flex-wrap: wrap; }
-.ren-arrow .old { color: #98a2b3; text-decoration: line-through; }
-.ren-arrow .new { color: #16233b; font-weight: 700; }
+.ren-arrow .old { color: var(--ink-mute); text-decoration: line-through; }
+.ren-arrow .new { color: var(--ink); font-weight: 700; }
 /* 工序表 7 列挤在弹窗里会把「成品入库」压成竖排：外层横向滚动 + 单元格不折行 */
 .rollback-btn { border-color: #f0c9cf; color: #d92d45; }
 .rollback-btn:hover { background: #fdecee; }
-.rollback-tip { margin: 8px 0 0; font-size: 12px; color: #8a94a6; line-height: 1.6; }
+.rollback-tip { margin: 8px 0 0; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
 .node-scroll { overflow-x: auto; }
 .node-table { min-width: 760px; }
 .node-table th,
@@ -2082,27 +2002,27 @@ onMounted(async () => {
   border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
-  background: #f7f9fd;
+  background: var(--surface-2);
 }
 .att-cell img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
 .att-cat {
   position: absolute;
   left: 5px;
   top: 5px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   padding: 1px 7px;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.94);
-  color: #2563eb;
+  color: var(--brand);
 }
 .att-cat.defect { color: #d92d45; }
 .att-cat.incoming { color: #b45309; }
 .att-cat.packing { color: #0f766e; }
 .att-cat.sample { color: #7c3aed; }
-.att-cat.big { position: static; font-size: 11px; }
+.att-cat.big { position: static; font-size: 12px; }
 .att-note {
-  font-size: 11px;
+  font-size: 12px;
   color: #4a5769;
   padding: 4px 6px 6px;
   line-height: 1.45;
@@ -2153,7 +2073,7 @@ onMounted(async () => {
   font-size: 13px;
 }
 .shot-meta b { color: #fff; font-size: 14.5px; line-height: 1.6; }
-.shot-meta .tiny { color: #8b9ab2; font-size: 11.5px; }
+.shot-meta .tiny { color: #8b9ab2; font-size: 12px; }
 .shot-ops { display: flex; gap: 8px; margin-top: 6px; }
 .batch-bar {
   display: flex;
@@ -2170,9 +2090,19 @@ onMounted(async () => {
 .row-sel td { background: #f6f9ff; }
 .pre-sum { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .bfield { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
-.bfield label > span { display: block; font-size: 12.5px; color: #6b7688; margin-bottom: 5px; }
-.bchk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #4b5568; }
+.bfield label > span { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 5px; }
+.bchk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-soft); }
 .modal.wide .data.sm td { vertical-align: top; }
 /* 颜色提示：不抢注意力，只解释「为什么这里只能选不能改」 */
-.color-hint { font-size: 11.5px; color: #98a2b3; margin: -2px 0 6px; line-height: 1.6; }
+.color-hint { font-size: 12px; color: var(--ink-mute); margin: -2px 0 6px; line-height: 1.6; }
+</style>
+
+<style scoped>
+.order-entry-summary{display:flex;gap:16px;flex-wrap:wrap;padding:12px;background:var(--surface-soft,var(--bg));border:1px solid var(--line);border-radius:6px;margin-bottom:14px}.order-entry-summary small{color:var(--ink-mute);margin-right:5px}
+</style>
+
+<style scoped>
+
+.sales-reference{--list-accent:#1890ff;color:var(--ink)}.sales-reference-crumb{font-size:12px;color:var(--ink-mute);padding:0 0 12px}.sales-list-filters{display:flex;gap:24px 14px;flex-wrap:wrap;background:var(--surface);padding:22px 14px 28px;margin-bottom:18px}.sales-list-filters label{display:flex;align-items:center;gap:10px;white-space:nowrap;font-weight:600;font-size:12px}.sales-list-filters input,.sales-list-filters select{font:inherit;color:var(--ink);border:1px solid var(--line);background:var(--surface);border-radius:3px;height:30px;padding:0 10px;width:160px;min-width:0}.sales-list-filters label:first-child input{width:200px}.sales-list-filters .sales-date-filter input{width:135px}.sales-reference button{font:inherit;cursor:pointer}.sales-list-filters>button{background:var(--surface);color:var(--list-accent);border:1px solid var(--line);padding:4px 14px;border-radius:3px}.sales-reference-panel{border:1px solid var(--line);background:var(--surface)}.sales-list-toolbar{display:flex;gap:10px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--line);background:var(--surface-2);flex-wrap:wrap}.sales-primary{background:var(--list-accent);border:1px solid var(--list-accent);color:white;border-radius:3px;padding:7px 12px}.sales-list-scroll{overflow:auto;max-height:calc(100vh - 310px)}.sales-list-table{width:100%;min-width:1760px;border-collapse:collapse;table-layout:fixed;font-size:12px}.sales-list-table th,.sales-list-table td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);text-align:center;padding:10px 8px;overflow-wrap:anywhere}.sales-list-table th{height:38px;background:var(--surface-2);position:sticky;top:0;z-index:1;white-space:nowrap}.sales-list-table td{height:158px}.sales-list-table th:nth-child(1){width:90px}.sales-list-table th:nth-child(2){width:120px}.sales-list-table th:nth-child(3){width:155px}.sales-list-table th:nth-child(4){width:160px}.sales-list-table th:nth-child(6){width:235px}.sales-list-table th:nth-child(11){width:165px}.sales-list-table th:nth-child(12){width:110px}.sales-text,.sales-blue{border:0;padding:2px;background:none;color:var(--ink)}.sales-text:hover,.sales-blue{color:var(--list-accent)}.sales-remark{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.sales-shop{text-align:left!important;font-size:11px;line-height:1.9}.sales-label{display:inline-block;background:color-mix(in srgb,#35ca86 13%,var(--surface));border:1px solid color-mix(in srgb,#35ca86 30%,var(--line));color:#159653;border-radius:3px;font-size:11px;margin:2px;padding:1px 5px}.sales-label.muted{color:var(--ink-mute);background:var(--surface-2);border-color:var(--line)}.sales-style-count{font-size:11px;color:var(--ink-mute);text-align:left;margin-bottom:5px}.sales-style-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;max-height:140px;overflow:auto;align-content:start}.sales-style-grid button{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 4px;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}.sales-style-grid button>span:last-child{white-space:nowrap;text-overflow:ellipsis;overflow:hidden;width:100%;font-size:11px}.sales-style-grid img,.sales-no-photo{height:46px;width:46px;object-fit:contain;background:var(--surface-2)}.sales-no-photo{font-size:10px;display:grid;place-items:center;color:var(--ink-mute)}.sales-file{display:block;color:var(--list-accent);margin:5px 0}.sales-dates{text-align:left!important;line-height:1.9;font-size:11px}.sales-dates>div:first-child{color:#f85555}.sales-outline{color:var(--list-accent);background:color-mix(in srgb,var(--list-accent) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--list-accent) 40%,var(--line));padding:5px 14px;border-radius:3px;font-size:11px!important}.sales-list-table td>small{display:block;color:var(--ink-mute);font-size:11px;margin:5px}.sales-list-table .row-sel{background:color-mix(in srgb,var(--list-accent) 5%,var(--surface))}.sales-more{position:relative;font-size:12px}.sales-more summary{cursor:pointer;list-style:none;border:1px solid var(--line);border-radius:3px;padding:6px 12px}.sales-more>div{position:absolute;left:0;top:34px;z-index:10;background:var(--surface);box-shadow:0 4px 14px #0002;border:1px solid var(--line);min-width:150px}.sales-more button{display:block;width:100%;text-align:left;border:0;background:none;color:var(--ink);padding:10px}.sales-more button:hover{background:var(--surface-2)}.sales-pattern-dialog{width:min(800px,94vw);display:flex;flex-direction:column;max-height:90vh}.sales-pattern-dialog .modal-body{overflow:auto}.sales-pattern-dialog article{display:flex;align-items:center;gap:18px;padding:14px 0;border-bottom:1px solid var(--line)}.sales-pattern-dialog article>img{width:70px;height:80px;object-fit:contain}.sales-pattern-dialog article>div{flex:1}.sales-pattern-dialog p{color:var(--ink-mute);font-size:12px}.sales-empty{color:var(--ink-mute)}
+
 </style>

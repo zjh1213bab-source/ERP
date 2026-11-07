@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "smoke": "node scripts/smoke-test.js",
+    "smoke": "node scripts/run-smoke-isolated.js",
+    "smoke:multi": "node scripts/run-smoke-isolated.js --multi",
     "rbac": "node scripts/rbac-audit.js --md ../docs/RBAC.md",
     "shot": "node scripts/ui-shot.js",
     "pack": "node scripts/pack-release.js",
@@ -19,16 +20,20 @@
     "test:race": "node scripts/test-report-race.js",
     "prune:data": "node scripts/prune-data.js",
     "check:schema": "node scripts/check-schema-complete.js",
-    "handoff": "node scripts/make-handoff-pack.js"
+    "handoff": "node scripts/make-handoff-pack.js",
+    "ai:image:install": "node scripts/install-image-search.js",
+    "test:image-search": "node scripts/test-sample-image-search.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "sharp": "0.35.5"
   },
   "optionalDependencies": {
     "better-sqlite3": "^11.5.0"

@@ -13,6 +13,7 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const router = express.Router();
 const WRITE = ['admin', 'production', 'sales'];
 const TYPES = ['own', 'outsource'];
+const MODES = ['processing','full_package'];
 
 router.get('/', authRequired, wrap(async (req, res) => {
   const { type = '', status = '' } = req.query;
@@ -20,6 +21,7 @@ router.get('/', authRequired, wrap(async (req, res) => {
   const params = [];
   if (type) { where.push('type = ?'); params.push(type); }
   if (status) { where.push('status = ?'); params.push(status); }
+  if (req.query.processing_mode) { where.push('processing_mode=?'); params.push(req.query.processing_mode); }
   const sql = 'SELECT * FROM factories ' + (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY type, id';
   return ok(res, db.prepare(sql).all(...params));
 }));
@@ -27,9 +29,10 @@ router.get('/', authRequired, wrap(async (req, res) => {
 router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const b = req.body || {};
   if (!b.name) return fail(res, 400, '名称必填');
+  if (b.processing_mode && !MODES.includes(b.processing_mode)) return fail(res,400,'工厂合作方式无效');
   const type = TYPES.includes(b.type) ? b.type : 'outsource';
-  const info = db.prepare('INSERT INTO factories (code, name, type, contact, phone, address, image_url, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(b.code || null, b.name, type, b.contact || null, b.phone || null, b.address || null, b.image_url || null, b.status || 'active', now());
+  const info = db.prepare('INSERT INTO factories (code, name, type, contact, phone, address, image_url, status, created_at, processing_mode) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(b.code || null, b.name, type, b.contact || null, b.phone || null, b.address || null, b.image_url || null, b.status || 'active', now(), b.processing_mode || 'processing');
   return ok(res, db.prepare('SELECT * FROM factories WHERE id = ?').get(Number(info.lastInsertRowid)));
 }));
 
@@ -37,10 +40,11 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = db.prepare('SELECT * FROM factories WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '工厂不存在');
   const b = req.body || {};
-  db.prepare('UPDATE factories SET code=?, name=?, type=?, contact=?, phone=?, address=?, image_url=?, status=? WHERE id=?').run(
+  if (b.processing_mode && !MODES.includes(b.processing_mode)) return fail(res,400,'工厂合作方式无效');
+  db.prepare('UPDATE factories SET code=?, name=?, type=?, contact=?, phone=?, address=?, image_url=?, status=?, processing_mode=? WHERE id=?').run(
     b.code ?? row.code, b.name || row.name, TYPES.includes(b.type) ? b.type : row.type,
     b.contact ?? row.contact, b.phone ?? row.phone, b.address ?? row.address,
-    b.image_url ?? row.image_url, b.status || row.status, req.params.id
+    b.image_url ?? row.image_url, b.status || row.status, b.processing_mode || row.processing_mode, req.params.id
   );
   return ok(res, db.prepare('SELECT * FROM factories WHERE id = ?').get(req.params.id));
 }));

@@ -17,7 +17,7 @@
 
       <div v-if="scanning" style="margin-top: 10px">
         <video ref="videoRef" autoplay playsinline muted style="width: 100%; max-width: 420px; border-radius: 10px; background: #000"></video>
-        <p style="font-size: 12px; color: #8a94a6">将条码对准摄像头…</p>
+        <p style="font-size: 12px; color: var(--ink-mute)">将条码对准摄像头…</p>
       </div>
 
       <p v-if="msg" class="form-msg" :class="msgType">{{ msg }}</p>
@@ -26,11 +26,12 @@
     <div v-if="result" class="panel-card">
       <h3>查询结果</h3>
       <div class="form-grid">
-        <div><span style="color: #8a94a6; font-size: 12.5px">订单号</span><div><strong>{{ result.order_no }}</strong></div></div>
-        <div><span style="color: #8a94a6; font-size: 12.5px">款名</span><div>{{ result.style_name || '-' }}</div></div>
-        <div><span style="color: #8a94a6; font-size: 12.5px">状态</span><div>{{ statusLabel(result.status) }}</div></div>
+        <div><span style="color: var(--ink-mute); font-size: 12.5px">订单号</span><div><strong>{{ result.order_no }}</strong></div></div>
+        <div><span style="color: var(--ink-mute); font-size: 12.5px">款名</span><div>{{ result.style_name || '-' }}</div></div>
+        <div><span style="color: var(--ink-mute); font-size: 12.5px">状态</span><div>{{ statusLabel(result.status) }}</div></div>
       </div>
-      <div style="margin-top: 12px; display: flex; gap: 10px">
+      <router-link v-if="result.scope==='basic'" class="btn btn-primary" :to="'/m/report?order='+result.id">扫码计件报工</router-link>
+      <div v-if="result.scope!=='basic'" style="margin-top: 12px; display: flex; gap: 10px">
         <button class="btn btn-primary btn-sm" @click="openOrder">打开订单</button>
         <button class="btn btn-ghost btn-sm" @click="openPrint">打印生产单</button>
       </div>

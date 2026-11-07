@@ -1,11 +1,11 @@
 <template>
-  <div v-if="open" class="modal-mask" @click.self="close">
+  <div v-if="open" class="modal-mask tp-detail-mask">
     <div class="modal xwide tp-modal">
       <div class="modal-head">
         <h3>
           开发详情
           <span v-if="tp" class="tag" :class="statusTag">{{ statusLabel }}</span>
-          <span v-if="tp" style="font-weight: 400; font-size: 12.5px; color: #8a94a6; margin-left: 8px">
+          <span v-if="tp" style="font-weight: 400; font-size: 12.5px; color: var(--ink-mute); margin-left: 8px">
             {{ tp.order ? tp.order.order_no : '' }} · {{ tp.version }}
           </span>
         </h3>
@@ -21,7 +21,7 @@
             只在草稿状态下显示；已确认的单后端直接返回空数组。
             写清楚"缺哪项、去哪补"，否则只会看到一句"不能确认"，人不知道该动哪里。
           -->
-          <div v-if="tp.confirm_blocks && tp.confirm_blocks.length" class="tp-gate">
+          <div v-if="!developmentOnly && tp.confirm_blocks && tp.confirm_blocks.length" class="tp-gate">
             <div class="g-head">
               还不能确认 —— 差 {{ tp.confirm_blocks.length }} 项
               <span class="g-sub">（定制订单确认前必填，确认后明细锁定）</span>
@@ -36,29 +36,29 @@
           </div>
 
           <!-- ---------- 头部信息 ---------- -->
-          <div class="tp-head">
+          <p v-if="developmentOnly" class="tp-tip">物料、外发工艺及客户要求可在此编辑；其他资料由打版流程维护。已归档或审核暂停的资料保持锁定。</p><div class="tp-head">
             <div class="tp-img">
-              <ImageUpload v-model="tp.image_url" size="lg" :disabled="!editable" />
+              <ImageUpload v-model="tp.image_url" size="lg" :disabled="!editable || developmentOnly" />
             </div>
             <div class="tp-info">
-              <div class="tp-cell"><label>款号</label><div class="v">{{ tp.product_name || '-' }}</div></div>
-              <div class="tp-cell"><label>客户款号</label><input v-model="head.customer_style_no" :disabled="!editable" class="input" /></div>
+              <div class="tp-cell"><label>款式名称</label><div class="v">{{ tp.product_name || '-' }}</div></div>
+              <div class="tp-cell"><label>款号 / 客户款号</label><input v-model="head.customer_style_no" :disabled="!editable || developmentOnly" class="input" /></div>
               <div class="tp-cell"><label>客户</label><div class="v">{{ tp.order ? tp.order.customer_name || '-' : '-' }}</div></div>
               <div class="tp-cell"><label>状态</label><div class="v"><span class="tag" :class="statusTag">{{ statusLabel }}</span></div></div>
-              <div class="tp-cell"><label>颜色</label><input v-model="head.colors" :disabled="!editable" class="input" placeholder="藏青/燕麦" /></div>
-              <div class="tp-cell"><label>尺码</label><input v-model="head.size_range" :disabled="!editable" class="input" placeholder="S/M/L" /></div>
-              <div class="tp-cell"><label>设计师</label><input v-model="head.designer" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>车版师</label><input v-model="head.pattern_maker" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>纸样号</label><input v-model="head.pattern_no" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>分类</label><input v-model="head.category" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>标签</label><input v-model="head.label_name" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>系列</label><input v-model="head.series" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>波段</label><input v-model="head.wave" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>业务员</label><input v-model="head.sales_owner" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>PO 单号</label><input v-model="head.po_no" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>品牌</label><input v-model="head.brand" :disabled="!editable" class="input" /></div>
-              <div class="tp-cell"><label>交货日期</label><input v-model="head.delivery_date" :disabled="!editable" type="date" class="input" /></div>
-              <div class="tp-cell"><label>备注</label><input v-model="head.remark" :disabled="!editable" class="input" /></div>
+              <div class="tp-cell"><label>颜色</label><input v-model="head.colors" :disabled="!editable || developmentOnly" class="input" placeholder="藏青/燕麦" /></div>
+              <div class="tp-cell"><label>尺码</label><input v-model="head.size_range" :disabled="!editable || developmentOnly" class="input" placeholder="S/M/L" /></div>
+              <div class="tp-cell"><label>设计师</label><input v-model="head.designer" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>车版师</label><input v-model="head.pattern_maker" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>纸样号</label><input v-model="head.pattern_no" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>分类</label><input v-model="head.category" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>标签</label><input v-model="head.label_name" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>系列</label><input v-model="head.series" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>波段</label><input v-model="head.wave" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>业务员</label><input v-model="head.sales_owner" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>PO 单号</label><input v-model="head.po_no" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>品牌</label><input v-model="head.brand" :disabled="!editable || developmentOnly" class="input" /></div>
+              <div class="tp-cell"><label>交货日期</label><input v-model="head.delivery_date" :disabled="!editable || developmentOnly" type="date" class="input" /></div>
+              <div class="tp-cell"><label>上传时间</label><div class="v">{{ $fmtDate(tp.created_at) }}</div></div><div class="tp-cell"><label>备注</label><input v-model="head.remark" :disabled="!editable || developmentOnly" class="input" /></div>
             </div>
           </div>
 
@@ -78,12 +78,8 @@
             <textarea v-model="head.customer_req" :disabled="!editable" rows="5" class="tp-ta"
               placeholder="尺码表 / 包装 / 标签 / 测试要求 / 交期…（会打印在工艺单与总单上）"></textarea>
 
-            <h4 class="tp-h4">工艺 / 工序说明</h4>
-            <textarea v-model="head.craft_info" :disabled="!editable" rows="4" class="tp-ta"
-              placeholder="印花 / 绣花 / 水洗 / 车缝 / 锁眼 / 整烫…"></textarea>
-
             <h4 class="tp-h4">尺码规格说明</h4>
-            <input v-model="head.size_spec" :disabled="!editable" class="input" style="width: 100%"
+            <input v-model="head.size_spec" :disabled="!editable || developmentOnly" class="input" style="width: 100%"
               placeholder="如：按客户提供的尺寸表，允许 ±1cm 公差" />
 
             <h4 class="tp-h4">打版流程</h4>
@@ -92,18 +88,25 @@
                 <span class="dot">{{ i + 1 }}</span>{{ s.label }}
               </div>
             </div>
-            <p v-if="editable" class="tp-tip">提示：流程推进用列表里的「推进 →」，这里只做展示。</p>
+            <p v-if="editable && (!developmentOnly || tab==='material')" class="tp-tip">提示：流程推进用列表里的「推进 →」，这里只做展示。</p>
           </div>
 
+          <div v-show="tab==='external'"><OutsourceCraftEditor v-if="tp" v-model="outsourceRows" :colors="outsourceColors" :readonly="!editable" @uploading="outsourceUploading=$event" /><details v-if="head.craft_info"><summary>原有工艺文字说明</summary>            <h4 class="tp-h4">外发工艺</h4>
+            <textarea v-model="head.craft_info" :disabled="!editable" rows="4" class="tp-ta"
+              placeholder="印花 / 绣花 / 水洗 / 车缝 / 锁眼 / 整烫…"></textarea>
+
+</details></div>
           <!-- ========== 面辅料信息（从档案选择，档案字段只读） ========== -->
-          <div v-if="tab === 'material'">
+          <DevelopmentMaterials v-if="developmentOnly && tp" v-show="tab==='material' && editable" ref="materialEditor" :rows="materials" :colors="head.colors" :readonly="!editable" />
+          <div v-if="developmentOnly && tab==='material' && !editable" class="tp-reference-scroll"><table class="tp-reference-material"><thead><tr><th>款色</th><th>物料/适配尺码</th><th>面料色/色号</th><th>供应商信息</th><th>规格信息</th><th>成份</th><th>单件用量（含损耗/空差）</th><th>损耗用量</th><th>单件用量金额</th><th>布料参数</th><th>备注</th><th>物料图</th><th>色卡图</th></tr></thead><tbody><tr v-for="(m,i) in referenceMaterials" :key="i"><td>{{m.colorway||'通配'}}</td><td>{{m.material_name}}<br/>{{m.unit}}</td><td>{{m.color_no||'—'}}</td><td>{{m.supplier||'—'}}<br/>{{m.supplier_info}}</td><td>{{m.spec_info||'—'}}</td><td>{{m.composition||'—'}}</td><td>{{m.one_use??'—'}} {{m.unit}}</td><td>损耗：{{m.loss_rate??0}}%<br/>空差：{{m.air_gap??100}}%</td><td>单价：{{m.unit_price??0}}<br/>金额：{{ money(m.amount) }}</td><td>{{m.use_part||'—'}}</td><td>{{m.remark||'—'}}</td><td><img v-if="m.image_url" :src="m.image_url" @click="openImage(m.image_url,m.material_name)" alt="物料图片"/></td><td><img v-if="m.color_card_url" :src="m.color_card_url" @click="openImage(m.color_card_url,m.material_name)" alt="色卡图片"/></td></tr><tr v-if="!materials.length"><td colspan="13">暂无物料信息</td></tr></tbody></table></div>
+          <div v-if="tab === 'material' && !developmentOnly">
             <div class="tp-bar">
               <div class="seg">
                 <button :class="{ on: matFilter === 'all' }" @click="matFilter = 'all'">全部</button>
                 <button :class="{ on: matFilter === 'fabric' }" @click="matFilter = 'fabric'">面料</button>
                 <button :class="{ on: matFilter === 'accessory' }" @click="matFilter = 'accessory'">辅料</button>
               </div>
-              <div style="display: flex; gap: 8px" v-if="editable">
+              <div style="display: flex; gap: 8px" v-if="editable && (!developmentOnly || tab==='material')">
                 <button class="btn btn-primary btn-sm" @click="pickerOpen = true; pickerType = ''">＋ 添加面辅料</button>
                 <button class="btn btn-ghost btn-sm" @click="addManual('fabric')">＋ 手工面料行</button>
                 <button class="btn btn-ghost btn-sm" @click="addManual('accessory')">＋ 手工辅料行</button>
@@ -129,7 +132,7 @@
                     <th style="width: 110px">备注</th>
                     <th style="width: 72px">物料图</th>
                     <th style="width: 72px">色卡图</th>
-                    <th v-if="editable" style="width: 44px"></th>
+                    <th v-if="editable && (!developmentOnly || tab==='material')" style="width: 44px"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -151,7 +154,7 @@
                       </div>
                       <template v-else>
                         <input v-model="m.material_name" :disabled="!editable" class="input mini" placeholder="物料名称 / 规格" />
-                        <input v-model="m.spec_info" :disabled="!editable" class="input mini mt2" placeholder="规格：幅宽/克重/空差" />
+                        <input v-model="m.spec_info" disabled class="input mini mt2" placeholder="规格：幅宽/克重/空差" />
                         <input v-model="m.composition" :disabled="!editable" class="input mini mt2" placeholder="成份" />
                       </template>
                     </td>
@@ -173,7 +176,7 @@
                     </td>
                     <td><input v-model.number="m.one_use" :disabled="!editable" type="number" step="0.01" class="input mini" /></td>
                     <td><input v-model.number="m.loss_rate" :disabled="!editable" type="number" step="0.1" class="input mini" /></td>
-                    <td><input v-model.number="m.air_gap" :disabled="!editable" type="number" step="0.1" class="input mini" /></td>
+                    <td><input v-model.number="m.air_gap" disabled type="number" step="0.1" class="input mini" /></td>
                     <td><input v-model.number="m.unit_price" :disabled="!editable" type="number" step="0.01" class="input mini" /></td>
                     <td class="num">{{ money(m.one_use * m.unit_price) }}</td>
                     <td><input v-model="m.remark" :disabled="!editable" class="input mini" /></td>
@@ -183,7 +186,7 @@
                     <td class="pic">
                       <ImageUpload v-model="m.color_card_url" size="xs" :disabled="!editable" />
                     </td>
-                    <td v-if="editable"><button class="link-btn danger" @click="delMat(m)">删</button></td>
+                    <td v-if="editable && (!developmentOnly || tab==='material')"><button class="link-btn danger" @click="delMat(m)">删</button></td>
                   </tr>
                   <tr v-if="!shownMaterials.length">
                     <td :colspan="editable ? 16 : 15" class="empty-cell">
@@ -195,7 +198,7 @@
             </div>
             <div class="tp-sum">
               共 {{ shownMaterials.length }} 行 · 单件物料成本合计 <strong>{{ money(matTotal) }}</strong> 元
-              <span v-if="orderQty" style="color: #8a94a6"> · 按订单 {{ orderQty }} 件估算总额 {{ money(matTotal * orderQty) }} 元</span>
+              <span v-if="orderQty" style="color: var(--ink-mute)"> · 按订单 {{ orderQty }} 件估算总额 {{ money(matTotal * orderQty) }} 元</span>
               <span class="tp-legend">🔒 = 档案资料，本单只读；色号、图片、用量、单价可在本单补充</span>
             </div>
           </div>
@@ -205,7 +208,7 @@
               <div style="display: flex; gap: 8px; align-items: center">
                 <span class="tp-hint">按部位 × 尺码填写，单位 cm；可填「68±1」这种带公差写法</span>
               </div>
-              <div style="display: flex; gap: 8px" v-if="editable">
+              <div style="display: flex; gap: 8px" v-if="editable && (!developmentOnly || tab==='material')">
                 <button class="btn btn-ghost btn-sm" @click="pullSizes">从订单带出尺码</button>
                 <button class="btn btn-ghost btn-sm" @click="addPart">＋ 部位</button>
                 <button class="btn btn-ghost btn-sm" @click="addSizeCol">＋ 尺码</button>
@@ -219,29 +222,29 @@
                     <th style="min-width: 110px">部位 \ 尺码</th>
                     <th v-for="(s, si) in sizeCols" :key="si" style="width: 100px">
                       <div class="col-head">
-                        <input :value="s" :disabled="!editable" class="input mini center" @change="(e) => renameSizeCol(si, e.target.value)" />
-                        <button v-if="editable" class="x-mini" @click="delSizeCol(si)">×</button>
+                        <input :value="s" :disabled="!editable || developmentOnly" class="input mini center" @change="(e) => renameSizeCol(si, e.target.value)" />
+                        <button v-if="editable && (!developmentOnly || tab==='material')" class="x-mini" @click="delSizeCol(si)">×</button>
                       </div>
                     </th>
-                    <th v-if="editable" style="width: 48px"></th>
+                    <th v-if="editable && (!developmentOnly || tab==='material')" style="width: 48px"></th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="(p, pi) in sizeParts" :key="pi">
                     <td>
-                      <input :value="p" :disabled="!editable" class="input mini" @change="(e) => renamePart(pi, e.target.value)" />
+                      <input :value="p" :disabled="!editable || developmentOnly" class="input mini" @change="(e) => renamePart(pi, e.target.value)" />
                     </td>
                     <td v-for="(s, si) in sizeCols" :key="si">
-                      <input v-model="cells[cellKey(p, s)]" :disabled="!editable" class="input mini center" placeholder="-" />
+                      <input v-model="cells[cellKey(p, s)]" :disabled="!editable || developmentOnly" class="input mini center" placeholder="-" />
                     </td>
-                    <td v-if="editable"><button class="link-btn danger" @click="delPart(pi)">删</button></td>
+                    <td v-if="editable && (!developmentOnly || tab==='material')"><button class="link-btn danger" @click="delPart(pi)">删</button></td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <div v-else class="empty-cell">
               还没有尺寸数据。
-              <button v-if="editable" class="link-btn" @click="pullSizes">从订单带出尺码骨架</button>
+              <button v-if="editable && (!developmentOnly || tab==='material')" class="link-btn" @click="pullSizes">从订单带出尺码骨架</button>
             </div>
           </div>
 
@@ -249,18 +252,18 @@
           <div v-if="tab === 'req'">
             <div class="tp-bar">
               <span class="tp-hint">按分类逐条写，打印时按分类分组显示</span>
-              <button v-if="editable" class="btn btn-ghost btn-sm" @click="addReq('craft')">＋ 添加要求</button>
+              <button v-if="editable && (!developmentOnly || tab==='material')" class="btn btn-ghost btn-sm" @click="addReq('craft')">＋ 添加要求</button>
             </div>
 
             <div v-for="g in REQ_CATS" :key="g.key" class="req-group">
               <div class="req-head">
                 <strong>{{ g.label }}</strong>
-                <button v-if="editable" class="link-btn" @click="addReq(g.key)">＋ 添加</button>
+                <button v-if="editable && (!developmentOnly || tab==='material')" class="link-btn" @click="addReq(g.key)">＋ 添加</button>
               </div>
               <div v-for="(r, i) in reqOf(g.key)" :key="i" class="req-row">
                 <span class="req-no">{{ i + 1 }}</span>
-                <input v-model="r.content" :disabled="!editable" class="input" style="flex: 1" placeholder="填写要求内容" />
-                <button v-if="editable" class="link-btn danger" @click="delReq(r)">删</button>
+                <input v-model="r.content" :disabled="!editable || developmentOnly" class="input" style="flex: 1" placeholder="填写要求内容" />
+                <button v-if="editable && (!developmentOnly || tab==='material')" class="link-btn danger" @click="delReq(r)">删</button>
               </div>
               <div v-if="!reqOf(g.key).length" class="req-empty">—</div>
             </div>
@@ -270,8 +273,11 @@
 
       <div class="modal-foot tp-foot">
         <span v-if="tp && tp.status === 'confirmed'" class="tp-lock">已确认，明细已锁定（如需修改请新建版本）</span>
+        <button v-if="developmentOnly && editable && tp && !tp.business_submitted" class="btn btn-primary" :disabled="saving" @click="submitDevelopment()">保存并提交审核</button>
+        <button v-if="developmentOnly && can('development.write') && tp?.business_submitted && tp.development_submission?.status!=='pending' && tp.development_flow_status!=='done' && !['pending','editing','awaiting_recheck'].includes(tp.development_change?.status)" class="btn btn-ghost" :disabled="saving" @click="requestChange()">申请修改资料</button>
+        <span v-if="developmentOnly && tp?.development_submission?.status==='pending'" class="tp-lock">待版房审核，审核通过后继续打版</span><span v-if="developmentOnly && tp?.development_change" class="tp-lock">{{({pending:'待版房审核',editing:'版房已同意，可修改后保存',awaiting_recheck:'已修改，待版房复核',released:'改版复核通过',rejected:'修改申请已驳回'})[tp.development_change.status]}}</span>
         <button class="btn btn-ghost" @click="print">打印工艺单</button>
-        <button v-if="tp && tp.status === 'confirmed'" class="btn btn-ghost" :disabled="saving" @click="newVersion">
+        <button v-if="!developmentOnly && tp && tp.status === 'confirmed'" class="btn btn-ghost" :disabled="saving" @click="newVersion">
           新建版本
         </button>
         <button class="btn btn-ghost" @click="close">关闭</button>
@@ -293,20 +299,25 @@
 </template>
 
 <script setup>
+import {openImage} from '../store/viewer';
 import { ref, computed, watch } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
+import {auth} from '../store/auth';
 import MaterialPicker from './MaterialPicker.vue';
 import ImageUpload from './ImageUpload.vue';
+import DevelopmentMaterials from './DevelopmentMaterials.vue';
+import OutsourceCraftEditor from './OutsourceCraftEditor.vue';
 
-const props = defineProps({ techpackId: { type: [Number, String], default: null } });
+const props = defineProps({ developmentOnly:Boolean, techpackId: { type: [Number, String], default: null } });
 const emit = defineEmits(['close', 'saved', 'version-created']);
 
 const TABS = [
-  { key: 'overview', label: '概览与客户要求' },
-  { key: 'material', label: '面辅料信息' },
+  { key: 'material', label: '物料信息' },
+  { key: 'external', label: '外发工艺' },
   { key: 'size', label: '成衣尺寸' },
-  { key: 'req', label: '生产要求' }
+  { key: 'req', label: '生产要求' },
+  { key: 'overview', label: '富文本（客户要求）' }
 ];
 const STAGES = [
   { key: 'draft', label: '可打版' },
@@ -332,10 +343,14 @@ const HEAD_KEYS = [
 const open = ref(false);
 const loading = ref(false);
 const saving = ref(false);
-const tab = ref('overview');
+const tab = ref('material');
 const tp = ref(null);
 const head = ref({});
 const materials = ref([]);
+const materialEditor=ref(null);
+const outsourceRows=ref([]),outsourceUploading=ref(false);
+watch(tp,value=>{outsourceRows.value=JSON.parse(JSON.stringify(value?.outsource_rows||[]));});
+const outsourceColors=computed(()=>[...new Set([...(head.value.colors||'').split(/[,，/、\n]/).map(c=>c.trim()).filter(Boolean),...materials.value.flatMap(m=>{try{return JSON.parse(m.entry_json||'{}').colors?.map(c=>c.colorway)||[m.colorway];}catch{return [m.colorway];}}).filter(Boolean)])]);
 const requirements = ref([]);
 const matFilter = ref('all');
 const pickerOpen = ref(false);
@@ -346,7 +361,8 @@ const sizeCols = ref([]);
 const cells = ref({});
 
 
-const editable = computed(() => tp.value && tp.value.status !== 'confirmed' && can('development.write'));
+const revisionEditable=computed(()=>tp.value?.development_change?.status==='editing'&&(tp.value.development_change.applicant===(auth.user?.name||auth.user?.username)||auth.user?.role==='admin'));
+const editable = computed(() => tp.value && tp.value.development_flow_status!=='done' && (tp.value.status !== 'confirmed'||revisionEditable.value) && (!props.developmentOnly||!tp.value.business_submitted||revisionEditable.value) && can('development.write'));
 const statusLabel = computed(() => {
   if (!tp.value) return '';
   const s = tp.value.status;
@@ -360,6 +376,7 @@ const stageIndex = computed(() => Math.max(0, STAGES.findIndex((s) => s.key === 
 const shownMaterials = computed(() =>
   matFilter.value === 'all' ? materials.value : materials.value.filter((m) => m.mat_type === matFilter.value)
 );
+const referenceMaterials=computed(()=>materials.value.map(m=>{let entry={};try{entry=JSON.parse(m.entry_json||'{}');}catch{}const color=(entry.colors||[]).find(c=>c.color_no===m.color_no)||(entry.colors||[])[0];return {...m,colorway:m.colorway||color?.colorway,image_url:m.image_url||entry.order_image_url,color_card_url:m.color_card_url||color?.image_url};}));
 const matTotal = computed(() => materials.value.reduce((s, m) => s + (Number(m.one_use) || 0) * (Number(m.unit_price) || 0), 0));
 const orderQty = computed(() => {
   if (!tp.value || !tp.value.order || !Array.isArray(tp.value.order.items)) return 0;
@@ -390,7 +407,7 @@ async function load(id) {
     materials.value = (data.materials || []).map((m) => ({ ...m }));
     requirements.value = (data.requirements || []).map((r) => ({ ...r }));
     buildGrid(data.sizes || []);
-    tab.value = 'overview';
+    tab.value = props.developmentOnly?'material':'overview';
   } catch (e) {
     alert(e.message);
     close();
@@ -420,13 +437,14 @@ function rowFromArchive(a) {
   if (a.width) spec.push('幅宽' + a.width);
   if (a.weight) spec.push('克重' + a.weight);
   if (a.air_gap) spec.push('空差' + a.air_gap);
+  if (a.spec) spec.push(a.spec);
   const gapNum = Number(String(a.air_gap || '').replace(/[^\d.]/g, ''));
   return {
     material_id: a.id,
     mat_type: a.type,
-    colorway: a.color || head.value.colors || '',
+    colorway: '',
     material_name: a.name,
-    color_no: a.color_no || '',
+    color_no: '',
     supplier: a.supplier || '',
     supplier_info: a.supplier_info || '',
     spec_info: spec.length ? spec.join(' ') : (a.spec || ''),
@@ -544,20 +562,27 @@ function delReq(r) {
 }
 
 /* ---------- 保存 ---------- */
+async function submitDevelopment(){const saved=await save();if(!saved)return;try{tp.value=await api.submitDevelopment(saved.id,{updated_at:saved.updated_at});emit('saved',tp.value);alert('已提交版房审核，通过后可进入打版，资料已锁定');}catch(e){alert(e.message);}}
+async function requestChange(){const reason=prompt('请输入修改物料、外发工艺或客户要求的原因');if(!reason?.trim())return;try{tp.value=await api.requestDevelopmentChange(tp.value.id,{reason:reason.trim()});emit('saved',tp.value);alert('已提交版房审核，打版流程暂停');}catch(e){alert(e.message);}}
 async function save() {
   if (!tp.value) return;
+  if(outsourceUploading.value||materialEditor.value?.busy())return alert('请先完成配色编辑或等待图片上传完成');
+  if(materialEditor.value)materials.value=materialEditor.value.serialize();
   saving.value = true;
   try {
-    const payload = {
+    let payload = {
       ...head.value,
       image_url: tp.value.image_url || '',
       materials: materials.value.map((m) => ({ ...m })),
+      outsource_rows:outsourceRows.value,
       requirements: requirements.value.filter((r) => r.content && r.content.trim()),
       sizes: sizeRows.value
         .filter((r) => r.part && r.size)
         .map((r) => ({ part: r.part, size: r.size, value: r.value }))
     };
-    const data = await api.saveTechpackDetail(tp.value.id, payload);
+    if(props.developmentOnly)payload={customer_req:head.value.customer_req||'',craft_info:head.value.craft_info||'',materials:materials.value.map(m=>({...m})),outsource_rows:outsourceRows.value,updated_at:tp.value.updated_at};
+    else payload.style_no_version=tp.value.updated_at;
+    const data = await (props.developmentOnly?api.saveDevelopmentDetail:api.saveTechpackDetail)(tp.value.id, payload);
     tp.value = data;
     const h = {};
     HEAD_KEYS.forEach((k) => (h[k] = data[k] || ''));
@@ -566,7 +591,8 @@ async function save() {
     requirements.value = (data.requirements || []).map((r) => ({ ...r }));
     buildGrid(data.sizes || []);
     emit('saved', data);
-    alert('已保存');
+    alert(props.developmentOnly&&data.development_change?.status==='awaiting_recheck'?'修改已保存，待版房复核后继续打版':'已保存');
+    return data;
   } catch (e) { alert(e.message); } finally { saving.value = false; }
 }
 
@@ -588,6 +614,7 @@ async function newVersion() {
 }
 
 function close() {
+  if(saving.value||outsourceUploading.value||materialEditor.value?.busy())return alert('请先完成配色编辑或等待保存、上传完成');
   open.value = false;
   tp.value = null;
   emit('close');
@@ -602,93 +629,95 @@ defineExpose({ reload: () => tp.value && load(tp.value.id) });
 </script>
 
 <style scoped>
+.tp-detail-mask{z-index:1200}.modal.tp-modal{width:min(1660px,96vw);max-width:96vw}
+
 /* 确认前缺口提示条：橙色，放在明细最上面，一眼能看到"还差什么" */
 .tp-gate {
   margin: 0 0 12px; padding: 9px 12px; border: 1px solid #ffe1b8; background: #fffbf3;
   border-radius: 8px; font-size: 12.5px; color: #8a5a10;
 }
 .tp-gate .g-head { font-weight: 600; color: #d46b08; }
-.tp-gate .g-sub { font-weight: 400; color: #a8763a; font-size: 11.5px; }
+.tp-gate .g-sub { font-weight: 400; color: #a8763a; font-size: 12px; }
 .tp-gate ul { margin: 6px 0 0; padding-left: 18px; }
 .tp-gate li { line-height: 1.7; }
 .tp-gate .g-label { font-weight: 600; }
 .tp-gate .g-detail { color: #7a4a08; }
-.tp-gate .g-where { color: #a8763a; font-size: 11.5px; margin-left: 4px; }
+.tp-gate .g-where { color: #a8763a; font-size: 12px; margin-left: 4px; }
 .modal.xwide.tp-modal { width: 1420px; max-width: 96vw; }
-.tp-loading { padding: 40px; text-align: center; color: #8a94a6; }
+.tp-loading { padding: 40px; text-align: center; color: var(--ink-mute); }
 
 /* 头部 */
-.tp-head { display: flex; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid #eef2f7; }
+.tp-head { display: flex; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .tp-img {
-  position: relative; width: 96px; height: 118px; flex: none; border: 1px solid #eef2f7;
-  border-radius: 8px; background: #f7f9fc; display: flex; align-items: center; justify-content: center;
+  position: relative; width: 96px; height: 118px; flex: none; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface-2); display: flex; align-items: center; justify-content: center;
   font-size: 30px; overflow: hidden;
 }
 .tp-img img { width: 100%; height: 100%; object-fit: cover; }
 .tp-img-btn {
-  position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 11px;
+  position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 12px;
   background: rgba(22, 35, 59, 0.72); color: #fff; padding: 3px 0; cursor: pointer;
 }
 .tp-info { flex: 1; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px 12px; }
 .tp-cell { min-width: 0; }
-.tp-cell label { display: block; font-size: 11.5px; color: #8a94a6; margin-bottom: 2px; }
-.tp-cell .v { font-size: 13px; color: #16233b; padding: 5px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-cell label { display: block; font-size: 12px; color: var(--ink-mute); margin-bottom: 2px; }
+.tp-cell .v { font-size: 13px; color: var(--ink); padding: 5px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-cell .input { width: 100%; padding: 5px 8px; font-size: 12.5px; }
 
 /* 页签 */
 .tp-tabs { margin: 12px 0 10px; }
 .tp-tabs .cnt {
   display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 8px;
-  background: #eef2f7; color: #5b6474; font-size: 10.5px; line-height: 15px;
+  background: #eef2f7; color: #5b6474; font-size: 12px; line-height: 15px;
 }
 
-.tp-h4 { margin: 14px 0 6px; font-size: 13px; color: #16233b; }
+.tp-h4 { margin: 14px 0 6px; font-size: 13px; color: var(--ink); }
 .tp-ta { width: 100%; padding: 8px 10px; border: 1px solid #dce3ee; border-radius: 8px; font-size: 12.5px; line-height: 1.6; resize: vertical; }
-.tp-tip { font-size: 11.5px; color: #8a94a6; margin-top: 8px; }
+.tp-tip { font-size: 12px; color: var(--ink-mute); margin-top: 8px; }
 
 .tp-steps { display: flex; gap: 6px; flex-wrap: wrap; }
 .tp-step {
-  display: flex; align-items: center; gap: 5px; font-size: 12px; color: #98a2b3;
-  border: 1px solid #eef2f7; border-radius: 20px; padding: 4px 10px 4px 4px;
+  display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-mute);
+  border: 1px solid var(--line); border-radius: 20px; padding: 4px 10px 4px 4px;
 }
 .tp-step .dot {
-  width: 17px; height: 17px; border-radius: 50%; background: #eef2f7; color: #98a2b3;
-  display: flex; align-items: center; justify-content: center; font-size: 10.5px;
+  width: 17px; height: 17px; border-radius: 50%; background: #eef2f7; color: var(--ink-mute);
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
 }
-.tp-step.on { color: #16233b; border-color: #cfe0ff; background: #f5f9ff; }
-.tp-step.on .dot { background: #2b6de5; color: #fff; }
+.tp-step.on { color: var(--ink); border-color: #cfe0ff; background: #f5f9ff; }
+.tp-step.on .dot { background: var(--brand); color: var(--on-brand); }
 .tp-step.cur { border-color: #2b6de5; }
 
 /* 工具条 */
 .tp-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-.tp-hint { font-size: 11.5px; color: #8a94a6; }
+.tp-hint { font-size: 12px; color: var(--ink-mute); }
 
 /* 横向滚动容器 */
-.tp-scroll { overflow-x: auto; border: 1px solid #eef2f7; border-radius: 8px; }
+.tp-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
 
 /* 面辅料表 */
 .tp-mat { border: none; min-width: 1540px; }
 .tp-mat th, .tp-mat td { white-space: nowrap; padding: 5px 6px; font-size: 12px; vertical-align: middle; }
 .tp-mat .input.mini, .tp-mat .select.mini { width: 100%; min-width: 0; padding: 4px 6px; font-size: 12px; }
-.tp-mat td.num { text-align: right; font-weight: 600; color: #16233b; }
+.tp-mat td.num { text-align: right; font-weight: 600; color: var(--ink); }
 .tp-mat .thumb {
   width: 34px; height: 34px; border: 1px dashed #d6dfeb; border-radius: 6px; overflow: hidden;
-  display: flex; align-items: center; justify-content: center; cursor: pointer; background: #fbfcfe;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--surface-2);
 }
 .tp-mat .thumb img { width: 100%; height: 100%; object-fit: cover; }
-.tp-mat .ph { font-size: 14px; color: #a9b4c5; }
+.tp-mat .ph { font-size: 14px; color: var(--ink-mute); }
 
 /* 档案来源行：档案字段只读，浅底 + 锁标区分，避免误以为可以改 */
-.tp-mat tr.from-arc td { background: #fbfcfe; }
-.tp-mat .locked { font-size: 12px; color: #33415a; line-height: 1.35; max-width: 190px; }
+.tp-mat tr.from-arc td { background: var(--surface-2); }
+.tp-mat .locked { font-size: 12px; color: var(--ink); line-height: 1.35; max-width: 190px; }
 .tp-mat .locked.center { text-align: center; }
 .tp-mat .locked .sub {
-  font-size: 11px; color: #8a94a6; max-width: 180px;
+  font-size: 12px; color: var(--ink-mute); max-width: 180px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tp-mat .lock { font-size: 9px; margin-right: 3px; opacity: 0.5; }
+.tp-mat .lock { font-size: 12px; margin-right: 3px; opacity: 0.5; }
 .tp-mat .mt2 { margin-top: 3px; }
-.tp-legend { margin-left: 10px; font-size: 11.5px; color: #a0aab9; }
+.tp-legend { margin-left: 10px; font-size: 12px; color: #a0aab9; }
 .tp-sum { margin-top: 8px; font-size: 12.5px; color: #5b6474; }
 
 /* 尺寸表 */
@@ -702,10 +731,10 @@ defineExpose({ reload: () => tp.value && load(tp.value.id) });
 .tp-size .x-mini:hover { color: #d92d45; }
 
 /* 生产要求 */
-.req-group { border: 1px solid #eef2f7; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
-.req-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 12.5px; color: #16233b; }
+.req-group { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.req-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 12.5px; color: var(--ink); }
 .req-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.req-no { width: 18px; font-size: 11.5px; color: #98a2b3; }
+.req-no { width: 18px; font-size: 12px; color: var(--ink-mute); }
 .req-empty { font-size: 12px; color: #c2ccdb; }
 
 /* 底部 */
@@ -718,4 +747,6 @@ defineExpose({ reload: () => tp.value && load(tp.value.id) });
   .tp-img { width: 100%; height: 140px; }
   .tp-lock { display: none; }
 }
+
+.tp-detail-mask{padding:0!important}.modal.xwide.tp-modal{position:fixed;inset:0;width:100vw;max-width:none;height:100vh;max-height:100vh;margin:0;border-radius:0;display:flex;flex-direction:column}.tp-modal>.modal-body{flex:1;min-height:0;overflow:auto;padding:20px 24px}.tp-modal>.modal-head,.tp-modal>.modal-foot{flex:none}.tp-modal .tp-head{border-bottom:0;gap:12px}.tp-modal .tp-img{width:135px;flex:none}.tp-modal .tp-info{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-top:1px solid var(--line);border-left:1px solid var(--line)}.tp-modal .tp-cell{display:grid;grid-template-columns:105px minmax(0,1fr);border-right:1px solid var(--line);border-bottom:1px solid var(--line);align-items:stretch;min-height:38px}.tp-modal .tp-cell label{margin:0;padding:10px;background:var(--surface-2);font-size:12px;display:flex;align-items:center}.tp-modal .tp-cell .input,.tp-modal .tp-cell .v{border:0;border-radius:0;background:var(--surface);padding:8px 10px;min-width:0;width:100%;height:100%;box-sizing:border-box}.tp-modal .tp-tabs{margin:16px 0;border:0;gap:0;justify-content:flex-start}.tp-modal .tp-tabs button{border:1px solid var(--line);border-radius:0;margin:0;padding:8px 15px;font-size:12px}.tp-modal .tp-tabs button.on{background:#1890ff;border-color:#1890ff;color:#fff}.tp-reference-scroll{overflow:auto}.tp-reference-material{width:100%;min-width:1350px;border-collapse:collapse;table-layout:fixed;font-size:12px}.tp-reference-material th,.tp-reference-material td{border:1px solid var(--line);padding:12px 8px;text-align:center;overflow-wrap:anywhere;line-height:1.8}.tp-reference-material th{background:color-mix(in srgb,#1890ff 27%,var(--surface));color:var(--ink-soft);font-weight:600}.tp-reference-material td{height:100px}.tp-reference-material tbody tr:nth-child(odd){background:var(--surface-2)}.tp-reference-material img{width:54px;height:62px;object-fit:contain;cursor:zoom-in}@media(max-width:1100px){.tp-modal .tp-info{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:650px){.tp-modal .tp-info{grid-template-columns:1fr}.tp-modal .tp-head{flex-direction:column}}
 </style>

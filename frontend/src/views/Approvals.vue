@@ -21,21 +21,21 @@
         <thead><tr><th>订单号</th><th>客户</th><th>款名</th><th>当前节点</th><th>总成本</th><th>出厂价</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="t in tasks" :key="t.id">
-            <td>{{ t.order_no || '-' }}</td>
+            <td>{{ t.order_no || t.req_no || '-' }}<div v-if="t.change_no" class="muted">{{ t.change_no }} · {{ t.change_title }}</div></td>
             <td>{{ t.customer_name || '-' }}</td>
             <td>{{ t.style_name || '-' }}</td>
             <td><span class="tag blue">{{ t.step_name }}</span></td>
-            <td>¥{{ money(t.total_cost) }}</td>
+            <td>{{ t.target_type === 'order_change' ? '变更影响复核' : '¥'+money(t.total_cost) }}</td>
             <td>¥{{ money(t.factory_price) }}</td>
             <td>
               <button class="link-btn" @click="act(t, true)">通过</button>
-              <button class="link-btn danger" @click="act(t, false)">驳回</button>
+              <button  class="link-btn danger" @click="act(t, false)">驳回</button>
             </td>
           </tr>
           <tr v-if="!tasks.length"><td colspan="7" class="empty-cell">暂无待我审批</td></tr>
         </tbody>
       </table>
-      <p style="font-size: 12px; color: #8a94a6; margin-top: 8px">成本单默认两级审批：财务审核 → 总经理审批；逐级通过后才算财务通过，可分单。</p>
+      <p style="font-size: 12px; color: var(--ink-mute); margin-top: 8px">成本单默认两级审批：财务审核 → 总经理审批；逐级通过后才算财务通过，可分单。</p>
     </div>
 
     <!-- 待技术确认 -->
@@ -45,14 +45,14 @@
         <thead><tr><th>订单号</th><th>客户</th><th>款名</th><th>产品</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="t in d.techpacks" :key="t.id">
-            <td>{{ t.order_no || '-' }}</td>
+            <td>{{ t.order_no || t.req_no || '-' }}<div v-if="t.change_no" class="muted">{{ t.change_no }} · {{ t.change_title }}</div></td>
             <td>{{ t.customer_name || '-' }}</td>
             <td>{{ t.style_name || '-' }}</td>
             <td>{{ t.product_name }}</td>
             <td><span class="tag gray">待确认</span></td>
             <td>
               <button v-if="canTech" class="link-btn" @click="confirmTp(t)">确认</button>
-              <button v-if="canTech" class="link-btn danger" @click="rejectTp(t)">驳回</button>
+              <button  v-if="canTech" class="link-btn danger" @click="rejectTp(t)">驳回</button>
               <button class="link-btn" @click="openOrder(t.order_id)">订单</button>
             </td>
           </tr>
@@ -75,7 +75,7 @@
             <td>¥{{ money(c.factory_price) }}</td>
             <td>
               <button v-if="canFinance" class="link-btn" @click="review(c, true)">通过</button>
-              <button v-if="canFinance" class="link-btn danger" @click="review(c, false)">驳回</button>
+              <button  v-if="canFinance" class="link-btn danger" @click="review(c, false)">驳回</button>
               <button class="link-btn" @click="openOrder(c.order_id)">订单</button>
             </td>
           </tr>
@@ -101,7 +101,7 @@
           <tr v-if="!d.orders.length"><td colspan="6" class="empty-cell">无</td></tr>
         </tbody>
       </table>
-      <p style="font-size: 12px; color: #8a94a6; margin-top: 8px">分单在订单详情「分单（本厂/外协）」区块完成。</p>
+      <p style="font-size: 12px; color: var(--ink-mute); margin-top: 8px">分单在订单详情「分单（本厂/外协）」区块完成。</p>
     </div>
   </div>
 </template>

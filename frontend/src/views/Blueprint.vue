@@ -13,7 +13,8 @@
     <div class="bp-canvas" style="position: relative">
       <MindMap v-if="config" :config="config" />
       <div v-else class="state-tip" :class="{ err: !!err }">
-        {{ err || '加载业务蓝图…' }}
+        {{ err || (unconfigured ? '尚未配置业务蓝图' : '加载业务蓝图…') }}
+        <p v-if="unconfigured" class="muted" style="font-size:13px;margin-top:10px">蓝图资料配置完成后将在此展示。</p>
       </div>
     </div>
   </div>
@@ -26,12 +27,14 @@ import { api } from '../api';
 
 const config = ref(null);
 const err = ref('');
+const unconfigured=ref(false);
 
 onMounted(async () => {
   try {
     config.value = await api.blueprint();
   } catch (e) {
-    err.value = '加载失败：' + e.message;
+    if(e.status===404)unconfigured.value=true;
+    else err.value = '加载失败：' + e.message;
   }
 });
 </script>

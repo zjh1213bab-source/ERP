@@ -3,9 +3,9 @@
     <div class="page-head">
       <div>
         <h2>面辅料档案</h2>
-        <div class="sub">开发单的工艺单从这里选择调用；档案资料统一维护，开发单里只读，只允许补充色号与本单图片</div>
+        <div class="sub">开发单的工艺单从这里选择调用；档案只维护基础资料；颜色/色号在本单填写，规格只读，成分可按本单调整</div>
       </div>
-      <button v-if="canWrite" class="btn btn-primary" @click="showBase = true">＋ 新增面辅料</button>
+      <button v-action="['materials','create']" v-if="canWrite" class="btn btn-primary" @click="showBase = true">＋ 新增面辅料</button>
     </div>
 
     <div class="toolbar" style="margin-bottom: 14px">
@@ -14,7 +14,7 @@
         <button :class="{ on: type === 'fabric' }" @click="type = 'fabric'; load()">面料</button>
         <button :class="{ on: type === 'accessory' }" @click="type = 'accessory'; load()">辅料</button>
       </div>
-      <input class="input" v-model="q" placeholder="搜索 物料名称 / 编号 / 简称 / 供应商 / 色号" style="width: 340px" @keyup.enter="load" />
+      <input class="input" v-model="q" placeholder="搜索 物料名称 / 编号 / 简称 / 供应商" style="width: 340px" @keyup.enter="load" />
       <button class="btn btn-ghost" @click="load">查询</button>
       <label v-if="canWrite" class="btn btn-ghost" style="cursor: pointer">
         导入 CSV<input type="file" accept=".csv" style="display: none" @change="onCsv" />
@@ -23,16 +23,15 @@
     </div>
 
     <div class="table-wrap">
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data mat-table">
         <thead>
           <tr>
-            <th style="width: 60px">图片</th>
+            <th style="width: 60px">色卡本封面</th>
             <th style="width: 150px">供应商</th>
             <th style="width: 60px">类型</th>
             <th>物料名称 / 编号</th>
             <th style="width: 100px">简称</th>
-            <th style="width: 110px">颜色</th>
-            <th style="width: 110px">色号</th>
             <th style="width: 56px">单位</th>
             <th style="width: 170px">规格</th>
             <th style="width: 90px">库存</th>
@@ -40,7 +39,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="m in list" :key="m.id" :class="{ off: m.status !== 'active' }">
+          <tr v-for="m in pagination.rows" :key="m.id" :class="{ off: m.status !== 'active' }">
             <td>
               <div class="thumb" :class="{ clickable: m.image_url }" @click="m.image_url && openImage(m.image_url, m.name || '')">
                 <img v-if="m.image_url" :src="m.image_url" />
@@ -57,8 +56,6 @@
               <div v-if="m.code" class="sub-line">{{ m.code }}</div>
             </td>
             <td>{{ m.short_name || '-' }}</td>
-            <td>{{ m.color || '-' }}</td>
-            <td>{{ m.color_no || '-' }}</td>
             <td>{{ m.unit || '-' }}</td>
             <td class="spec-cell">
               <div v-if="m.width">幅宽：{{ m.width }}</div>
@@ -72,15 +69,16 @@
               <div v-if="m.stock_detail" class="sub-line nowrap-ellipsis" :title="m.stock_detail">{{ m.stock_detail }}</div>
             </td>
             <td>
-              <button v-if="canWrite" class="link-btn" @click="openEdit(m)">编辑</button>
+              <button v-action="['materials','edit']" v-if="canWrite" class="link-btn" @click="openEdit(m)">编辑</button>
               <button v-if="canWrite" class="link-btn" @click="duplicate(m)">复制</button>
-              <button v-if="canWrite && m.status === 'active'" class="link-btn danger" @click="disable(m)">停用</button>
+              <button v-action="['materials','disable']" v-if="canWrite && m.status === 'active'" class="link-btn danger" @click="disable(m)">停用</button>
               <span v-else-if="m.status !== 'active'" class="tag gray">已停用</span>
             </td>
           </tr>
-          <tr v-if="!list.length"><td colspan="11" class="empty-cell">暂无档案，点右上角「新增档案」或导入 CSV</td></tr>
+          <tr v-if="!list.length"><td colspan="9" class="empty-cell">暂无档案，点右上角「新增档案」或导入 CSV</td></tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
     <!-- 新增：先从档案里选一条作为基础（也可空白新建） -->
@@ -95,6 +93,8 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
@@ -130,8 +130,9 @@ async function disable(m) {
   try { await api.deleteMaterial(m.id); await load(); } catch (e) { alert(e.message); }
 }
 
-/** CSV 导入：类型,名称,编号,简称,供应商,供应商信息,颜色,色号,单位,幅宽,克重,空差,成份,规格说明 */
+/** CSV 导入：供应商必须与既有供应商档案名称匹配，颜色不写入主数据。 */
 async function onCsv(ev) {
+  const suppliers = await api.suppliers({ status: 'active' });
   const file = ev.target.files && ev.target.files[0];
   ev.target.value = '';
   if (!file) return;
@@ -150,10 +151,11 @@ async function onCsv(ev) {
     const name = get('名称') || get('物料名称');
     if (!name) { errCount++; continue; }
     try {
+      if (get('供应商') && !suppliers.some(s => s.name === get('供应商'))) throw new Error('供应商未建档');
       await api.createMaterial({
         type: typeVal, name, code: get('编号'), short_name: get('简称'),
         supplier: get('供应商'), supplier_info: get('供应商信息'),
-        color: get('颜色'), color_no: get('色号'), unit: get('单位') || '米',
+        supplier_id: suppliers.find(s => s.name === get('供应商'))?.id || null, unit: get('单位') || '米',
         width: get('幅宽'), weight: get('克重'), air_gap: get('空差'),
         composition: get('成份'), spec: get('规格说明')
       });
@@ -165,21 +167,23 @@ async function onCsv(ev) {
 }
 
 onMounted(load);
+
+const pagination = useListPagination(() => list.value);
 </script>
 
 <style scoped>
-.hint { font-size: 12px; color: #8a94a6; }
+.hint { font-size: 12px; color: var(--ink-mute); }
 .mat-table th, .mat-table td { vertical-align: middle; }
 .mat-table .nowrap-ellipsis { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub-line { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
-.spec-cell { font-size: 12px; line-height: 1.5; color: #33415a; }
+.sub-line { font-size: 12px; color: var(--ink-mute); margin-top: 2px; }
+.spec-cell { font-size: 12px; line-height: 1.5; color: var(--ink); }
 .thumb {
-  width: 40px; height: 40px; border-radius: 6px; overflow: hidden; background: #f7f9fc;
-  border: 1px solid #eef2f7; display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 6px; overflow: hidden; background: var(--surface-2);
+  border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
 }
 .thumb.lg { width: 76px; height: 76px; }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
-.thumb .ph { font-size: 11px; color: #a9b4c5; }
+.thumb .ph { font-size: 12px; color: var(--ink-mute); }
 tr.off td { opacity: 0.55; }
-.tip { font-size: 11.5px; color: #8a94a6; margin: 8px 0 0; }
+.tip { font-size: 12px; color: var(--ink-mute); margin: 8px 0 0; }
 </style>

@@ -3,10 +3,11 @@
     <div class="page-head">
       <div>
         <h2>系统设置</h2>
-        <div class="sub">汇率与面辅料主数据（供开发单选择）</div>
+        <div class="sub">工价倍率、汇率与基础资料配置</div>
       </div>
     </div>
 
+    <WageMultiplierSettings />
     <!-- 汇率 -->
     <section class="panel-card">
       <h3>汇率设置 <span class="hint">美元 → 人民币，下单时按此汇率折算</span></h3>
@@ -19,7 +20,7 @@
           {{ savingRate ? '保存中…' : '保存汇率' }}
         </button>
         <span class="form-msg ok" v-if="rateMsg">{{ rateMsg }}</span>
-        <span v-if="!isAdmin" style="color: #8a94a6; font-size: 12.5px">仅管理员可修改</span>
+        <span v-if="!isAdmin" style="color: var(--ink-mute); font-size: 12.5px">仅管理员可修改</span>
       </div>
     </section>
 
@@ -44,7 +45,7 @@
           <tr v-for="t in sizeTemplates" :key="t.id">
             <td><strong>{{ t.name }}</strong></td>
             <td>{{ t.sizes }}</td>
-            <td><button v-if="canWrite" class="link-btn danger" @click="delSizeTemplate(t)">删除</button></td>
+            <td><button  v-if="canWrite" class="link-btn danger" @click="delSizeTemplate(t)">删除</button></td>
           </tr>
           <tr v-if="!sizeTemplates.length"><td colspan="3" class="empty-cell">暂无模板</td></tr>
         </tbody>
@@ -62,7 +63,7 @@
         <span class="form-msg ok" v-if="backupMsg">{{ backupMsg }}</span>
       </div>
       <p class="form-msg ok" v-if="restoreMsg" style="margin: 8px 0 0">{{ restoreMsg }}</p>
-      <p style="font-size: 12px; color: #8a94a6; margin: 8px 0 0">
+      <p style="font-size: 12px; color: var(--ink-mute); margin: 8px 0 0">
         恢复会上传 .db 并暂存，重启后端服务后生效；建议先「下载数据库备份」留底再操作。
       </p>
     </section>
@@ -70,6 +71,7 @@
 </template>
 
 <script setup>
+import WageMultiplierSettings from '../components/WageMultiplierSettings.vue';
 import { ref, computed, onMounted } from 'vue';
 import { api, downloadFile } from '../api';
 import { hasRole } from '../store/auth';

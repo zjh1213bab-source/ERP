@@ -105,6 +105,18 @@ function committedMap(invoiceIds) {
  * 这个数必须**算给你看**，否则用户会问「为什么这张票只能申请 3 万，
  * 我明明欠他 10 万」—— 因为另外 7 万已经在另一张申请单里了。
  */
+/** 付款核对依据只取实际采购/生产/验收单据，工序模板的外发标识不参与。 */
+function productionBasis(invoice) {
+  if(!invoice.purchase_id) return {source:'invoice',purchase:null,order:null,dispatches:[],receipts:[],payment_terms:null};
+  const purchase=db.prepare('SELECT id,po_no,order_id,status,supplier_id FROM purchase_orders WHERE id=?').get(invoice.purchase_id);
+  if(!purchase)return {source:'missing_purchase',purchase:null,order:null,dispatches:[],receipts:[],payment_terms:null};
+  const order=purchase.order_id ? db.prepare('SELECT id,order_no,status FROM orders WHERE id=?').get(purchase.order_id) : null;
+  const dispatches=order ? db.prepare("SELECT id,factory_name,type,qty,status FROM dispatch_orders WHERE order_id=? AND status<>'cancelled' ORDER BY id").all(order.id) : [];
+  const receipts=db.prepare("SELECT id,grn_no,receive_date,status,receive_qty,pass_qty,reject_qty FROM goods_receipts WHERE po_id=? AND status<>'cancelled' ORDER BY id").all(purchase.id);
+  const supplier=invoice.supplier_id ? db.prepare('SELECT payment_terms,term_days FROM suppliers WHERE id=?').get(invoice.supplier_id) : null;
+  return {source:'purchase',purchase,order,dispatches,receipts,payment_terms:supplier?.payment_terms || null,term_days:supplier?.term_days ?? null};
+}
+
 function candidates(q = {}) {
   const where = [`${S.OPEN_SQL}`];
   const params = [];
@@ -154,6 +166,7 @@ function candidates(q = {}) {
       status: r.status,
       created_at: r.created_at,
       // 全部被占满的票在页面上要能看出来（不然点了才发现申请不了）
+      production_basis: productionBasis(r),
       fully_committed: avail <= 0.005
     };
   });

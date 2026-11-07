@@ -20,11 +20,40 @@
  * ⚠️ 字面量路由（meta/daily/report/stats/scan/rules）必须写在 `/:id` 之前。
  */
 const express = require('express');
-const { ok, wrap } = require('../utils/http');
+const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const E = require('../services/exceptions');
 
 const router = express.Router();
+
+/** 普通员工只看分配给本人且属于本公司的异常，不可通过 query 切换负责人。 */
+router.use(authRequired, wrap(async (req,res,next)=>{
+ if(req.user.positionDirect||!req.user.roles?.every(r=>r==='employee'))return next();
+ if(req.method!=='GET')return fail(res,403,'普通员工暂只可查看分配给本人的异常');
+ const {db}=require('../db'),co=req.user.company_id;
+ const owns=row=>row&&row.owner_username===req.user.username;
+ const dict=E.dict();
+ const rows=E.list({company_id:co,status:'active',viewer_username:req.user.username});
+ const stats={open:rows.length,claimed:rows.filter(r=>r.status==='claimed').length,ignored:0};
+ const summary=dict.categories.map(c=>({category:c.code,label:c.label,count:rows.filter(r=>r.category===c.code).length,escalated:rows.filter(r=>r.category===c.code&&r.escalated).length}));
+ if(req.path==='/meta')return ok(res,{...dict,users:dict.users.filter(u=>u.username===req.user.username),stats});
+ if(req.path==='/stats')return ok(res,stats);
+ if(req.path==='/rules')return ok(res,dict.rules);
+ if(req.path==='/daily'){
+  const d=E.daily({company_id:co});
+  return ok(res,{day:d.day,company_id:co,data_until:d.data_until,must:d.must.filter(owns),doing:d.doing.filter(owns),auto_resolved_today:0,summary,coverage:null,coverage_pending:true,batch:null,scope:'self'});
+ }
+ if(req.path==='/report'){
+  const d=E.daily({company_id:co});return ok(res,{day:d.day,sections:{must:{title:'本人必办',rows:d.must.filter(owns)},doing:{title:'本人处理中',rows:d.doing.filter(owns)}},by_owner:rows.length?[{owner:req.user.name||req.user.username,count:rows.length}]:[],coverage:null,basis:'仅显示分配给本人的异常'});
+ }
+ if(req.path==='/')return ok(res,E.list({...req.query,company_id:co,viewer_username:req.user.username}));
+ if(/^\/\d+$/.test(req.path)){
+  const row=db.prepare('SELECT owner_username,company_id FROM exception_items WHERE id=?').get(Number(req.path.slice(1)));
+  if(!owns(row)||Number(row.company_id)!==Number(co))return fail(res,404,'异常条目不存在或未分配给本人');
+  return ok(res,E.get(Number(req.path.slice(1))));
+ }
+ return fail(res,403,'此入口需要业务岗位授权');
+}));
 
 // 所有在岗角色都能看自己归口的异常；boss 只读也看得到
 const READ = ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'];

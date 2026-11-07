@@ -8,6 +8,7 @@
       <button class="btn btn-ghost" @click="load">刷新</button>
     </div>
 
+    <section class="review-summary"><h3>待审核事项 <b>{{reviewNotices.total}}</b><button class="link-btn" @click="refreshReviewNotices()">刷新</button></h3><div><router-link v-for="i in reviewNotices.items" :key="i.key" :to="i.to">{{i.label}} <strong>{{i.count}}</strong></router-link><span v-if="!reviewNotices.total">当前无待审核事项</span></div><p v-if="reviewNotices.error">待审核数据读取失败，请刷新重试</p></section>
     <div class="cards">
       <div class="stat-card">
         <div class="label">本月订单</div>
@@ -49,7 +50,7 @@
           <div v-for="t in d.trend" :key="t.date" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%">
             <div style="font-size: 11px; color: #5b6474; margin-bottom: 4px">{{ t.cnt }}</div>
             <div :style="{ height: barH(t.cnt) + '%', background: '#2b6de5', width: '100%', borderRadius: '6px 6px 0 0', minHeight: '2px' }"></div>
-            <div style="font-size: 11px; color: #8a94a6; margin-top: 4px">{{ t.date }}</div>
+            <div style="font-size: 11px; color: var(--ink-mute); margin-top: 4px">{{ t.date }}</div>
           </div>
         </div>
       </div>
@@ -103,6 +104,7 @@
 </template>
 
 <script setup>
+import {reviewNotices,refreshReviewNotices} from '../store/reviewNotices';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { api } from '../api';
 

@@ -38,7 +38,7 @@
         </div>
         <div class="stat-card">
           <div class="label">在制</div>
-          <div class="value" style="color: #2563eb">{{ s.doing || 0 }}<small>扎</small></div>
+          <div class="value" style="color: var(--brand)">{{ s.doing || 0 }}<small>扎</small></div>
         </div>
         <div class="stat-card">
           <div class="label">短数（末道不足）</div>
@@ -144,7 +144,7 @@
     </template>
 
     <!-- 单扎明细 -->
-    <div v-if="picked" class="mask" @click.self="picked = null">
+    <div v-if="picked" class="mask">
       <div class="dlg">
         <div class="dlg-h">
           <b>扎 {{ picked.bundle_no }}</b>
@@ -367,16 +367,16 @@ onMounted(boot);
   width: 96px;
   position: sticky;
   left: 0;
-  background: #fff;
+  background: var(--surface);
   z-index: 2;
 }
 .bp-table thead .c-no {
-  background: #f7f9fd;
+  background: var(--surface-2);
 }
 .bno {
   font-family: Consolas, Menlo, monospace;
   font-weight: 800;
-  color: #2563eb;
+  color: var(--brand);
   cursor: pointer;
 }
 .bno:hover {
@@ -384,7 +384,7 @@ onMounted(boot);
 }
 .chk {
   display: block;
-  font-size: 10.5px;
+  font-size: 12px;
   font-style: normal;
   color: #d97706;
 }
@@ -393,8 +393,8 @@ onMounted(boot);
 }
 .c-sku .lot {
   display: block;
-  font-size: 10.5px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
 }
 .c-qty {
   width: 62px;
@@ -405,7 +405,7 @@ onMounted(boot);
 }
 .over-tip {
   display: block;
-  font-size: 10.5px;
+  font-size: 12px;
   font-style: normal;
   color: #d92d45;
   font-weight: 700;
@@ -417,28 +417,28 @@ onMounted(boot);
 }
 .c-proc .sq {
   display: block;
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
   color: #9aa6b8;
   font-weight: 700;
 }
 .prog {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   font-style: normal;
   color: #a0aabb;
   margin-top: 3px;
 }
 .c-proc .pn {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 .c-proc .pf {
   display: block;
-  font-size: 9.5px;
+  font-size: 12px;
   font-style: normal;
-  color: #2563eb;
+  color: var(--brand);
   font-weight: 700;
 }
 .ok {
@@ -448,17 +448,17 @@ onMounted(boot);
 }
 .df {
   display: block;
-  font-size: 9.5px;
+  font-size: 12px;
   color: #d92d45;
 }
 .none {
   color: #c9d2e0;
 }
 .none-cell {
-  background: #fbfcfe;
+  background: var(--surface-2);
 }
 .part-cell .ok {
-  color: #2563eb;
+  color: var(--brand);
 }
 .full-cell {
   background: #f2fbf5;
@@ -481,7 +481,7 @@ onMounted(boot);
 }
 .short-cell .ok::after {
   content: ' 缺';
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
 }
 .row-over .c-no {
@@ -489,7 +489,7 @@ onMounted(boot);
 }
 .empty {
   text-align: center;
-  color: #8a94a6;
+  color: var(--ink-mute);
   padding: 26px 0 !important;
 }
 .unassigned h3 {
@@ -506,7 +506,7 @@ onMounted(boot);
   padding: 20px;
 }
 .dlg {
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   width: 780px;
   max-width: 100%;
@@ -534,7 +534,7 @@ onMounted(boot);
   margin-bottom: 14px;
 }
 .kv span {
-  color: #8a94a6;
+  color: var(--ink-mute);
 }
 .kv b {
   font-weight: 600;
@@ -576,7 +576,7 @@ onMounted(boot);
   }
   .bar .switch,
   .bar .tiny {
-    font-size: 11.5px;
+    font-size: 12px;
   }
 }
 </style>

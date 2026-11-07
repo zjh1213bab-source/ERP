@@ -214,7 +214,7 @@
     </div>
 
     <!-- ================= 生成批次 ================= -->
-    <div class="modal-mask" v-if="runForm.open" @click.self="runForm.open = false">
+    <div class="modal-mask" v-if="runForm.open">
       <div class="modal">
         <div class="modal-head"><b>生成核对批次 · {{ period }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="runForm.open = false">关闭</button>
@@ -236,7 +236,7 @@
     </div>
 
     <!-- ================= 计件来源 ================= -->
-    <div class="modal-mask" v-if="srcBox.open" @click.self="srcBox.open = false">
+    <div class="modal-mask" v-if="srcBox.open">
       <div class="modal wide">
         <div class="modal-head">
           <div class="mh-left"><b>{{ srcBox.name }} · 计件来源</b>
@@ -275,7 +275,7 @@
     </div>
 
     <!-- ================= 登记差异 ================= -->
-    <div class="modal-mask" v-if="diffForm.open" @click.self="diffForm.open = false">
+    <div class="modal-mask" v-if="diffForm.open">
       <div class="modal">
         <div class="modal-head"><b>登记工资差异 · {{ diffForm.row ? diffForm.row.employee_name : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="diffForm.open = false">关闭</button>
@@ -311,7 +311,7 @@
     </div>
 
     <!-- ================= 写说明 ================= -->
-    <div class="modal-mask" v-if="noteForm.open" @click.self="noteForm.open = false">
+    <div class="modal-mask" v-if="noteForm.open">
       <div class="modal">
         <div class="modal-head"><b>核对说明 · {{ noteForm.row ? noteForm.row.employee_name : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="noteForm.open = false">关闭</button>
@@ -335,7 +335,7 @@
     </div>
 
     <!-- ================= 完成核对 ================= -->
-    <div class="modal-mask" v-if="reviewForm.open" @click.self="reviewForm.open = false">
+    <div class="modal-mask" v-if="reviewForm.open">
       <div class="modal">
         <div class="modal-head"><b>完成核对 · {{ batch ? batch.check_no : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="reviewForm.open = false">关闭</button>
@@ -524,11 +524,11 @@ onMounted(async () => {
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card { min-height: 100px; padding: 13px 12px; }
 .cards.c6 .stat-card .value { font-size: 22px; margin-top: 5px; }
-.cards.c6 .stat-card .foot { font-size: 11px; line-height: 1.4; }
+.cards.c6 .stat-card .foot { font-size: 12px; line-height: 1.4; }
 .stat-card.warn { border-color: #fde68a; background: #fffdf5; }
 
 .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-.tiny { font-size: 11px; line-height: 1.45; }
+.tiny { font-size: 12px; line-height: 1.45; }
 .mut { color: #7b8698; }
 .red { color: #b91c1c; }
 .green-t { color: #047857; }
@@ -541,12 +541,12 @@ table.data .tag { white-space: nowrap; }
 table.data .btn { white-space: nowrap; }
 .ops { white-space: nowrap; }
 .ops .btn + .btn { margin-left: 5px; }
-.ops .btn { padding: 3px 8px; font-size: 11.5px; }
+.ops .btn { padding: 3px 8px; font-size: 12px; }
 
 .legend { margin-top: 10px; }
-.col-h { font-size: 12.5px; font-weight: 600; color: #16233b; margin: 12px 0 6px; }
-.basis-txt { font-size: 12px; line-height: 1.8; color: #3d4757; background: #fbfcfe; border: 1px solid #eef1f6; border-radius: 9px; padding: 10px 12px; }
-.cov-item { font-size: 11.5px; color: #92400e; line-height: 1.8; }
+.col-h { font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 12px 0 6px; }
+.basis-txt { font-size: 12px; line-height: 1.8; color: #3d4757; background: var(--surface-2); border: 1px solid #eef1f6; border-radius: 9px; padding: 10px 12px; }
+.cov-item { font-size: 12px; color: #92400e; line-height: 1.8; }
 .cov { background: #fffdf5; border: 1px solid #fde68a; border-radius: 9px; padding: 8px 12px; }
 table.rules td { font-size: 12px; line-height: 1.7; border-top: 1px solid #eef1f6; }
 

@@ -315,7 +315,7 @@
     </div>
 
     <!-- ================= 定版确认 ================= -->
-    <div class="modal-mask" v-if="runForm.open" @click.self="runForm.open = false">
+    <div class="modal-mask" v-if="runForm.open">
       <div class="modal">
         <div class="modal-head"><b>定版 {{ period }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="runForm.open = false">关闭</button>
@@ -340,7 +340,7 @@
     </div>
 
     <!-- ================= 下钻 ================= -->
-    <div class="modal-mask" v-if="drillBox.open" @click.self="drillBox.open = false">
+    <div class="modal-mask" v-if="drillBox.open">
       <div class="modal wide">
         <div class="modal-head">
           <div class="mh-left"><b>{{ drillBox.title }}</b><span class="tag gray">{{ period }}</span></div>
@@ -366,7 +366,7 @@
     </div>
 
     <!-- ================= 分派 ================= -->
-    <div class="modal-mask" v-if="assignForm.open" @click.self="assignForm.open = false">
+    <div class="modal-mask" v-if="assignForm.open">
       <div class="modal">
         <div class="modal-head"><b>分派 · {{ assignForm.f ? assignForm.f.subject : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="assignForm.open = false">关闭</button>
@@ -388,7 +388,7 @@
     </div>
 
     <!-- ================= 已处理 ================= -->
-    <div class="modal-mask" v-if="reviewForm.open" @click.self="reviewForm.open = false">
+    <div class="modal-mask" v-if="reviewForm.open">
       <div class="modal">
         <div class="modal-head"><b>已处理 · {{ reviewForm.f ? reviewForm.f.subject : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="reviewForm.open = false">关闭</button>
@@ -413,7 +413,7 @@
     </div>
 
     <!-- ================= 复核关闭 ================= -->
-    <div class="modal-mask" v-if="closeForm.open" @click.self="closeForm.open = false">
+    <div class="modal-mask" v-if="closeForm.open">
       <div class="modal">
         <div class="modal-head"><b>复核关闭 · {{ closeForm.f ? closeForm.f.subject : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="closeForm.open = false">关闭</button>
@@ -433,7 +433,7 @@
     </div>
 
     <!-- ================= 忽略 ================= -->
-    <div class="modal-mask" v-if="ignoreForm.open" @click.self="ignoreForm.open = false">
+    <div class="modal-mask" v-if="ignoreForm.open">
       <div class="modal">
         <div class="modal-head"><b>忽略差异 · {{ ignoreForm.f ? ignoreForm.f.subject : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="ignoreForm.open = false">关闭</button>
@@ -720,21 +720,21 @@ onMounted(async () => {
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card { min-height: 100px; padding: 13px 12px; }
 .cards.c6 .stat-card .value { font-size: 22px; margin-top: 5px; }
-.cards.c6 .stat-card .foot { font-size: 11px; line-height: 1.4; }
+.cards.c6 .stat-card .foot { font-size: 12px; line-height: 1.4; }
 .stat-card.warn { border-color: #fde68a; background: #fffdf5; }
 
 .sec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
-.sec { border: 1px solid #eef1f6; border-radius: 10px; padding: 12px 14px; background: #fff; }
+.sec { border: 1px solid #eef1f6; border-radius: 10px; padding: 12px 14px; background: var(--surface); }
 .sec-h { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
 .sec-h .sp { flex: 1; }
 .sec .kv { display: flex; gap: 8px; font-size: 12px; padding: 2.5px 0; align-items: baseline; }
 .sec .kv > span { color: #7b8698; min-width: 84px; flex: 0 0 auto; }
 .sec .kv > b { font-weight: 500; }
 .sec-note { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #eef1f6; }
-.sec.basis { grid-column: 1 / -1; background: #fbfcfe; }
+.sec.basis { grid-column: 1 / -1; background: var(--surface-2); }
 .sec.basis .tiny { line-height: 1.75; color: #3d4757; }
 .coverage { margin-top: 8px; }
-.cov-item { font-size: 11.5px; color: #92400e; line-height: 1.7; }
+.cov-item { font-size: 12px; color: #92400e; line-height: 1.7; }
 
 .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .subj { font-size: 12px; font-weight: 600; white-space: normal; word-break: break-word; }
@@ -743,9 +743,9 @@ onMounted(async () => {
 .ea > span:last-child { word-break: break-word; }
 .cell-ops { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 5px; }
 .cell-btns { display: flex; gap: 5px; flex-wrap: wrap; }
-.cell-btns .btn { padding: 3px 8px; font-size: 11.5px; }
+.cell-btns .btn { padding: 3px 8px; font-size: 12px; }
 .ell { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tiny { font-size: 11px; line-height: 1.45; }
+.tiny { font-size: 12px; line-height: 1.45; }
 .mut { color: #7b8698; }
 .red { color: #b91c1c; }
 .green-t { color: #047857; }
@@ -767,7 +767,7 @@ table.data .btn { white-space: nowrap; }
 .kv { display: flex; gap: 8px; font-size: 12px; padding: 3px 0; }
 .kv > span { color: #7b8698; min-width: 84px; flex: 0 0 auto; }
 .kv > b { font-weight: 500; }
-.raw { white-space: pre-wrap; font-size: 11.5px; line-height: 1.7; background: #f7f9fc; border-radius: 8px; padding: 10px 12px; max-height: 60vh; overflow: auto; margin: 0; }
+.raw { white-space: pre-wrap; font-size: 12px; line-height: 1.7; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; max-height: 60vh; overflow: auto; margin: 0; }
 
 .modal-body .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .modal-body .row label { font-size: 12px; color: #7b8698; flex: 0 0 auto; min-width: 62px; }

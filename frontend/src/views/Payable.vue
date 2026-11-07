@@ -11,7 +11,7 @@
       </div>
       <div class="head-ops">
         <button class="btn btn-ghost" @click="reload">刷新</button>
-        <button class="btn btn-ghost" @click="doExport">导出 CSV</button>
+        <button v-action="['payable','export']" class="btn btn-ghost" @click="doExport">导出 CSV</button>
       </div>
     </div>
 
@@ -243,7 +243,7 @@
     </div>
 
     <!-- ================= 供应商明细 ================= -->
-    <div v-if="detail" class="modal-mask" @click.self="detail = null">
+    <div v-if="detail" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ detail.supplier.name }} · 应付明细</h3>
@@ -321,7 +321,7 @@
     </div>
 
     <!-- ================= 改账期 ================= -->
-    <div v-if="termForm.open" class="modal-mask" @click.self="termForm.open = false">
+    <div v-if="termForm.open" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>账期 · {{ termForm.name }}</h3>
@@ -492,17 +492,17 @@ onMounted(async () => {
 
 <style scoped>
 .cards.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.stat-card .foot { margin-top: 8px; font-size: 11.5px; color: #8a94a6; }
+.stat-card .foot { margin-top: 8px; font-size: 12px; color: var(--ink-mute); }
 .stat-card.danger { border-color: #f6c9d0; background: #fffafb; }
 .stat-card.warn { border-color: #f3ddb5; background: #fffdf7; }
 .cards.c5 .stat-card .value { font-size: 23px; }
 
 .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 .tabs button {
-  padding: 8px 18px; border-radius: 10px; border: 1px solid #e6ebf3; background: #fff;
-  font-size: 13px; color: #4b5568; cursor: pointer; font-weight: 600;
+  padding: 8px 18px; border-radius: 10px; border: 1px solid #e6ebf3; background: var(--surface);
+  font-size: 13px; color: var(--ink-soft); cursor: pointer; font-weight: 600;
 }
-.tabs button.on { background: #2b6de5; border-color: #2b6de5; color: #fff; }
+.tabs button.on { background: var(--brand); border-color: #2b6de5; color: var(--on-brand); }
 
 .banner { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; font-size: 13px; line-height: 1.7; border: 1px solid transparent; }
 .banner.warn { background: #fff8ec; border-color: #f3ddb5; color: #8a5a12; }
@@ -518,7 +518,7 @@ onMounted(async () => {
 .data td:last-child {
   position: sticky;
   right: 0;
-  background: #fff;
+  background: var(--surface);
   /* 不要加阴影：表格刚好放下时，这 8px 阴影会盖住隔壁「状态」标签的右半截 */
 }
 .data tbody tr:hover td:last-child {
@@ -532,7 +532,7 @@ onMounted(async () => {
 .data .tag { white-space: nowrap; }
 .ops { white-space: nowrap; }
 .ops .link-btn + .link-btn { margin-left: 10px; }
-.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #4b5568; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-soft); }
 .warn-text { color: #d97706; }
 .strong { font-weight: 700; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
@@ -540,25 +540,25 @@ onMounted(async () => {
 /* 8 周里常常有 4 周是空的，空周还占整块版面会把有内容的挤到下面看不见 */
 .week-card { padding: 16px 20px; }
 .week-card.compact { padding: 9px 20px; margin-bottom: 8px; }
-.week-card.compact .week-head b { font-size: 13px; font-weight: 600; color: #4b5568; }
-.week-card.compact .week-sum b { font-size: 14px; color: #8a94a6; }
+.week-card.compact .week-head b { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+.week-card.compact .week-sum b { font-size: 14px; color: var(--ink-mute); }
 .empty-week { margin-top: 2px; }
 .week-card.hot { border-color: #f6c9d0; background: #fffcfc; }
 .week-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.week-head b { font-size: 14.5px; color: #16233b; }
+.week-head b { font-size: 14.5px; color: var(--ink); }
 .week-head .tiny { margin-left: 8px; }
 .week-sum { text-align: right; }
 .week-sum b { font-size: 18px; font-weight: 800; }
 .week-sum .tiny { display: block; margin-top: 2px; }
-.pending-card { background: #fbfcfe; }
+.pending-card { background: var(--surface-2); }
 .more-row { margin-top: 8px; text-align: center; }
 
 .dgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; padding: 4px 0 12px; }
-.dgrid label { display: block; font-size: 11.5px; color: #8a94a6; margin-bottom: 4px; }
-.dgrid b { font-size: 15px; color: #16233b; }
-.sec { margin: 18px 0 8px; font-size: 13.5px; color: #16233b; }
+.dgrid label { display: block; font-size: 12px; color: var(--ink-mute); margin-bottom: 4px; }
+.dgrid b { font-size: 15px; color: var(--ink); }
+.sec { margin: 18px 0 8px; font-size: 13.5px; color: var(--ink); }
 .frow { margin-bottom: 14px; }
-.frow label { display: block; font-size: 12.5px; color: #6b7688; margin-bottom: 5px; }
+.frow label { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 5px; }
 .frow .tiny { margin: 6px 0 0; }
 .preview { padding: 10px 12px; border-radius: 10px; background: #f6f8fc; font-size: 13px; margin-bottom: 8px; }
 .form-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }

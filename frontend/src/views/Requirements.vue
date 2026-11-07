@@ -128,7 +128,7 @@
     </div>
 
     <!-- 订单明细 -->
-    <div v-if="detail" class="modal-mask" @click.self="detail = null">
+    <div v-if="detail" class="modal-mask">
       <div class="modal xwide rq-modal">
         <div class="modal-head">
           <h3>
@@ -268,13 +268,13 @@ onMounted(() => { loadBoard(); });
 
 <style scoped>
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
-.page-head h2 { margin: 0 0 4px; font-size: 19px; color: #16233b; }
-.page-head .sub { margin: 0; font-size: 12.5px; color: #8a94a6; max-width: 780px; line-height: 1.6; }
+.page-head h2 { margin: 0 0 4px; font-size: 19px; color: var(--ink); }
+.page-head .sub { margin: 0; font-size: 12.5px; color: var(--ink-mute); max-width: 780px; line-height: 1.6; }
 .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 14px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 21px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 14px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 21px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a !important; }
 .amt-red { color: #d92d45 !important; }
 .amt-orange { color: #d97706 !important; }
@@ -283,18 +283,18 @@ onMounted(() => { loadBoard(); });
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .center { text-align: center; }
 .ops { white-space: nowrap; }
-.muted { color: #8a94a6; }
+.muted { color: var(--ink-mute); }
 .sub-cell { font-size: 12px; color: #5b6474; }
-.empty-cell { text-align: center; color: #8a94a6; padding: 18px; }
+.empty-cell { text-align: center; color: var(--ink-mute); padding: 18px; }
 
 .modal.xwide.rq-modal { width: 1300px; max-width: 97vw; }
 .rq-modal .modal-body { max-height: 78vh; }
 .rq-flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.rq-step { border: 1px solid #e6ebf3; border-radius: 10px; padding: 9px 12px; background: #fff; }
+.rq-step { border: 1px solid #e6ebf3; border-radius: 10px; padding: 9px 12px; background: var(--surface); }
 .rq-step.ok { border-color: #cfe9da; background: #f6fdf9; }
 .rq-step.bad { border-color: #f8d3d8; background: #fff8f9; }
-.rq-step span { display: block; font-size: 11.5px; color: #8a94a6; }
-.rq-step b { font-size: 13px; color: #16233b; }
+.rq-step span { display: block; font-size: 12px; color: var(--ink-mute); }
+.rq-step b { font-size: 13px; color: var(--ink); }
 .rq-step.bad b { color: #d92d45; }
 .rq-step.ok b { color: #16a34a; }
 .rq-tbl { min-width: 1180px; }

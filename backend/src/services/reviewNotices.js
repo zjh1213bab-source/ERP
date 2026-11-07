@@ -1,0 +1,11 @@
+/** 待审核提示的只读事实投影：不把草稿当待审，不返回未授权模块或其他主体数量。 */
+const {db}=require('../db'),scope=require('../access/companyScope');
+function list(user){const access=require('./access'),position=require('./positionAccess').assigned(user.sub);const can=(module,perm)=>user.role==='admin'||(position?.direct?position.perms.includes('module.'+module+'.read')&&position.perms.includes('module.'+module+'.write'):access.hasPerm(user.sub,user.role,perm));const out=[];
+ const add=(key,label,to,rows)=>{out.push({key,label,to,count:rows.length});};
+ if(can('pattern-flows','pattern.review')){const rows=db.prepare("SELECT c.id,COALESCE(o.company_id,p.company_id) company_id FROM pattern_change_requests c JOIN pattern_flows f ON f.id=c.flow_id JOIN tech_packs t ON t.id=f.tech_pack_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN pre_orders p ON p.id=t.pre_order_id WHERE c.status IN ('pending','awaiting_recheck')").all().filter(r=>scope.isSingle()||r.company_id&&scope.canSee(user,r));add('development','开发及打版待审核','/pattern-board',rows);}
+ if(can('sample-archives','pattern.review')){const rows=db.prepare("SELECT c.id,COALESCE(o.company_id,p.company_id) company_id FROM sample_change_requests c JOIN sample_archives a ON a.id=c.archive_id JOIN tech_packs t ON t.id=a.tech_pack_id LEFT JOIN orders o ON o.id=t.order_id LEFT JOIN pre_orders p ON p.id=t.pre_order_id WHERE c.status='pending'").all().filter(r=>scope.isSingle()||r.company_id&&scope.canSee(user,r));add('sample','样衣变更待审核','/sample-archive',rows);}
+ if(can('costs','cost.review')){const rows=db.prepare("SELECT c.id,o.company_id FROM cost_sheets c JOIN orders o ON o.id=c.order_id WHERE c.status='pending'").all().filter(r=>scope.canSee(user,r));add('cost','成本待审核','/approvals',rows);}
+ const tasks=require('./approvals').myTasks(user).filter(t=>{if(t.target_type==='cost')return false;if(t.target_type==='order_change'){const r=db.prepare('SELECT order_id FROM order_changes WHERE id=?').get(t.target_id);return r&&scope.assertOrder(user,r.order_id).ok;}if(t.target_type==='payment'){return scope.isSingle()||['admin','boss'].includes(user.role);}return false;});if(tasks.length)add('approval','待我审批任务','/approvals',tasks);
+ return {items:out,total:out.reduce((n,r)=>n+r.count,0)};
+}
+module.exports={list};

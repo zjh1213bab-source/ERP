@@ -275,7 +275,7 @@
     </div>
 
     <!-- ==================== 下钻：SKU 明细 ==================== -->
-    <div v-if="drillOpen" class="modal-mask" @click.self="drillOpen = false">
+    <div v-if="drillOpen" class="modal-mask">
       <div class="modal xxwide">
         <div class="modal-head">
           <h3>{{ drillStyle }} 逐码明细</h3>
@@ -319,7 +319,7 @@
     </div>
 
     <!-- ==================== 决策弹窗 ==================== -->
-    <div v-if="decide.open" class="modal-mask" @click.self="decide.open = false">
+    <div v-if="decide.open" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>决策：{{ decide.row && decide.row.style_no }} {{ decide.row && decide.row.color }}/{{ decide.row && decide.row.size }}</h3>
@@ -356,7 +356,7 @@
     </div>
 
     <!-- ==================== 生成提案弹窗 ==================== -->
-    <div v-if="gen.open" class="modal-mask" @click.self="gen.open = false">
+    <div v-if="gen.open" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>生成补货 / 停补提案</h3>
@@ -385,7 +385,7 @@
     </div>
 
     <!-- ==================== 策略弹窗 ==================== -->
-    <div v-if="policy.open" class="modal-mask" @click.self="policy.open = false">
+    <div v-if="policy.open" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ policy.id ? '编辑备货策略' : '新增备货策略' }}</h3>
@@ -665,32 +665,32 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-warn { border-color: #f7d9a8; background: #fffaf1; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
-.empty-box { background: #fff; border: 1px dashed #dfe5ef; border-radius: 12px; padding: 34px; text-align: center; color: #8a94a6; font-size: 13px; }
+.empty-box { background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; padding: 34px; text-align: center; color: var(--ink-mute); font-size: 13px; }
 table.data th, table.data td { white-space: nowrap; }
 table.data td.wrap { white-space: normal; }
 
 .cov { display: flex; align-items: center; gap: 8px; }
 .cov-bar { flex: 1; height: 6px; background: #eef1f6; border-radius: 4px; overflow: hidden; min-width: 60px; }
 .cov-bar i { display: block; height: 100%; border-radius: 4px; }
-.rc { display: inline-block; padding: 1px 7px; border-radius: 20px; background: #eef1f6; color: #5b6474; font-size: 11px; margin-right: 6px; }
+.rc { display: inline-block; padding: 1px 7px; border-radius: 20px; background: #eef1f6; color: #5b6474; font-size: 12px; margin-right: 6px; }
 
 .chips { display: flex; gap: 8px; margin-bottom: 10px; }
-.chip { padding: 6px 14px; border: 1px solid #e2e8f2; background: #fff; border-radius: 20px; font-size: 12.5px; color: #5b6474; cursor: pointer; }
-.chip.on { background: #eaf1ff; border-color: #cfe0ff; color: #2563eb; font-weight: 700; }
+.chip { padding: 6px 14px; border: 1px solid #e2e8f2; background: var(--surface); border-radius: 20px; font-size: 12.5px; color: #5b6474; cursor: pointer; }
+.chip.on { background: #eaf1ff; border-color: #cfe0ff; color: var(--brand); font-weight: 700; }
 .chip b { margin-left: 4px; color: #16305f; }
 
 .appr { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
-.appr-item { background: #fff; border: 1px solid #e6ebf3; border-radius: 8px; padding: 5px 10px; font-size: 12px; }
-.appr-item em { font-style: normal; color: #8a94a6; }
+.appr-item { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 8px; padding: 5px 10px; font-size: 12px; }
+.appr-item em { font-style: normal; color: var(--ink-mute); }
 
-.tab-dot { display: inline-block; min-width: 16px; padding: 0 4px; margin-left: 5px; border-radius: 10px; background: #d92d45; color: #fff; font-size: 10.5px; line-height: 16px; text-align: center; }
+.tab-dot { display: inline-block; min-width: 16px; padding: 0 4px; margin-left: 5px; border-radius: 10px; background: #d92d45; color: #fff; font-size: 12px; line-height: 16px; text-align: center; }
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }

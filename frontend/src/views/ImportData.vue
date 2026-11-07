@@ -313,7 +313,7 @@ onMounted(reload);
 
 <style scoped>
 .type-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.type-card { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; cursor: pointer; background: #fff; }
+.type-card { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; cursor: pointer; background: var(--surface); }
 .type-card:hover { border-color: #c7d7f0; }
 .type-card.on { border-color: #2f6fed; background: #f5f9ff; box-shadow: 0 0 0 2px rgba(47, 111, 237, .12); }
 .tc-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; font-size: 13px; color: #16305f; }
@@ -328,15 +328,15 @@ onMounted(reload);
 .fh i { color: #d92d45; font-style: normal; margin-left: 1px; }
 .fh small { color: #9aa4b5; }
 
-.ta { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 12px; font-family: ui-monospace, Menlo, monospace; box-sizing: border-box; line-height: 1.6; }
+.ta { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; font-family: ui-monospace, Menlo, monospace; box-sizing: border-box; line-height: 1.6; }
 .fl { display: block; font-size: 12px; color: #5b6474; }
-.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
+.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
 
 .stat-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
 .commit-box { margin-top: 12px; background: #f8fafd; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -344,7 +344,7 @@ onMounted(reload);
 .chk input { width: auto; }
 
 .done-box { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: #5b6474; }
-.done-box span { color: #8a94a6; margin-right: 5px; }
+.done-box span { color: var(--ink-mute); margin-right: 5px; }
 .done-box b { color: #16305f; }
 
 table.data th, table.data td { white-space: nowrap; }

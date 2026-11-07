@@ -15,6 +15,7 @@
 
     <!-- ========== 样衣档案 ========== -->
     <template v-if="tab === 'archives'">
+      <SampleImageSearch :q="q" :status="status" @results="showImageResults" @clear="load()" />
       <div class="toolbar" style="margin-bottom: 14px">
         <input class="input" v-model="q" placeholder="搜索 样衣编号 / 款号 / 名称 / 客户" style="width: 300px" @keyup.enter="load" />
         <select class="select" v-model="status" @change="load">
@@ -27,10 +28,12 @@
       </div>
 
       <div class="table-wrap">
-        <table class="data">
+        <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
+      <table class="data">
           <thead>
             <tr>
               <th style="width: 56px">图片</th>
+              <th v-if="imageResults">相似度</th>
               <th style="width: 130px">样衣编号</th>
               <th>款号 / 样衣名称</th>
               <th style="width: 70px">版本</th>
@@ -42,12 +45,13 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="a in list" :key="a.id">
+            <tr v-for="a in pagination.rows" :key="a.id">
               <td>
                 <div class="mini-thumb" :class="{ clickable: a.image_url }" @click="a.image_url && openImage(a.image_url, a.sample_name || a.archive_no || '')">
                   <img v-if="a.image_url" :src="a.image_url" /><span v-else>-</span>
                 </div>
               </td>
+              <td v-if="imageResults"><span class="tag">{{ a.similarity }}%</span></td>
               <td><strong>{{ a.archive_no }}</strong></td>
               <td>
                 {{ a.style_no || '-' }}
@@ -66,9 +70,10 @@
                 <button v-if="a.status !== 'revised'" class="link-btn" @click="openChange(a)">申请变更</button>
               </td>
             </tr>
-            <tr v-if="!list.length"><td colspan="9" class="empty-cell">还没有归档样衣，打版流程走完会自动归档</td></tr>
+            <tr v-if="!list.length"><td :colspan="imageResults ? 10 : 9" class="empty-cell">{{ imageResults ? '没有找到可检索的样衣图片' : '还没有归档样衣，打版流程走完会自动归档' }}</td></tr>
           </tbody>
         </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       </div>
     </template>
 
@@ -102,7 +107,7 @@
               <td class="nw">
                 <template v-if="c.status === 'pending' && canReview">
                   <button class="link-btn" @click="review(c, true)">通过</button>
-                  <button class="link-btn danger" @click="review(c, false)">驳回</button>
+                  <button  class="link-btn danger" @click="review(c, false)">驳回</button>
                 </template>
                 <span v-else-if="c.status !== 'pending'" class="sub-line">{{ c.reviewer }} · {{ $fmtDate(c.reviewed_at) }}</span>
                 <span v-else class="sub-line">等待审核</span>
@@ -115,7 +120,7 @@
     </template>
 
     <!-- 详情 -->
-    <div v-if="detail" class="modal-mask" @click.self="detail = null">
+    <div v-if="detail" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>
@@ -162,6 +167,14 @@
             </table>
           </div>
 
+          <h3 class="sec">本款工序（归档快照）</h3>
+          <div v-for="group in [{key:'sewing',label:'车缝工序'},{key:'finish',label:'后整工序'}]" :key="group.key" class="tbl-scroll">
+            <strong>{{ group.label }}</strong>
+            <table class="data snap-tbl"><thead><tr><th>序号</th><th>名称</th><th>类别</th><th>单价</th><th>倍率</th><th>说明</th></tr></thead>
+              <tbody><tr v-for="(step,index) in snap.processes?.[group.key] || []" :key="index"><td>{{ index+1 }}</td><td>{{ step.name }}</td><td>{{ step.category }}</td><td>{{ step.price }}</td><td>{{ step.ratio }}</td><td>{{ step.remark || '—' }}</td></tr>
+              <tr v-if="!snap.processes?.[group.key]?.length"><td colspan="6">无工序快照（历史归档保留原记录）</td></tr></tbody></table>
+          </div>
+
           <h3 class="sec">成衣尺寸（快照）</h3>
           <div class="tbl-scroll">
             <table class="data snap-tbl">
@@ -202,7 +215,7 @@
     </div>
 
     <!-- 提交更改需求 -->
-    <div v-if="changeTarget" class="modal-mask" @click.self="changeTarget = null">
+    <div v-if="changeTarget" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>提交更改需求 · {{ changeTarget.archive_no }}</h3>
@@ -231,6 +244,9 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import SampleImageSearch from '../components/SampleImageSearch.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { api } from '../api';
@@ -238,6 +254,8 @@ import { can } from '../store/permissions';
 
 const tab = ref('archives');
 const list = ref([]);
+const imageResults = ref(false);
+function showImageResults(rows) { list.value = rows; imageResults.value = true; pagination.page = 1; }
 const changes = ref([]);
 const route = useRoute();
 const q = ref(String((route.query && route.query.q) || ''));
@@ -283,7 +301,7 @@ const reqGroups = computed(() => {
 });
 
 async function load() {
-  try { list.value = await api.sampleArchives({ q: q.value, status: status.value }); }
+  try { list.value = await api.sampleArchives({ q: q.value, status: status.value }); imageResults.value = false; }
   catch (e) { alert(e.message); }
 }
 async function loadChanges() {
@@ -321,33 +339,35 @@ async function review(c, approve) {
 }
 
 onMounted(async () => { await load(); await loadChanges(); });
+
+const pagination = useListPagination(() => list.value);
 </script>
 
 <style scoped>
 .nw { white-space: nowrap; }
-.sub-line { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
+.sub-line { font-size: 12px; color: var(--ink-mute); margin-top: 2px; }
 .nowrap-ellipsis { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.snap-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px 14px; padding-bottom: 10px; border-bottom: 1px solid #eef2f7; }
-.snap-grid label { display: block; font-size: 11.5px; color: #8a94a6; margin-bottom: 2px; }
-.snap-grid div > div { font-size: 13px; color: #16233b; }
+.snap-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.snap-grid label { display: block; font-size: 12px; color: var(--ink-mute); margin-bottom: 2px; }
+.snap-grid div > div { font-size: 13px; color: var(--ink); }
 
-.sec { font-size: 13.5px; margin: 16px 0 6px; color: #16233b; }
+.sec { font-size: 13.5px; margin: 16px 0 6px; color: var(--ink); }
 .snap-text {
-  border: 1px solid #eef2f7; border-radius: 8px; padding: 8px 10px;
-  white-space: pre-wrap; font-size: 12.5px; line-height: 1.7; background: #fafcff; color: #33415a;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  white-space: pre-wrap; font-size: 12.5px; line-height: 1.7; background: #fafcff; color: var(--ink);
 }
-.tbl-scroll { overflow-x: auto; border: 1px solid #eef2f7; border-radius: 8px; }
+.tbl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
 .snap-tbl { border: none; min-width: 620px; }
 .snap-tbl th, .snap-tbl td { white-space: nowrap; font-size: 12px; padding: 6px 8px; }
 
 .req-g { margin-bottom: 8px; }
-.req-t { font-weight: 700; font-size: 12px; color: #33415a; }
+.req-t { font-weight: 700; font-size: 12px; color: var(--ink); }
 .req-g ol { margin: 2px 0 0; padding-left: 20px; }
-.req-g li { font-size: 12.5px; line-height: 1.7; color: #33415a; }
+.req-g li { font-size: 12.5px; line-height: 1.7; color: var(--ink); }
 
-.chg-row { font-size: 12.5px; color: #33415a; padding: 4px 0; border-bottom: 1px dashed #eef2f7; }
-.tip { font-size: 11.5px; color: #8a94a6; margin-top: 8px; }
+.chg-row { font-size: 12.5px; color: var(--ink); padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.tip { font-size: 12px; color: var(--ink-mute); margin-top: 8px; }
 
 @media (max-width: 900px) {
   .snap-grid { grid-template-columns: repeat(2, 1fr); }

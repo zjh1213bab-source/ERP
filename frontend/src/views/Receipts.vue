@@ -64,6 +64,7 @@
     </div>
 
     <div class="table-wrap">
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data">
         <thead>
           <tr>
@@ -83,7 +84,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in rows" :key="r.id" :class="{ 'row-warn': r.status === 'pending', 'row-red': r.status === 'rejected' }">
+          <tr v-for="r in pagination.rows" :key="r.id" :class="{ 'row-warn': r.status === 'pending', 'row-red': r.status === 'rejected' }">
             <td>{{ r.grn_no }}</td>
             <td class="sub-cell">{{ r.po_no || '-' }}</td>
             <td class="sub-cell">{{ r.supplier || '-' }}</td>
@@ -101,10 +102,11 @@
           <tr v-if="!rows.length"><td colspan="13" class="empty-cell">还没有收料单。采购单点「到货」会自动生成，也可以点右上角「开收料单」</td></tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
     <!-- 详情 / 处理 -->
-    <div v-if="cur" class="modal-mask" @click.self="cur = null">
+    <div v-if="cur" class="modal-mask">
       <div class="modal xwide grn-modal">
         <div class="modal-head">
           <h3>
@@ -254,7 +256,7 @@
     </div>
 
     <!-- 开收料单 -->
-    <div v-if="newOpen" class="modal-mask" @click.self="newOpen = false">
+    <div v-if="newOpen" class="modal-mask">
       <div class="modal xwide new-modal">
         <div class="modal-head">
           <h3>开收料单（点收）</h3>
@@ -318,7 +320,11 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
+import {useRoute} from 'vue-router';
+const route=useRoute();
 import { api } from '../api';
 
 const stat = ref({});
@@ -492,56 +498,58 @@ async function createGrn() {
   } catch (e) { alert(e.message); } finally { busy.value = false; }
 }
 
-onMounted(loadBoard);
+onMounted(async()=>{await loadBoard();const id=Number(route.query.receipt);if(Number.isSafeInteger(id)&&id>0)await openDetail({id});});
+
+const pagination = useListPagination(() => rows.value);
 </script>
 
 <style scoped>
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
-.page-head h2 { margin: 0 0 4px; font-size: 19px; color: #16233b; }
-.page-head .sub { margin: 0; font-size: 12.5px; color: #8a94a6; max-width: 880px; line-height: 1.65; }
+.page-head h2 { margin: 0 0 4px; font-size: 19px; color: var(--ink); }
+.page-head .sub { margin: 0; font-size: 12.5px; color: var(--ink-mute); max-width: 880px; line-height: 1.65; }
 .head-ops { display: flex; gap: 8px; }
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 14px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 21px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 14px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 21px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a !important; }
 .amt-red { color: #d92d45 !important; }
 .amt-orange { color: #d97706 !important; }
-.amt-blue { color: #2b6de5 !important; }
+.amt-blue { color: var(--brand) !important; }
 .row-warn { background: #fffdf5; }
 .row-red { background: #fff7f8; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .center { text-align: center; }
 .ops { white-space: nowrap; }
-.muted { color: #8a94a6; }
+.muted { color: var(--ink-mute); }
 .sub-cell { font-size: 12px; color: #5b6474; }
-.empty-cell { text-align: center; color: #8a94a6; padding: 16px; }
+.empty-cell { text-align: center; color: var(--ink-mute); padding: 16px; }
 .table-wrap { overflow-x: auto; }
 table.data th, table.data td { white-space: nowrap; }
 
 .modal.xwide.grn-modal { width: 1400px; max-width: 98vw; }
 .modal.xwide.new-modal { width: 1240px; max-width: 97vw; }
 .grn-modal .modal-body { max-height: 74vh; }
-.grn-sum { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; background: #f8fafd; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; }
-.grn-sum span { display: block; font-size: 11.5px; color: #8a94a6; }
-.grn-sum b { font-size: 14px; color: #16233b; font-variant-numeric: tabular-nums; }
+.grn-sum { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; background: #f8fafd; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.grn-sum span { display: block; font-size: 12px; color: var(--ink-mute); }
+.grn-sum b { font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .grn-warn { margin-top: 10px; padding: 8px 12px; background: #fff8f9; border: 1px solid #f8d3d8; border-radius: 8px; font-size: 12.5px; color: #b91c1c; line-height: 1.6; }
 .grn-warn.warn-amber { background: #fffdf5; border-color: #f6e3b6; color: #a16207; }
 .grn-sec { margin-top: 16px; }
 .grn-sec-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-.grn-sec h4 { margin: 0; font-size: 13px; color: #16233b; }
+.grn-sec h4 { margin: 0; font-size: 13px; color: var(--ink); }
 .grn-tbl { min-width: 1220px; }
 .ins-tbl { min-width: 760px; }
 .new-tbl { min-width: 900px; }
 .input.cell { padding: 3px 6px; font-size: 12px; height: 26px; width: 100%; min-width: 56px; }
 .input.cell.num { text-align: right; }
-.diff-lab { font-size: 10.5px; margin-left: 3px; }
-.inspect-box { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; background: #fbfcfe; }
+.diff-lab { font-size: 12px; margin-left: 3px; }
+.inspect-box { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; background: var(--surface-2); }
 .form-row { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
 .form-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #5b6474; }
 .act-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.act-list li { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #33415a; }
+.act-list li { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink); }
 @media (max-width: 1200px) {
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .grn-sum { grid-template-columns: repeat(4, 1fr); }

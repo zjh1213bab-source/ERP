@@ -488,6 +488,7 @@ app.listen(config.port, () => {
    */
   try {
     require('./services/syncScheduler').start();
+    require('./services/customerCycles').start();
   } catch (e) {
     console.error('[sync] 定时同步启动失败（不影响主服务）：', e.message);
   }

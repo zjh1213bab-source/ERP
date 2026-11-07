@@ -54,5 +54,6 @@ export const ROLE_LABELS = {
   production: '生产车间',
   warehouse: '仓库采购',
   hr: '人事行政',
+  employee: '普通员工',
   viewer: '只读'
 };

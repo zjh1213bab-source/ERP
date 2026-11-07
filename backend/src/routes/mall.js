@@ -342,7 +342,7 @@ router.post('/inquiries/:id/cancel', customerRequired, permRequired('inquiry.cre
 // ---------------- 我的订单（脱敏） ----------------
 router.get('/orders', customerRequired, permRequired('order.view'), wrap(async (req, res) => {
   const rows = db.prepare(
-    `SELECT id, order_no, type, status, total_usd, total_amount, rate, style_name, delivery_date, created_at
+    `SELECT id, order_no, type, status, total_usd, total_amount, rate, style_name, latest_delivery_date, delivery_date, created_at
      FROM orders WHERE customer_id = ? ORDER BY id DESC LIMIT 60`
   ).all(req.customer.cid);
   const perm = { account: req.account };
@@ -356,7 +356,7 @@ router.get('/orders', customerRequired, permRequired('order.view'), wrap(async (
 
 router.get('/orders/:id', customerRequired, permRequired('order.view'), wrap(async (req, res) => {
   const o = db.prepare(
-    `SELECT id, order_no, type, status, total_usd, total_amount, rate, style_name, delivery_date,
+    `SELECT id, order_no, type, status, total_usd, total_amount, rate, style_name, latest_delivery_date, delivery_date,
             delivery_method, trade_terms, created_at
      FROM orders WHERE id = ? AND customer_id = ?`
   ).get(req.params.id, req.customer.cid);
@@ -409,7 +409,7 @@ router.get('/confirmations', customerRequired, permRequired('order.confirm'), wr
   const cid = req.customer.cid;
   const seals = db.prepare(
     `SELECT s.id, s.seal_no, s.version, s.sample_name, s.style_no, s.content_hash, s.attachments,
-            s.sent_at, s.status, o.order_no
+            s.sent_at, s.status, s.row_version, o.order_no
      FROM sample_seals s JOIN orders o ON o.id = s.order_id
      WHERE o.customer_id = ? AND s.status = 'sent' AND s.tech_approved = 1
      ORDER BY s.id DESC`
@@ -421,7 +421,7 @@ router.get('/confirmations', customerRequired, permRequired('order.confirm'), wr
 
   const changes = db.prepare(
     `SELECT g.id, g.change_no, g.type, g.title, g.affected_in_production, g.remaining_qty,
-            g.price_delta, g.delivery_delta_days, g.assess_note, g.status, o.order_no
+            g.price_delta, g.delivery_delta_days, g.assess_note, g.status, g.row_version,g.before_json,g.after_json,g.patch_json, o.order_no
      FROM order_changes g JOIN orders o ON o.id = g.order_id
      WHERE o.customer_id = ? AND g.status = 'pending_customer'
      ORDER BY g.id DESC`
@@ -430,7 +430,7 @@ router.get('/confirmations', customerRequired, permRequired('order.confirm'), wr
   const deliveries = db.prepare(
     `SELECT d.id, d.promised_date, d.new_date, d.kind, d.reason, d.status, o.order_no
      FROM delivery_changes d JOIN orders o ON o.id = d.order_id
-     WHERE o.customer_id = ? AND d.status = 'pending'
+     WHERE o.customer_id = ? AND d.status = 'pending' AND d.source_change_id IS NULL
      ORDER BY d.id DESC`
   ).all(cid).map((r) => ({
     ...r,
@@ -449,13 +449,15 @@ router.post('/seals/:id/confirm', customerRequired, permRequired('order.confirm'
   const o = myOrder(s2.order_id, req.customer.cid);
   if (!o) return fail(res, 403, '无权操作该样衣');
   if (s2.status !== 'sent') return fail(res, 400, `当前状态为「${SEAL_STATUS[s2.status] || s2.status}」，不能确认`);
+  require('../services/confirmation').checkSealContent(s2);
+  if(req.body?.row_version!==s2.row_version)return fail(res,409,'封样版本已更新，请刷新');
   if (!Number(s2.tech_approved)) return fail(res, 400, '总部技术尚未批准，暂不能确认');
 
   const b = req.body || {};
   const accepted = b.accepted !== false && b.accepted !== 0;
   const acct = accountById(req.customer.sub);
   db.prepare(
-    `UPDATE sample_seals SET status=?, customer_account_id=?, customer_confirmed_by=?, customer_confirmed_at=?,
+    `UPDATE sample_seals SET row_version=row_version+1,status=?, customer_account_id=?, customer_confirmed_by=?, customer_confirmed_at=?,
        customer_comment=?, updated_at=? WHERE id=?`
   ).run(accepted ? 'confirmed' : 'rejected', req.customer.sub,
     (acct && (acct.name || acct.username)) || req.customer.username || '客户',
@@ -483,14 +485,22 @@ router.post('/changes/:id/confirm', customerRequired, permRequired('order.confir
   if (g.status !== 'pending_customer') return fail(res, 400, '该变更不在待确认状态');
 
   const b = req.body || {};
+  if(b.row_version!==g.row_version)return fail(res,409,'变更单已更新，请刷新');
+  if(require('../services/approvals').progressOf('order_change',g.id)?.status!=='approved')return fail(res,409,'内部审批尚未完成');
   const accepted = b.accepted !== false && b.accepted !== 0;
   const acct = accountById(req.customer.sub);
+  db.exec('SAVEPOINT customer_change');
+  try {
   db.prepare(
-    `UPDATE order_changes SET status=?, customer_account_id=?, customer_confirmed_by=?, customer_confirmed_at=?,
+    `UPDATE order_changes SET row_version=row_version+1,status=?, customer_account_id=?, customer_confirmed_by=?, customer_confirmed_at=?,
        customer_comment=?, updated_at=? WHERE id=?`
   ).run(accepted ? 'confirmed' : 'rejected', req.customer.sub,
     (acct && (acct.name || acct.username)) || req.customer.username || '客户',
     now(), b.comment || null, now(), g.id);
+
+  db.prepare("UPDATE delivery_changes SET status=?,customer_confirmed_by=?,customer_confirmed_at=?,customer_comment=?,updated_at=? WHERE source_change_id=?").run(accepted?'confirmed':'rejected',(acct && (acct.name || acct.username)) || req.customer.username,now(),b.comment || null,now(),g.id);
+  db.exec('RELEASE customer_change');
+  }catch(e){db.exec('ROLLBACK TO customer_change');db.exec('RELEASE customer_change');throw e;}
 
   if (o.customer_id) {
     mall.pushMessage({
@@ -509,6 +519,7 @@ router.post('/changes/:id/confirm', customerRequired, permRequired('order.confir
 router.post('/deliveries/:id/confirm', customerRequired, permRequired('order.confirm'), wrap(async (req, res) => {
   const d = db.prepare('SELECT * FROM delivery_changes WHERE id = ?').get(req.params.id);
   if (!d) return fail(res, 404, '交期变动不存在');
+  if(d.source_change_id)return fail(res,409,'请从关联订单变更中确认此交期');
   const o = myOrder(d.order_id, req.customer.cid);
   if (!o) return fail(res, 403, '无权操作该交期变动');
   if (d.status !== 'pending') return fail(res, 400, '该交期变动不在待确认状态');
@@ -516,11 +527,7 @@ router.post('/deliveries/:id/confirm', customerRequired, permRequired('order.con
   const b = req.body || {};
   const accepted = b.accepted !== false && b.accepted !== 0;
   const acct = accountById(req.customer.sub);
-  db.prepare(
-    `UPDATE delivery_changes SET status=?, customer_confirmed_by=?, customer_confirmed_at=?, customer_comment=?, updated_at=? WHERE id=?`
-  ).run(accepted ? 'confirmed' : 'rejected',
-    (acct && (acct.name || acct.username)) || req.customer.username || '客户',
-    now(), b.comment || null, now(), d.id);
+  require('../services/confirmation').confirmDelivery(d.id,accepted,(acct && (acct.name || acct.username)) || req.customer.username || '客户',b.comment);
   return ok(res, { id: d.id, status: accepted ? 'confirmed' : 'rejected' });
 }));
 
@@ -594,7 +601,7 @@ router.get('/summary', customerRequired, wrap(async (req, res) => {
     ).get(cid).c) +
     Number(db.prepare(
       `SELECT COUNT(*) c FROM delivery_changes d JOIN orders o ON o.id = d.order_id
-       WHERE o.customer_id = ? AND d.status = 'pending'`
+       WHERE o.customer_id = ? AND d.status = 'pending' AND d.source_change_id IS NULL`
     ).get(cid).c);
   return ok(res, { unread, inquiries, orders, favorites, pending_confirm: pending });
 }));

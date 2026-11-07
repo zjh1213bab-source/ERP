@@ -290,7 +290,7 @@
         </table>
       </div>
       <div v-if="isAdmin" class="form-row" style="margin-top: 8px">
-        <button class="btn btn-ghost btn-sm" @click="openAccount">＋ 新建账户</button>
+        <button v-action="['bank','create']" class="btn btn-ghost btn-sm" @click="openAccount">＋ 新建账户</button>
       </div>
 
       <h4 style="margin-top: 18px">导入对账单<small>粘贴银行导出的 CSV，重复导入不会翻倍</small></h4>
@@ -335,7 +335,7 @@
     </div>
 
     <!-- ========== 弹窗：手工匹配 ========== -->
-    <div v-if="modal === 'match'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'match'" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head"><h3>匹配收付款单</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -375,7 +375,7 @@
     </div>
 
     <!-- ========== 弹窗：忽略 ========== -->
-    <div v-if="modal === 'ignore'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'ignore'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>忽略这条流水</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -391,7 +391,7 @@
     </div>
 
     <!-- ========== 弹窗：新建账户 ========== -->
-    <div v-if="modal === 'account'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'account'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建银行账户</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -422,7 +422,7 @@
     </div>
 
     <!-- ========== 弹窗：票据登记 ========== -->
-    <div v-if="modal === 'bill'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'bill'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>登记票据</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -462,7 +462,7 @@
     </div>
 
     <!-- ========== 弹窗：票据状态 ========== -->
-    <div v-if="modal === 'billStatus'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'billStatus'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>票据状态变更</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body">
@@ -487,7 +487,7 @@
     </div>
 
     <!-- ========== 弹窗：对账明细 ========== -->
-    <div v-if="modal === 'reconDetail'" class="modal-mask" @click.self="closeModal">
+    <div v-if="modal === 'reconDetail'" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head"><h3>对账明细 {{ reconDetail && reconDetail.recon_no }}</h3><button class="x" @click="closeModal">×</button></div>
         <div class="modal-body" v-if="reconDetail">
@@ -775,10 +775,10 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 18px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 18px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .stat.st-good { background: #f2fbf5; border-color: #cfe9d8; }
 .stat.st-good strong { color: #16a34a; }
 .stat.st-warn { background: #fffaf2; border-color: #f3e0c2; }
@@ -788,7 +788,7 @@ onMounted(async () => {
 .amt-red { color: #d92d45; }
 .amt-orange { color: #d97706; }
 .muted { color: #9aa4b5; }
-.tiny { font-size: 11.5px; }
+.tiny { font-size: 12px; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
 .tb-tbl td.mono { white-space: nowrap; }
 .num { text-align: right; }
@@ -797,7 +797,7 @@ onMounted(async () => {
 .tb-tbl td.num { padding-right: 12px; }
 .wrap { white-space: normal; line-height: 1.55; }
 .ops { white-space: nowrap; }
-.empty { text-align: center; color: #a9b4c5; font-size: 12px; padding: 18px 0; }
+.empty { text-align: center; color: var(--ink-mute); font-size: 12px; padding: 18px 0; }
 .row-warn { background: #fffdf7; }
 .row-bad { background: #fff7f8; }
 .row-mute { background: #fafbfd; color: #9aa4b5; }
@@ -805,21 +805,21 @@ onMounted(async () => {
 .hint-bar { background: #f6f9ff; border: 1px solid #dbe4f5; border-radius: 9px; padding: 9px 12px; font-size: 12.5px; color: #3d4a63; line-height: 1.75; margin: 0 0 12px; }
 .hint-warn { background: #fffaf2; border: 1px solid #f3e0c2; border-radius: 9px; padding: 9px 12px; font-size: 12.5px; color: #b46207; margin: 10px 0 0; line-height: 1.7; }
 .block { margin-top: 14px; }
-.block h4 { margin: 0 0 8px; font-size: 13px; color: #16233b; }
-.block h4 small { margin-left: 8px; font-weight: 400; font-size: 11.5px; color: #9aa4b5; }
+.block h4 { margin: 0 0 8px; font-size: 13px; color: var(--ink); }
+.block h4 small { margin-left: 8px; font-weight: 400; font-size: 12px; color: #9aa4b5; }
 
 .tabbar { display: flex; align-items: flex-start; margin-bottom: 6px; }
 .tabbar .tabs { margin-left: 0; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
 .tabbar .tabs button { flex: 0 0 auto; white-space: nowrap; }
-.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; font-size: 10px; border-radius: 8px; padding: 0 5px; vertical-align: middle; }
+.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; font-size: 12px; border-radius: 8px; padding: 0 5px; vertical-align: middle; }
 
-.pill { display: inline-block; white-space: nowrap; font-size: 11px; border-radius: 5px; padding: 1px 6px; }
+.pill { display: inline-block; white-space: nowrap; font-size: 12px; border-radius: 5px; padding: 1px 6px; }
 .p-green { background: #eaf7ef; color: #16803c; }
 .p-orange { background: #fff4e5; color: #b46207; }
 .p-red { background: #fdecef; color: #c0243c; }
 .p-gray { background: #eef1f6; color: #6b7789; }
-.p-blue { background: #eaf1ff; color: #2563eb; }
-.chip { display: inline-block; white-space: nowrap; background: #eef2f8; color: #3d4a63; border-radius: 5px; padding: 0 5px; margin: 1px 4px 1px 0; font-size: 10.5px; }
+.p-blue { background: #eaf1ff; color: var(--brand); }
+.chip { display: inline-block; white-space: nowrap; background: #eef2f8; color: #3d4a63; border-radius: 5px; padding: 0 5px; margin: 1px 4px 1px 0; font-size: 12px; }
 
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .chk { font-size: 12px; color: #4a566e; display: flex; align-items: center; gap: 5px; }
@@ -828,22 +828,22 @@ textarea { width: 100%; border: 1px solid #dfe5ee; border-radius: 8px; padding: 
 .form-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
 
 /* 对账 */
-.recon-box { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.recon-box { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
 .rb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-.rb-head b { font-size: 13px; color: #16233b; }
+.rb-head b { font-size: 13px; color: var(--ink); }
 .recon-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.rg-col { background: #fafcff; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; }
+.rg-col { background: #fafcff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .rg-title { font-size: 12px; font-weight: 600; color: #3d4a63; margin-bottom: 6px; }
 .rg-row { display: flex; justify-content: space-between; font-size: 12px; color: #4a566e; padding: 3px 0; }
 .rg-row b { font-family: ui-monospace, Menlo, Consolas, monospace; }
-.rg-row.total { border-top: 1px dashed #e2e8f2; margin-top: 4px; padding-top: 6px; font-weight: 700; color: #16233b; }
+.rg-row.total { border-top: 1px dashed #e2e8f2; margin-top: 4px; padding-top: 6px; font-weight: 700; color: var(--ink); }
 
-.match-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: #16233b; background: #f8fafd; border-radius: 8px; padding: 9px 11px; }
+.match-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink); background: #f8fafd; border-radius: 8px; padding: 9px 11px; }
 .ack-sum { background: #f8fafd; border-radius: 8px; padding: 9px 11px; font-size: 12.5px; color: #3d4a63; line-height: 1.8; margin-bottom: 8px; }
-.import-box { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.import-box { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
 .import-box textarea { margin-top: 8px; }
 
-.modal-body label { display: block; font-size: 12px; color: #8a94a6; margin: 8px 0 4px; }
+.modal-body label { display: block; font-size: 12px; color: var(--ink-mute); margin: 8px 0 4px; }
 .modal-body input, .modal-body select { width: 100%; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 

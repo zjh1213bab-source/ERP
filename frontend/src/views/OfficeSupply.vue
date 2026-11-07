@@ -56,9 +56,9 @@
           <button :class="{ on: tab === 'pos' }" @click="tab = 'pos'">采购与服务（{{ pos.length }}）</button>
         </div>
         <div class="head-ops">
-          <button v-if="tab === 'items'" class="btn btn-ghost" @click="openItemForm()">新建物品</button>
+          <button v-action="['office-supply','create']" v-if="tab === 'items'" class="btn btn-ghost" @click="openItemForm()">新建物品</button>
           <button v-if="tab === 'reqs'" class="btn btn-primary" @click="openReqForm">提申领</button>
-          <button v-if="tab === 'pos'" class="btn btn-primary" @click="openPoForm">新建采购</button>
+          <button v-action="['office-supply','create']" v-if="tab === 'pos'" class="btn btn-primary" @click="openPoForm">新建采购</button>
         </div>
       </div>
 
@@ -103,7 +103,7 @@
                   {{ it.durable ? (it.stock_note || '转资产') : (it.location || '—') }}
                 </td>
                 <td class="ops">
-                  <button class="btn btn-sm btn-ghost" @click="openItemForm(it)">编辑</button>
+                  <button  class="btn btn-sm btn-ghost" @click="openItemForm(it)">编辑</button>
                   <button class="btn btn-sm btn-ghost" @click="openLedger(it)">流水</button>
                 </td>
               </tr>
@@ -203,7 +203,7 @@
     </div>
 
     <!-- ---------------- 物品表单 ---------------- -->
-    <div class="modal-mask" v-if="itemForm.open" @click.self="itemForm.open = false">
+    <div class="modal-mask" v-if="itemForm.open">
       <div class="modal">
         <div class="modal-head"><b>{{ itemForm.id ? '编辑物品' : '新建物品' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="itemForm.open = false">取消</button></div>
@@ -240,7 +240,7 @@
     </div>
 
     <!-- ---------------- 流水 ---------------- -->
-    <div class="modal-mask" v-if="ledgerBox.open" @click.self="ledgerBox.open = false">
+    <div class="modal-mask" v-if="ledgerBox.open">
       <div class="modal wide">
         <div class="modal-head"><b>{{ ledgerBox.item ? ledgerBox.item.name : '' }} · 收发明细</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="ledgerBox.open = false">关闭</button></div>
@@ -264,7 +264,7 @@
     </div>
 
     <!-- ---------------- 新建申领 ---------------- -->
-    <div class="modal-mask" v-if="reqForm.open" @click.self="reqForm.open = false">
+    <div class="modal-mask" v-if="reqForm.open">
       <div class="modal wide">
         <div class="modal-head"><b>提申领</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="reqForm.open = false">取消</button></div>
@@ -310,7 +310,7 @@
     </div>
 
     <!-- ---------------- 申领详情 ---------------- -->
-    <div class="modal-mask" v-if="reqDetail" @click.self="reqDetail = null">
+    <div class="modal-mask" v-if="reqDetail">
       <div class="modal wide">
         <div class="modal-head">
           <div class="mh-left">
@@ -360,7 +360,7 @@
               <div class="row">
                 <button class="btn btn-primary" @click="doReqApprove">按上面数量批准</button>
                 <input v-model="reqAct.reject" class="input" style="flex: 1" placeholder="驳回原因（≥6 字，申领人会看到）" />
-                <button class="btn btn-ghost" @click="doReqReject">驳回</button>
+                <button v-action="['office-supply','reject']" class="btn btn-ghost" @click="doReqReject">驳回</button>
               </div>
             </template>
             <div class="row" v-if="reqDetail.can.issue">
@@ -382,7 +382,7 @@
     </div>
 
     <!-- ---------------- 新建采购 ---------------- -->
-    <div class="modal-mask" v-if="poForm.open" @click.self="poForm.open = false">
+    <div class="modal-mask" v-if="poForm.open">
       <div class="modal wide">
         <div class="modal-head"><b>新建采购</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="poForm.open = false">取消</button></div>
@@ -448,7 +448,7 @@
     </div>
 
     <!-- ---------------- 采购详情 ---------------- -->
-    <div class="modal-mask" v-if="poDetail" @click.self="poDetail = null">
+    <div class="modal-mask" v-if="poDetail">
       <div class="modal wide">
         <div class="modal-head">
           <div class="mh-left">
@@ -786,11 +786,11 @@ onMounted(reload);
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card { min-height: 100px; padding: 13px 12px; }
 .cards.c6 .stat-card .value { font-size: 22px; margin-top: 5px; }
-.cards.c6 .stat-card .foot { font-size: 11px; line-height: 1.4; }
+.cards.c6 .stat-card .foot { font-size: 12px; line-height: 1.4; }
 .stat-card.warn { border-color: #fde68a; background: #fffdf5; }
 
 .ell { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tiny { font-size: 11px; line-height: 1.45; }
+.tiny { font-size: 12px; line-height: 1.45; }
 .mut { color: #7b8698; }
 .red { color: #b91c1c; }
 .amber-t { color: #92400e; }
@@ -812,7 +812,7 @@ table.data .btn { white-space: nowrap; }
 
 .modal.wide { width: min(1020px, 94vw); }
 .mh-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.col-h { font-size: 12.5px; font-weight: 600; color: #16233b; margin: 12px 0 6px; }
+.col-h { font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 12px 0 6px; }
 .kv { display: flex; gap: 8px; font-size: 12px; padding: 3px 0; }
 .kv > span { color: #7b8698; min-width: 70px; flex: 0 0 auto; }
 .kv > b { font-weight: 500; }

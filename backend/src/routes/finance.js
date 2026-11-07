@@ -144,9 +144,9 @@ function openARForOrder(orderId, userId) {
     orderId, order.customer_id || null, cust ? cust.name : null,
     currency, amountOrig, rate, amount,
     order.delivery_date || null, 'unpaid', 'order',
-    currency === 'USD'
+      (currency === 'USD'
       ? `订单 ${order.order_no} 发货自动开票（USD ${amountOrig} × ${rate}）`
-      : `订单 ${order.order_no} 发货自动开票`,
+        : `订单 ${order.order_no} 发货自动开票`) + (order.remark ? '；'+order.remark : ''),
     userId || 'system', t, t, Number(order.company_id) || 1
   );
   return db.prepare('SELECT * FROM ar_invoices WHERE id = ?').get(Number(info.lastInsertRowid));

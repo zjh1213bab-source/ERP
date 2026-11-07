@@ -168,7 +168,7 @@
     </div>
 
     <!-- 登记收付款 -->
-    <div v-if="payOpen" class="modal-mask" @click.self="payOpen = false">
+    <div v-if="payOpen" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>{{ payForm.direction === 'in' ? '登记收款' : '登记付款' }}</h3>
@@ -499,33 +499,33 @@ onMounted(loadAll);
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
 .stat {
-  background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 16px;
+  background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 16px;
   display: flex; flex-direction: column; gap: 3px;
 }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { font-size: 20px; color: #16233b; font-weight: 600; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { font-size: 20px; color: var(--ink); font-weight: 600; }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-red { color: #d92d45 !important; }
 .amt-green { color: #16a34a !important; }
 .num { text-align: right; }
-.num.strong { font-weight: 600; color: #16233b; }
+.num.strong { font-weight: 600; color: var(--ink); }
 .center { text-align: center; }
-.sub-cell { font-size: 11.5px; color: #8a94a6; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-cell { font-size: 12px; color: var(--ink-mute); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-overdue td { background: #fffafa; }
-.muted { color: #a9b4c5; }
+.muted { color: var(--ink-mute); }
 .alloc-chip {
-  display: inline-block; background: #eef4ff; color: #2b6de5; border-radius: 4px;
-  padding: 0 6px; margin: 1px 4px 1px 0; font-size: 11px;
+  display: inline-block; background: #eef4ff; color: var(--brand); border-radius: 4px;
+  padding: 0 6px; margin: 1px 4px 1px 0; font-size: 12px;
 }
 .ops { white-space: nowrap; }
 .pay-foot {
   display: flex; justify-content: space-between; align-items: center;
   margin-top: 10px; font-size: 12.5px; color: #5b6474;
 }
-.aging-wrap { background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; padding: 16px 18px; }
+.aging-wrap { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px; padding: 16px 18px; }
 .aging-list { display: flex; flex-direction: column; gap: 12px; }
-.aging-head { display: flex; justify-content: space-between; font-size: 13px; color: #33415a; margin-bottom: 5px; }
-.aging-bar { height: 10px; background: #f2f5fa; border-radius: 6px; overflow: hidden; }
+.aging-head { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink); margin-bottom: 5px; }
+.aging-bar { height: 10px; background: var(--bg); border-radius: 6px; overflow: hidden; }
 .aging-bar i { display: block; height: 100%; border-radius: 6px; }
 .aging-bar i.ok { background: #16a34a; }
 .aging-bar i.warn { background: #eab308; }
@@ -534,8 +534,8 @@ onMounted(loadAll);
 /* 双币展示：原币为主，本币小字换算 */
 .dual { font-variant-numeric: tabular-nums; }
 .dual.usd { color: #1a56b8; }
-.dual-sub { font-size: 11px; color: #8a94a6; font-weight: 400; margin-top: 1px; font-variant-numeric: tabular-nums; }
-.fitem-tip { font-size: 11.5px; color: #8a94a6; margin-top: 3px; }
+.dual-sub { font-size: 12px; color: var(--ink-mute); font-weight: 400; margin-top: 1px; font-variant-numeric: tabular-nums; }
+.fitem-tip { font-size: 12px; color: var(--ink-mute); margin-top: 3px; }
 .fitem-tip b { color: #1a56b8; }
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, 1fr); }

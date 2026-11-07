@@ -342,7 +342,7 @@
     </div>
 
     <!-- ==================== 弹窗：新建线索 ==================== -->
-    <div v-if="modal === 'leadNew'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'leadNew'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建线索</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -380,7 +380,7 @@
     </div>
 
     <!-- ==================== 弹窗：线索详情 ==================== -->
-    <div v-if="modal === 'lead' && lead" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'lead' && lead" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ lead.customer_name_raw }} <span class="mono tiny">{{ lead.lead_no }}</span></h3>
@@ -451,7 +451,7 @@
     </div>
 
     <!-- ==================== 弹窗：阶段推进（丢单原因 / 转订单） ==================== -->
-    <div v-if="modal === 'stage'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'stage'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>推进到「{{ stageLabel(stageForm.to) }}」</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -482,7 +482,7 @@
     </div>
 
     <!-- ==================== 弹窗：维护周期 ==================== -->
-    <div v-if="modal === 'cycle'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'cycle'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>维护采购周期 · {{ cycleForm.customer_name }}</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -516,7 +516,7 @@
     </div>
 
     <!-- ==================== 弹窗：回访 ==================== -->
-    <div v-if="modal === 'followup'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'followup'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>登记回访 · {{ followupForm.customer_name }}</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -540,7 +540,7 @@
     </div>
 
     <!-- ==================== 弹窗：目标达成 ==================== -->
-    <div v-if="modal === 'target' && targetDetail" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'target' && targetDetail" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ targetDetail.period }} 目标达成</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -568,7 +568,7 @@
     </div>
 
     <!-- ==================== 弹窗：新建目标 ==================== -->
-    <div v-if="modal === 'targetNew'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'targetNew'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建目标版</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -596,7 +596,7 @@
     </div>
 
     <!-- ==================== 弹窗：新建规则 ==================== -->
-    <div v-if="modal === 'rule'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'rule'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建提成规则</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -628,7 +628,7 @@
     </div>
 
     <!-- ==================== 弹窗：试算 / 新建提成 ==================== -->
-    <div v-if="modal === 'commNew'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'commNew'" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>试算提成</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -686,7 +686,7 @@
     </div>
 
     <!-- ==================== 弹窗：提成单详情 ==================== -->
-    <div v-if="modal === 'comm' && commDetail" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'comm' && commDetail" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ commDetail.commission_no }} · {{ commDetail.user_name }}</h3>
@@ -753,7 +753,7 @@
     </div>
 
     <!-- ==================== 弹窗：新建交接 ==================== -->
-    <div v-if="modal === 'handoverNew'" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'handoverNew'" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建客户交接</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -790,7 +790,7 @@
     </div>
 
     <!-- ==================== 弹窗：交接详情 ==================== -->
-    <div v-if="modal === 'handover' && handoverDetail" class="modal-mask" @click.self="modal = ''">
+    <div v-if="modal === 'handover' && handoverDetail" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ handoverDetail.handover_no }}</h3><button class="x" @click="modal = ''">×</button></div>
         <div class="modal-body">
@@ -1230,64 +1230,64 @@ onMounted(async () => {
 .page-head .sub { max-width: 980px; }
 .head-ops { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: nowrap; }
 .head-ops .btn { white-space: nowrap; }
-.pill { display: inline-block; white-space: nowrap; font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 4px 9px; }
-.p-gray { background: #eef1f6; color: #6b7688; }
+.pill { display: inline-block; white-space: nowrap; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 4px 9px; }
+.p-gray { background: #eef1f6; color: var(--ink-soft); }
 
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { font-size: 12px; color: #8a94a6; display: block; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { font-size: 12px; color: var(--ink-mute); display: block; }
 .stat strong { font-size: 21px; color: #16305f; display: block; margin-top: 4px; line-height: 1.1; }
-.stat small { font-size: 11px; color: #9aa4b5; display: block; margin-top: 4px; }
+.stat small { font-size: 12px; color: #9aa4b5; display: block; margin-top: 4px; }
 .stat.st-warn { border-color: #f5d9a8; background: #fffdf7; }
 .stat.st-bad { border-color: #f3c2c9; background: #fffafb; }
 
 .tabbar { display: flex; margin-bottom: 10px; }
 .tabs { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
 .tabs button {
-  flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; border: 1px solid #e2e8f2; background: #fff;
-  border-radius: 9px; font-size: 13px; color: #4b5568; cursor: pointer; font-family: inherit;
+  flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; border: 1px solid #e2e8f2; background: var(--surface);
+  border-radius: 9px; font-size: 13px; color: var(--ink-soft); cursor: pointer; font-family: inherit;
 }
-.tabs button.on { background: #2b6de5; border-color: #2b6de5; color: #fff; font-weight: 700; }
-.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 10.5px; }
+.tabs button.on { background: var(--brand); border-color: #2b6de5; color: var(--on-brand); font-weight: 700; }
+.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; border-radius: 9px; padding: 0 5px; font-size: 12px; }
 
-.toolbar select, .toolbar input, .kw { padding: 7px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px; font-family: inherit; }
+.toolbar select, .toolbar input, .kw { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; }
 .spacer { flex: 1; }
-.tiny { font-size: 11.5px; }
-.muted { color: #8a94a6; }
-.blue { color: #2563eb; }
+.tiny { font-size: 12px; }
+.muted { color: var(--ink-mute); }
+.blue { color: var(--brand); }
 .green { color: #16a34a; }
 .red { color: #d92d45; }
 .nowrap { white-space: nowrap; }
 .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, Consolas, monospace; }
-.lnk { color: #2563eb; cursor: pointer; font-weight: 600; }
+.lnk { color: var(--brand); cursor: pointer; font-weight: 600; }
 .lnk:hover { text-decoration: underline; }
-.link-btn { background: none; border: none; color: #2563eb; cursor: pointer; font-size: 12.5px; padding: 2px 4px; font-family: inherit; }
+.link-btn { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 12.5px; padding: 2px 4px; font-family: inherit; }
 .link-btn.danger { color: #d92d45; }
 .empty-box { text-align: center; color: #9aa4b5; padding: 20px 0; font-size: 13px; }
 .empty-cell { text-align: center; color: #9aa4b5; padding: 28px 0 !important; }
 .row-bad { background: #fffafb; }
 .row-warn { background: #fffdf7; }
-.row-off { background: #fbfcfe; color: #8a94a6; }
-.chk { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: #4b5568; white-space: nowrap; }
-.hint-bar { background: #f2f7ff; border: 1px solid #d6e4ff; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: #33415a; margin-bottom: 12px; line-height: 1.75; }
+.row-off { background: var(--surface-2); color: var(--ink-mute); }
+.chk { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--ink-soft); white-space: nowrap; }
+.hint-bar { background: #f2f7ff; border: 1px solid #d6e4ff; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: var(--ink); margin-bottom: 12px; line-height: 1.75; }
 .hint-bar b { color: #16305f; }
-.sec { margin: 18px 0 10px; font-size: 14px; color: #16233b; }
-.sec small { margin-left: 8px; font-size: 11.5px; color: #9aa4b5; font-weight: 400; }
+.sec { margin: 18px 0 10px; font-size: 14px; color: var(--ink); }
+.sec small { margin-left: 8px; font-size: 12px; color: #9aa4b5; font-weight: 400; }
 
 /* 漏斗 */
 .funnel { display: flex; gap: 8px; margin-bottom: 12px; }
-.fn-item { flex: 1; background: #fff; border: 1px solid #e6ebf3; border-radius: 11px; padding: 10px 12px; }
-.fn-item span { font-size: 12px; color: #8a94a6; display: block; }
+.fn-item { flex: 1; background: var(--surface); border: 1px solid #e6ebf3; border-radius: 11px; padding: 10px 12px; }
+.fn-item span { font-size: 12px; color: var(--ink-mute); display: block; }
 .fn-item b { font-size: 20px; color: #16305f; }
 .fn-won { border-color: #bfe6cd; background: #f7fdfa; }
 .fn-lost { border-color: #f3d4d8; background: #fffafb; }
 
 /* 预警卡 */
 .alert-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.al { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.al span { font-size: 12px; color: #8a94a6; display: block; }
+.al { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.al span { font-size: 12px; color: var(--ink-mute); display: block; }
 .al b { font-size: 24px; color: #16305f; display: block; margin-top: 4px; }
-.al small { font-size: 11px; color: #9aa4b5; }
+.al small { font-size: 12px; color: #9aa4b5; }
 .al-red { border-color: #f3c2c9; background: #fffafb; }
 .al-red b { color: #d92d45; }
 .al-orange { border-color: #f5d9a8; background: #fffdf7; }
@@ -1295,53 +1295,53 @@ onMounted(async () => {
 
 .infer { margin-bottom: 12px; }
 .infer h3 { display: flex; align-items: baseline; gap: 8px; }
-.infer h3 small { font-size: 11.5px; color: #9aa4b5; font-weight: 400; }
-.inf-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dashed #eef2f7; font-size: 13px; }
+.infer h3 small { font-size: 12px; color: #9aa4b5; font-weight: 400; }
+.inf-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
 .inf-row:last-child { border-bottom: none; }
 
-.tgt { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.tgt { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
 .tgt-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* 表单/弹窗 */
 .fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
-.fgrid label, .full { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #6b7688; }
+.fgrid label, .full { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--ink-soft); }
 .fgrid input, .fgrid select, .full input, .full select {
-  padding: 7px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px; font-family: inherit; color: #1f2937;
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; color: var(--ink);
 }
 .full { margin-top: 10px; }
 .trow { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; margin-bottom: 6px; align-items: center; }
-.trow input, .trow select { padding: 6px 9px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 13px; font-family: inherit; }
+.trow input, .trow select { padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; font-family: inherit; }
 .ld-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .kv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
-.kv div { background: #fbfcfe; border: 1px solid #eef2f7; border-radius: 10px; padding: 9px 11px; }
-.kv span { font-size: 11.5px; color: #8a94a6; display: block; }
+.kv div { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; }
+.kv span { font-size: 12px; color: var(--ink-mute); display: block; }
 .kv b { font-size: 14px; color: #16305f; display: block; margin-top: 3px; }
-.kv small { font-size: 10.5px; color: #9aa4b5; display: block; margin-top: 3px; }
+.kv small { font-size: 12px; color: #9aa4b5; display: block; margin-top: 3px; }
 .dup-box { background: #fffdf7; border: 1px solid #f5e3b3; border-radius: 9px; padding: 9px 12px; font-size: 12.5px; margin-bottom: 10px; }
 .dup-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
-.act-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px dashed #eef2f7; }
-.fu-box { background: #fbfcfe; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
-.fu-box h4 { margin: 0 0 8px; font-size: 13px; color: #16233b; }
-.fu-box h4 small { margin-left: 8px; font-size: 11px; color: #9aa4b5; font-weight: 400; }
-.fu-box textarea { width: 100%; padding: 8px 10px; border: 1px solid #dfe5ef; border-radius: 8px; font-size: 13px; font-family: inherit; margin-bottom: 8px; box-sizing: border-box; }
+.act-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.fu-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+.fu-box h4 { margin: 0 0 8px; font-size: 13px; color: var(--ink); }
+.fu-box h4 small { margin-left: 8px; font-size: 12px; color: #9aa4b5; font-weight: 400; }
+.fu-box textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-family: inherit; margin-bottom: 8px; box-sizing: border-box; }
 .tl { border-left: 2px solid #e8eef8; padding-left: 10px; }
 .tl-row { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; flex-wrap: wrap; }
 .rsn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.pv { border: 1px solid #e6ebf3; border-radius: 10px; padding: 12px 14px; margin-top: 12px; background: #fbfcfe; }
+.pv { border: 1px solid #e6ebf3; border-radius: 10px; padding: 12px 14px; margin-top: 12px; background: var(--surface-2); }
 .pv-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .pv-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
-.pv-grid div { background: #fff; border: 1px solid #eef2f7; border-radius: 9px; padding: 8px 10px; }
-.pv-grid span { font-size: 11.5px; color: #8a94a6; display: block; }
+.pv-grid div { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; }
+.pv-grid span { font-size: 12px; color: var(--ink-mute); display: block; }
 .pv-grid b { font-size: 15px; color: #16305f; display: block; margin-top: 2px; }
 .pv-grid b.sm { font-size: 13px; }
-.pv-grid small { font-size: 10.5px; color: #9aa4b5; display: block; margin-top: 2px; }
-.pv-tier { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; color: #4b5568; }
-.adj-box { background: #fbfcfe; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; margin-top: 12px; }
+.pv-grid small { font-size: 12px; color: #9aa4b5; display: block; margin-top: 2px; }
+.pv-tier { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; color: var(--ink-soft); }
+.adj-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 12px; }
 .adj-box h4 { margin: 0 0 8px; font-size: 13px; }
-.adj-box h4 small { margin-left: 8px; font-size: 11px; color: #9aa4b5; font-weight: 400; }
+.adj-box h4 small { margin-left: 8px; font-size: 12px; color: #9aa4b5; font-weight: 400; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip { background: #f2f7ff; border: 1px solid #d6e4ff; color: #2563eb; border-radius: 14px; padding: 3px 10px; font-size: 12px; }
+.chip { background: #f2f7ff; border: 1px solid #d6e4ff; color: var(--brand); border-radius: 14px; padding: 3px 10px; font-size: 12px; }
 
 @media (max-width: 1180px) {
   .stat-row, .alert-grid, .kv, .pv-grid { grid-template-columns: repeat(3, 1fr); }

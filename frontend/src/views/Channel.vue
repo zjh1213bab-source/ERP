@@ -64,7 +64,7 @@
           <option v-for="p in meta.platforms" :key="p.value" :value="p.value">{{ p.label }}</option>
         </select>
         <button class="btn btn-ghost" @click="loadShops">查询</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openShop()">＋ 新增店铺映射</button>
+        <button v-action="['channel','create']"  v-if="canWrite" class="btn btn-primary" @click="openShop()">＋ 新增店铺映射</button>
       </div>
 
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
@@ -97,9 +97,9 @@
               </td>
               <td class="nowrap">{{ r.order_count }} 单 / ${{ money(r.paid_total) }}</td>
               <td v-if="canWrite" class="nowrap">
-                <button class="link-btn" @click="openShop(r)">编辑</button>
+                <button v-action="['channel','edit']"  class="link-btn" @click="openShop(r)">编辑</button>
                 <button class="link-btn" @click="openVerify(r)">接口授权</button>
-                <button class="link-btn danger" @click="removeShop(r)">删除</button>
+                <button v-action="['channel','delete']" class="link-btn danger" @click="removeShop(r)">删除</button>
               </td>
             </tr>
             <tr v-if="!shops.length"><td :colspan="canWrite ? 10 : 9" class="empty-cell">暂无店铺映射</td></tr>
@@ -130,8 +130,8 @@
           <option value="shipped">已发货</option>
         </select>
         <button class="btn btn-ghost" @click="loadOrders">查询</button>
-        <button class="btn btn-ghost" @click="exportOrders">导出 CSV</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openOrder()">＋ 新建零售单</button>
+        <button v-action="['channel','export']" class="btn btn-ghost" @click="exportOrders">导出 CSV</button>
+        <button v-action="['channel','create']" v-if="canWrite" class="btn btn-primary" @click="openOrder()">＋ 新建零售单</button>
       </div>
 
       <div class="table-wrap">
@@ -180,7 +180,7 @@
       </div>
 
       <!-- 新建零售单 -->
-      <div v-if="orderModal" class="modal-mask" @click.self="orderModal = false">
+      <div v-if="orderModal" class="modal-mask">
         <div class="modal xwide">
           <div class="modal-head">
             <h3>新建零售单</h3>
@@ -259,7 +259,7 @@
       </div>
 
       <!-- 支付核对 -->
-      <div v-if="payModal" class="modal-mask" @click.self="payModal = false">
+      <div v-if="payModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>核对支付回执</h3><button class="link-btn" @click="payModal = false">关闭</button></div>
           <div class="modal-body">
@@ -282,7 +282,7 @@
       </div>
 
       <!-- 订单详情 -->
-      <div v-if="detail" class="modal-mask" @click.self="detail = null">
+      <div v-if="detail" class="modal-mask">
         <div class="modal xwide">
           <div class="modal-head">
             <h3>{{ detail.channel_order_no }} · {{ detail.retail_no }}</h3>
@@ -379,7 +379,7 @@
               <td v-if="canWrite" class="nowrap">
                 <button v-if="a.refund_status !== 'done' && a.refund_status !== 'rejected'" class="link-btn" @click="doRefund(a)">确认退款</button>
                 <button v-if="a.return_status === 'pending'" class="link-btn" @click="doReceive(a)">收到实物</button>
-                <button v-if="a.refund_status !== 'done' && a.refund_status !== 'rejected'" class="link-btn danger" @click="doReject(a)">驳回</button>
+                <button v-action="['channel','reject']" v-if="a.refund_status !== 'done' && a.refund_status !== 'rejected'" class="link-btn danger" @click="doReject(a)">驳回</button>
               </td>
             </tr>
             <tr v-if="!afterSales.length"><td :colspan="canWrite ? 10 : 9" class="empty-cell">暂无售后单</td></tr>
@@ -438,7 +438,7 @@
         </table>
       </div>
 
-      <div v-if="quotaModal" class="modal-mask" @click.self="quotaModal = false">
+      <div v-if="quotaModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>提交配额调整</h3><button class="link-btn" @click="quotaModal = false">关闭</button></div>
           <div class="modal-body">
@@ -466,7 +466,7 @@
         </div>
       </div>
 
-      <div v-if="usage" class="modal-mask" @click.self="usage = null">
+      <div v-if="usage" class="modal-mask">
         <div class="modal wide">
           <div class="modal-head"><h3>占用明细 · {{ usage.quota.style_no }}</h3><button class="link-btn" @click="usage = null">关闭</button></div>
           <div class="modal-body">
@@ -500,7 +500,7 @@
           <option v-for="r in shops" :key="r.id" :value="r.id">{{ r.shop_name }}</option>
         </select>
         <button class="btn btn-ghost" @click="loadSettlements">查询</button>
-        <button class="btn btn-ghost" @click="exportSettlements">导出 CSV</button>
+        <button v-action="['channel','export']" class="btn btn-ghost" @click="exportSettlements">导出 CSV</button>
         <button v-if="canWrite" class="btn btn-primary" @click="stlModal = true">生成结算批</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
@@ -538,7 +538,7 @@
         </table>
       </div>
 
-      <div v-if="stlModal" class="modal-mask" @click.self="stlModal = false">
+      <div v-if="stlModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>生成结算批（按费率预估）</h3><button class="link-btn" @click="stlModal = false">关闭</button></div>
           <div class="modal-body">
@@ -566,7 +566,7 @@
         </div>
       </div>
 
-      <div v-if="stlConfirm" class="modal-mask" @click.self="stlConfirm = null">
+      <div v-if="stlConfirm" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>核对平台账单 · {{ stlConfirm.batch_no }}</h3><button class="link-btn" @click="stlConfirm = null">关闭</button></div>
           <div class="modal-body">
@@ -589,7 +589,7 @@
         </div>
       </div>
 
-      <div v-if="stlDetail" class="modal-mask" @click.self="stlDetail = null">
+      <div v-if="stlDetail" class="modal-mask">
         <div class="modal wide">
           <div class="modal-head"><h3>结算明细 · {{ stlDetail.batch_no }}</h3><button class="link-btn" @click="stlDetail = null">关闭</button></div>
           <div class="modal-body">
@@ -614,7 +614,7 @@
     </template>
 
     <!-- 店铺映射弹窗 -->
-    <div v-if="shopModal" class="modal-mask" @click.self="shopModal = false">
+    <div v-if="shopModal" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head"><h3>{{ shopForm.id ? '编辑店铺映射' : '新增店铺映射' }}</h3><button class="link-btn" @click="shopModal = false">关闭</button></div>
         <div class="modal-body">
@@ -662,7 +662,7 @@
     </div>
 
     <!-- 接口授权核弹窗 -->
-    <div v-if="verifyModal" class="modal-mask" @click.self="verifyModal = false">
+    <div v-if="verifyModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>核查接口授权 · {{ verifyForm.shop_name }}</h3><button class="link-btn" @click="verifyModal = false">关闭</button></div>
         <div class="modal-body">

@@ -21,6 +21,7 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { archiveFromFlow } = require('../services/sampleArchive');
 const { saveMaterials } = require('../services/techPackMaterials');
+const { normalizeCraftRows, validateCraftData } = require('../services/craftRows');
 
 const router = express.Router();
 
@@ -35,19 +36,22 @@ const STAGE_DEF = [
 ];
 const STAGE_KEYS = STAGE_DEF.map((s) => s.key);
 const stageDef = (k) => STAGE_DEF.find((s) => s.key === k);
+const revision=require('../services/developmentRevision');
 const CHANGE_FIELDS = {
+  development_revision:'业务开发资料改版',
+  development_submission:'开发资料准入审核',
   customer_req: '客户要求', fabric_info: '面料信息', accessory_info: '辅料信息',
   craft_info: '工艺要求', size_spec: '尺码规格'
 };
 
 function changeHold(flowId) {
-  return db.prepare("SELECT * FROM pattern_change_requests WHERE flow_id=? AND status IN ('pending','awaiting_recheck') ORDER BY id DESC").all(flowId);
+  return db.prepare("SELECT * FROM pattern_change_requests WHERE flow_id=? AND status IN ('pending','editing','awaiting_recheck') ORDER BY id DESC").all(flowId);
 }
 
 function canWrite(user, stage) {
   const d = stageDef(stage);
   if (!d) return false;
-  return user.role === 'admin' || d.roles.includes(user.role);
+  return user.role === 'admin' || user.positionDirect || d.roles.includes(user.role);
 }
 
 /** 取流程 + 阶段（阶段不存在则补一行 pending） */
@@ -98,7 +102,7 @@ function safeJson(s) {
 function boardRows() {
   const rows = db.prepare(
     `SELECT pf.*, tp.product_name, tp.version, tp.stage AS tp_stage, tp.status AS tp_status,
-            tp.image_url, tp.customer_style_no, tp.category,tp.pre_order_id,
+            tp.image_url, tp.customer_style_no,tp.updated_at AS style_no_version, tp.category,tp.pre_order_id,
             COALESCE(o.order_no,p.pre_order_no) AS order_no,p.pre_order_no,
             COALESCE(o.style_name,p.style_name) AS style_name, o.delivery_date, o.type AS order_type, o.status AS order_status,
             COALESCE(c.name,p.customer_name) AS customer_name
@@ -123,8 +127,11 @@ function boardRows() {
   });
 }
 
+router.get('/management',authRequired,wrap(async(req,res)=>{const mg=require('../services/patternManagement'),config=mg.read(req.user);const permitted=boardRows().filter(f=>{try{mg.owns(req.user,f.id);return true;}catch{return false;}});config.tasks=Object.fromEntries(Object.entries(config.tasks).filter(([id])=>permitted.some(f=>f.id===Number(id))));return ok(res,{config,flows:permitted,stages:STAGE_DEF});}));
+router.put('/management',authRequired,requireRole(['admin']),wrap(async(req,res)=>ok(res,require('../services/patternManagement').config(req.user,req.body,STAGE_DEF))));
+router.post('/:flowId/follow',authRequired,requireRole(['admin','tech','sales','production']),wrap(async(req,res)=>{const r=require('../services/patternManagement').follow(req.user,Number(req.params.flowId),req.body);return ok(res,{version:r.version});}));
 router.get('/board', authRequired, wrap(async (req, res) => {
-  return ok(res, { stages: STAGE_DEF, flows: boardRows() });
+  const mg=require('../services/patternManagement'),config=mg.read(req.user);return ok(res, { stages: STAGE_DEF.map(s=>({...s,label:config.stages.find(c=>c.key===s.key)?.label||s.label})), flows: boardRows().filter(f=>{try{mg.owns(req.user,f.id);return true;}catch{return false;}}) });
 }));
 
 router.get('/by-techpack/:tpId', authRequired, wrap(async (req, res) => {
@@ -138,6 +145,7 @@ router.post('/:flowId/changes', authRequired, requireRole(['admin', 'sales']), w
   if (!flow || flow.status === 'done') return fail(res, 404, '进行中的打版流程不存在');
   if (changeHold(flow.id).length) return fail(res, 409, '该流程已有待审核或待复核的修改申请');
   const b = req.body || {};
+  if(['development_revision','development_submission'].includes(b.field_key))return fail(res,400,'请从开发管理申请修改资料');
   if (!CHANGE_FIELDS[b.field_key]) return fail(res, 400, '请选择可申请修改的信息项');
   if (b.proposed_value === undefined) return fail(res, 400, '请填写修改后的内容');
   const reason = String(b.reason || '').trim();
@@ -167,9 +175,11 @@ router.post('/changes/:id/review', authRequired, requireRole(['admin', 'tech']),
   // 事务用 BEGIN/COMMIT（项目铁律：node:sqlite 回退驱动没有 db.transaction）
   db.exec('BEGIN IMMEDIATE');
   try {
-    if (approve) db.prepare(`UPDATE tech_packs SET ${change.field_key}=?,updated_at=? WHERE id=(SELECT tech_pack_id FROM pattern_flows WHERE id=?)`).run(change.proposed_value, ts, change.flow_id);
+    if(change.field_key==='development_submission'){if(!approve)db.prepare("UPDATE tech_packs SET business_submitted_at=NULL,updated_at=? WHERE id=(SELECT tech_pack_id FROM pattern_flows WHERE id=?)").run(ts,change.flow_id);}
+    else if(change.field_key==='development_revision')revision.review(change,approve);
+    else if (approve) db.prepare(`UPDATE tech_packs SET ${change.field_key}=?,updated_at=? WHERE id=(SELECT tech_pack_id FROM pattern_flows WHERE id=?)`).run(change.proposed_value, ts, change.flow_id);
     db.prepare('UPDATE pattern_change_requests SET status=?,reviewed_by=?,reviewed_at=?,review_note=?,updated_at=? WHERE id=?')
-      .run(approve ? 'awaiting_recheck' : 'rejected', user, ts, note || null, ts, change.id);
+      .run(approve ? (change.field_key==='development_submission'?'released':change.field_key==='development_revision'?'editing':'awaiting_recheck') : 'rejected', user, ts, note || null, ts, change.id);
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
@@ -191,7 +201,8 @@ router.post('/changes/:id/recheck', authRequired, requireRole(['admin', 'tech'])
   if (!CHANGE_FIELDS[change.field_key]) return fail(res, 409, '该修改申请的信息项已失效，请重新提交');
   db.exec('BEGIN IMMEDIATE');
   try {
-    if (!approve) db.prepare(`UPDATE tech_packs SET ${change.field_key}=?,updated_at=? WHERE id=(SELECT tech_pack_id FROM pattern_flows WHERE id=?)`).run(change.before_value, ts, change.flow_id);
+    if(change.field_key==='development_revision')revision.recheck(change,approve);
+    else if (!approve) db.prepare(`UPDATE tech_packs SET ${change.field_key}=?,updated_at=? WHERE id=(SELECT tech_pack_id FROM pattern_flows WHERE id=?)`).run(change.before_value, ts, change.flow_id);
     db.prepare('UPDATE pattern_change_requests SET status=?,rechecked_by=?,rechecked_at=?,recheck_note=?,updated_at=? WHERE id=?')
       .run(approve ? 'released' : 'rejected', user, ts, note || null, ts, change.id);
     db.exec('COMMIT');
@@ -238,8 +249,26 @@ router.put('/:flowId/stage/:stage', authRequired, wrap(async (req, res) => {
     return fail(res, 403, `你的角色无权填写「${stageDef(stage).label}」阶段`);
   }
   const b = req.body || {};
+  if(b.data?.basic_info!==undefined){
+    const basic=b.data.basic_info,keys=['type','colors','designer','assistant','sample_maker','pattern_maker','salesperson','brand','category'];
+    if(!basic||typeof basic!=='object'||Array.isArray(basic)||Object.keys(basic).some(k=>!keys.includes(k)||typeof basic[k]!=='string'||basic[k].length>500))return fail(res,400,'任务基本信息格式错误或内容超长');
+    if(!Number.isFinite(Number(b.price))||Number(b.price)<0||Number(b.price)>10000000)return fail(res,400,'加工费须为合法非负金额');
+    if(String(b.remark||'').length>500)return fail(res,400,'备注最多500字');
+  }
+  if(stage==='craft') {
+    validateCraftData(b.data || {});
+    b.data={...(b.data || {})};
+    for(const key of ['sewing','finish']) if(b.data[key]!==undefined)b.data[key]=normalizeCraftRows(b.data[key]);
+  }
   ensureStages(flow.id);
   const t = now();
+  // 制版资料和版房款号回传必须一起保存，冲突或后续写入失败全部回滚。
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if(stage==='pattern'&&b.data?.style_no!==undefined){
+      const tp=db.prepare('SELECT * FROM tech_packs WHERE id=?').get(flow.tech_pack_id);
+      if(String(b.data.style_no||'').trim()||tp.customer_style_no)require('../services/preOrderStyles').assignStyleNumber(tp,b.data.style_no,b.data.style_no_version,req.user);
+    }
   db.prepare(
     `UPDATE pattern_stages SET
        owner = ?, work_hours = ?, actual_hours = ?, due_date = ?, price = ?,
@@ -258,6 +287,8 @@ router.put('/:flowId/stage/:stage', authRequired, wrap(async (req, res) => {
     req.user.username,
     t, flow.id, stage
   );
+    db.exec('COMMIT');
+  } catch(e){db.exec('ROLLBACK');throw e;}
   return ok(res, loadFlow(flow.id));
 }));
 
@@ -305,11 +336,21 @@ router.put('/:flowId/materials', authRequired, wrap(async (req, res) => {
   const flow = db.prepare('SELECT * FROM pattern_flows WHERE id = ?').get(flowId);
   if (!flow) return fail(res, 404, '流程不存在');
   if (flow.status === 'done') return fail(res, 400, '流程已完成');
+  const developmentPack=db.prepare('SELECT tp.business_submitted_at,i.source_type FROM tech_packs tp LEFT JOIN pre_order_items i ON i.id=tp.pre_order_item_id WHERE tp.id=?').get(flow.tech_pack_id);
+  if(developmentPack?.source_type==='new'&&!developmentPack.business_submitted_at)return fail(res,409,'请先在开发管理提交资料并通过版房审核');
   if (changeHold(flow.id).length) return fail(res, 409, '业务信息修改正在审核；修改后复核通过前不能继续打版');
   if (!canWrite(req.user, stage)) {
     return fail(res, 403, `你的角色无权完成「${stageDef(stage).label}」阶段`);
   }
 
+  if(stage==='material'){
+    const tp=db.prepare('SELECT pre_order_item_id FROM tech_packs WHERE id=?').get(flow.tech_pack_id);
+    if(tp?.pre_order_item_id&&db.prepare("SELECT 1 FROM material_dev_requests WHERE pre_order_item_id=? AND (status<>'completed' OR COALESCE(pattern_review_status,'pending')<>'approved')").get(tp.pre_order_item_id))return fail(res,409,'该款面辅料新品尚未完成确认或打版准入审核，不能跳过开发流程');
+  }
+  if(stage==='pattern'){
+    const tp=db.prepare('SELECT tp.customer_style_no,i.source_type FROM tech_packs tp LEFT JOIN pre_order_items i ON i.id=tp.pre_order_item_id WHERE tp.id=?').get(flow.tech_pack_id);
+    if(tp?.source_type==='new'&&!String(tp.customer_style_no||'').trim())return fail(res,400,'请版房先填写款号，再完成制版阶段');
+  }
   ensureStages(flow.id);
   const idx = STAGE_KEYS.indexOf(stage);
   const prev = idx > 0 ? db.prepare('SELECT status FROM pattern_stages WHERE flow_id = ? AND stage = ?').get(flow.id, STAGE_KEYS[idx - 1]) : null;
@@ -389,16 +430,23 @@ router.post('/:flowId/finish', authRequired, wrap(async (req, res) => {
     return fail(res, 403, '只有工序审核/工价核价角色可以结束打版流程');
   }
 
+  // 归档前与开发确认使用同一份齐备性判断，避免锁出一份永远不能确认的样衣。
+  const pack=db.prepare('SELECT * FROM tech_packs WHERE id=?').get(flow.tech_pack_id);
+  const checks=require('./techpacks');
+  const blocks=checks.confirmBlocks(pack);
+  if(blocks.length)return fail(res,400,checks.blockMessage(blocks)+'请补齐资料再归档。');
+
   const t = now();
   let archive;
   db.exec('BEGIN');
   try {
     db.prepare("UPDATE pattern_flows SET status='done', finished_at=?, current_stage='done' WHERE id=?").run(t, flow.id);
+    archive = archiveFromFlow(flow, req.user.username);
+    if(!archive)throw new Error('样衣归档失败，流程完成操作已回滚');
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 
-  // 归档（独立事务，失败不影响流程完成，但要报错提示）
-  archive = archiveFromFlow(flow, req.user.username);
+  // 流程完成与归档已在同一事务完成，归档失败不会留下完成状态。
   if (archive) {
     const change = db.prepare(`SELECT c.id FROM sample_change_requests c
       JOIN sample_archives old ON old.id=c.archive_id

@@ -163,7 +163,7 @@
             <div class="ml-block-title">订单变更确认</div>
             <div v-for="x in confirmations.changes" :key="'c' + x.id" class="ml-card-row">
               <div class="ml-card-main">
-                <div><strong>{{ x.type_label }}</strong> · {{ x.title }}</div>
+                <div><strong>{{ x.type_label }}</strong> · {{ x.title }}</div><div class="ml-muted">实际变更：{{changeDescription(x.patch_json)}}</div>
                 <div class="ml-muted">订单 {{ x.order_no }} · 变更号 {{ x.change_no }}</div>
                 <div class="ml-muted">影响：在制 {{ x.affected_in_production }} 件，剩余可变更 {{ x.remaining_qty }} 件，金额影响 {{ x.price_delta }}，交期影响 {{ x.delivery_delta_days }} 天</div>
                 <div v-if="x.assess_note" class="ml-muted">说明：{{ x.assess_note }}</div>
@@ -429,7 +429,7 @@
     </div>
 
     <!-- 商品详情 -->
-    <div v-if="detail" class="ml-mask" @click.self="detail = null">
+    <div v-if="detail" class="ml-mask">
       <div class="ml-modal">
         <button class="ml-x" @click="detail = null">×</button>
         <div class="ml-modal-cover" :style="detail.cover_image ? { backgroundImage: 'url(' + detail.cover_image + ')' } : {}">
@@ -468,7 +468,7 @@
     </div>
 
     <!-- 提交询价 -->
-    <div v-if="cartOpen" class="ml-mask" @click.self="cartOpen = false">
+    <div v-if="cartOpen" class="ml-mask">
       <div class="ml-modal">
         <button class="ml-x" @click="cartOpen = false">×</button>
         <h3>提交选品询价</h3>
@@ -501,7 +501,7 @@
     </div>
 
     <!-- 询价详情 -->
-    <div v-if="inqDetail" class="ml-mask" @click.self="inqDetail = null">
+    <div v-if="inqDetail" class="ml-mask">
       <div class="ml-modal">
         <button class="ml-x" @click="inqDetail = null">×</button>
         <h3>{{ inqDetail.inquiry_no }}
@@ -531,7 +531,7 @@
     </div>
 
     <!-- 订单详情 -->
-    <div v-if="orderDetail" class="ml-mask" @click.self="orderDetail = null">
+    <div v-if="orderDetail" class="ml-mask">
       <div class="ml-modal">
         <button class="ml-x" @click="orderDetail = null">×</button>
         <h3>{{ orderDetail.order_no }}
@@ -598,7 +598,7 @@
     </div>
 
     <!-- 再来一单：差异确认 -->
-    <div v-if="reorder" class="ml-mask" @click.self="reorder = null">
+    <div v-if="reorder" class="ml-mask">
       <div class="ml-modal wide">
         <button class="ml-x" @click="reorder = null">×</button>
         <h3>再来一单<span class="ml-muted ro-src">源单 {{ reorder.order.order_no }}</span></h3>
@@ -1022,18 +1022,19 @@ async function actSeal(x, accepted) {
   const comment = prompt(accepted ? '确认意见（可留空）' : '请填写修改意见');
   if (comment === null) return;
   try {
-    await api.confirmSeal(x.id, { accepted, comment });
+    await api.confirmSeal(x.id, { accepted, comment,row_version:x.row_version });
     Object.assign(confirmations, await api.confirmations());
     await loadBadge();
     alert(accepted ? '已确认，我们会按此版本安排大货' : '已提交修改意见，业务会联系您');
   } catch (e) { alert(e.message); }
 }
 
+function changeDescription(raw){try{const next=JSON.parse(raw).next || {};const labels={row_id:'明细编号',qty:'数量',usd_price:'美元单价',new_date:'最新预计交期',instruction:'工艺说明',ingredient:'成分',mat_color:'颜色/色号',remark:'备注'};return Object.entries(next).map(([k,v])=>(labels[k]||k)+'：'+v).join('；');}catch{return '请联系业务核对';}}
 async function actChange(x, accepted) {
   const comment = prompt(accepted ? '确认意见（可留空）' : '不接受的原因');
   if (comment === null) return;
   try {
-    await api.confirmChange(x.id, { accepted, comment });
+    await api.confirmChange(x.id, { accepted, comment,row_version:x.row_version });
     Object.assign(confirmations, await api.confirmations());
     await loadBadge();
     alert(accepted ? '已同意，生产工位签收后执行' : '已反馈不接受，业务会与您沟通');
@@ -1138,7 +1139,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.ml-shell { min-height: 100vh; background: #f5f7fb; color: #1e2a3a; padding-bottom: 90px; }
+.ml-shell { min-height: 100vh; background: var(--surface-2); color: #1e2a3a; padding-bottom: 90px; }
 .ml-head {
   background: linear-gradient(90deg, #12365f, #1f5fae); color: #fff;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -1150,13 +1151,13 @@ onMounted(async () => {
   display: flex; align-items: center; justify-content: center; font-weight: 800;
 }
 .ml-co { font-size: 15px; font-weight: 700; }
-.ml-co-en { font-size: 9.5px; letter-spacing: 1.4px; opacity: 0.75; }
+.ml-co-en { font-size: 12px; letter-spacing: 1.4px; opacity: 0.75; }
 .ml-user { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
 .ml-cust { opacity: 0.9; }
 .ml-acc { background: rgba(255, 255, 255, 0.16); padding: 2px 9px; border-radius: 20px; }
 .ml-link { background: none; border: none; color: #cfe0f8; cursor: pointer; font-size: 12.5px; }
 
-.ml-tabs { display: flex; gap: 4px; padding: 10px 14px 0; background: #fff; border-bottom: 1px solid #e8eef7; overflow-x: auto; }
+.ml-tabs { display: flex; gap: 4px; padding: 10px 14px 0; background: var(--surface); border-bottom: 1px solid #e8eef7; overflow-x: auto; }
 .ml-tabs button {
   border: none; background: none; padding: 9px 14px; font-size: 13.5px; color: #5b6b80;
   border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; position: relative;
@@ -1164,65 +1165,65 @@ onMounted(async () => {
 .ml-tabs button.on { color: #1f5fae; border-bottom-color: #1f5fae; font-weight: 700; }
 .ml-badge {
   display: inline-block; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px;
-  background: #e5484d; color: #fff; border-radius: 10px; font-size: 10px; margin-left: 4px; text-align: center;
+  background: #e5484d; color: #fff; border-radius: 10px; font-size: 12px; margin-left: 4px; text-align: center;
 }
 .ml-dot { display: inline-block; width: 6px; height: 6px; background: #e5484d; border-radius: 50%; margin-left: 4px; vertical-align: middle; }
 
 .ml-main { padding: 14px; max-width: 1180px; margin: 0 auto; }
 .ml-filter { display: flex; gap: 8px; margin-bottom: 10px; }
 .ml-input {
-  flex: 1; padding: 9px 12px; border: 1px solid #d8e1ee; border-radius: 9px; font-size: 13.5px; background: #fff;
+  flex: 1; padding: 9px 12px; border: 1px solid #d8e1ee; border-radius: 9px; font-size: 13.5px; background: var(--surface);
 }
 .ml-input.wide { width: 100%; margin-bottom: 10px; box-sizing: border-box; }
 .ml-btn {
-  padding: 9px 14px; border: 1px solid #d8e1ee; background: #fff; color: #1f5fae;
+  padding: 9px 14px; border: 1px solid #d8e1ee; background: var(--surface); color: #1f5fae;
   border-radius: 9px; font-size: 13px; cursor: pointer;
 }
 .ml-btn.primary { background: #1f5fae; border-color: #1f5fae; color: #fff; font-weight: 600; }
 .ml-btn.ghost { background: #f1f5fb; }
 .ml-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-.ml-chip { border: 1px solid #dfe7f2; background: #fff; color: #4a5b70; border-radius: 20px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
-.ml-chip.on { background: #eaf2ff; border-color: #1f5fae; color: #1f5fae; font-weight: 600; }
+.ml-chip { border: 1px solid #dfe7f2; background: var(--surface); color: #4a5b70; border-radius: 20px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
+.ml-chip.on { background: var(--brand-soft); border-color: #1f5fae; color: #1f5fae; font-weight: 600; }
 
 .ml-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-.ml-card { background: #fff; border: 1px solid #e8eef7; border-radius: 12px; overflow: hidden; cursor: pointer; }
+.ml-card { background: var(--surface); border: 1px solid #e8eef7; border-radius: 12px; overflow: hidden; cursor: pointer; }
 .ml-cover {
   height: 132px; background: #eef3fa center/cover no-repeat; display: flex; align-items: center; justify-content: center; position: relative;
 }
 .ml-cover-ph { font-size: 22px; font-weight: 800; color: #b9c9dd; }
-.ml-tag { position: absolute; left: 8px; top: 8px; background: #ff7a45; color: #fff; font-size: 10.5px; padding: 2px 7px; border-radius: 20px; }
+.ml-tag { position: absolute; left: 8px; top: 8px; background: #ff7a45; color: #fff; font-size: 12px; padding: 2px 7px; border-radius: 20px; }
 .ml-card-body { padding: 10px 12px 12px; }
-.ml-card-title { font-size: 13.5px; font-weight: 700; color: #16233b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ml-card-sub { font-size: 11.5px; color: #8a9ab0; margin: 3px 0 6px; }
+.ml-card-title { font-size: 13.5px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-card-sub { font-size: 12px; color: #8a9ab0; margin: 3px 0 6px; }
 .ml-card-price { display: flex; align-items: baseline; gap: 6px; }
 .ml-card-price strong { font-size: 16px; color: #d4380d; }
-.ml-moq { font-size: 11px; color: #8a9ab0; }
+.ml-moq { font-size: 12px; color: #8a9ab0; }
 .ml-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
-.ml-stock { font-size: 11px; color: #15803d; background: #e9f8ee; padding: 1px 7px; border-radius: 20px; }
-.ml-muted { font-size: 11.5px; color: #8a9ab0; }
+.ml-stock { font-size: 12px; color: #15803d; background: #e9f8ee; padding: 1px 7px; border-radius: 20px; }
+.ml-muted { font-size: 12px; color: #8a9ab0; }
 .ml-fav { border: none; background: none; font-size: 17px; color: #c9d5e5; cursor: pointer; line-height: 1; }
 .ml-fav.on { color: #f5a623; }
 
 .ml-list { display: flex; flex-direction: column; gap: 8px; }
 .ml-row {
-  background: #fff; border: 1px solid #e8eef7; border-radius: 11px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid #e8eef7; border-radius: 11px; padding: 12px 14px;
   display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer;
 }
 .ml-row-right { text-align: right; }
-.ml-amount { display: block; font-weight: 700; color: #16233b; font-size: 14px; }
-.ml-status { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px; background: #eef1f6; color: #5b6b80; }
-.ml-status.s-quoted, .ml-status.o-production { background: #eaf2ff; color: #1f5fae; }
+.ml-amount { display: block; font-weight: 700; color: var(--ink); font-size: 14px; }
+.ml-status { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 20px; background: #eef1f6; color: #5b6b80; }
+.ml-status.s-quoted, .ml-status.o-production { background: var(--brand-soft); color: #1f5fae; }
 .ml-status.s-confirmed, .ml-status.o-shipped { background: #e9f8ee; color: #15803d; }
 .ml-status.s-converted, .ml-status.o-closed { background: #e9f8ee; color: #15803d; }
 .ml-status.s-cancelled, .ml-status.o-cancelled { background: #fdeceb; color: #c0392b; }
 
 .ml-msg-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.ml-msg { background: #fff; border: 1px solid #e8eef7; border-radius: 11px; padding: 11px 14px; cursor: pointer; }
+.ml-msg { background: var(--surface); border: 1px solid #e8eef7; border-radius: 11px; padding: 11px 14px; cursor: pointer; }
 .ml-msg.unread { border-left: 3px solid #1f5fae; }
-.ml-msg-title { font-size: 13.5px; font-weight: 700; color: #16233b; display: flex; gap: 8px; align-items: center; }
+.ml-msg-title { font-size: 13.5px; font-weight: 700; color: var(--ink); display: flex; gap: 8px; align-items: center; }
 .ml-msg-body { font-size: 12.5px; color: #4a5b70; margin: 5px 0 4px; line-height: 1.6; }
-.ml-type { font-size: 10.5px; padding: 1px 7px; border-radius: 20px; background: #eef1f6; color: #5b6b80; font-weight: 600; }
-.ml-type.t-order { background: #eaf2ff; color: #1f5fae; }
+.ml-type { font-size: 12px; padding: 1px 7px; border-radius: 20px; background: #eef1f6; color: #5b6b80; font-weight: 600; }
+.ml-type.t-order { background: var(--brand-soft); color: #1f5fae; }
 .ml-type.t-promo { background: #fff2e8; color: #a8541a; }
 .ml-type.t-arrival { background: #e9f8ee; color: #15803d; }
 
@@ -1230,7 +1231,7 @@ onMounted(async () => {
 
 .ml-cartbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-  background: #fff; border-top: 1px solid #e2e9f3; padding: 10px 16px;
+  background: var(--surface); border-top: 1px solid #e2e9f3; padding: 10px 16px;
   display: flex; align-items: center; justify-content: flex-end; gap: 10px; font-size: 13px;
   box-shadow: 0 -6px 20px rgba(20, 40, 80, 0.07);
 }
@@ -1242,38 +1243,38 @@ onMounted(async () => {
 .ml-reorder-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e2e9f4; font-size: 12px; }
 .ro-src { font-size: 12px; font-weight: 400; margin-left: 8px; }
 .ro-sum { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #5b6b80; margin: 10px 0; }
-.ro-sum b { color: #16233b; }
+.ro-sum b { color: var(--ink); }
 .ro-ok { color: #15803d; }
 .ro-warn { color: #b45309; }
 .ro-block-t { color: #c0392b; }
 .ro-table-wrap { max-height: 46vh; overflow: auto; border: 1px solid #eef2f8; border-radius: 10px; }
 .ro-table { table-layout: fixed; }
 .ro-table td { font-size: 12px; vertical-align: top; word-break: break-word; }
-.ro-table th { font-size: 11.5px; }
+.ro-table th { font-size: 12px; }
 .ro-table td:nth-child(2), .ro-table td:nth-child(3), .ro-table td:nth-child(4), .ro-table td:nth-child(5) { white-space: nowrap; }
 .ro-row-block { background: #fdf6f5; }
 .ro-qty { width: 74px; text-align: right; padding: 5px 7px; border: 1px solid #d8e1ee; border-radius: 7px; font-size: 12px; }
-.ro-tag { display: inline-block; font-size: 10.5px; padding: 1px 6px; border-radius: 20px; margin: 0 3px 3px 0; white-space: nowrap; }
+.ro-tag { display: inline-block; font-size: 12px; padding: 1px 6px; border-radius: 20px; margin: 0 3px 3px 0; white-space: nowrap; }
 .ro-tag.b { background: #fdeceb; color: #c0392b; }
 .ro-tag.w { background: #fff5e6; color: #b45309; }
 .ro-tag.i { background: #eef3fa; color: #1f5fae; }
 .ro-msg { line-height: 1.5; margin-top: 3px; }
 .ro-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .ro-remark { flex: 1; min-width: 160px; margin: 0; }
-.ro-hint { font-size: 11.5px; margin-top: 8px; line-height: 1.5; }
-.ml-modal { background: #fff; border-radius: 14px; width: 560px; max-width: 100%; padding: 18px 18px 20px; position: relative; }
+.ro-hint { font-size: 12px; margin-top: 8px; line-height: 1.5; }
+.ml-modal { background: var(--surface); border-radius: 14px; width: 560px; max-width: 100%; padding: 18px 18px 20px; position: relative; }
 .ml-x { position: absolute; right: 12px; top: 10px; border: none; background: none; font-size: 22px; color: #9aa8bc; cursor: pointer; }
 .ml-modal h3 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ml-modal-cover { height: 150px; border-radius: 11px; background: #eef3fa center/cover no-repeat; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
 .ml-desc { font-size: 12.5px; color: #4a5b70; line-height: 1.7; margin: 8px 0; }
 .ml-block { margin: 14px 0 4px; }
-.ml-block-title { font-size: 13px; font-weight: 700; color: #16233b; margin: 0 0 8px 2px; }
+.ml-block-title { font-size: 13px; font-weight: 700; color: var(--ink); margin: 0 0 8px 2px; }
 .ml-card-row {
   display: flex; gap: 10px; justify-content: space-between; align-items: flex-start;
-  background: #fff; border: 1px solid #e8eef7; border-radius: 12px;
+  background: var(--surface); border: 1px solid #e8eef7; border-radius: 12px;
   padding: 12px 14px; margin-bottom: 8px;
 }
-.ml-card-main { font-size: 13px; color: #16233b; line-height: 1.6; min-width: 0; }
+.ml-card-main { font-size: 13px; color: var(--ink); line-height: 1.6; min-width: 0; }
 .ml-card-act { display: flex; flex-direction: column; gap: 6px; flex: none; }
 .ml-card-act .ml-btn { white-space: nowrap; }
 @media (max-width: 480px) {
@@ -1283,7 +1284,7 @@ onMounted(async () => {
 }
 .ml-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
 .ml-table th, .ml-table td { border-bottom: 1px solid #eef2f8; padding: 7px 6px; text-align: left; }
-.ml-table th { color: #7c8ba1; font-weight: 600; font-size: 11.5px; background: #f8fafd; }
+.ml-table th { color: #7c8ba1; font-weight: 600; font-size: 12px; background: #f8fafd; }
 .ml-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .ml-buy { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
 .ml-price-big { font-size: 20px; font-weight: 800; color: #d4380d; }
@@ -1300,7 +1301,7 @@ onMounted(async () => {
 .ml-timeline { margin: 10px 0; }
 .ml-tl-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 0; }
 .ml-tl-dot { width: 8px; height: 8px; border-radius: 50%; background: #1f5fae; flex: none; }
-.ml-tl-label { font-weight: 600; color: #16233b; min-width: 84px; }
+.ml-tl-label { font-weight: 600; color: var(--ink); min-width: 84px; }
 
 @media (max-width: 640px) {
   .ml-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -1312,56 +1313,56 @@ onMounted(async () => {
 }
 
 /* ===== 成员与对账（TS-N21-03/04） ===== */
-.ml-role { font-size: 11.5px; color: #5b6474; background: #eef2f8; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
+.ml-role { font-size: 12px; color: #5b6474; background: #eef2f8; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
 .ml-user { flex-wrap: nowrap; gap: 8px; }
 .ml-cust { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-acc { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-hidden-amt { font-size: 12px; color: #9aa4b5; }
 .ml-sum-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 10px 0 14px; }
-.ml-sum-row > div { background: #f8fafc; border: 1px solid #e8edf4; border-radius: 10px; padding: 10px 12px; }
-.ml-sum-row span { display: block; font-size: 11.5px; color: #7c8798; }
-.ml-sum-row b { font-size: 16px; color: #16233b; }
+.ml-sum-row > div { background: var(--surface-2); border: 1px solid #e8edf4; border-radius: 10px; padding: 10px 12px; }
+.ml-sum-row span { display: block; font-size: 12px; color: #7c8798; }
+.ml-sum-row b { font-size: 16px; color: var(--ink); }
 .ml-sum-row b.g { color: #16a34a; }
 .ml-sum-row b.r { color: #d92d45; }
 .ml-overdue { background: #fff7f8; }
-.ml-pill { display: inline-block; position: static; background: #eef2f8; color: #5b6474; border-radius: 10px; padding: 1px 7px; font-size: 11px; margin-left: 6px; }
+.ml-pill { display: inline-block; position: static; background: #eef2f8; color: #5b6474; border-radius: 10px; padding: 1px 7px; font-size: 12px; margin-left: 6px; }
 .ml-pill.r { background: #fdecee; color: #d92d45; }
-.ml-hint { font-size: 12px; color: #7c8798; background: #f8fafc; border: 1px solid #e8edf4; border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; line-height: 1.6; }
+.ml-hint { font-size: 12px; color: #7c8798; background: var(--surface-2); border: 1px solid #e8edf4; border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; line-height: 1.6; }
 .ml-form-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.ml-input { border: 1px solid #dfe6ef; border-radius: 8px; padding: 6px 9px; font-size: 12.5px; min-width: 130px; background: #fff; }
+.ml-input { border: 1px solid #dfe6ef; border-radius: 8px; padding: 6px 9px; font-size: 12.5px; min-width: 130px; background: var(--surface); }
 .ml-perm-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 12.5px; }
-.ml-chk { display: inline-flex; align-items: center; gap: 4px; color: #33415a; cursor: pointer; }
+.ml-chk { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); cursor: pointer; }
 .ml-chk.off { color: #b6bfcc; cursor: not-allowed; }
 .ml-perms { font-size: 12px; color: #5b6474; max-width: 260px; }
 .ml-ops { white-space: nowrap; }
-.ml-audit-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 0; border-bottom: 1px dashed #eef2f7; color: #33415a; }
+.ml-audit-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 0; border-bottom: 1px dashed var(--line); color: var(--ink); }
 .ml-audit-row:last-child { border-bottom: none; }
 /* ---- 生产进度（客户侧只看已发布快照） ---- */
-.ml-mini { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 11.5px; flex-wrap: wrap; }
+.ml-mini { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 12px; flex-wrap: wrap; }
 .ml-mini-bar { display: inline-block; width: 66px; height: 5px; border-radius: 3px; background: #e8edf6; overflow: hidden; }
-.ml-mini-bar i { display: block; height: 100%; background: #2563eb; border-radius: 3px; }
-.ml-done-tag { font-size: 10.5px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; padding: 1px 5px; }
+.ml-mini-bar i { display: block; height: 100%; background: var(--brand); border-radius: 3px; }
+.ml-done-tag { font-size: 12px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; padding: 1px 5px; }
 .ml-done-lg { font-size: 12px; padding: 2px 8px; }
 .ml-pg { border: 1px solid #e6ebf3; border-radius: 10px; padding: 11px 13px; margin: 10px 0; background: #fcfeff; }
 .ml-pg-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 9px; font-size: 13px; }
-.ml-pg-head .ml-muted { font-size: 11.5px; }
+.ml-pg-head .ml-muted { font-size: 12px; }
 .ml-steps { display: flex; gap: 10px; flex-wrap: wrap; }
 /* 阶段条：已完成实心、进行中描边加粗、未开始灰色，一眼能数出做到第几步 */
 .ml-step { display: flex; gap: 6px; align-items: flex-start; min-width: 92px; flex: 1 1 92px; }
 .ml-step-dot { width: 9px; height: 9px; border-radius: 50%; background: #cbd5e1; margin-top: 4px; flex: 0 0 auto; }
-.ml-step-lb { font-size: 12px; color: #16233b; }
+.ml-step-lb { font-size: 12px; color: var(--ink); }
 .ml-step.done .ml-step-dot { background: #10b981; }
-.ml-step.doing .ml-step-dot { background: #fff; border: 2px solid #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
-.ml-step.pending .ml-step-lb { color: #94a3b8; }
-.ml-pg-note { margin-top: 8px; font-size: 11.5px; line-height: 1.6; }
+.ml-step.doing .ml-step-dot { background: var(--surface); border: 2px solid #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+.ml-step.pending .ml-step-lb { color: var(--ink-mute); }
+.ml-pg-note { margin-top: 8px; font-size: 12px; line-height: 1.6; }
 
 /* ---- 售后 ---- */
 .ml-after-form { border: 1px solid #dbeafe; background: #f8fbff; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
 .ml-after-form .ml-form-row { margin-bottom: 8px; }
-.ml-after-form label { font-size: 12px; color: #667085; flex: 0 0 auto; min-width: 48px; }
+.ml-after-form label { font-size: 12px; color: var(--ink-soft); flex: 0 0 auto; min-width: 48px; }
 .ml-after-form .ml-input { min-width: 0; }
 .ml-form-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.ml-after-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; background: #fff; }
+.ml-after-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; background: var(--surface); }
 .ml-after-row:hover { border-color: #d7e3f4; background: #fbfdff; }
 .ml-after-main { min-width: 0; font-size: 12.5px; line-height: 1.65; }
 .ml-after-main > div:first-child { margin-bottom: 2px; }

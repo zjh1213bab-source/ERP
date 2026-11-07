@@ -29,7 +29,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     b.order_id, b.name, Number(b.qty) || 0, Number(b.price) || 0, Number(b.rate) || 0,
-    Number(b.fob_price) || 0, b.is_out ? 1 : 0, b.is_wash ? 1 : 0, b.is_cut ? 1 : 0,
+    Number(b.fob_price) || 0, 0, b.is_wash ? 1 : 0, b.is_cut ? 1 : 0,
     b.instruction || null, b.remark || null, now()
   );
   return ok(res, db.prepare('SELECT * FROM order_crafts WHERE id = ?').get(Number(info.lastInsertRowid)));
@@ -43,7 +43,7 @@ router.put('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
     'UPDATE order_crafts SET name=?, qty=?, price=?, rate=?, fob_price=?, is_out=?, is_wash=?, is_cut=?, instruction=?, remark=? WHERE id=?'
   ).run(
     b.name || row.name, b.qty ?? row.qty, b.price ?? row.price, b.rate ?? row.rate, b.fob_price ?? row.fob_price,
-    b.is_out === undefined ? row.is_out : b.is_out ? 1 : 0,
+    row.is_out,
     b.is_wash === undefined ? row.is_wash : b.is_wash ? 1 : 0,
     b.is_cut === undefined ? row.is_cut : b.is_cut ? 1 : 0,
     b.instruction ?? row.instruction, b.remark ?? row.remark, req.params.id

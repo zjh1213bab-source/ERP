@@ -19,6 +19,7 @@
  */
 const { db, now } = require('../db');
 const DT = require('./dingtalk');
+const accounts = require('./employeeAccounts');
 
 const bad = (msg, status = 400) => {
   const e = new Error(msg);
@@ -175,7 +176,7 @@ async function importContacts({ replace = false, operator = '' } = {}) {
   const stats = {
     api_calls: apiCalls, depts_created: 0, depts_matched: 0,
     employees_created: 0, employees_updated: 0, removed: 0, skipped: 0,
-    conflicts: [], no_dept: 0
+    conflicts: [], no_dept: 0, accounts_created: 0, accounts_renamed: 0, account_issues: []
   };
 
   db.exec('BEGIN IMMEDIATE');
@@ -283,12 +284,22 @@ async function importContacts({ replace = false, operator = '' } = {}) {
       }
     }
 
+    // 同事务同步手机号账号，失败时全部回滚；冲突仅记为待人工核对，不覆盖他人账号。
+    for (const rec of users) {
+      const employee = db.prepare('SELECT * FROM employees WHERE dingtalk_userid=?').get(rec.userid);
+      if (!employee) continue;
+      const out = accounts.sync(employee);
+      if (out.action === 'created') stats.accounts_created++;
+      if (out.action === 'renamed') stats.accounts_renamed++;
+      if (out.reason) stats.account_issues.push({ employee_id: employee.id, name: employee.name, reason: out.reason });
+    }
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
     throw e;
   }
 
+  db.prepare('SELECT id FROM employees').all().forEach(e => accounts.clearEmployeeCache(e.id));
   return { ...stats, operator: operator || null };
 }
 

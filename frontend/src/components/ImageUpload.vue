@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="uploadRoot"
     class="img-up"
     :class="{ disabled, active: isActive(), lg: size === 'lg', sm: size === 'sm', xs: size === 'xs' }"
     :title="tipText"
@@ -41,6 +42,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { api } from '../api';
 import { openImage } from '../store/viewer';
+import { activeImageUpload as activeUid, nextImageUploadId } from '../store/uploadFocus';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -49,14 +51,13 @@ const props = defineProps({
   maxMB: { type: Number, default: 3 },
   title: { type: String, default: '' }
 });
-const emit = defineEmits(['update:modelValue', 'uploaded']);
+const emit = defineEmits(['update:modelValue', 'uploaded', 'uploading']);
 
 /* 全局只允许一个图片位处于「接收粘贴」状态 */
-const activeUid = ref(null);
-let seq = 0;
-const uid = 'iu-' + (++seq) + '-' + Math.random().toString(36).slice(2, 7);
+const uid = nextImageUploadId();
 
 const fileEl = ref(null);
+const uploadRoot = ref(null);
 const uploading = ref(false);
 const isActive = () => activeUid.value === uid;
 
@@ -91,10 +92,11 @@ function pick() {
 }
 
 async function handleFile(file) {
-  if (!file) return;
+  if (!file || uploading.value || props.disabled) return;
   if (!file.type.startsWith('image/')) return alert('只能上传图片');
   if (file.size > props.maxMB * 1024 * 1024) return alert(`图片不能超过 ${props.maxMB}MB`);
   uploading.value = true;
+  emit('uploading', true);
   try {
     const dataUrl = await new Promise((res, rej) => {
       const r = new FileReader();
@@ -109,6 +111,7 @@ async function handleFile(file) {
     alert(e.message || '上传失败');
   } finally {
     uploading.value = false;
+    emit('uploading', false);
   }
 }
 
@@ -124,7 +127,7 @@ function clear() {
 
 /* ---------- 粘贴 ---------- */
 function onPaste(e) {
-  if (props.disabled || !isActive()) return;
+  if (props.disabled || !isActive() || uploading.value || !uploadRoot.value?.getClientRects().length) return;
   const items = (e.clipboardData && e.clipboardData.items) || [];
   for (let i = 0; i < items.length; i++) {
     if (items[i].type && items[i].type.startsWith('image/')) {
@@ -140,7 +143,7 @@ function onPaste(e) {
 
 /* ---------- 拖拽 ---------- */
 function onDrop(e) {
-  if (props.disabled) return;
+  if (props.disabled || !isActive() || uploading.value || !uploadRoot.value?.getClientRects().length) return;
   const dt = e.dataTransfer;
   if (!dt) return;
   const file = dt.files && dt.files[0];
@@ -150,7 +153,7 @@ function onDrop(e) {
     handleFile(file);
   }
 }
-function onDragOver(e) { if (!props.disabled) e.preventDefault(); }
+function onDragOver(e) { if (!props.disabled && isActive()) e.preventDefault(); }
 
 let pasteBound = false;
 function bindPaste() {
@@ -185,7 +188,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .img-up {
   position: relative; width: 72px; height: 72px; border-radius: 8px; overflow: hidden;
-  border: 1px dashed #d6dfeb; background: #fbfcfe; cursor: pointer; flex: none;
+  border: 1px dashed #d6dfeb; background: var(--surface-2); cursor: pointer; flex: none;
   display: flex; align-items: center; justify-content: center;
 }
 .img-up.sm { width: 44px; height: 44px; border-radius: 6px; }
@@ -194,36 +197,36 @@ onBeforeUnmount(() => {
 .img-up.xs .ico { font-size: 13px; }
 .img-up.xs .hint { display: none; }
 .img-up img { width: 100%; height: 100%; object-fit: cover; }
-.img-up .ph { display: flex; flex-direction: column; align-items: center; gap: 2px; color: #a9b4c5; }
+.img-up .ph { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--ink-mute); }
 .img-up .ico { font-size: 16px; line-height: 1; }
-.img-up .hint { font-size: 9.5px; }
+.img-up .hint { font-size: 12px; }
 .img-up:hover { border-color: #2b6de5; }
 .img-up.active { border-color: #2b6de5; border-style: solid; box-shadow: 0 0 0 2px rgba(43, 109, 229, 0.18); }
 .img-up .ready {
   position: absolute; left: 50%; bottom: 1px; transform: translateX(-50%);
-  background: rgba(43, 109, 229, 0.92); color: #fff; font-size: 8.5px;
+  background: rgba(43, 109, 229, 0.92); color: #fff; font-size: 12px;
   padding: 0 4px; border-radius: 3px; white-space: nowrap; pointer-events: none;
 }
 .img-up.xs .ready { display: none; }
 .img-up .up-btn {
   position: absolute; top: 0; right: 0; width: 14px; height: 14px; line-height: 12px;
-  border: none; background: rgba(43, 109, 229, 0.9); color: #fff; font-size: 10px;
+  border: none; background: rgba(43, 109, 229, 0.9); color: #fff; font-size: 12px;
   border-radius: 0 0 0 4px; cursor: pointer; opacity: 0; transition: opacity 0.15s; padding: 0;
 }
 .img-up:hover .up-btn { opacity: 1; }
 .img-up .mask {
   position: absolute; inset: 0; background: rgba(22, 35, 59, 0.5); color: #fff;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 3px; font-size: 11px; opacity: 0; transition: opacity 0.15s;
+  gap: 3px; font-size: 12px; opacity: 0; transition: opacity 0.15s;
 }
 .img-up:hover .mask { opacity: 1; }
 .img-up .mask .del {
-  border: none; background: rgba(255, 255, 255, 0.18); color: #fff; font-size: 10.5px;
+  border: none; background: rgba(255, 255, 255, 0.18); color: #fff; font-size: 12px;
   border-radius: 4px; padding: 1px 6px; cursor: pointer;
 }
 .img-up .busy {
   position: absolute; inset: 0; background: rgba(255, 255, 255, 0.86);
-  display: flex; align-items: center; justify-content: center; font-size: 10.5px; color: #5b6474;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; color: #5b6474;
 }
 .img-up.disabled { cursor: default; opacity: 0.7; }
 </style>

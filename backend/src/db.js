@@ -156,15 +156,84 @@ function migrate() {
       schemaFailures.push({ kind: '补列', sql: `ALTER TABLE ${table} ADD COLUMN ${col}`, msg: e.message });
     }
   };
+  add('customers', 'order_cycle_days', 'INTEGER NOT NULL DEFAULT 0');
+  add('customers', 'cycle_started_at', 'TEXT');
+  add('customers', 'cycle_version', 'INTEGER NOT NULL DEFAULT 1');
   const exec = (label, sql) => {
     try { db.exec(sql); } catch (e) { schemaFailures.push({ kind: '补数据', sql: label, msg: e.message }); }
   };
+
+  // 预下单款式来源：原记录保持 legacy，新款与样衣复用明确区分。
+  // 销售下单快照：旧库只补列，新库完整结构来自 schema.js。
+  for (const table of ['orders','order_items','order_materials']) add(table,'entry_json','TEXT');
+  add('order_materials','layout_history','TEXT');
+  add('order_materials','layout_m','REAL');
+  add('order_materials','layout_by','TEXT');
+  add('order_materials','layout_at','TEXT');
+  add('order_materials','layout_version','INTEGER NOT NULL DEFAULT 0');
+  add('pre_order_items','source_type',"TEXT NOT NULL DEFAULT 'legacy'");
+  add('pre_order_items','sample_archive_id','INTEGER');
+  add('pre_order_items','source_snapshot','TEXT');
+  add('pre_order_items','pricing_json',"TEXT NOT NULL DEFAULT '[]'");
+  add('tech_packs','source_archive_id','INTEGER');
+
+  // 计件报价快照与扫码幂等键：历史记录保持 NULL，不回算历史倍率。
+  add('production_reports','wage_snapshot','TEXT');
+  add('production_reports','request_no','TEXT');
+  add('production_reports','request_hash','TEXT');
+  add('piece_wage_items','wage_snapshot','TEXT');
+
+  // 报价图片是本次报价的独立快照，不写回产品或客户档案。
+  add('quotation_items','image_url','TEXT');
+
+  // 客户确认闭环：款级封样、受控变更与来源关联。
+  add('sample_seals', 'order_item_id', 'INTEGER');
+  add('sample_seals', 'archive_id', 'INTEGER');
+  add('sample_seals', 'snapshot_json', 'TEXT');
+  add('sample_seals', 'row_version', 'INTEGER NOT NULL DEFAULT 1');
+  add('order_changes', 'patch_json', 'TEXT');
+  add('order_changes', 'applied_snapshot', 'TEXT');
+  add('order_changes', 'row_version', 'INTEGER NOT NULL DEFAULT 1');
+  add('delivery_changes', 'source_change_id', 'INTEGER');
+  add('orders', 'latest_delivery_date', 'TEXT');
+  add('tech_packs', 'pre_order_item_id', 'INTEGER');
+  add('tech_packs', 'order_item_id', 'INTEGER');
+  add('material_dev_requests', 'pre_order_item_id', 'INTEGER');
+
+  // 海外客户档案与订单收货快照：仅补列，保留历史档案。
+  ["country", "customer_type", "contact_title", "registered_address", "billing_address", "shipping_address", "tax_id", "currency", "payment_terms", "incoterms"].forEach((col) => add('customers', col, 'TEXT'));
+  ['customer_name_snapshot', 'recipient_name', 'recipient_phone', 'shipping_address'].forEach((col) => add('orders', col, 'TEXT'));
 
   // 订单
   add('orders', 'image_url', 'TEXT');
   add('orders', 'currency', "TEXT DEFAULT 'CNY'");
   add('orders', 'rate', 'REAL DEFAULT 6.5');
   add('orders', 'total_usd', 'REAL DEFAULT 0');
+
+  add('factories', 'processing_mode', "TEXT NOT NULL DEFAULT 'processing'");
+  // 多款预下单与转正式单的来源追踪。
+  add('pre_orders', 'order_no', 'TEXT');
+  add('pre_orders', 'customer_id', 'INTEGER');
+  add('pre_orders', 'recipient_name', 'TEXT');
+  add('pre_orders', 'recipient_phone', 'TEXT');
+  add('pre_orders', 'shipping_address', 'TEXT');
+  add('tech_packs', 'business_submitted_at', 'TEXT');
+  add('tech_packs', 'outsource_json', "TEXT NOT NULL DEFAULT '[]'");
+  add('pre_orders', 'manager', 'TEXT');
+  // 预下单约定金额与付款比例；旧单留空，不把未约定金额记成零。
+  add('pre_orders', 'total_usd', 'REAL');
+  add('pre_orders', 'payment_ratio', 'REAL');
+  for (const field of ['designer','category','series','wave','sample_source','po_no']) add('pre_orders', field, 'TEXT');
+  add('pre_orders', 'version', 'INTEGER NOT NULL DEFAULT 1');
+  add('pre_orders', 'completed_at', 'TEXT');
+  add('pre_orders', 'completed_by', 'TEXT');
+  add('pre_orders', 'converted_order_id', 'INTEGER');
+  add('orders', 'source_pre_order_id', 'INTEGER');
+  add('order_items', 'source_pre_order_item_id', 'INTEGER');
+  add('order_items', 'effect_image_url', 'TEXT');
+  add('order_items', 'detail_images', "TEXT NOT NULL DEFAULT '[]'");
+  add('materials', 'supplier_id', 'INTEGER');
+  add('materials', 'version', 'INTEGER NOT NULL DEFAULT 1');
 
   // 档案图片
   ['customers', 'factories', 'employees'].forEach((tb) => add(tb, 'image_url', 'TEXT'));
@@ -198,6 +267,7 @@ function migrate() {
   // 开发单明细
   add('tech_pack_materials', 'material_id', 'INTEGER');
   add('tech_pack_materials', 'use_part', 'TEXT');
+  add('tech_pack_materials', 'entry_json', 'TEXT');
 
   /**
    * 采购单挂主体。

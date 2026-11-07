@@ -21,6 +21,15 @@ const { applyDueToTask } = require('./sla');
 
 /** 业务回写：审批结论落到具体单据上 */
 const HOOKS = {
+  order_change: {
+    guard(id,user) {
+      const row=db.prepare('SELECT * FROM order_changes WHERE id=?').get(id);
+      if(!row || row.status!=='assessing')throw Object.assign(new Error('变更单已不在内部评估审批中'),{status:409});
+      if(!require('../access/companyScope').assertOrder(user,row.order_id).ok)throw Object.assign(new Error('无权审批该订单变更'),{status:403});
+    },
+    approved(id,user,t) {require('./confirmation').approveChange(id,user,t);},
+    rejected(id,user,t,remark) {db.prepare("UPDATE order_changes SET status='rejected',assess_note=COALESCE(?,assess_note),row_version=row_version+1,updated_at=? WHERE id=?").run(remark || null,t,id);}
+  },
   cost: {
     approved(targetId, user, t) {
       db.prepare(
@@ -94,7 +103,7 @@ function ensureInstance(targetType, targetId, amount) {
       "SELECT 1 AS x FROM approval_instances WHERE target_type=? AND target_id=? AND status='approved' LIMIT 1"
     )
     .get(targetType, targetId);
-  if (approved) return null;
+  if (approved && targetType!=='order_change') return null;
 
   db.prepare(
     "DELETE FROM approval_tasks WHERE instance_id IN (SELECT id FROM approval_instances WHERE target_type=? AND target_id=? AND status='pending')"
@@ -110,7 +119,12 @@ function ensureInstance(targetType, targetId, amount) {
       .get(targetType);
   const steps = flow
     ? JSON.parse(flow.steps)
-    : [{ role: 'finance', name: '财务审核' }];
+    : targetType==='order_change' ? [{role:'tech',name:'技术影响评估'},{role:'finance',name:'金额与数量复核'},{role:'production',name:'生产执行评估'}] : [{ role: 'finance', name: '财务审核' }];
+
+  if(targetType==='order_change') {
+    const r=db.prepare('SELECT type FROM order_changes WHERE id=?').get(targetId);
+    if(['qty','price'].includes(r?.type) && !steps.some(s=>s.role==='finance'))throw new Error('数量/价格变更审批流必须包含财务节点');
+  }
 
   // 记下「这单是按哪个版本的流程发起的」：
   // 流程改版后，已发起的单继续按自己那份快照走，页面上也能证明这一点。
@@ -154,7 +168,7 @@ function ensureCostInstance(orderId, amount) {
  * 回写业务表时找不到 hook 就**报错**，不静默通过 ——
  * 否则新增一种单据类型时，「审批过了但单据没变」会毫无提示。
  */
-function actTask(taskId, approve, remark, user) {
+function applyTask(taskId, approve, remark, user) {
   const task = db.prepare('SELECT * FROM approval_tasks WHERE id = ?').get(taskId);
   if (!task) throw new Error('审批任务不存在');
   if (task.status !== 'pending') throw new Error('该任务已处理');
@@ -215,6 +229,13 @@ function actTask(taskId, approve, remark, user) {
   return { instanceStatus: 'approved', step: task.step_no, targetType: inst.target_type };
 }
 
+/** 使用保存点，兼容调用方外层事务；业务回写失败必须恢复任务与实例状态。 */
+function actTask(taskId,approve,remark,user) {
+ db.exec('SAVEPOINT approval_action');
+ try {const result=applyTask(taskId,approve,remark,user);db.exec('RELEASE approval_action');return result;}
+ catch(e){db.exec('ROLLBACK TO approval_action');db.exec('RELEASE approval_action');throw e;}
+}
+
 /**
  * 当前用户待审批的任务
  *
@@ -231,16 +252,17 @@ function myTasks(user) {
   const sql = `SELECT t.*, i.target_type, i.target_id, i.current_step, i.status AS instance_status,
       o.order_no, o.style_name, c.name AS customer_name, cs.total_cost, cs.factory_price,
       pr.req_no, pr.supplier_name, pr.amount AS pr_amount, pr.plan_pay_date, pr.reason AS pr_reason,
-      pr.status AS pr_status
+      pr.status AS pr_status, g.change_no, g.title AS change_title
     FROM approval_tasks t
     JOIN approval_instances i ON i.id = t.instance_id AND i.status = 'pending'
-    LEFT JOIN orders o ON o.id = i.target_id AND i.target_type = 'cost'
+    LEFT JOIN order_changes g ON g.id=i.target_id AND i.target_type='order_change'
+    LEFT JOIN orders o ON o.id = CASE WHEN i.target_type='order_change' THEN g.order_id ELSE i.target_id END AND i.target_type IN ('cost','order_change')
     LEFT JOIN customers c ON c.id = o.customer_id
     LEFT JOIN cost_sheets cs ON cs.order_id = i.target_id AND i.target_type = 'cost'
     LEFT JOIN payment_requests pr ON pr.id = i.target_id AND i.target_type = 'payment'
     WHERE ${where.join(' AND ')}
     ORDER BY t.id DESC`;
-  return db.prepare(sql).all(...params);
+  return db.prepare(sql).all(...params).filter(r=>r.target_type!=='order_change' || require('../access/companyScope').assertOrder(user,db.prepare('SELECT order_id FROM order_changes WHERE id=?').get(r.target_id)?.order_id).ok);
 }
 
 /** 某个业务单据的审批进度（给单据详情页展示「走到哪一步了」） */

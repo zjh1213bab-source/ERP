@@ -10,6 +10,17 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired } = require('../middleware/auth');
 
 const router = express.Router();
+/** 基础账号可使用工作指引；全公司问数仍需业务岗位。 */
+router.use(authRequired, wrap(async(req,res,next)=>{
+ if(req.user.positionDirect||!req.user.roles?.every(r=>r==='employee'))return next();
+ if(req.method==='GET'&&req.path==='/insights')return ok(res,{alerts:[],overdue:[],dueSoon:[],lowStock:[],scope:'self'});
+ if(req.method==='GET'&&req.path==='/report')return ok(res,{metrics:{},conclusions:[],risks:[],tips:[],compare:{},scope:'self'});
+ if(req.method==='POST'&&req.path==='/query'){
+  const q=String(req.body?.q||'').trim();if(!q||q.length>500)return fail(res,400,'请输入1至500字的问题');
+  return ok(res,{q,title:'员工工作指引',summary:'普通员工可查询本人自助、本人异常和内部邮件；业务数据需管理员分配对应岗位。',columns:[{key:'topic',label:'事项'},{key:'guide',label:'办理入口'}],rows:[{topic:'考勤、工资条、请假',guide:'我的自助'},{topic:'本人异常任务',guide:'异常日清'},{topic:'同事协作',guide:'内部邮件'},{topic:'标签查询',guide:'扫码查询'}],links:[{to:'/self',text:'我的自助'},{to:'/exceptions',text:'本人异常'},{to:'/mail',text:'内部邮件'}],scope:'self'});
+ }
+ return fail(res,403,'此功能需要业务岗位授权');
+}));
 const LOW_STOCK = 20;
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const money = (v) => round2(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

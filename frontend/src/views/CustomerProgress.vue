@@ -274,7 +274,7 @@ onMounted(reload);
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card { min-height: 102px; padding: 13px 12px; }
 .cards.c6 .stat-card .value { font-size: 22px; margin-top: 5px; }
-.cards.c6 .stat-card .foot { font-size: 11px; line-height: 1.4; }
+.cards.c6 .stat-card .foot { font-size: 12px; line-height: 1.4; }
 
 .split { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 12px; align-items: start; }
 @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
@@ -292,25 +292,25 @@ onMounted(reload);
 .row-mid { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .row-flags { display: flex; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
 .mini-bar { flex: 1; height: 5px; border-radius: 3px; background: #e8edf6; overflow: hidden; min-width: 40px; }
-.mini-bar i { display: block; height: 100%; background: #2563eb; }
+.mini-bar i { display: block; height: 100%; background: var(--brand); }
 
 .detail .cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; }
 @media (max-width: 900px) { .detail .cols { grid-template-columns: 1fr; } }
-.col-h { font-weight: 600; font-size: 12.5px; color: #16233b; margin-bottom: 8px; }
+.col-h { font-weight: 600; font-size: 12.5px; color: var(--ink); margin-bottom: 8px; }
 
 /* 内部阶段：完成实心、进行中描边、未开始灰 */
 .stage { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px dashed #eef1f6; }
 .stage .dot { width: 9px; height: 9px; border-radius: 50%; background: #cbd5e1; margin-top: 5px; flex: 0 0 auto; }
 .stage.done .dot { background: #10b981; }
-.stage.doing .dot { background: #fff; border: 2px solid #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+.stage.doing .dot { background: var(--surface); border: 2px solid #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
 .stage-lb { font-size: 12.5px; }
-.stage.pending .stage-lb { color: #94a3b8; }
+.stage.pending .stage-lb { color: var(--ink-mute); }
 
 .blk { border: 1px solid #fde68a; background: #fffbeb; border-radius: 9px; padding: 9px 11px; margin-top: 10px; }
 .blk.ok { border-color: #a7f3d0; background: #ecfdf5; }
 .blk-h { font-size: 12.5px; font-weight: 600; color: #92400e; margin-bottom: 4px; }
 .blk.ok .blk-h { color: #047857; }
-.blk ul { margin: 0 0 0 16px; font-size: 11.5px; color: #92400e; line-height: 1.7; }
+.blk ul { margin: 0 0 0 16px; font-size: 12px; color: #92400e; line-height: 1.7; }
 .hide-box { margin-top: 10px; }
 .hist { margin-top: 16px; border-top: 1px solid #eef1f6; padding-top: 12px; }
 .hist table.data td { vertical-align: top; }
@@ -322,15 +322,15 @@ onMounted(reload);
 .pv-step { display: flex; gap: 5px; align-items: flex-start; min-width: 84px; flex: 1 1 84px; }
 .pv-step .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; margin-top: 5px; flex: 0 0 auto; }
 .pv-step.done .dot { background: #10b981; }
-.pv-step.doing .dot { background: #fff; border: 2px solid #2563eb; }
+.pv-step.doing .dot { background: var(--surface); border: 2px solid #2563eb; }
 .pv-lb { font-size: 12px; }
-.pv-step.pending .pv-lb { color: #94a3b8; }
+.pv-step.pending .pv-lb { color: var(--ink-mute); }
 .pv-note { margin-top: 7px; line-height: 1.6; }
 
 .warn-box { border: 1px solid #fde68a; background: #fffbeb; border-radius: 9px; padding: 8px 11px; margin-top: 9px; }
 .warn-h { font-size: 12px; font-weight: 600; color: #92400e; margin-bottom: 3px; }
-.warn-box ul { margin: 0 0 0 16px; font-size: 11.5px; color: #92400e; line-height: 1.65; }
-.rule { margin-top: 9px; font-size: 11.5px; color: #475569; background: #f8fafc; border-radius: 8px; padding: 8px 10px; line-height: 1.65; }
+.warn-box ul { margin: 0 0 0 16px; font-size: 12px; color: #92400e; line-height: 1.65; }
+.rule { margin-top: 9px; font-size: 12px; color: var(--ink-soft); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; line-height: 1.65; }
 .pub-opts { margin-top: 10px; display: flex; flex-direction: column; gap: 7px; }
 .chk { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .pub-opts .input { width: 100%; }

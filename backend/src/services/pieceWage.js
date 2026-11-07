@@ -262,7 +262,7 @@ function preview(period, companyId) {
   const reports = db
     .prepare(
       `SELECT r.id, r.order_id, r.node_name, r.bundle_no, r.qty_ok, r.qty_defect,
-              r.employee_id, r.operator, r.report_date, o.order_no, o.company_id AS order_company_id
+              r.employee_id, r.operator, r.report_date, r.wage_snapshot, o.order_no, o.company_id AS order_company_id
          FROM production_reports r
          LEFT JOIN orders o ON o.id = r.order_id
         WHERE r.report_date >= ? AND r.report_date <= ? AND IFNULL(r.qty_ok, 0) > 0
@@ -289,8 +289,10 @@ function preview(period, companyId) {
 
   reports.forEach((r) => {
     const processName = String(r.node_name || '').trim() || '（未记工序）';
-    const st = styleOf(r.order_id);
-    const { rate, source } = rateOf(st.style_no, processName, r.report_date);
+    let st = styleOf(r.order_id);
+    if(r.wage_snapshot){const saved=JSON.parse(r.wage_snapshot);st={style_no:saved.style_no||null,multi:false};}
+    const priced=require('./wageMultiplier').reportPrice(r,rateOf(st.style_no,processName,r.report_date));
+    const {rate,source}=priced;
 
     // 1) 归人
     const who = resolveEmployee(r, R);
@@ -378,7 +380,7 @@ function preview(period, companyId) {
         report_id: r.id, employee_id: who.employee.id, employee_code: who.employee.code,
         employee_name: who.employee.name, department: who.employee.dept_name || '',
         order_no: r.order_no, bundle_no: r.bundle_no, process_name: processName,
-        report_date: r.report_date, qty, unit_price: round2(rate.unit_price),
+        report_date: r.report_date, qty, unit_price: r.wage_snapshot ? require('./wageMultiplier').roundUnit(rate.unit_price) : round2(rate.unit_price),
         amount: round2(qty * rate.unit_price),
         att_status: attStatus, att_label: attStatus === 'leave' ? '请假' : '缺勤',
         reason: '报工日' + (attStatus === 'leave' ? '请假' : '缺勤') + '，按当前策略不计金额'
@@ -423,8 +425,9 @@ function preview(period, companyId) {
       cap_kind: capKind,
       att_status: attStatus || 'none',
       att_flagged: attFlagged ? 1 : 0,
-      unit_price: round2(rate.unit_price),
+      unit_price: r.wage_snapshot ? require('./wageMultiplier').roundUnit(rate.unit_price) : round2(rate.unit_price),
       amount: round2(qty * rate.unit_price),
+      wage_snapshot: priced.wage_snapshot ? JSON.stringify(priced.wage_snapshot) : null,
       rate_id: rate.id,
       rate_source: source,
       matched_by: who.matched_by
@@ -439,7 +442,7 @@ function preview(period, companyId) {
   // 同一人同工序同单同扎合并（多条报工合成一行，便于核对）
   const merged = new Map();
   cappedItems.forEach((it) => {
-    const k = [it.employee_id, it.process_name, it.order_id, it.bundle_no || '', it.unit_price].join('|');
+    const k = [it.employee_id, it.process_name, it.order_id, it.bundle_no || '', it.unit_price,it.wage_snapshot||''].join('|');
     const hit = merged.get(k);
     if (hit) {
       hit.qty = round2(hit.qty + it.qty);
@@ -604,8 +607,8 @@ function createRun(period, operator, note, companyId) {
       `INSERT INTO piece_wage_items
          (run_id, employee_id, employee_code, employee_name, department, style_no, process_name,
           order_id, order_no, bundle_no, report_date, raw_qty, qty, capped, cap_kind,
-          att_status, att_flagged, unit_price, amount, rate_id, rate_source, matched_by, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          att_status, att_flagged, unit_price, amount, rate_id, rate_source, matched_by, created_at,wage_snapshot)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     p.items.forEach((it) => {
       ins.run(
@@ -613,7 +616,7 @@ function createRun(period, operator, note, companyId) {
         it.process_name, it.order_id, it.order_no, it.bundle_no, it.report_date,
         it.raw_qty, it.qty, it.capped, it.cap_kind || null,
         it.att_status || null, it.att_flagged || 0,
-        it.unit_price, it.amount, it.rate_id, it.rate_source, it.matched_by, t
+        it.unit_price, it.amount, it.rate_id, it.rate_source, it.matched_by, t,it.wage_snapshot||null
       );
     });
 

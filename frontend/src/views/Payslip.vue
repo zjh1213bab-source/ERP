@@ -201,28 +201,28 @@ onMounted(load);
   max-width: 1100px;
   margin: 0 auto 14px;
   padding: 10px 14px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #e6ebf3;
   border-radius: 12px;
 }
 .ps-bar .sp { flex: 1; }
 .ps-tabs {
   display: inline-flex;
-  border: 1px solid #dfe5ef;
+  border: 1px solid var(--line);
   border-radius: 9px;
   overflow: hidden;
 }
 .ps-tabs button {
   border: 0;
-  background: #fff;
+  background: var(--surface);
   padding: 7px 14px;
   font-size: 13px;
-  color: #4b5568;
+  color: var(--ink-soft);
   cursor: pointer;
 }
 .ps-tabs button.on {
-  background: #2b6de5;
-  color: #fff;
+  background: var(--brand);
+  color: var(--on-brand);
   font-weight: 700;
 }
 .ps-err {
@@ -237,7 +237,7 @@ onMounted(load);
 .ps-sheet {
   max-width: 1100px;
   margin: 0 auto;
-  background: #fff;
+  background: var(--surface);
   border-radius: 12px;
   padding: 22px 26px;
   box-shadow: 0 2px 12px rgba(16, 32, 64, 0.06);
@@ -254,17 +254,17 @@ onMounted(load);
 .ps-head h1 {
   margin: 0 0 4px;
   font-size: 20px;
-  color: #16233b;
+  color: var(--ink);
   letter-spacing: 1px;
 }
 .ps-sub {
   font-size: 12.5px;
-  color: #6b7688;
+  color: var(--ink-soft);
 }
 .ps-stamp {
   text-align: right;
   font-size: 12px;
-  color: #6b7688;
+  color: var(--ink-soft);
   line-height: 1.7;
 }
 .ps-table {
@@ -278,9 +278,9 @@ onMounted(load);
   padding: 7px 8px;
 }
 .ps-table th {
-  background: #f4f6fa;
+  background: var(--bg);
   font-weight: 700;
-  color: #16233b;
+  color: var(--ink);
 }
 .ps-table tfoot td {
   background: #f9fafc;
@@ -289,7 +289,7 @@ onMounted(load);
 .ps-table .r { text-align: right; }
 .ps-table .c { text-align: center; }
 .ps-table .b { font-weight: 700; }
-.mono { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 
 /* 个人工资条：两列，虚线可裁 */
 .ps-cards {
@@ -312,27 +312,27 @@ onMounted(load);
 .psc-name {
   font-size: 15px;
   font-weight: 700;
-  color: #16233b;
+  color: var(--ink);
 }
 .psc-code {
-  font-size: 11.5px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
   font-family: ui-monospace, Consolas, monospace;
 }
 .psc-dept {
-  font-size: 11.5px;
-  color: #6b7688;
+  font-size: 12px;
+  color: var(--ink-soft);
   margin-left: auto;
 }
 .psc-period {
-  font-size: 11px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
   margin: 2px 0 6px;
 }
 .psc-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 12px;
 }
 .psc-table th,
 .psc-table td {
@@ -340,12 +340,12 @@ onMounted(load);
   padding: 3px 4px;
 }
 .psc-table th {
-  color: #6b7688;
+  color: var(--ink-soft);
   font-weight: 700;
   text-align: left;
 }
 .psc-table .r { text-align: right; }
-.psc-table .b { font-weight: 700; color: #16233b; }
+.psc-table .b { font-weight: 700; color: var(--ink); }
 .psc-table tfoot td {
   border-top: 1px solid #d8dee9;
   border-bottom: 0;
@@ -353,13 +353,13 @@ onMounted(load);
 }
 .psc-order {
   color: #a0aabb;
-  font-size: 10px;
+  font-size: 12px;
   margin-left: 4px;
 }
-.psc-more { color: #8a94a6; text-align: center; }
+.psc-more { color: var(--ink-mute); text-align: center; }
 .psc-note {
   margin-top: 4px;
-  font-size: 10px;
+  font-size: 12px;
   color: #b45309;
   line-height: 1.5;
 }
@@ -368,8 +368,8 @@ onMounted(load);
   align-items: center;
   gap: 4px;
   margin-top: 8px;
-  font-size: 11px;
-  color: #4b5568;
+  font-size: 12px;
+  color: var(--ink-soft);
 }
 .psc-sign {
   display: inline-block;
@@ -385,24 +385,24 @@ onMounted(load);
   padding-top: 10px;
 }
 .ps-terms {
-  font-size: 10.5px;
-  color: #6b7688;
+  font-size: 12px;
+  color: var(--ink-soft);
   line-height: 1.7;
 }
-.ps-terms b { color: #16233b; margin-right: 6px; }
+.ps-terms b { color: var(--ink); margin-right: 6px; }
 .ps-terms span { margin-right: 8px; }
 .ps-sign-line {
   display: flex;
   gap: 22px;
   flex-wrap: wrap;
   margin-top: 12px;
-  font-size: 11.5px;
-  color: #4b5568;
+  font-size: 12px;
+  color: var(--ink-soft);
 }
 .ps-gen {
   margin-left: auto;
   color: #a0aabb;
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {

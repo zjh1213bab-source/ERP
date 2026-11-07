@@ -38,7 +38,7 @@
       <button v-if="canWrite" class="btn btn-ghost btn-sm" :disabled="!confirmedIds.length" @click="batch('pay')">
         批量发放（{{ confirmedIds.length }}）
       </button>
-      <button class="btn btn-ghost btn-sm" @click="exportCsv">导出 CSV</button>
+      <button v-action="['payrolls','export']" class="btn btn-ghost btn-sm" @click="exportCsv">导出 CSV</button>
       <span class="muted" style="font-size: 12px; margin-left: auto">有 {{ list.length }} 条记录</span>
     </div>
 
@@ -86,7 +86,7 @@
               <button v-if="r.status === 'draft' && canWrite" class="link-btn" @click="openEdit(r)">调整</button>
               <button v-if="r.status === 'draft' && canWrite" class="link-btn" @click="act(r, 'confirm')">确认</button>
               <button v-if="r.status === 'confirmed' && canWrite" class="link-btn" @click="act(r, 'pay')">发放</button>
-              <button v-if="r.status === 'draft' && canWrite" class="link-btn danger" @click="remove(r)">删除</button>
+              <button v-action="['payrolls','delete']" v-if="r.status === 'draft' && canWrite" class="link-btn danger" @click="remove(r)">删除</button>
             </td>
           </tr>
           <tr v-if="!list.length">
@@ -99,7 +99,7 @@
     </div>
 
     <!-- 调整 -->
-    <div v-if="edit" class="modal-mask" @click.self="edit = null">
+    <div v-if="edit" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>调整工资 · {{ edit.employee_name }}（{{ edit.period }}）</h3>

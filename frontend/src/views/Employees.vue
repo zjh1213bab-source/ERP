@@ -6,8 +6,9 @@
         <div class="sub">员工档案（部门 / 岗位 / 入职 / 状态）</div>
       </div>
       <div style="display: flex; gap: 8px">
+        <button v-if="canWrite" class="btn btn-ghost" :disabled="accountBusy" @click="syncAccounts()">{{ accountBusy ? '同步中…' : '同步员工账号' }}</button>
         <button v-if="canWrite" class="btn btn-ghost" @click="openDtImport">从钉钉导入</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增员工</button>
+        <button v-action="['employees','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增员工</button>
       </div>
     </div>
 
@@ -21,12 +22,13 @@
       <button class="btn btn-ghost" @click="load">查询</button>
     </div>
 
+    <ListPagination v-model:page="page" v-model:page-size="pageSize" :total="list.length" />
     <div class="table-wrap">
       <table class="data">
-        <thead><tr><th style="width: 52px">图片</th><th>工号</th><th>姓名</th><th>部门</th><th>岗位</th><th>电话</th><th>入职日期</th><th>状态</th><th v-if="canWrite">操作</th></tr></thead>
+        <thead><tr><th style="width: 52px">头像</th><th>工号</th><th>姓名</th><th>部门</th><th>岗位</th><th>电话</th><th>入职日期</th><th>状态</th><th v-if="canWrite">操作</th></tr></thead>
         <tbody>
-          <tr v-for="e in list" :key="e.id">
-            <td><div class="mini-thumb" :class="{ clickable: e.image_url }" @click="e.image_url && openImage(e.image_url, e.name || '')"><img v-if="e.image_url" :src="e.image_url" /><span v-else>-</span></div></td>
+          <tr v-for="e in pagedEmployees" :key="e.id">
+            <td><div class="mini-thumb" :class="{ clickable: e.image_url, 'employee-initial': !e.image_url }" :title="e.name || '员工头像'" @click="e.image_url && openImage(e.image_url, e.name || '')"><img v-if="e.image_url" :src="e.image_url" :alt="e.name || '员工头像'" /><span v-else>{{ Array.from((e.name || '').trim())[0] || '员' }}</span></div></td>
             <td>{{ e.code || '-' }}</td>
             <td><strong>{{ e.name }}</strong></td>
             <td>{{ e.department_name || '-' }}</td>
@@ -35,8 +37,8 @@
             <td>{{ e.hire_date || '-' }}</td>
             <td><span class="tag" :class="e.status === 'active' ? 'green' : 'gray'">{{ e.status === 'active' ? '在职' : '离职' }}</span></td>
             <td v-if="canWrite">
-              <button class="link-btn" @click="openEdit(e)">编辑</button>
-              <button v-if="e.status === 'active'" class="link-btn danger" @click="leave(e)">离职</button>
+              <button v-action="['employees','edit']" class="link-btn" @click="openEdit(e)">编辑</button>
+              <button v-action="['employees','disable']" v-if="e.status === 'active'" class="link-btn danger" @click="leave(e)">离职</button>
             </td>
           </tr>
           <tr v-if="!list.length"><td :colspan="canWrite ? 9 : 8" class="empty-cell">暂无员工</td></tr>
@@ -44,7 +46,9 @@
       </table>
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
+    <ListPagination v-model:page="page" v-model:page-size="pageSize" :total="list.length" />
+
+    <div v-if="showModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>{{ form.id ? '编辑员工' : '新增员工' }}</h3><button class="x" @click="showModal = false">×</button></div>
         <div class="modal-body">
@@ -81,7 +85,7 @@
       </div>
     </div>
     <!-- 从钉钉通讯录导入 -->
-    <div v-if="dt.open" class="modal-mask" @click.self="dt.open = false">
+    <div v-if="dt.open" class="modal-mask">
       <div class="modal" style="width: 820px; max-width: 94vw">
         <div class="modal-head"><h3>从钉钉导入员工</h3><button class="x" @click="dt.open = false">×</button></div>
         <div class="modal-body">
@@ -133,7 +137,8 @@
 
           <p v-if="dt.res" class="dt-res">
             已导入：新建部门 {{ dt.res.depts_created }} · 新增员工 {{ dt.res.employees_created }} ·
-            覆盖 {{ dt.res.employees_updated }} · 删除旧员工 {{ dt.res.removed }}
+            覆盖 {{ dt.res.employees_updated }} · 删除旧员工 {{ dt.res.removed }} · 新建账号 {{ dt.res.accounts_created || 0 }}
+            <span v-if="dt.res.account_issues?.length" class="red"> · {{ dt.res.account_issues.length }} 个账号待核对：{{ dt.res.account_issues.map(x => x.name + '：' + x.reason).join('；') }}</span>
             <span v-if="dt.res.no_dept" class="mut tiny"> · {{ dt.res.no_dept }} 人只在钉钉根部门（部门留空）</span>
             <span v-if="dt.res.conflicts.length" class="red"> · {{ dt.res.conflicts.length }} 人因 userid/工号/手机对上了不同的人被跳过</span>
           </p>
@@ -149,12 +154,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
 import ImageUpload from '../components/ImageUpload.vue';
+import ListPagination from '../components/ListPagination.vue';
+import { globalPageSize } from '../composables/useListPagination';
 
 const list = ref([]);
+const page = ref(1);
+const pageSize = globalPageSize;
+const pagedEmployees = computed(() => list.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value));
+watch(pageSize, () => { page.value = 1; });
 const departments = ref([]);
 const q = ref('');
 const status = ref('');
@@ -162,11 +173,25 @@ const showModal = ref(false);
 const saving = ref(false);
 const form = ref(blank());
 const canWrite = computed(() => can('employee.write'));
+const accountBusy = ref(false);
+async function syncAccounts() {
+  accountBusy.value = true;
+  try {
+    const result = await api.syncEmployeeAccounts();
+    alert(`新增账号 ${result.created}，更新手机号 ${result.renamed}，保持原账号 ${result.unchanged}，离职停用 ${result.disabled}。` +
+      (result.issues?.length ? '\n待核对：\n' + result.issues.map(item => item.name + '：' + item.reason).join('\n') : ''));
+  } catch (error) { alert(error.message); }
+  finally { accountBusy.value = false; }
+}
 
 function blank() { return { id: null, name: '', code: '', department_id: null, position: '', phone: '', hire_date: '', status: 'active', base_salary: 0, remark: '', image_url: '' }; }
 
 async function load() {
-  try { list.value = await api.employees({ q: q.value, status: status.value }); }
+  try {
+    list.value = await api.employees({ q: q.value, status: status.value });
+    // 查询、筛选、导入和保存均重置页码，避免原页码超出结果范围。
+    page.value = 1;
+  }
   catch (e) { alert(e.message); }
 }
 async function loadDepts() {
@@ -226,9 +251,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.dt-hint { background: #f7f9fc; border: 1px solid #e6ebf3; border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.7; color: #33415a; margin: 0 0 10px; }
+.employee-initial { background: rgba(49, 94, 232, 0.1); color: var(--brand); border-color: rgba(49, 94, 232, 0.18); font-size: 16px; font-weight: 700; }
+.dt-hint { background: var(--surface-2); border: 1px solid #e6ebf3; border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.7; color: var(--ink); margin: 0 0 10px; }
 .dt-err { background: #fff1f0; border: 1px solid #ffc9c4; color: #b42318; font-size: 12px; line-height: 1.7; padding: 10px 12px; border-radius: 8px; margin: 0 0 10px; }
-.dt-chk { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: #33415a; margin-top: 10px; line-height: 1.6; }
+.dt-chk { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--ink); margin-top: 10px; line-height: 1.6; }
 .dt-chk input { margin-top: 2px; }
 .dt-res { background: #f0f9f2; border: 1px solid #bfe3c8; color: #1a6b32; font-size: 12px; padding: 10px 12px; border-radius: 8px; margin: 10px 0 0; }
 </style>

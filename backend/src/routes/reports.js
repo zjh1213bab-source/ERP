@@ -15,6 +15,8 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { faGate, PRE_NODES } = require('./firstArticles');
 const SKILL = require('../services/skillMatrix');
+const wageMultiplier=require('../services/wageMultiplier');
+const crypto=require('crypto');
 const scope = require('../access/companyScope');
 
 /**
@@ -34,6 +36,11 @@ function orderOr404(user, orderId) {
 
 const router = express.Router();
 const WRITE = ['admin', 'production'];
+router.get('/wage-quote',authRequired,wrap(async(req,res)=>{
+ const node=db.prepare('SELECT * FROM order_nodes WHERE id=?').get(Number(req.query.node_id));
+ if(!node)return fail(res,404,'生产工序不存在');orderOr404(req.user,node.order_id);
+ return ok(res,wageMultiplier.quote(node.order_id,node,req.query));
+}));
 
 router.get('/', authRequired, wrap(async (req, res) => {
   const { node_id, order_id } = req.query;
@@ -66,7 +73,7 @@ router.get('/summary', authRequired, wrap(async (req, res) => {
   return ok(res, rows);
 }));
 
-router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
+async function createReport(req,res) {
   const b = req.body || {};
   if (!b.node_id) return fail(res, 400, '报工必须关联具体生产工序');
   const node = db.prepare('SELECT * FROM order_nodes WHERE id = ?').get(b.node_id);
@@ -75,6 +82,14 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   if (orderId !== Number(node.order_id)) return fail(res, 400, '所选工序不属于该订单，报工未保存');
   const order = orderOr404(req.user, orderId);   // 别家的订单在这里就是 404
   if (!order) return fail(res, 404, '订单不存在');
+  const requestNo=b.request_no??null;
+  if(requestNo!==null&&(typeof requestNo!=='string'||!/^[A-Za-z0-9_-]{12,100}$/.test(requestNo)))return fail(res,400,'报工请求编号格式无效');
+  const requestHash=crypto.createHash('sha256').update(JSON.stringify([req.user.sub,node.id,orderId,b.report_date||localDate(now()),Number(b.qty_ok??0),Number(b.qty_defect??0),Number(b.hours??0),b.employee_id||null,b.operator||'',b.bundle_no||'',b.item_id||null,b.color??null,b.remark||''])).digest('hex');
+  const replay=()=>{
+   if(!requestNo)return null;const existing=db.prepare('SELECT * FROM production_reports WHERE request_no=?').get(requestNo);
+   if(existing&&existing.request_hash!==requestHash)throw Object.assign(new Error('报工请求编号已使用，不能重复提交不同内容'),{status:409});return existing;
+  };
+  const previous=replay();if(previous)return ok(res,previous);
   if (order.status !== 'production') return fail(res, 400, `订单当前为「${order.status}」，只有生产中的订单可以报工`);
 
   const qtyOk = Number(b.qty_ok ?? 0);
@@ -145,8 +160,17 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
     return e;
   };
 
+  // 价格只由后端计算。快照和报工在同一事务保存，失败一起回滚。
+  const wageSnapshot=wageMultiplier.snapshot(orderId,node,{...b,bundle_no:bundleNo});
   db.exec('BEGIN IMMEDIATE');
   try {
+    const duplicate=replay();if(duplicate){db.exec('COMMIT');return ok(res,duplicate);}
+    if(wageSnapshot&&wageMultiplier.read().revision!==wageSnapshot.config_revision)throw httpErr('工价倍率已更新，请重新确认',409);
+    if(wageSnapshot){
+     const previous=db.prepare('SELECT wage_snapshot,qty_ok,qty_defect FROM production_reports WHERE order_id=? AND node_id=? AND wage_snapshot IS NOT NULL').all(orderId,node.id);
+     const used=previous.reduce((sum,r)=>{const s=JSON.parse(r.wage_snapshot);return s.style_key===wageSnapshot.style_key&&s.color===wageSnapshot.color?sum+Number(r.qty_ok)+Number(r.qty_defect):sum;},0);
+     if(used+qtyOk+qtyDefect>wageSnapshot.color_qty)throw httpErr('该款该颜色累计报工不能超过订单颜色件数：'+wageSnapshot.color_qty+'件');
+    }
     const alreadyReported = Number(db.prepare(
       'SELECT COALESCE(SUM(qty_ok + qty_defect),0) AS qty FROM production_reports WHERE order_id = ? AND node_id = ?'
     ).get(orderId, node.id).qty) || 0;
@@ -155,14 +179,14 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
     }
 
     const info = db.prepare(
-      `INSERT INTO production_reports (order_id, node_id, node_name, report_date, qty_ok, qty_defect, hours, operator, employee_id, remark, bundle_no, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO production_reports (order_id, node_id, node_name, report_date, qty_ok, qty_defect, hours, operator, employee_id, remark, bundle_no, created_at,wage_snapshot,request_no,request_hash)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       orderId, b.node_id || null, (node && node.name) || b.node_name || null,
       // 默认日期用本地时区：toISOString 是 UTC，晚上 8 点后报工会被记成前一天
       b.report_date || localDate(now()),
       qtyOk, qtyDefect, hours,
-      operatorName, employeeId, b.remark || null, bundleNo, now()
+      operatorName, employeeId, b.remark || null, bundleNo, now(),wageSnapshot?JSON.stringify(wageSnapshot):null,requestNo,requestHash
     );
     const reportedAfterSave = Number(db.prepare(
       'SELECT COALESCE(SUM(qty_ok + qty_defect),0) AS qty FROM production_reports WHERE order_id = ? AND node_id = ?'
@@ -172,12 +196,14 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
         .run(localDate(now()), operatorName || null, node.id);
     }
     db.exec('COMMIT');
+    console.info('[production-report]',{id:Number(info.lastInsertRowid),operator:req.user.username,multiplier:wageSnapshot?.multiplier,revision:wageSnapshot?.config_revision});
     return ok(res, db.prepare('SELECT * FROM production_reports WHERE id = ?').get(Number(info.lastInsertRowid)));
   } catch (e) {
     try { db.exec('ROLLBACK'); } catch (e2) { /* 已经自动回滚时不重复报错 */ }
     throw e;
   }
-}));
+}
+router.post('/',authRequired,requireRole(WRITE),wrap(createReport));
 
 router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const row = db.prepare('SELECT * FROM production_reports WHERE id = ?').get(req.params.id);
@@ -215,3 +241,4 @@ router.delete('/:id', authRequired, requireRole(WRITE), wrap(async (req, res) =>
 }));
 
 module.exports = router;
+module.exports.createReport=createReport;

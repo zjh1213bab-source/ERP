@@ -82,15 +82,16 @@
               </span>
             </td>
             <td><span class="tag" :class="statusTag(r.status)">{{ statusText(r.status) }}</span></td>
-            <td class="ops"><button class="link-btn" @click="openDetail(r)">裁剪</button></td>
+            <td class="ops"><button class="link-btn" @click="openLayout(r.order_id)">排版采购米数</button><button class="link-btn" @click="openDetail(r)">裁剪</button></td>
           </tr>
           <tr v-if="!rows.length"><td colspan="12" class="empty-cell">没有待裁剪的订单（订单进入已分单/生产后才会出现在这里）</td></tr>
         </tbody>
       </table>
     </div>
 
+    <div v-if="layoutOrder" class="modal-mask"><section class="modal xwide"><header class="modal-head"><h3>排版采购需求米数</h3><button class="x" :disabled="layoutBusy" @click="layoutOrder=null">×</button></header><div class="modal-body"><p>按每款、每条面料填写总采购米数。技术预估用量仅供参考，不自动代填。</p><div style="overflow:auto"><table class="table"><thead><tr><th>款号</th><th>供应商</th><th>面料</th><th>颜色/色号</th><th>采购需求米数</th><th>填写人 / 时间</th></tr></thead><tbody><tr v-for="m in layoutRows" :key="m.id"><td>{{m.style_no||'订单通用'}}</td><td>{{m.supplier||'未指定'}}</td><td>{{m.name}}（{{m.unit}}）</td><td>{{m.colors.map(c=>c.colorway+'/'+(c.color_no||'')).join('；')}}</td><td><input class="input" type="number" min="0" step="0.001" v-model="m.layout_m" :disabled="!['米','m','M'].includes(m.unit)" placeholder="未填写"/></td><td>{{m.layout_by||'—'}} / {{m.layout_at||'—'}}</td></tr><tr v-if="!layoutRows.length"><td colspan="6">订单尚无面料明细，请先补齐订单物料。</td></tr></tbody></table></div><p role="alert">{{layoutError}}</p></div><footer class="modal-foot"><button :disabled="layoutBusy" @click="layoutOrder=null">关闭</button><button class="btn btn-primary" :disabled="layoutBusy||!layoutRows.length" @click="saveLayout">保存米数</button></footer></section></div>
     <!-- 裁剪详情 -->
-    <div v-if="cur" class="modal-mask" @click.self="cur = null">
+    <div v-if="cur" class="modal-mask">
       <div class="modal xwide cut-modal">
         <div class="modal-head">
           <h3>
@@ -234,8 +235,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import {useRoute} from 'vue-router';
 import { api } from '../api';
 
+const layoutOrder=ref(null),layoutRows=ref([]),layoutBusy=ref(false),layoutError=ref('');
+async function openLayout(id){layoutError.value='';try{const rs=await api.layoutRequirements(id);layoutRows.value=rs.filter(m=>m.type==='fabric');layoutOrder.value=id;}catch(e){alert(e.message);}}
+async function saveLayout(){layoutBusy.value=true;layoutError.value='';try{layoutRows.value=(await api.saveLayoutRequirements(layoutOrder.value,layoutRows.value.filter(m=>['米','m','M'].includes(m.unit)).map(m=>({id:m.id,meters:m.layout_m===''||m.layout_m==null?null:Number(m.layout_m),version:m.layout_version})))).filter(m=>m.type==='fabric');}catch(e){layoutError.value=e.message;}finally{layoutBusy.value=false;}}
 const stat = ref({});
 const rows = ref([]);
 const q = ref('');
@@ -365,56 +370,56 @@ async function handover() {
   } catch (e) { alert(e.message); } finally { busy.value = false; }
 }
 
-onMounted(loadBoard);
+const route=useRoute();onMounted(async()=>{await loadBoard();if(route.query.layout_order)await openLayout(Number(route.query.layout_order));});
 </script>
 
 <style scoped>
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
-.page-head h2 { margin: 0 0 4px; font-size: 19px; color: #16233b; }
-.page-head .sub { margin: 0; font-size: 12.5px; color: #8a94a6; max-width: 780px; line-height: 1.6; }
+.page-head h2 { margin: 0 0 4px; font-size: 19px; color: var(--ink); }
+.page-head .sub { margin: 0; font-size: 12.5px; color: var(--ink-mute); max-width: 780px; line-height: 1.6; }
 .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 14px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 21px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 14px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 21px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a !important; }
 .amt-red { color: #d92d45 !important; }
 .amt-orange { color: #d97706 !important; }
-.amt-blue { color: #2b6de5 !important; }
+.amt-blue { color: var(--brand) !important; }
 .row-red { background: #fff7f8; }
 .row-warn { background: #fffdf5; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .center { text-align: center; }
 .ops { white-space: nowrap; }
-.muted { color: #8a94a6; }
+.muted { color: var(--ink-mute); }
 .sub-cell { font-size: 12px; color: #5b6474; }
-.empty-cell { text-align: center; color: #8a94a6; padding: 16px; }
+.empty-cell { text-align: center; color: var(--ink-mute); padding: 16px; }
 .table-wrap { overflow-x: auto; }
 table.data th, table.data td { white-space: nowrap; }
 
 .modal.xwide.cut-modal { width: 1240px; max-width: 97vw; }
 .cut-modal .modal-body { max-height: 76vh; }
-.cut-sum { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; background: #f8fafd; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; }
-.cut-sum span { display: block; font-size: 11.5px; color: #8a94a6; }
-.cut-sum b { font-size: 14px; color: #16233b; font-variant-numeric: tabular-nums; }
+.cut-sum { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; background: #f8fafd; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.cut-sum span { display: block; font-size: 12px; color: var(--ink-mute); }
+.cut-sum b { font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .cut-warn { margin-top: 10px; padding: 8px 12px; background: #fff8f9; border: 1px solid #f8d3d8; border-radius: 8px; font-size: 12.5px; color: #b91c1c; line-height: 1.6; }
 .cut-sec { margin-top: 16px; }
 .cut-sec-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-.cut-sec-head h4 { margin: 0; font-size: 13px; color: #16233b; }
+.cut-sec-head h4 { margin: 0; font-size: 13px; color: var(--ink); }
 .cut-ops { display: flex; align-items: center; gap: 6px; }
 .lot-tbl { min-width: 940px; }
 .mini-num { width: 76px; padding: 4px 8px; font-size: 12.5px; text-align: center; }
 
-.bundle-wrap { display: flex; flex-wrap: wrap; gap: 6px; max-height: 168px; overflow-y: auto; padding: 8px; border: 1px solid #eef2f7; border-radius: 8px; background: #fbfcfe; }
-.bundle { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #e6ebf3; border-radius: 7px; padding: 4px 8px; font-size: 12px; }
+.bundle-wrap { display: flex; flex-wrap: wrap; gap: 6px; max-height: 168px; overflow-y: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.bundle { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid #e6ebf3; border-radius: 7px; padding: 4px 8px; font-size: 12px; }
 .bundle.checked { border-color: #cfe9da; background: #f6fdf9; }
 .bundle.handed { border-color: #dbe4f5; background: #f5f8ff; }
-.bundle .bno { font-weight: 700; color: #16233b; font-variant-numeric: tabular-nums; }
+.bundle .bno { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .bundle .bsize { color: #5b6474; }
-.bundle .bqty { color: #8a94a6; }
+.bundle .bqty { color: var(--ink-mute); }
 .bundle-sum { margin-top: 6px; font-size: 12px; color: #5b6474; }
 
-.finish-box { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; background: #fbfcfe; }
+.finish-box { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; background: var(--surface-2); }
 .finish-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .finish-row label { font-size: 12.5px; color: #5b6474; }
 @media (max-width: 1100px) {

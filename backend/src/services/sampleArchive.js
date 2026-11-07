@@ -26,7 +26,14 @@ function buildSnapshot(techPackId) {
   ).get(tp.order_id) : null;
   const preOrder = tp.pre_order_id ? db.prepare('SELECT * FROM pre_orders WHERE id=?').get(tp.pre_order_id) : null;
 
+  const craftStage=db.prepare("SELECT ps.data FROM pattern_stages ps JOIN pattern_flows pf ON pf.id=ps.flow_id WHERE pf.tech_pack_id=? AND ps.stage='craft'").get(techPackId);
+  let craftData={};try{craftData=JSON.parse(craftStage?.data || '{}');}catch{}
+  // 冻结本款所选工序、价格与顺序，工序主档之后的编辑不会改变旧样衣。
+  const { normalizeCraftRows }=require('./craftRows');
   return {
+    processes: {sewing:normalizeCraftRows(craftData.sewing),finish:normalizeCraftRows(craftData.finish)},
+    source_archive_id:tp.source_archive_id||null,
+    fabric_info:tp.fabric_info,accessory_info:tp.accessory_info,
     product_name: tp.product_name,
     version: tp.version,
     customer_style_no: tp.customer_style_no,
@@ -35,6 +42,7 @@ function buildSnapshot(techPackId) {
     designer: tp.designer,
     pattern_maker: tp.pattern_maker,
     craft_info: tp.craft_info,
+    outsource_json: tp.outsource_json,
     customer_req: tp.customer_req,
     size_spec: tp.size_spec,
     materials,

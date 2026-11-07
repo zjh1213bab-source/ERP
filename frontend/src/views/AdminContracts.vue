@@ -11,7 +11,7 @@
       </div>
       <div class="head-ops">
         <button class="btn btn-ghost" @click="reloadAll">刷新</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openContractForm()">＋ 新建合同</button>
+        <button v-action="['admin-contracts','create']" v-if="canWrite" class="btn btn-primary" @click="openContractForm()">＋ 新建合同</button>
       </div>
     </div>
 
@@ -221,7 +221,7 @@
                 <button v-if="canWrite && u.status === 'approved' && u.kind === 'use'" class="link-btn" @click="doUse(u)">登记用印</button>
                 <button v-if="canWrite && u.status === 'approved' && u.kind === 'borrow'" class="link-btn" @click="doBorrow(u)">借出</button>
                 <button v-if="canWrite && ['used', 'borrowed'].includes(u.status)" class="link-btn" @click="doReturn(u)">归还</button>
-                <button v-if="canWrite && ['pending', 'approved'].includes(u.status)" class="link-btn danger" @click="rejectUsage(u)">驳回</button>
+                <button v-action="['admin-contracts','reject']" v-if="canWrite && ['pending', 'approved'].includes(u.status)" class="link-btn danger" @click="rejectUsage(u)">驳回</button>
               </td>
             </tr>
             <tr v-if="!usages.length"><td colspan="9" class="empty-cell">没有用印或借章记录</td></tr>
@@ -278,7 +278,7 @@
     </div>
 
     <!-- ================= 合同详情 ================= -->
-    <div v-if="cur" class="modal-mask" @click.self="cur = null">
+    <div v-if="cur" class="modal-mask">
       <div class="modal xxwide">
         <div class="modal-head">
           <h3>{{ cur.name }} <span class="tag" :class="ctTag(cur.status)">{{ cur.status_label }}</span>
@@ -373,7 +373,7 @@
     </div>
 
     <!-- ================= 新建合同 ================= -->
-    <div v-if="ctForm" class="modal-mask" @click.self="ctForm = null">
+    <div v-if="ctForm" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head"><h3>新建行政合同</h3><button class="x" @click="ctForm = null">×</button></div>
         <div class="modal-body">
@@ -436,7 +436,7 @@
     </div>
 
     <!-- ================= 出新版本 ================= -->
-    <div v-if="verForm" class="modal-mask" @click.self="verForm = null">
+    <div v-if="verForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>合同出新版本（改正文）</h3><button class="x" @click="verForm = null">×</button></div>
         <div class="modal-body">
@@ -458,7 +458,7 @@
     </div>
 
     <!-- ================= 用印/借章申请 ================= -->
-    <div v-if="usForm" class="modal-mask" @click.self="usForm = null">
+    <div v-if="usForm" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head"><h3>用印 / 借章申请</h3><button class="x" @click="usForm = null">×</button></div>
         <div class="modal-body">
@@ -502,7 +502,7 @@
     </div>
 
     <!-- ================= 印章授权 ================= -->
-    <div v-if="grantForm" class="modal-mask" @click.self="grantForm = null">
+    <div v-if="grantForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>印章授权</h3><button class="x" @click="grantForm = null">×</button></div>
         <div class="modal-body">
@@ -871,15 +871,15 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 9px; margin-bottom: 12px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 10px 12px; }
-.stat span { font-size: 11.5px; color: #8a94a6; }
-.stat strong { display: block; margin: 3px 0 1px; font-size: 19px; color: #16233b; }
-.stat small { font-size: 11px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 10px 12px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 3px 0 1px; font-size: 19px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a; }
 .amt-red { color: #d92d45; }
 .amt-orange { color: #d97706; }
 .muted { color: #9aa4b5; }
-.tiny { font-size: 11.5px; }
+.tiny { font-size: 12px; }
 .wrap { white-space: normal; line-height: 1.55; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
 .num { text-align: right; }
@@ -887,23 +887,23 @@ onMounted(async () => {
 .row-risk { background: #fff7f8; }
 .ops { white-space: nowrap; }
 
-.alert-strip { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; background: #fff; border: 1px solid #f0e2d2;
+.alert-strip { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; background: var(--surface); border: 1px solid #f0e2d2;
   border-radius: 10px; padding: 9px 12px; margin-bottom: 12px; }
 .alert-title { font-size: 12px; font-weight: 700; color: #a15c11; margin-right: 4px; }
-.alert-chip { font-size: 11.5px; padding: 2px 9px; border-radius: 10px; background: #fff7ec; color: #8a5a17; }
+.alert-chip { font-size: 12px; padding: 2px 9px; border-radius: 10px; background: #fff7ec; color: #8a5a17; }
 .alert-chip.risk { background: #fdecee; color: #b3263c; }
 
 .cal-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12.5px; color: #5b6474;
   background: #f8fafd; border: 1px solid #e8eef7; border-radius: 10px; padding: 9px 12px; margin-bottom: 10px; }
 .seal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 6px; }
-.seal-card { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.seal-card { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
 .seal-card.warn { border-color: #f3c9cd; background: #fff9fa; }
-.sc-name { font-size: 13.5px; font-weight: 700; color: #16233b; display: flex; align-items: center; gap: 7px; }
-.sc-meta { font-size: 12px; color: #6b7688; margin-top: 4px; }
-.sec-title { margin: 16px 0 8px; font-size: 13px; color: #16233b; }
+.sc-name { font-size: 13.5px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 7px; }
+.sc-meta { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+.sec-title { margin: 16px 0 8px; font-size: 13px; color: var(--ink); }
 .ct-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12.5px; color: #5b6474;
   background: #f8fafd; border: 1px solid #e8eef7; border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; }
-.ct-meta b { color: #16233b; }
+.ct-meta b { color: var(--ink); }
 .row-between { display: flex; align-items: center; justify-content: space-between; }
 .hint-bar { background: #f6f9ff; border: 1px solid #dbe4f5; border-radius: 9px; padding: 9px 12px;
   font-size: 12.5px; color: #3d4a63; line-height: 1.7; margin: 0 0 10px; }

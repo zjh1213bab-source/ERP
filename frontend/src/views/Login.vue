@@ -1,5 +1,6 @@
 <template>
   <div class="login-screen">
+    <section class="login-intro"><span class="brand-mark">跳</span><span class="eyebrow">跳色科技 · 企业协同工作空间</span><h2>让业务协作<br />更有秩序。</h2><p>从客户需求到生产交付，让每个环节清晰可见，让团队专注于更有价值的工作。</p><div class="login-capabilities"><span>订单协同</span><span>技术开发</span><span>生产交付</span></div></section>
     <div class="login-box">
       <div class="logo">
         <span class="dot"></span>

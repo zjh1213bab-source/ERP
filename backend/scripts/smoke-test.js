@@ -3,6 +3,9 @@
  * 用法：先启动后端，然后 `npm run smoke`
  *      可选环境变量：BASE / ADMIN_USER / ADMIN_PASS
  */
+// 此文件会写入/删除夹具，禁止通过默认 BASE 意外连接业务服务。
+const smokePath=require('path'),smokeFs=require('fs'),smokeOs=require('os');
+if(process.env.SMOKE_ISOLATED!=='1'||!smokePath.resolve(process.env.DB_PATH||'').startsWith(smokePath.join(smokeOs.tmpdir(),'erp-full-smoke-'))||!smokeFs.existsSync(smokePath.join(smokePath.dirname(process.env.DB_PATH||''),'.smoke-owned'))||!process.env.SMOKE_EXPECTED_PID)throw Error('请使用 npm run smoke（自动创建独立测试库与端口）');
 const BASE = process.env.BASE || 'http://127.0.0.1:3000';
 const USER = process.env.ADMIN_USER || 'admin';
 const PASS = process.env.ADMIN_PASS || 'admin123456';
@@ -139,6 +142,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
 
   // 1. 健康检查
   const health = await req('/api/health');
+  if(String(health.json.pid)!==process.env.SMOKE_EXPECTED_PID)throw Error('被测服务 PID 不属于隔离 runner，已停止测试');
   ok('健康检查返回 ok', health.status === 200 && health.json.ok === true, `HTTP ${health.status}`);
 
   /**
@@ -536,29 +540,18 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     const matName = '烟测寻样面料-' + tag;
 
     // 夹具自清：先按名字把上一轮可能的残留清掉（本块自己造的自己删，不碰别人）
-    const mVacuum = () => {
-      MDB.prepare('SELECT id, tech_pack_id FROM material_dev_requests WHERE material_name = ?').all(matName)
-        .forEach((r) => {
-          MDB.prepare('DELETE FROM material_dev_events WHERE request_id = ?').run(r.id);
-          MDB.prepare('DELETE FROM material_dev_pattern_reviews WHERE request_id = ?').run(r.id);
-          MDB.prepare('DELETE FROM material_dev_rounds WHERE request_id = ?').run(r.id);
-          MDB.prepare('DELETE FROM material_dev_requests WHERE id = ?').run(r.id);
-          if (r.tech_pack_id) {
-            MDB.prepare('DELETE FROM pattern_change_requests WHERE flow_id IN (SELECT id FROM pattern_flows WHERE tech_pack_id = ?)').run(r.tech_pack_id);
-            MDB.prepare('DELETE FROM pattern_stages WHERE flow_id IN (SELECT id FROM pattern_flows WHERE tech_pack_id = ?)').run(r.tech_pack_id);
-            MDB.prepare('DELETE FROM pattern_flows WHERE tech_pack_id = ?').run(r.tech_pack_id);
-            MDB.prepare('DELETE FROM tech_pack_materials WHERE tech_pack_id = ?').run(r.tech_pack_id);
-            MDB.prepare('DELETE FROM tech_pack_sizes WHERE tech_pack_id = ?').run(r.tech_pack_id);
-            MDB.prepare('DELETE FROM tech_pack_requirements WHERE tech_pack_id = ?').run(r.tech_pack_id);
-            MDB.prepare('DELETE FROM tech_packs WHERE id = ?').run(r.tech_pack_id);
-          }
-        });
-      MDB.prepare('DELETE FROM pre_orders WHERE customer_name LIKE ?').run(preName + '%');
+    const purgePre = (preId) => {
+      const packs=MDB.prepare('SELECT id FROM tech_packs WHERE pre_order_id=? OR pre_order_item_id IN (SELECT id FROM pre_order_items WHERE pre_order_id=?)').all(preId,preId);
+      const requests=MDB.prepare('SELECT id FROM material_dev_requests WHERE pre_order_id=?').all(preId);
+      for(const r of requests){for(const child of ['material_dev_events','material_dev_pattern_reviews','material_dev_rounds'])MDB.prepare('DELETE FROM '+child+' WHERE request_id=?').run(r.id);MDB.prepare('DELETE FROM material_dev_requests WHERE id=?').run(r.id);}
+      for(const pack of packs){for(const child of ['pattern_change_requests','pattern_stages'])MDB.prepare('DELETE FROM '+child+' WHERE flow_id IN (SELECT id FROM pattern_flows WHERE tech_pack_id=?)').run(pack.id);MDB.prepare('DELETE FROM pattern_flows WHERE tech_pack_id=?').run(pack.id);for(const child of ['tech_pack_materials','tech_pack_sizes','tech_pack_requirements'])MDB.prepare('DELETE FROM '+child+' WHERE tech_pack_id=?').run(pack.id);MDB.prepare('DELETE FROM tech_packs WHERE id=?').run(pack.id);}
+      MDB.prepare('DELETE FROM pre_order_items WHERE pre_order_id=?').run(preId);MDB.prepare('DELETE FROM pre_order_events WHERE pre_order_id=?').run(preId);MDB.prepare('DELETE FROM pre_orders WHERE id=?').run(preId);
     };
+    const mVacuum = () => {for(const pre of MDB.prepare('SELECT id FROM pre_orders WHERE customer_name LIKE ?').all(preName+'%'))purgePre(pre.id);};
     mVacuum();
 
     const po1 = await req('/api/pre-orders', {
-      method: 'POST', token, body: { customer_name: preName, style_name: '烟测款', expected_qty: 50 }
+      method: 'POST', token, body: { order_no:'__SMOKE-PRE-'+tag,customer_name: preName, items:[{product_name:'烟测款',expected_qty:50}] }
     });
     ok('预下单可新建（PD + 日期 + 序号）',
       po1.status === 200 && /^PD\d{12}$/.test(String(po1.json.data && po1.json.data.pre_order_no)),
@@ -643,13 +636,13 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       preConfirm.status === 400 && String(preConfirm.json.message).includes('车缝'),
       `HTTP ${preConfirm.status} ${String(preConfirm.json.message).slice(0, 26)}`);
 
-    // 单号不重号：删掉当天一条再建（COUNT(*)+1 会在这里撞 UNIQUE → 500）
-    const po2 = await req('/api/pre-orders', { method: 'POST', token, body: { customer_name: preName + '-B' } });
-    MDB.prepare('DELETE FROM pre_orders WHERE id = ?').run(po1.json.data.id);
-    const po3 = await req('/api/pre-orders', { method: 'POST', token, body: { customer_name: preName + '-C' } });
-    ok('★ 删过一条后新建预下单不撞号（最大号+1，不是 COUNT(*)+1）',
-      po2.status === 200 && po3.status === 200 && po3.json.data.pre_order_no !== po2.json.data.pre_order_no,
-      `HTTP ${po3.status} ${po3.json.data ? po3.json.data.pre_order_no : String(po3.json.message).slice(0, 30)}`);
+    // 删除中间号并保留更大的号，才真正能识别 COUNT(*)+1 与 MAX+1 的区别。
+    const po2 = await req('/api/pre-orders', { method:'POST',token,body:{order_no:'__SMOKE-PRE-B-'+tag,customer_name:preName+'-B',items:[{product_name:'烟测B'}]} });
+    const po3 = await req('/api/pre-orders', { method:'POST',token,body:{order_no:'__SMOKE-PRE-C-'+tag,customer_name:preName+'-C',items:[{product_name:'烟测C'}]} });
+    if(po2.status!==200||po3.status!==200)throw Error('预下单号测试夹具创建失败');
+    purgePre(po2.json.data.id);
+    const po4 = await req('/api/pre-orders', { method:'POST',token,body:{order_no:'__SMOKE-PRE-D-'+tag,customer_name:preName+'-D',items:[{product_name:'烟测D'}]} });
+    ok('★ 删过一条后新建预下单不撞号（最大号+1，不是 COUNT(*)+1）',po4.status===200&&po4.json.data.pre_order_no>po3.json.data.pre_order_no,`HTTP ${po4.status} ${po4.json.data?.pre_order_no||po4.json.message}`);
 
     // 变更申请：中途改业务信息必须走审核；审核期间流程暂停
     const chg = await req(`/api/pattern-flows/${newFlow}/changes`, {
@@ -1234,6 +1227,8 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
   ok('评价不存在的供应商 404', sevGhost.status === 404, `HTTP ${sevGhost.status}`);
   const sevBadPeriod = await req('/api/supplier-evals/collect', { method: 'POST', token, body: { supplier_id: 1, period_start: '2026-09-30', period_end: '2026-09-01' } });
   ok('观察期起止颠倒被拒', sevBadPeriod.status === 400, `HTTP ${sevBadPeriod.status}`);
+  const sevFirst = await req('/api/supplier-evals/collect', { method:'POST',token,body:{supplier_id:1,period_start:'2026-07-01',period_end:'2026-09-30'} });
+  ok('供应商真实夹具样本可生成评价',sevFirst.status===200,`HTTP ${sevFirst.status}`);
   const sevDup = await req('/api/supplier-evals/collect', { method: 'POST', token, body: { supplier_id: 1, period_start: '2026-07-01', period_end: '2026-09-30' } });
   ok('同一观察期不能重复评价', sevDup.status === 400, `HTTP ${sevDup.status}`);
   const sevQuals = await req('/api/supplier-evals/qualifications', { token });
@@ -1279,7 +1274,8 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     }
     if (pcReduce && pcReturn) break;
   }
-  const pcPo = await req('/api/purchase-changes/po/' + (pcReduce ? pcReduce.po_id : (pcPoList.json.data || [{}])[0].id), { token });
+  if(!pcReduce||!pcReturn)throw Error('采购基础夹具缺失：必须同时覆盖未交减量及到货退料，不允许静默跳过');
+  const pcPo = await req('/api/purchase-changes/po/' + (pcReduce ? pcReduce.po_id : (pcPoList.json.data || [])[0]?.id), { token });
   ok('采购单可改行含未交与可退', pcPo.status === 200 && pcPo.json.data.lines.every((l) => 'pending_qty' in l && 'returnable_qty' in l), `HTTP ${pcPo.status}`);
   const pcGhost = await req('/api/purchase-changes/po/999999', { token });
   ok('变更不存在的采购单 404', pcGhost.status === 404, `HTTP ${pcGhost.status}`);
@@ -8143,6 +8139,8 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
 
     // ---- 夹具：过交期订单 → 检出 → 幂等 ----
     cleanupExc();
+    // 缺料场景由本块自己构建，不依赖先前齐套/盘点用例留下的明细。
+    db.prepare("INSERT OR REPLACE INTO material_requirements(order_id,order_no,material_id,material_name,mat_type,unit,need_qty,unit_price,gap_qty,gap_amount,status,note) VALUES(11,'__SMOKE_ORDER11',1,'__SMOKE异常缺料','fabric','米',20,1,20,20,'short','__SMOKE')").run();
     const oid = makeOrder();
 
     const scan1 = await req('/api/exceptions/scan', { method: 'POST', token, body: {} });
@@ -9726,7 +9724,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     // 绝不借用演示/真实员工（清退单按人复用，借用人会把别人身上挂着的东西一起搅进来）
     const cleanSmoke = () => {
       const items = CDB.prepare("SELECT id FROM custody_items WHERE name LIKE '%__SMOKE%'").all().map((r) => r.id);
-      const empsSmoke = CDB.prepare("SELECT id FROM employees WHERE name LIKE '%__SMOKE%'").all().map((r) => r.id);
+      const empsSmoke = CDB.prepare("SELECT id FROM employees WHERE name LIKE '烟测员工%__SMOKE'").all().map((r) => r.id);
       const recConds = [];
       const recParams = [];
       if (items.length) { recConds.push(`item_id IN (${items.map(() => '?').join(',')})`); recParams.push(...items); }
@@ -10067,7 +10065,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
         ADB.prepare('DELETE FROM office_stock WHERE item_id = ?').run(id);
         ADB.prepare('DELETE FROM office_items WHERE id = ?').run(id);
       });
-      ADB.prepare("DELETE FROM employees WHERE name LIKE '%__SMOKE%'").run();
+      ADB.prepare("DELETE FROM employees WHERE name LIKE '烟测报表员工%__SMOKE'").run();
     };
     cleanSmoke();
 
@@ -10297,7 +10295,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       left === baseRunOpen
       && ADB.prepare("SELECT COUNT(*) c FROM repairs WHERE remark LIKE '%__SMOKE%'").get().c === 0
       && ADB.prepare("SELECT COUNT(*) c FROM dorm_beds WHERE bed_no LIKE 'SMK%'").get().c === 0
-      && ADB.prepare("SELECT COUNT(*) c FROM employees WHERE name LIKE '%__SMOKE%'").get().c === 0,
+      && ADB.prepare("SELECT COUNT(*) c FROM employees WHERE name LIKE '烟测报表员工%__SMOKE'").get().c === 0,
       `报表 ${left} / 工单 ${ADB.prepare("SELECT COUNT(*) c FROM repairs WHERE remark LIKE '%__SMOKE%'").get().c} / 床位 ${ADB.prepare("SELECT COUNT(*) c FROM dorm_beds WHERE bed_no LIKE 'SMK%'").get().c}`);
   }
 
@@ -10327,12 +10325,12 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       // 按备注删更可靠：员工一旦先被删掉，按 employee_id 子查询就再也匹配不上，
       // 工资单会变成孤儿留在库里（这次就踩到了）
       PDB.prepare("DELETE FROM payrolls WHERE period IN (?, ?) AND remark LIKE '%烟测工资单__SMOKE%'").run(P, NEXT);
-      PDB.prepare("DELETE FROM payrolls WHERE period IN (?, ?) AND employee_id IN (SELECT id FROM employees WHERE name LIKE '%__SMOKE%')").run(P, NEXT);
+      PDB.prepare("DELETE FROM payrolls WHERE period IN (?, ?) AND employee_id IN (SELECT id FROM employees WHERE name LIKE '烟测工资%__SMOKE')").run(P, NEXT);
       const chk = PDB.prepare("SELECT id FROM payroll_check_runs WHERE note LIKE '%__SMOKE%' OR note LIKE '%烟测%'").all().map((r) => r.id);
       chk.forEach((id) => PDB.prepare('DELETE FROM payroll_check_items WHERE run_id = ?').run(id));
       PDB.prepare("DELETE FROM payroll_check_runs WHERE note LIKE '%__SMOKE%' OR note LIKE '%烟测%'").run();
       PDB.prepare("DELETE FROM payroll_adjustments WHERE reason LIKE '%烟测工资差异%'").run();
-      PDB.prepare("DELETE FROM employees WHERE name LIKE '%__SMOKE%'").run();
+      PDB.prepare("DELETE FROM employees WHERE name LIKE '烟测工资%__SMOKE'").run();
     };
     cleanSmoke();
 
@@ -10530,7 +10528,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       PDB.prepare("SELECT COUNT(*) c FROM piece_wage_runs WHERE run_no LIKE 'PW_SMOKE%'").get().c === 0
       && PDB.prepare("SELECT COUNT(*) c FROM payrolls WHERE period IN (?, ?) AND remark LIKE '%__SMOKE%'").get(P, NEXT).c === 0
       && PDB.prepare("SELECT COUNT(*) c FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").get().c === 0
-      && PDB.prepare("SELECT COUNT(*) c FROM employees WHERE name LIKE '%__SMOKE%'").get().c === 0,
+      && PDB.prepare("SELECT COUNT(*) c FROM employees WHERE name LIKE '烟测工资%__SMOKE'").get().c === 0,
       `批次 ${PDB.prepare("SELECT COUNT(*) c FROM piece_wage_runs WHERE run_no LIKE 'PW_SMOKE%'").get().c} / 核对 ${PDB.prepare("SELECT COUNT(*) c FROM payroll_check_runs WHERE note LIKE '%__SMOKE%'").get().c}`);
   }
 
@@ -10556,7 +10554,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
         EDB.prepare(`DELETE FROM export_deliveries WHERE job_id IN (${ph})`).run(...jobs);
         EDB.prepare(`DELETE FROM export_jobs WHERE id IN (${ph})`).run(...jobs);
       }
-      const subs = EDB.prepare("SELECT id FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '%__SMOKE%'").all().map((r) => r.id);
+      const subs = EDB.prepare("SELECT id FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '烟测工资%__SMOKE'").all().map((r) => r.id);
       if (subs.length) {
         const ph = subs.map(() => '?').join(',');
         EDB.prepare(`DELETE FROM export_deliveries WHERE subscription_id IN (${ph})`).run(...subs);
@@ -10856,8 +10854,8 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     cleanSmoke();
     ok('冒烟夹具已清干净',
       EDB.prepare('SELECT COUNT(*) c FROM export_jobs WHERE demo_tag = ?').get(MARK).c === 0
-      && EDB.prepare("SELECT COUNT(*) c FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '%__SMOKE%'").get().c === 0,
-      `导出记录 ${EDB.prepare('SELECT COUNT(*) c FROM export_jobs WHERE demo_tag = ?').get(MARK).c} / 订阅 ${EDB.prepare("SELECT COUNT(*) c FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '%__SMOKE%'").get().c}`);
+      && EDB.prepare("SELECT COUNT(*) c FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '烟测工资%__SMOKE'").get().c === 0,
+      `导出记录 ${EDB.prepare('SELECT COUNT(*) c FROM export_jobs WHERE demo_tag = ?').get(MARK).c} / 订阅 ${EDB.prepare("SELECT COUNT(*) c FROM export_subscriptions WHERE note LIKE '%__SMOKE%' OR name LIKE '烟测工资%__SMOKE'").get().c}`);
   }
 
 
@@ -11072,40 +11070,6 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
       && RDB.prepare("SELECT COUNT(*) c FROM customers WHERE name LIKE '%烟测再购客户%'").get().c === 0,
       `订单 ${RDB.prepare("SELECT COUNT(*) c FROM orders WHERE order_no LIKE 'SO202003019%'").get().c} / 商品 ${RDB.prepare("SELECT COUNT(*) c FROM mall_products WHERE style_no LIKE 'RSMK-%'").get().c}`);
   }
-
-  /* ================================================================== *
-   * 收尾自检：冒烟不该在库里留下烟测夹具
-   *
-   * 这条断言是这几轮「演示数据体检」的产物：冒烟各段各自 cleanSmoke，
-   * 但总有几处漏掉（cost_pools / dev_projects / SKU 等），一次跑完留几十行尾巴，
-   * 攒了几个月就变成 2000 多行假的研发项目与 SKU。
-   * 与其每个月人工体检，不如让它每次跑完自己证明「库里是干净的」。
-   * ================================================================== */
-  {
-    try {
-      const A = require('./audit-demo-data');
-      // 兜底清一遍：各段自己 cleanSmoke 是主力，但总有几处漏（supplier_confirms /
-      // bank_imports / cost_pools / SKU 套装…）。这里用同一个体检脚本收口，
-      // 而不是再手写一遍 DELETE —— 判据只有一份，才不会再出现「改了 A 忘了 B」。
-      const swept = A.clean({ includeFinance: true, skipBackup: true });
-      // 先记下"修之前有多少孤儿"：静默修掉等于把「删父行没删子行」藏起来，
-      // 下次换个人换台机器又是同一处漏。修可以自动，但"有没有漏"必须说出来。
-      const orphBefore = A.findOrphans();
-      // 顺手把孤儿也补了：删父行没删子行的地方（历史遗留 + 上面补的那几处之外）
-      const orph = A.fixOrphans(false);
-      ok('★ 冒烟全程没有留下孤儿行（删父行必删子行）', orphBefore.length === 0,
-        orphBefore.map((o) => `${o.child}.${o.col}→${o.parent} ${o.rows} 行`).join('；'));
-      const sc = A.scan();
-      const rows = sc.l1.reduce((a, x) => a + x.rows, 0);
-      const list = sc.l1.map((x) => `${x.table}(${x.rows})`).join(', ');
-      ok('★ 冒烟跑完库里没有烟测残留（L1 = 0）', rows === 0,
-        rows ? `兜底清了 ${swept.deleted} 行 + 孤儿 ${orph.fixed} 行后仍残留 ${rows} 行：${list}` : `兜底清了 ${swept.deleted} 行、补孤儿 ${orph.fixed} 行，现干净`);
-    } catch (e) {
-      ok('★ 冒烟跑完库里没有烟测残留（L1 = 0）', false, '自检失败：' + e.message);
-    }
-  }
-
-
 
   /* ================================================================== *
    * 订单号手填（业务必填 + 唯一 + 改号级联同步 + 采购关联）
@@ -12088,7 +12052,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     const m1 = await req('/api/order-materials', {
       method: 'POST', token,
       body: {
-        order_id: oid, item_id: itA.id, type: 'fabric', name: '32支精梳棉', unit: '米',
+        order_id: oid, material_id: 1, item_id: itA.id, type: 'fabric', name: '32支精梳棉', unit: '米',
         one_use: 1.2, loss: 5, price: 18,
         colors: [{ colorway: '印花001', color_no: 'A1', qty: 1.2 }, { colorway: '印花002', color_no: 'A2', qty: 1.4 }]
       }
@@ -12105,7 +12069,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     // ---------- 2. 用量必须按「这个款」的件数，不是整单件数 ----------
     const m2 = await req('/api/order-materials', {
       method: 'POST', token,
-      body: { order_id: oid, item_id: itA.id, type: 'fabric', name: '按款算的布', unit: '米', one_use: 1, loss: 0, price: 1, all_colors: 1 }
+      body: { order_id: oid, material_id: 1, item_id: itA.id, type: 'fabric', name: '按款算的布', unit: '米', one_use: 1, loss: 0, price: 1, all_colors: 1 }
     });
     // 款A 230 件；整单 550 件 —— 按整单算会得到 550，多算一倍多
     ok('★ 挂在款上的物料按该款件数算，不是整单件数', m2.status === 200 && Math.abs(m2.json.data.total_use - 230) < 0.01,
@@ -12136,7 +12100,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     // ---------- 5. 不选款却配颜色 → 拒绝 ----------
     const noItem = await req('/api/order-materials', {
       method: 'POST', token,
-      body: { order_id: oid, type: 'fabric', name: '无款布', one_use: 1, colors: [{ colorway: '印花001' }] }
+      body: { order_id: oid, material_id: 1, type: 'fabric', name: '无款布', one_use: 1, colors: [{ colorway: '印花001' }] }
     });
     ok('没选款就配颜色会被拒（颜色属于款，没有款就没有合法颜色集合）',
       noItem.status === 400 && /还没选是哪个款/.test(noItem.json.message || ''), `HTTP ${noItem.status}`);
@@ -12199,7 +12163,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     const itA = items.find((x) => x.style_no === 'IC-TZ-01');
     const itB = items.find((x) => x.style_no === 'IC-WY-01');
 
-    const addMat = (body) => req('/api/order-materials', { method: 'POST', token, body: { order_id: oid, ...body } });
+    const addMat = (body) => req('/api/order-materials', { method: 'POST', token, body: { order_id: oid, material_id:body.type==='accessory'?2:1, ...body } });
     const wa = await addMat({
       item_id: itA.id, type: 'fabric', material_id: matFabA.id, name: matFabA.name, unit: '米',
       one_use: 1.35, loss: 5, price: 18,
@@ -12361,7 +12325,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     MDB.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(oid);
     MDB.prepare('DELETE FROM order_items WHERE order_id = ?').run(oid);
     MDB.prepare('DELETE FROM orders WHERE id = ?').run(oid);
-    [matFabA.id, matFabB.id, matBtn.id].forEach((id) => MDB.prepare('DELETE FROM materials WHERE id = ?').run(id));
+    [matFabA.id, matFabB.id, matBtn.id].forEach(id=>{MDB.prepare('DELETE FROM material_changes WHERE material_id=?').run(id);MDB.prepare('DELETE FROM materials WHERE id=?').run(id);});
     ok('按色发料夹具已清干净',
       !MDB.prepare("SELECT 1 x FROM orders WHERE order_no = 'MIC-TEST-1'").get()
       && !MDB.prepare("SELECT 1 x FROM materials WHERE code LIKE 'SMK-IC-%'").get(), '已删');
@@ -12460,7 +12424,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     const rowA = ((bd.json.data && bd.json.data.rows) || []).find((r) => r.id === oA);
     ok('★ 看板行带分配结果（本厂 600、无外协，工厂名给到）', !!rowA
       && num(rowA.alloc_own) === 600 && num(rowA.alloc_out) === 0 && rowA.assign_mode === 'own'
-      && /本厂|自有/.test(String(rowA.assign_names)),
+      && String(rowA.assign_names).includes(ownFac.name),
       rowA ? `${rowA.assign_mode} / own=${rowA.alloc_own} / ${rowA.assign_names}` : '看板没有这张单');
 
     // ---------- 5. 幂等与「改分配」 ----------
@@ -13124,7 +13088,7 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     const ts = '2026-10-20 09:00:00';
     const CO2 = 2;
     const period = localDate().slice(0, 7);   // sla.localDate(d = new Date())，传字符串会炸
-    const day = `${period}-15`;
+    const day = localDate(); // 当月15日在月初尚未到期，不应进入准交分母。
 
     MDB.prepare("DELETE FROM orders WHERE order_no IN ('SCOPERP1','SCOPERP2')").run();
     const mkOrder = (no, companyId) => {
@@ -14270,6 +14234,41 @@ async function req(path, { method = 'GET', body, token, headers: extra } = {}) {
     ok('★ 拒绝启动时直接给出该改的三个环境变量', /JWT_SECRET/.test(prodOut) && /CORS_ORIGIN/.test(prodOut) && /ADMIN_PASSWORD/.test(prodOut),
       prodOut.includes('启动中止') ? '已打印启动中止与修复命令' : prodOut.slice(0, 60));
   }
+
+  /* ================================================================== *
+   * 收尾自检：冒烟不该在库里留下烟测夹具
+   *
+   * 这条断言是这几轮「演示数据体检」的产物：冒烟各段各自 cleanSmoke，
+   * 但总有几处漏掉（cost_pools / dev_projects / SKU 等），一次跑完留几十行尾巴，
+   * 攒了几个月就变成 2000 多行假的研发项目与 SKU。
+   * 与其每个月人工体检，不如让它每次跑完自己证明「库里是干净的」。
+   * ================================================================== */
+  {
+    try {
+      const A = require('./audit-demo-data');
+      // 兜底清一遍：各段自己 cleanSmoke 是主力，但总有几处漏（supplier_confirms /
+      // bank_imports / cost_pools / SKU 套装…）。这里用同一个体检脚本收口，
+      // 而不是再手写一遍 DELETE —— 判据只有一份，才不会再出现「改了 A 忘了 B」。
+      const swept = A.clean({ withDemo: true, includeFinance: true, skipBackup: true });
+      // 先记下"修之前有多少孤儿"：静默修掉等于把「删父行没删子行」藏起来，
+      // 下次换个人换台机器又是同一处漏。修可以自动，但"有没有漏"必须说出来。
+      const orphBefore = A.findOrphans();
+      // 顺手把孤儿也补了：删父行没删子行的地方（历史遗留 + 上面补的那几处之外）
+      const orph = A.fixOrphans(false);
+      ok('★ 冒烟全程没有留下孤儿行（删父行必删子行）', orphBefore.length === 0,
+        orphBefore.map((o) => `${o.child}.${o.col}→${o.parent} ${o.rows} 行`).join('；'));
+      const sc = A.scan();
+      const rows = sc.l1.reduce((a, x) => a + x.rows, 0);
+      const list = sc.l1.map((x) => `${x.table}(${x.rows})`).join(', ');
+      ok('★ 冒烟跑完库里没有烟测残留（L1 = 0）', rows === 0,
+        rows ? `兜底清了 ${swept.deleted} 行 + 孤儿 ${orph.fixed} 行后仍残留 ${rows} 行：${list}` : `兜底清了 ${swept.deleted} 行、补孤儿 ${orph.fixed} 行，现干净`);
+    } catch (e) {
+      ok('★ 冒烟跑完库里没有烟测残留（L1 = 0）', false, '自检失败：' + e.message);
+    }
+  }
+
+
+
 
   /**
    * 兜底：整块用例被条件跳过时，总数可能只掉几条，肉眼看不出；块数会直接破线。

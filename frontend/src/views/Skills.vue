@@ -392,7 +392,7 @@
     </div>
 
     <!-- ============ 评定面板 ============ -->
-    <div class="modal-mask" v-if="assessPanel" @click.self="assessPanel = false">
+    <div class="modal-mask" v-if="assessPanel">
       <div class="modal">
         <div class="modal-h">
           <b>评定技能</b>
@@ -425,7 +425,7 @@
     </div>
 
     <!-- ============ 破格面板 ============ -->
-    <div class="modal-mask" v-if="ovPanel" @click.self="ovPanel = false">
+    <div class="modal-mask" v-if="ovPanel">
       <div class="modal">
         <div class="modal-h">
           <b>破格放行</b>
@@ -657,28 +657,28 @@ onMounted(loadAll);
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card { min-height: 108px; padding: 14px 12px; }
 .cards.c6 .stat-card .value { font-size: 23px; margin-top: 6px; }
-.cards.c6 .stat-card .foot { font-size: 11px; line-height: 1.45; }
+.cards.c6 .stat-card .foot { font-size: 12px; line-height: 1.45; }
 
 /* 12 道工序 × 24 人的表必须有横向滚动，且首列（员工）要钉住，
    否则滚到右边就不知道这一行是谁 */
 .matrix-wrap { overflow-x: auto; border: 1px solid #eef1f6; border-radius: 10px; }
 table.matrix { min-width: 100%; }
-table.matrix th, table.matrix td { white-space: nowrap; text-align: center; padding: 5px 6px; font-size: 11.5px; }
-table.matrix th { font-size: 11px; line-height: 1.3; }
-table.matrix .req-lv { font-size: 10px; color: #94a3b8; font-weight: 400; }
-table.matrix .req-dot { font-size: 9.5px; color: #b45309; background: #fff7e6; border-radius: 3px; padding: 0 3px; margin-left: 2px; }
-.sticky-col { position: sticky; left: 0; background: #fff; z-index: 2; text-align: left !important; }
-table.matrix thead .sticky-col { background: #f8fafc; }
+table.matrix th, table.matrix td { white-space: nowrap; text-align: center; padding: 5px 6px; font-size: 12px; }
+table.matrix th { font-size: 12px; line-height: 1.3; }
+table.matrix .req-lv { font-size: 12px; color: var(--ink-mute); font-weight: 400; }
+table.matrix .req-dot { font-size: 12px; color: #b45309; background: #fff7e6; border-radius: 3px; padding: 0 3px; margin-left: 2px; }
+.sticky-col { position: sticky; left: 0; background: var(--surface); z-index: 2; text-align: left !important; }
+table.matrix thead .sticky-col { background: var(--surface-2); }
 .who { font-weight: 600; font-size: 12.5px; }
-.tiny { font-size: 11px; }
+.tiny { font-size: 12px; }
 table.matrix .cell { cursor: pointer; }
 table.matrix .cell:hover { background: #f1f5ff; }
-.lv { display: inline-block; min-width: 38px; padding: 2px 6px; border-radius: 5px; font-size: 11px; }
+.lv { display: inline-block; min-width: 38px; padding: 2px 6px; border-radius: 5px; font-size: 12px; }
 .lv.ok { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
 .lv.short { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
 .lv.expired, .lv.revoked { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; text-decoration: line-through; }
-.lv.evidence { background: #f1f5f9; color: #64748b; border: 1px dashed #cbd5e1; }
-.ov { font-size: 9px; color: #7c3aed; margin-left: 4px; vertical-align: top; }
+.lv.evidence { background: #f1f5f9; color: var(--ink-soft); border: 1px dashed #cbd5e1; }
+.ov { font-size: 12px; color: #7c3aed; margin-left: 4px; vertical-align: top; }
 .dash { color: #cbd5e1; }
 
 .panel .tag { white-space: nowrap; }
@@ -688,13 +688,13 @@ table.matrix .cell:hover { background: #f1f5ff; }
 .box { border: 1px solid #eef1f6; border-radius: 10px; padding: 12px 14px; }
 .box-h { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
 
-.caliber { background: #f8fafc; border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
-.caliber summary { cursor: pointer; font-size: 12.5px; color: #475569; }
-.caliber ol { margin: 8px 0 0 18px; font-size: 12px; color: #475569; line-height: 1.75; }
+.caliber { background: var(--surface-2); border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+.caliber summary { cursor: pointer; font-size: 12.5px; color: var(--ink-soft); }
+.caliber ol { margin: 8px 0 0 18px; font-size: 12px; color: var(--ink-soft); line-height: 1.75; }
 
 .form-box { border: 1px solid #e6ebf3; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; background: #fcfdff; }
 .form-box .row, .modal-b .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-.form-box .row label, .modal-b .row label { font-size: 12px; color: #64748b; min-width: 62px; }
+.form-box .row label, .modal-b .row label { font-size: 12px; color: var(--ink-soft); min-width: 62px; }
 .form-box .row .input, .modal-b .row .input { flex: 1; min-width: 120px; }
 .form-foot { display: flex; gap: 8px; justify-content: flex-end; }
 
@@ -713,13 +713,13 @@ table.matrix .cell:hover { background: #f1f5ff; }
 }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: center; justify-content: center; z-index: 60; }
-.modal { background: #fff; border-radius: 12px; width: 560px; max-width: 94vw; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25); }
+.modal { background: var(--surface); border-radius: 12px; width: 560px; max-width: 94vw; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25); }
 .modal-h { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #eef1f6; }
 .modal-h b { flex: 0 0 auto; }
 .modal-h .mut { flex: 1; }
 .modal-b { padding: 14px 16px; }
 .modal-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
-.hint { font-size: 11.5px; color: #64748b; background: #f8fafc; border-radius: 6px; padding: 7px 9px; margin: 6px 0; }
+.hint { font-size: 12px; color: var(--ink-soft); background: var(--surface-2); border-radius: 6px; padding: 7px 9px; margin: 6px 0; }
 .hint.warn { color: #b45309; background: #fffbeb; }
 .danger-text { color: #b91c1c; }
 

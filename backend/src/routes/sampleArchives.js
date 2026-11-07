@@ -18,6 +18,14 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const router = express.Router();
 const REVIEW = ['admin', 'tech'];
 
+// 静态图搜路径必须置于 /:id 之前。任务只属于提交人，检索不修改样衣。
+router.post('/image-search', authRequired, requireRole('admin', 'tech', 'sales', 'boss'), wrap(async (req, res) => {
+  return ok(res, require('../services/sampleImageSearch').create(req.user, req.body || {}));
+}));
+router.get('/image-search/:jobId', authRequired, requireRole('admin', 'tech', 'sales', 'boss'), wrap(async (req, res) => {
+  return ok(res, require('../services/sampleImageSearch').result(req.user, req.params.jobId));
+}));
+
 function safeJson(s) {
   try { return JSON.parse(s); } catch (e) { return {}; }
 }

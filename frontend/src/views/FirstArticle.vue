@@ -105,7 +105,7 @@
     </div>
 
     <!-- 详情 -->
-    <div v-if="cur" class="modal-mask" @click.self="close">
+    <div v-if="cur" class="modal-mask">
       <div class="modal xwide fa-modal">
         <div class="modal-head">
           <h3>
@@ -119,6 +119,13 @@
         </div>
 
         <div class="modal-body">
+          <div v-if="cur.order_items?.length>1" class="fa-sec">
+            <label>首件检验款式</label>
+            <select class="select" :value="cur.selected_item_id" :disabled="busy" @change="open({order_id:cur.order.id,order_item_id:Number($event.target.value)})">
+              <option v-for="item in cur.order_items" :key="item.id" :value="item.id">{{ item.style_no || item.product_name }} · {{ item.qty }} 件</option>
+            </select>
+            <p class="muted">每款分别引用当前冻结版检验；所有款式放行后才允许整单批量报工。</p>
+          </div>
           <!-- 未登记：先建单 -->
           <template v-if="!cur.fa">
             <div v-if="!cur.tech_pack" class="fa-warn">
@@ -425,7 +432,7 @@ async function loadBoard() {
 
 async function open(r) {
   try {
-    const d = await api.faByOrder(r.order_id);
+    const d = await api.faByOrder(r.order_id,{order_item_id:r.order_item_id});
     cur.value = d;
     ws.value = (d.workstations || []).map((w) => ({ ...w }));
     if (d.fa) {
@@ -445,7 +452,7 @@ async function open(r) {
       };
     } else {
       newForm.value = {
-        fa_type: 'full', batch_qty: d.template.batch_qty || 0,
+        order_item_id:d.selected_item_id,fa_type: 'full', batch_qty: d.template.batch_qty || 0,
         sample_size: '', sample_bundle_no: '', scope: ''
       };
     }
@@ -455,7 +462,7 @@ async function open(r) {
 async function refresh() {
   if (!cur.value) return;
   const id = cur.value.order.id;
-  const d = await api.faByOrder(id);
+  const d = await api.faByOrder(id,{order_item_id:cur.value.selected_item_id});
   cur.value = d;
   ws.value = (d.workstations || []).map((w) => ({ ...w }));
   await loadBoard();
@@ -606,40 +613,40 @@ onMounted(loadBoard);
 
 <style scoped>
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
-.page-head h2 { margin: 0 0 4px; font-size: 19px; color: #16233b; }
-.page-head .sub { margin: 0; font-size: 12.5px; color: #8a94a6; max-width: 860px; line-height: 1.65; }
-.page-head .sub b { color: #2b6de5; }
+.page-head h2 { margin: 0 0 4px; font-size: 19px; color: var(--ink); }
+.page-head .sub { margin: 0; font-size: 12.5px; color: var(--ink-mute); max-width: 860px; line-height: 1.65; }
+.page-head .sub b { color: var(--brand); }
 .stat-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 14px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 21px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px; padding: 12px 14px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 21px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a !important; }
 .amt-red { color: #d92d45 !important; }
 .amt-orange { color: #d97706 !important; }
-.amt-blue { color: #2b6de5 !important; }
+.amt-blue { color: var(--brand) !important; }
 .row-red { background: #fff7f8; }
 .row-warn { background: #fffdf5; }
 .row-ng { background: #fff7f8; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .center { text-align: center; }
 .ops { white-space: nowrap; }
-.muted { color: #8a94a6; }
+.muted { color: var(--ink-mute); }
 .sub-cell { font-size: 12px; color: #5b6474; }
-.empty-cell { text-align: center; color: #8a94a6; padding: 16px; }
+.empty-cell { text-align: center; color: var(--ink-mute); padding: 16px; }
 .table-wrap { overflow-x: auto; }
 table.data th, table.data td { white-space: nowrap; }
 
 .modal.xwide.fa-modal { width: 1320px; max-width: 98vw; }
 .fa-modal .modal-body { max-height: 74vh; }
-.fa-sum { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; background: #f8fafd; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; }
-.fa-sum span { display: block; font-size: 11.5px; color: #8a94a6; }
-.fa-sum b { font-size: 14px; color: #16233b; font-variant-numeric: tabular-nums; }
+.fa-sum { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; background: #f8fafd; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.fa-sum span { display: block; font-size: 12px; color: var(--ink-mute); }
+.fa-sum b { font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .fa-warn { margin-bottom: 10px; padding: 8px 12px; background: #fff8f9; border: 1px solid #f8d3d8; border-radius: 8px; font-size: 12.5px; color: #b91c1c; line-height: 1.6; }
 .fa-warn.warn-amber { background: #fffdf5; border-color: #f6e3b6; color: #a16207; }
 .fa-sec { margin-top: 14px; }
 .fa-sec-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-.fa-sec h4 { margin: 0; font-size: 13px; color: #16233b; }
+.fa-sec h4 { margin: 0; font-size: 13px; color: var(--ink); }
 .fa-ops { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #5b6474; }
@@ -653,7 +660,7 @@ table.data td.wrap { white-space: normal !important; line-height: 1.5; word-brea
 .ws-tbl { min-width: 1080px; }
 .ck-tbl { min-width: 940px; }
 .ev-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.release-box { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; background: #fbfcfe; }
+.release-box { border: 1px solid #e6ebf3; border-radius: 10px; padding: 10px 12px; background: var(--surface-2); }
 .finish-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .finish-row label { font-size: 12.5px; color: #5b6474; }
 @media (max-width: 1200px) {

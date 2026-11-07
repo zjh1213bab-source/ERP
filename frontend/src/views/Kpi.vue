@@ -44,7 +44,7 @@
         <button v-if="cycle && cycle.status !== 'frozen' && canReview" class="btn btn-ghost" @click="freezeCycle">冻结本期</button>
       </template>
       <template v-if="tab === 'rule'">
-        <button v-if="canWrite" class="btn btn-primary btn-sm" @click="openTemplateForm()">＋ 新建模板</button>
+        <button v-action="['kpi','create']" v-if="canWrite" class="btn btn-primary btn-sm" @click="openTemplateForm()">＋ 新建模板</button>
       </template>
     </div>
 
@@ -54,7 +54,7 @@
 
     <!-- ==================== 一、绩效看板 ==================== -->
     <div v-if="tab === 'score'">
-      <div v-if="!scores.length" class="empty-cell" style="background: #fff; border-radius: 12px; padding: 26px">
+      <div v-if="!scores.length" class="empty-cell" style="background: var(--surface); border-radius: 12px; padding: 26px">
         这个周期还没有绩效单。先确认「规则与模板」里对应岗位族已有批准模板，再点「生成本周绩效」。
       </div>
       <div v-else class="table-wrap">
@@ -118,7 +118,7 @@
                 <td><span class="tag orange">{{ p.review_label }}</span></td>
                 <td>
                   <button v-if="canReview && p.review_status === 'pending'" class="link-btn" @click="confirmItem(p)">确认扣分</button>
-                  <button v-if="canReview && p.review_status === 'pending'" class="link-btn danger" @click="rejectItem(p)">驳回</button>
+                  <button  v-if="canReview && p.review_status === 'pending'" class="link-btn danger" @click="rejectItem(p)">驳回</button>
                   <button v-if="p.review_status === 'unconfigured'" class="link-btn" @click="openScoreById(p.score_id)">看规则</button>
                 </td>
               </tr>
@@ -156,7 +156,7 @@
                 <button class="link-btn" @click="openTemplate(t)">查看规则</button>
                 <button v-if="canWrite && t.status === 'draft'" class="link-btn" @click="submitTemplate(t)">提交审批</button>
                 <button v-if="canReview && t.status === 'pending_review'" class="link-btn" @click="approveTemplate(t)">批准</button>
-                <button v-if="canReview && t.status === 'pending_review'" class="link-btn danger" @click="rejectTemplate(t)">驳回</button>
+                <button  v-if="canReview && t.status === 'pending_review'" class="link-btn danger" @click="rejectTemplate(t)">驳回</button>
                 <button v-if="canWrite && t.status === 'approved'" class="link-btn" @click="newVersion(t)">出新版</button>
                 <button v-if="t.status !== 'approved' && t.rule_count" class="link-btn" @click="simulate(t)">模拟试算</button>
               </td>
@@ -228,7 +228,7 @@
     </div>
 
     <!-- ================= 个人绩效明细 ================= -->
-    <div v-if="cur" class="modal-mask" @click.self="cur = null">
+    <div v-if="cur" class="modal-mask">
       <div class="modal xxwide">
         <div class="modal-head">
           <h3>
@@ -300,7 +300,7 @@
                   <td class="ops">
                     <template v-if="canReview && it.review_status === 'pending'">
                       <button class="link-btn" @click="confirmItem(it)">确认</button>
-                      <button class="link-btn danger" @click="rejectItem(it)">驳回</button>
+                      <button  class="link-btn danger" @click="rejectItem(it)">驳回</button>
                     </template>
                     <button v-if="it.review_status === 'confirmed' && it.appeal_status === 'none'" class="link-btn" @click="openAppeal(it)">提交申诉</button>
                     <span v-if="it.review_status === 'unconfigured'" class="tiny muted">时限未核定，待配置</span>
@@ -334,7 +334,7 @@
     </div>
 
     <!-- ================= 模板详情 ================= -->
-    <div v-if="tpl" class="modal-mask" @click.self="tpl = null">
+    <div v-if="tpl" class="modal-mask">
       <div class="modal xxwide">
         <div class="modal-head">
           <h3>{{ tpl.name }} <span class="tag gray">V{{ tpl.version }}</span>
@@ -401,7 +401,7 @@
     </div>
 
     <!-- ================= 新建模板 ================= -->
-    <div v-if="tplForm" class="modal-mask" @click.self="tplForm = null">
+    <div v-if="tplForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建绩效模板</h3><button class="x" @click="tplForm = null">×</button></div>
         <div class="modal-body">
@@ -434,7 +434,7 @@
     </div>
 
     <!-- ================= 模拟试算 ================= -->
-    <div v-if="sim" class="modal-mask" @click.self="sim = null">
+    <div v-if="sim" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>模拟试算 · {{ sim.template.name }} V{{ sim.template.version }}
@@ -470,7 +470,7 @@
     </div>
 
     <!-- ================= 提交申诉 ================= -->
-    <div v-if="appealForm" class="modal-mask" @click.self="appealForm = null">
+    <div v-if="appealForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>提交绩效申诉</h3><button class="x" @click="appealForm = null">×</button></div>
         <div class="modal-body">
@@ -498,7 +498,7 @@
     </div>
 
     <!-- ================= 独立复核 ================= -->
-    <div v-if="decideForm" class="modal-mask" @click.self="decideForm = null">
+    <div v-if="decideForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>申诉复核 · {{ decideForm.appeal.appeal_no }}</h3><button class="x" @click="decideForm = null">×</button></div>
         <div class="modal-body">
@@ -860,30 +860,30 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a; }
 .amt-red { color: #d92d45; }
 .amt-orange { color: #d97706; }
 .muted { color: #9aa4b5; }
 .warn { color: #d97706; }
-.tiny { font-size: 11.5px; }
+.tiny { font-size: 12px; }
 .wrap { white-space: normal; line-height: 1.55; min-width: 160px; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
 .num { text-align: right; }
 .row-warn { background: #fffaf2; }
-.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; font-size: 10px; border-radius: 8px; padding: 0 5px; vertical-align: middle; }
+.tab-dot { display: inline-block; margin-left: 5px; background: #d92d45; color: #fff; font-size: 12px; border-radius: 8px; padding: 0 5px; vertical-align: middle; }
 .hint-bar { background: #f6f9ff; border: 1px solid #dbe4f5; border-radius: 9px; padding: 9px 12px; font-size: 12.5px; color: #3d4a63; line-height: 1.7; margin: 0 0 12px; }
 .block { margin-top: 18px; }
-.block h4 { margin: 0 0 8px; font-size: 13px; color: #16233b; }
-.sec-title { margin: 16px 0 8px; font-size: 13px; color: #16233b; }
+.block h4 { margin: 0 0 8px; font-size: 13px; color: var(--ink); }
+.sec-title { margin: 16px 0 8px; font-size: 13px; color: var(--ink); }
 
 .score-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .score-cell b { font-size: 17px; }
 .bar { width: 100%; height: 5px; background: #eef2f8; border-radius: 3px; overflow: hidden; margin-top: 3px; }
-.bar i { display: block; height: 100%; background: #2b6de5; border-radius: 3px; }
+.bar i { display: block; height: 100%; background: var(--brand); border-radius: 3px; }
 .bar i.amt-green { background: #16a34a; }
 .bar i.amt-orange { background: #d97706; }
 .bar i.amt-red { background: #d92d45; }
@@ -895,16 +895,16 @@ onMounted(async () => {
 
 .score-head { display: grid; grid-template-columns: 170px 1fr 300px; gap: 16px; align-items: start;
   background: #f8fafd; border: 1px solid #e8eef7; border-radius: 12px; padding: 14px 16px; margin-bottom: 6px; }
-.score-big span { display: block; font-size: 12px; color: #8a94a6; }
+.score-big span { display: block; font-size: 12px; color: var(--ink-mute); }
 .score-big b { font-size: 34px; line-height: 1.1; }
-.score-big small { display: block; font-size: 11.5px; color: #d97706; margin-top: 2px; }
-.score-formula { font-size: 13px; color: #33415a; line-height: 1.8; }
-.score-meta { font-size: 12px; color: #6b7688; line-height: 1.9; text-align: right; }
-.appeal-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 0; border-bottom: 1px dashed #eef2f7; flex-wrap: wrap; }
+.score-big small { display: block; font-size: 12px; color: #d97706; margin-top: 2px; }
+.score-formula { font-size: 13px; color: var(--ink); line-height: 1.8; }
+.score-meta { font-size: 12px; color: var(--ink-soft); line-height: 1.9; text-align: right; }
+.appeal-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
 .appeal-row:last-child { border-bottom: none; }
 .tpl-meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: #5b6474; background: #f8fafd;
   border: 1px solid #e8eef7; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; }
-.tpl-meta b { color: #16233b; }
+.tpl-meta b { color: var(--ink); }
 .ver-row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 5px 0; }
 .sim-item { display: block; padding: 1px 0; }
 @media (max-width: 1280px) { .stat-row { grid-template-columns: repeat(3, 1fr); } .score-head { grid-template-columns: 1fr; } .score-meta { text-align: left; } }

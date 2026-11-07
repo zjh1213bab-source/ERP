@@ -75,7 +75,7 @@
             <button v-if="canIssue" class="btn btn-primary" @click="openIssue()">＋ 登记领用</button>
           </template>
           <template v-else-if="tab === 'items'">
-            <button v-if="canManage" class="btn btn-primary" @click="openItemForm()">＋ 新建实物</button>
+            <button v-action="['custody','create']" v-if="canManage" class="btn btn-primary" @click="openItemForm()">＋ 新建实物</button>
           </template>
           <template v-else-if="tab === 'clear'">
             <button v-if="canManage" class="btn btn-primary" @click="openClearance()">发起离职/调岗清退</button>
@@ -189,7 +189,7 @@
                   <div v-else-if="it.status === 'hold'" class="tiny red nowrap">损坏待定 · 不可发</div>
                 </td>
                 <td class="ops">
-                  <button v-if="canManage" class="btn btn-sm btn-ghost" @click="openItemForm(it)">编辑</button>
+                  <button  v-if="canManage" class="btn btn-sm btn-ghost" @click="openItemForm(it)">编辑</button>
                   <button v-if="canManage && it.status === 'hold'" class="btn btn-sm btn-primary" @click="openRestore(it)">恢复</button>
                   <button v-if="canManage && it.status !== 'scrapped'" class="btn btn-sm btn-ghost" @click="openScrap(it)">处置</button>
                 </td>
@@ -357,7 +357,7 @@
     </div>
 
     <!-- ================= 领用弹窗 ================= -->
-    <div class="modal-mask" v-if="issueForm.open" @click.self="issueForm.open = false">
+    <div class="modal-mask" v-if="issueForm.open">
       <div class="modal">
         <div class="modal-head"><b>登记领用</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="issueForm.open = false">关闭</button>
@@ -424,7 +424,7 @@
     </div>
 
     <!-- ================= 归还弹窗 ================= -->
-    <div class="modal-mask" v-if="returnForm.open" @click.self="returnForm.open = false">
+    <div class="modal-mask" v-if="returnForm.open">
       <div class="modal">
         <div class="modal-head"><b>归还 / 收回 · {{ returnForm.rec ? returnForm.rec.item_name : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="returnForm.open = false">关闭</button>
@@ -470,7 +470,7 @@
     </div>
 
     <!-- ================= 转交弹窗 ================= -->
-    <div class="modal-mask" v-if="transferForm.open" @click.self="transferForm.open = false">
+    <div class="modal-mask" v-if="transferForm.open">
       <div class="modal">
         <div class="modal-head"><b>转交 · {{ transferForm.rec ? transferForm.rec.item_name : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="transferForm.open = false">关闭</button>
@@ -503,7 +503,7 @@
     </div>
 
     <!-- ================= 实物档案弹窗 ================= -->
-    <div class="modal-mask" v-if="itemForm.open" @click.self="itemForm.open = false">
+    <div class="modal-mask" v-if="itemForm.open">
       <div class="modal">
         <div class="modal-head"><b>{{ itemForm.id ? '编辑实物' : '新建实物' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="itemForm.open = false">关闭</button>
@@ -561,7 +561,7 @@
     </div>
 
     <!-- ================= 处置弹窗 ================= -->
-    <div class="modal-mask" v-if="scrapForm.open" @click.self="scrapForm.open = false">
+    <div class="modal-mask" v-if="scrapForm.open">
       <div class="modal">
         <div class="modal-head"><b>处置 · {{ scrapForm.item ? scrapForm.item.name : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="scrapForm.open = false">关闭</button>
@@ -596,7 +596,7 @@
     </div>
 
     <!-- ================= 恢复可用弹窗 ================= -->
-    <div class="modal-mask" v-if="restoreForm.open" @click.self="restoreForm.open = false">
+    <div class="modal-mask" v-if="restoreForm.open">
       <div class="modal">
         <div class="modal-head"><b>恢复可用 · {{ restoreForm.item ? restoreForm.item.name : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="restoreForm.open = false">关闭</button>
@@ -619,7 +619,7 @@
     </div>
 
     <!-- ================= 清退弹窗 ================= -->
-    <div class="modal-mask" v-if="clearanceForm.open" @click.self="clearanceForm.open = false">
+    <div class="modal-mask" v-if="clearanceForm.open">
       <div class="modal">
         <div class="modal-head"><b>发起离职/调岗清退</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="clearanceForm.open = false">关闭</button>
@@ -653,7 +653,7 @@
     </div>
 
     <!-- ================= 清退清单弹窗 ================= -->
-    <div class="modal-mask" v-if="clearanceDetail" @click.self="clearanceDetail = null">
+    <div class="modal-mask" v-if="clearanceDetail">
       <div class="modal wide">
         <div class="modal-head">
           <div class="mh-left"><b>{{ clearanceDetail.clearance_no }}</b>
@@ -688,7 +688,7 @@
     </div>
 
     <!-- ================= 记录详情 ================= -->
-    <div class="modal-mask" v-if="recordDetail" @click.self="recordDetail = null">
+    <div class="modal-mask" v-if="recordDetail">
       <div class="modal wide">
         <div class="modal-head">
           <div class="mh-left"><b>{{ recordDetail.rec_no }}</b>
@@ -737,7 +737,7 @@
     </div>
 
     <!-- ================= 实物时间线 ================= -->
-    <div class="modal-mask" v-if="timeline" @click.self="timeline = null">
+    <div class="modal-mask" v-if="timeline">
       <div class="modal wide">
         <div class="modal-head">
           <div class="mh-left"><b>{{ timeline.item.name }}</b>
@@ -783,7 +783,7 @@
     </div>
 
     <!-- ================= 复核弹窗 ================= -->
-    <div class="modal-mask" v-if="reviewForm.open" @click.self="reviewForm.open = false">
+    <div class="modal-mask" v-if="reviewForm.open">
       <div class="modal">
         <div class="modal-head"><b>责任复核 · {{ reviewForm.claim ? reviewForm.claim.claim_no : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="reviewForm.open = false">关闭</button>
@@ -821,7 +821,7 @@
     </div>
 
     <!-- ================= 财务确认弹窗 ================= -->
-    <div class="modal-mask" v-if="financeForm.open" @click.self="financeForm.open = false">
+    <div class="modal-mask" v-if="financeForm.open">
       <div class="modal">
         <div class="modal-head"><b>财务确认 · {{ financeForm.claim ? financeForm.claim.claim_no : '' }}</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="financeForm.open = false">关闭</button>
@@ -847,7 +847,7 @@
     </div>
 
     <!-- ================= 手工登记损坏 ================= -->
-    <div class="modal-mask" v-if="claimForm.open" @click.self="claimForm.open = false">
+    <div class="modal-mask" v-if="claimForm.open">
       <div class="modal">
         <div class="modal-head"><b>手工登记损坏 / 遗失</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="claimForm.open = false">关闭</button>
@@ -1265,11 +1265,11 @@ onMounted(reload);
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card { min-height: 100px; padding: 13px 12px; }
 .cards.c6 .stat-card .value { font-size: 22px; margin-top: 5px; }
-.cards.c6 .stat-card .foot { font-size: 11px; line-height: 1.4; }
+.cards.c6 .stat-card .foot { font-size: 12px; line-height: 1.4; }
 .stat-card.warn { border-color: #fde68a; background: #fffdf5; }
 
 .ell { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tiny { font-size: 11px; line-height: 1.45; }
+.tiny { font-size: 12px; line-height: 1.45; }
 .mut { color: #7b8698; }
 .red { color: #b91c1c; }
 .amber-t { color: #92400e; }
@@ -1284,7 +1284,7 @@ table.data td b { white-space: nowrap; }
 table.data .btn { white-space: nowrap; }
 .ops { white-space: nowrap; }
 .ops .btn + .btn { margin-left: 6px; }
-.lnk { color: #2563eb; cursor: pointer; }
+.lnk { color: var(--brand); cursor: pointer; }
 
 .notice { border: 1px solid #dbeafe; background: #f6faff; border-radius: 9px; padding: 9px 12px; font-size: 12px; line-height: 1.7; color: #1e3a5f; margin-bottom: 10px; }
 .notice-warn { border: 1px solid #fde68a; background: #fffbeb; border-radius: 9px; padding: 9px 12px; font-size: 12px; line-height: 1.7; color: #92400e; margin-bottom: 10px; }
@@ -1292,7 +1292,7 @@ table.data .btn { white-space: nowrap; }
 
 .modal.wide { width: min(1020px, 94vw); }
 .mh-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.col-h { font-size: 12.5px; font-weight: 600; color: #16233b; margin: 12px 0 6px; }
+.col-h { font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 12px 0 6px; }
 .kv { display: flex; gap: 8px; font-size: 12px; padding: 3px 0; }
 .kv > span { color: #7b8698; min-width: 70px; flex: 0 0 auto; }
 .kv > b { font-weight: 500; }

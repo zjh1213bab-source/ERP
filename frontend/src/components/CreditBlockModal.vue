@@ -1,5 +1,5 @@
 <template>
-  <div v-if="modelValue" class="modal-mask" @click.self="$emit('close')">
+  <div v-if="modelValue" class="modal-mask">
     <div class="modal">
       <div class="modal-head">
         <h3>信用受限，这张单不能发</h3>
@@ -135,16 +135,16 @@ function goCredit() {
 
 .reasons { margin: 0 0 14px; padding-left: 20px; color: #9c1c30; font-size: 13px; line-height: 1.9; font-weight: 600; }
 
-.figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; padding: 12px 14px; background: #f7f9fc; border-radius: 12px; margin-bottom: 12px; }
-.figs label { display: block; font-size: 11.5px; color: #8a94a6; margin-bottom: 3px; }
-.figs b { font-size: 14px; color: #16233b; }
+.figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; padding: 12px 14px; background: var(--surface-2); border-radius: 12px; margin-bottom: 12px; }
+.figs label { display: block; font-size: 12px; color: var(--ink-mute); margin-bottom: 3px; }
+.figs b { font-size: 14px; color: var(--ink); }
 
 .tips { margin-bottom: 12px; }
-.tip { font-size: 12.5px; color: #6b7688; line-height: 1.9; }
+.tip { font-size: 12.5px; color: var(--ink-soft); line-height: 1.9; }
 .tip.warn { color: #b45309; }
 
 .release { border-top: 1px dashed #e6ebf3; padding-top: 14px; margin-bottom: 6px; }
-.release h4 { margin: 0 0 6px; font-size: 13.5px; color: #16233b; }
+.release h4 { margin: 0 0 6px; font-size: 13.5px; color: var(--ink); }
 .release .tiny { margin: 0 0 10px; line-height: 1.7; }
 .rrow { display: flex; gap: 10px; }
 .rrow .input { flex: 1; }

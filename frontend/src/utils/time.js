@@ -55,3 +55,6 @@ export function fmtTimeSec(s) {
 export function fmtDate(s) {
   return fmtTime(s, true);
 }
+
+/** 用本地时区生成表单日期，与所有日期显示共用格式化入口。 */
+export function localDate(value = new Date()) { return fmtDate(value instanceof Date ? value.toISOString() : value); }

@@ -146,7 +146,7 @@ onMounted(async () => {
   margin: 0 auto;
   padding: 18px 14px 40px;
   min-height: 100vh;
-  background: #f2f5fa;
+  background: var(--bg);
 }
 .mh-head {
   display: flex;
@@ -157,17 +157,17 @@ onMounted(async () => {
 .mh-hi {
   font-size: 18px;
   font-weight: 800;
-  color: #16233b;
+  color: var(--ink);
 }
 .mh-sub {
   font-size: 12px;
-  color: #8a94a6;
+  color: var(--ink-mute);
   margin-top: 4px;
 }
 .mh-out {
   border: 1px solid #dbe3ef;
-  background: #fff;
-  color: #6b7688;
+  background: var(--surface);
+  color: var(--ink-soft);
   border-radius: 9px;
   padding: 6px 12px;
   font-size: 12.5px;
@@ -183,21 +183,21 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 14px 14px;
   font-size: 15px;
-  background: #fff;
+  background: var(--surface);
 }
 .mh-go {
   flex: none;
   width: 62px;
   border: none;
   border-radius: 12px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--brand);
+  color: var(--on-brand);
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
 }
 .mh-hint {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #a6b0c0;
   margin: 8px 0 16px;
   line-height: 1.7;
@@ -216,21 +216,21 @@ onMounted(async () => {
   padding: 16px 14px;
   border-radius: 14px;
   border: 1px solid #e6ebf3;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
   text-align: left;
 }
 .mh-card.primary {
-  background: #2563eb;
+  background: var(--brand);
   border-color: #2563eb;
-  color: #fff;
+  color: var(--on-brand);
 }
 .mh-card b {
   font-size: 15px;
 }
 .mh-card small {
-  font-size: 11.5px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
 }
 .mh-card.primary small {
   color: rgba(255, 255, 255, 0.78);
@@ -240,7 +240,7 @@ onMounted(async () => {
   line-height: 1.2;
 }
 .mh-sec {
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 4px 0 6px;
   border: 1px solid #e6ebf3;
@@ -257,7 +257,7 @@ onMounted(async () => {
 .mh-more {
   border: none;
   background: none;
-  color: #2563eb;
+  color: var(--brand);
   font-size: 12.5px;
   cursor: pointer;
 }
@@ -276,7 +276,7 @@ onMounted(async () => {
   padding: 11px 14px;
   border: none;
   border-top: 1px solid #f2f5fa;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
   text-align: left;
 }
@@ -286,11 +286,11 @@ onMounted(async () => {
 .mh-row-no {
   font-size: 13.5px;
   font-weight: 700;
-  color: #16233b;
+  color: var(--ink);
 }
 .mh-row-style {
   font-size: 12px;
-  color: #8a94a6;
+  color: var(--ink-mute);
   margin-top: 2px;
 }
 .mh-row-right {
@@ -301,22 +301,22 @@ onMounted(async () => {
   flex: none;
 }
 .mh-tag {
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 9px;
   border-radius: 20px;
   font-weight: 700;
 }
 .mh-tag.green { background: #e6f7ec; color: #16a34a; }
-.mh-tag.blue { background: #e8f0ff; color: #2563eb; }
+.mh-tag.blue { background: #e8f0ff; color: var(--brand); }
 .mh-tag.orange { background: #fff2e0; color: #d97706; }
 .mh-tag.red { background: #fdecee; color: #d92d45; }
 .mh-row-date {
-  font-size: 11px;
+  font-size: 12px;
   color: #b3bcca;
 }
 .mh-tip {
   margin-top: 16px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #a6b0c0;
   line-height: 1.9;
   text-align: center;

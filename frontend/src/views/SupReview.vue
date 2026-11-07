@@ -103,7 +103,7 @@
     </div>
 
     <!-- ================= 详情 ================= -->
-    <div v-if="det.open && det.data" class="modal-mask" @click.self="det.open = false">
+    <div v-if="det.open && det.data" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           #{{ det.data.tech_pack.id }} {{ det.data.tech_pack.product_name }}
@@ -469,10 +469,10 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-warn { border-color: #f7d9a8; background: #fffaf1; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
@@ -480,21 +480,21 @@ onMounted(async () => {
 .warn-box { background: #fffaf1; border: 1px solid #f7d9a8; border-radius: 8px; padding: 9px 12px; font-size: 12px; color: #92400e; line-height: 1.75; margin: 6px 0 10px; }
 
 .seg { display: flex; gap: 6px; flex-wrap: wrap; }
-.seg button { padding: 5px 11px; border: 1px solid #dfe5ef; background: #fff; border-radius: 8px; font-size: 12.5px; color: #5b6474; cursor: pointer; }
+.seg button { padding: 5px 11px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; font-size: 12.5px; color: #5b6474; cursor: pointer; }
 .seg button.on { background: #16305f; border-color: #16305f; color: #fff; }
 .seg button i { font-style: normal; opacity: .7; margin-left: 3px; }
 
 .step { border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
 .step-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 13px; color: #16305f; }
-.step-no { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 20px; border-radius: 6px; font-size: 11px; font-weight: 800; }
+.step-no { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 20px; border-radius: 6px; font-size: 12px; font-weight: 800; }
 .step-no.done { background: #e8f5ec; color: #16a34a; }
-.step-no.todo { background: #eef2f8; color: #64748b; }
+.step-no.todo { background: #eef2f8; color: var(--ink-soft); }
 .step-ops { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 .hint-line { font-size: 12px; color: #5b6474; background: #f8fafd; border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; }
 
 .fgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .fl { display: block; font-size: 12px; color: #5b6474; }
-.fl input, .fl select { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
+.fl input, .fl select { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
 .fl.req { color: #92400e; }
 
 .a2-form { background: #f8fafd; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
@@ -510,7 +510,7 @@ table.data td.wrap { white-space: normal; }
 .ok-line { color: #16a34a; }
 .red { color: #d92d45; }
 .orange { color: #d97706; }
-.lnk { background: none; border: none; color: #2f6fed; font-size: 11.5px; cursor: pointer; padding: 0 2px; }
+.lnk { background: none; border: none; color: #2f6fed; font-size: 12px; cursor: pointer; padding: 0 2px; }
 .modal { padding: 18px 20px; }
 
 @media (max-width: 900px) {

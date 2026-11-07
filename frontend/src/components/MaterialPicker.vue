@@ -1,5 +1,5 @@
 <template>
-  <div v-if="open" class="modal-mask picker-mask" @click.self="close">
+  <div v-if="open" class="modal-mask picker-mask">
     <div class="modal xwide picker">
       <div class="modal-head">
         <h3>
@@ -35,13 +35,11 @@
                 <th v-if="mode !== 'base'" style="width: 36px">
                   <input type="checkbox" :checked="allChecked" @change="toggleAll($event.target.checked)" />
                 </th>
-                <th style="width: 56px">图片</th>
+                <th style="width: 56px">色卡本封面</th>
                 <th style="width: 140px">供应商信息</th>
                 <th style="width: 60px">类型</th>
                 <th style="min-width: 180px">物料名称/编号</th>
                 <th style="width: 90px">简称</th>
-                <th style="width: 90px">颜色</th>
-                <th style="width: 100px">色号</th>
                 <th style="width: 52px">单位</th>
                 <th style="width: 150px">规格</th>
                 <th style="width: 100px">库存明细</th>
@@ -67,8 +65,6 @@
                   <div v-if="m.code" class="sub-line">{{ m.code }}</div>
                 </td>
                 <td>{{ m.short_name || '-' }}</td>
-                <td>{{ m.color || '-' }}</td>
-                <td>{{ m.color_no || '-' }}</td>
                 <td>{{ m.unit || '-' }}</td>
                 <td class="spec-cell">
                   <div v-if="m.width">幅宽：{{ m.width }}</div>
@@ -156,7 +152,7 @@ async function load() {
     list.value = all.filter((m) => {
       if (kw.value.supplier && m.supplier !== kw.value.supplier) return false;
       if (name) {
-        const hit = [m.name, m.code, m.color_no].some((v) => (v || '').toLowerCase().includes(name));
+        const hit = [m.name, m.code].some((v) => (v || '').toLowerCase().includes(name));
         if (!hit) return false;
       }
       if (short && !(m.short_name || '').toLowerCase().includes(short)) return false;
@@ -242,22 +238,22 @@ watch(() => props.open, (v) => {
 /* 提高特异性：全局 .modal.xwide 是 1000px，这里要更宽才放得下 12 列 */
 .modal.xwide.picker { width: 1360px; max-width: 97vw; }
 .picker-mask { z-index: 1200; }
-.hint { font-weight: 400; font-size: 12px; color: #8a94a6; margin-left: 6px; }
+.hint { font-weight: 400; font-size: 12px; color: var(--ink-mute); margin-left: 6px; }
 .picker-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-.picker-scroll { overflow: auto; max-height: 56vh; border: 1px solid #eef2f7; border-radius: 8px; }
+.picker-scroll { overflow: auto; max-height: 56vh; border: 1px solid var(--line); border-radius: 8px; }
 .picker-table { border: none; min-width: 1180px; }
 .picker-table th, .picker-table td { padding: 5px 7px; font-size: 12px; vertical-align: middle; white-space: nowrap; }
 .picker-table tr.sel { background: #f2f7ff; }
 .picker-table .ops { white-space: nowrap; }
 .picker-table .ops .link-btn + .link-btn { margin-left: 6px; }
 .picker-table .nowrap-ellipsis { max-width: 138px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub-line { font-size: 11px; color: #8a94a6; margin-top: 1px; }
-.spec-cell { font-size: 11.5px; line-height: 1.45; color: #33415a; white-space: normal; }
+.sub-line { font-size: 12px; color: var(--ink-mute); margin-top: 1px; }
+.spec-cell { font-size: 12px; line-height: 1.45; color: var(--ink); white-space: normal; }
 .thumb {
-  width: 36px; height: 36px; border-radius: 5px; overflow: hidden; background: #f7f9fc;
-  border: 1px solid #eef2f7; display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 5px; overflow: hidden; background: var(--surface-2);
+  border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
 }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
-.thumb .ph { font-size: 10.5px; color: #a9b4c5; }
+.thumb .ph { font-size: 12px; color: var(--ink-mute); }
 .sel-count { margin-right: auto; font-size: 12.5px; color: #5b6474; }
 </style>

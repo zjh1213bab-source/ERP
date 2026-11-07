@@ -4,9 +4,18 @@ import router from './router';
 import { fmtTime, fmtTimeSec, fmtDate } from './utils/time';
 import './assets/main.css';
 import './assets/erp.css';
+import './assets/workspace.css';
+import './assets/yichuang-theme.css';
 import './store/theme';
+import { openImage } from './store/viewer';
 
+import { canAction } from './store/permissions';
+import { actionDirective } from './directives/action';
 const app = createApp(App);
+app.directive('action', actionDirective);
+app.config.globalProperties.$canAction = canAction;
+// 兼容业务模板直接调用；图片本身的点击还由根组件统一接管。
+app.config.globalProperties.openImage = openImage;
 
 /**
  * 时间格式化注册成模板全局方法

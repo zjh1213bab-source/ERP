@@ -2,17 +2,17 @@
   <div>
     <div class="page-head">
       <div>
-        <h2>工厂 / 外协</h2>
-        <div class="sub">本厂与外协厂主数据，供订单分单选择</div>
+        <h2>工厂管理</h2>
+        <div class="sub">按轻加工或包工包料维护合作工厂，供订单分单选择</div>
       </div>
-      <button v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增工厂</button>
+      <button v-action="['factories','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增工厂</button>
     </div>
 
     <div class="toolbar" style="margin-bottom: 14px">
       <select class="select" v-model="type" @change="load">
         <option value="">全部类型</option>
-        <option value="own">本厂</option>
-        <option value="outsource">外协</option>
+        <option value="processing">轻加工</option>
+        <option value="full_package">包工包料</option>
       </select>
       <select class="select" v-model="status" @change="load">
         <option value="">全部状态</option>
@@ -23,29 +23,31 @@
     </div>
 
     <div class="table-wrap">
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data">
         <thead><tr><th style="width: 52px">图片</th><th>编码</th><th>名称</th><th>类型</th><th>联系人</th><th>电话</th><th>地址</th><th>状态</th><th v-if="canWrite">操作</th></tr></thead>
         <tbody>
-          <tr v-for="f in list" :key="f.id">
+          <tr v-for="f in pagination.rows" :key="f.id">
             <td><div class="mini-thumb" :class="{ clickable: f.image_url }" @click="f.image_url && openImage(f.image_url, f.name || '')"><img v-if="f.image_url" :src="f.image_url" /><span v-else>-</span></div></td>
             <td>{{ f.code || '-' }}</td>
             <td><strong>{{ f.name }}</strong></td>
-            <td><span class="tag" :class="f.type === 'own' ? 'blue' : 'purple'">{{ f.type === 'own' ? '本厂' : '外协' }}</span></td>
+            <td><span class="tag" :class="f.processing_mode === 'full_package' ? 'purple' : 'blue'">{{ f.processing_mode === 'full_package' ? '包工包料' : '轻加工' }}</span></td>
             <td>{{ f.contact || '-' }}</td>
             <td>{{ f.phone || '-' }}</td>
             <td>{{ f.address || '-' }}</td>
             <td><span class="tag" :class="f.status === 'active' ? 'green' : 'gray'">{{ f.status === 'active' ? '启用' : '停用' }}</span></td>
             <td v-if="canWrite">
-              <button class="link-btn" @click="openEdit(f)">编辑</button>
-              <button v-if="f.status === 'active'" class="link-btn danger" @click="disable(f)">停用</button>
+              <button v-action="['factories','edit']" class="link-btn" @click="openEdit(f)">编辑</button>
+              <button v-action="['factories','disable']" v-if="f.status === 'active'" class="link-btn danger" @click="disable(f)">停用</button>
             </td>
           </tr>
           <tr v-if="!list.length"><td :colspan="canWrite ? 9 : 8" class="empty-cell">暂无工厂</td></tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
+    <div v-if="showModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>{{ form.id ? '编辑工厂' : '新增工厂' }}</h3><button class="x" @click="showModal = false">×</button></div>
         <div class="modal-body">
@@ -57,11 +59,11 @@
 
             <div class="fitem"><label>名称 *</label><input class="input" v-model="form.name" /></div>
             <div class="fitem"><label>编码</label><input class="input" v-model="form.code" /></div>
-            <div class="fitem"><label>类型</label><select class="select" v-model="form.type"><option value="own">本厂</option><option value="outsource">外协</option></select></div>
+            <div class="fitem"><label>类型</label><select class="select" v-model="form.processing_mode"><option value="processing">轻加工</option><option value="full_package">包工包料</option></select></div>
             <div class="fitem"><label>联系人</label><input class="input" v-model="form.contact" /></div>
             <div class="fitem"><label>电话</label><input class="input" v-model="form.phone" /></div>
             <div class="fitem"><label>地址</label><input class="input" v-model="form.address" /></div>
-            <div class="fitem"><label>状态</label><select class="select" v-model="form.status"><option value="active">启用</option><option value="disabled">停用</option></select></div>
+            <div class="fitem"><label>状态</label><select class="select" v-model="form.status"><option :disabled="!$canAction('factories','enable')" value="active">启用</option><option :disabled="!$canAction('factories','disable')" value="disabled">停用</option></select></div>
           </div>
         </div>
         <div class="modal-foot">
@@ -74,6 +76,8 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -87,10 +91,10 @@ const saving = ref(false);
 const form = ref(blank());
 const canWrite = computed(() => can('factory.write'));
 
-function blank() { return { id: null, name: '', code: '', type: 'outsource', contact: '', phone: '', address: '', status: 'active', image_url: '' }; }
+function blank() { return { id: null, name: '', code: '', type: 'outsource', processing_mode: 'processing', contact: '', phone: '', address: '', status: 'active', image_url: '' }; }
 
 async function load() {
-  try { list.value = await api.factories({ type: type.value, status: status.value }); }
+  try { list.value = await api.factories({ processing_mode: type.value, status: status.value }); }
   catch (e) { alert(e.message); }
 }
 function openCreate() { form.value = blank(); showModal.value = true; }
@@ -113,4 +117,6 @@ async function disable(f) {
 }
 
 onMounted(load);
+
+const pagination = useListPagination(() => list.value);
 </script>

@@ -20,6 +20,9 @@ const orderFlow = require('../services/orderFlow');
 // 订单号由业务手填（必填、唯一、可改但要级联同步下游）—— 规则统一在服务层，
 // 这里只调用，不在这里重写一遍判断
 const orderNoSvc = require('../services/orderNo');
+const orderEntry = require('../services/orderEntry');
+const {styleImages,readImages}=require('../services/orderImages');
+const {sourceForOrder}=require('../services/preOrderTransfer');
 const scope = require('../access/companyScope');
 const { STATUS_LABELS, FLOW, CHAIN, TRANSITION_ROLES } = orderFlow;
 
@@ -54,7 +57,7 @@ function getOrderFull(id) {
   const sizeStmt = db.prepare('SELECT * FROM order_item_sizes WHERE item_id = ? ORDER BY id');
   order.items = items.map((it) => {
     const sizes = sizeStmt.all(it.id);
-    return { ...it, sizes, colors: groupByColor(sizes) };
+    return { ...it, detail_images:readImages(it.detail_images), sizes, colors: groupByColor(sizes) };
   });
   order.logs = db.prepare('SELECT * FROM order_logs WHERE order_id = ? ORDER BY id').all(id);
   order.crafts = db.prepare('SELECT * FROM order_crafts WHERE order_id = ? ORDER BY id').all(id);
@@ -101,7 +104,8 @@ router.get('/', authRequired, wrap(async (req, res) => {
   const sql = `SELECT o.*, c.name AS customer_name FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id ` +
     (where.length ? 'WHERE ' + where.join(' AND ') + ' ' : '') + 'ORDER BY o.id DESC';
-  return ok(res, db.prepare(sql).all(...params));
+  const rows=db.prepare(sql).all(...params);
+  return ok(res, req.query.view==='reference'?require('../services/orderWorkspace').decorate(rows):rows);
 }));
 
 // ---------- 状态机元数据 ----------
@@ -170,7 +174,7 @@ router.get('/export', authRequired, wrap(async (req, res) => {
 }));
 
 // ---------- 扫码查询（标签码 → 订单） ----------
-router.get('/find', authRequired, wrap(async (req, res) => {
+async function findOrder(req,res) {
   const raw = String(req.query.no || '').trim();
   if (!raw) return fail(res, 400, '请输入标签码');
 
@@ -178,7 +182,7 @@ router.get('/find', authRequired, wrap(async (req, res) => {
   // 但**订单号自身可能含横线**（客户给的编号、历史导入的数据都常见），
   // 无脑切第一段会把 CREDITDEMO-03 切成 CREDITDEMO，扫出来是 404。
   // 所以先拿整串精确匹配，匹配不到再退化到第一段 —— 两种码都能用。
-  const sel = 'SELECT id, order_no, style_name, status, customer_id FROM orders WHERE order_no = ?';
+  const sel = 'SELECT id, order_no, style_name, status, customer_id, company_id FROM orders WHERE order_no = ?';
   let order = db.prepare(sel).get(raw);
   let matchedBy = 'exact';
   if (!order) {
@@ -200,8 +204,10 @@ router.get('/find', authRequired, wrap(async (req, res) => {
   if (!order) return fail(res, 404, '未找到对应订单：' + raw);
   // 扫码也要按主体：扫到别家的单同样回答"没找到"，否则试号就能探出别家有几张单
   if (!scope.canSee(req.user, order)) return fail(res, 404, '未找到对应订单：' + raw);
+  if(req.workerReport||!req.user.positionDirect&&req.user.roles?.every(r=>r==='employee'))return ok(res,{id:order.id,order_no:order.order_no,style_name:order.style_name,status:order.status,matched_by:matchedBy,scope:'basic'});
   return ok(res, { ...order, matched_by: matchedBy });
-}));
+}
+router.get('/find',authRequired,wrap(findOrder));
 
 // ============================================================
 // 订单号：反查 / 改号 / 改号历史
@@ -267,6 +273,32 @@ router.get('/:id/sheet', authRequired, wrap(async (req, res) => {
   return ok(res, orderSheet.sheet(req.params.id));
 }));
 
+// 下单草稿仅按当前账号和主体读取；写草稿复用新增订单权限。
+router.get('/entry/draft', authRequired, requireRole(['admin','sales']), wrap(async(req,res)=>ok(res,orderEntry.readDraft(req.user,req.query))));
+router.put('/entry/draft', authRequired, requireRole(['admin','sales']), wrap(async(req,res)=>ok(res,orderEntry.saveDraft(req.user,req.body))));
+router.get('/entry/material-templates', authRequired, requireRole(['admin','sales']), wrap(async(req,res)=>ok(res,orderEntry.templates(req.user))));
+router.post('/entry/material-templates', authRequired, requireRole(['admin','sales']), wrap(async(req,res)=>ok(res,orderEntry.saveTemplate(req.user,req.body))));
+router.get('/entry/product-materials/:productId', authRequired, requireRole(['admin','sales']), wrap(async(req,res)=>{
+  const sc=scope.clause(req.user,'o.company_id');
+  // 仅复用有明确商品关联的已确认开发单，不按相似名称猜测 BOM。
+  const pack=db.prepare("SELECT t.id FROM tech_packs t JOIN order_items i ON i.id=t.order_item_id JOIN orders o ON o.id=i.order_id WHERE i.product_id=? AND t.status='confirmed'"+sc.sql+' ORDER BY t.id DESC LIMIT 1').get(req.params.productId,...sc.params);
+  if(!pack)return ok(res,[]);
+  const rows=db.prepare("SELECT t.material_id,t.one_use,t.loss_rate AS loss,t.unit_price AS price,t.use_part AS usage_part FROM tech_pack_materials t JOIN materials m ON m.id=t.material_id WHERE t.tech_pack_id=? AND t.mat_type='accessory' AND m.status='active' ORDER BY t.sort,t.id").all(pack.id);
+  return ok(res,rows);
+}));
+router.get('/entry/sample-materials/:archiveId',authRequired,requireRole(['admin','sales']),wrap(async(req,res)=>{
+ const a=require('../services/preOrderStyles').approvedArchive(req.user,Number(req.params.archiveId));
+ return ok(res,(a.source_data.materials||[]).filter(m=>m.mat_type==='accessory'&&m.material_id).map(m=>({material_id:m.material_id,one_use:m.one_use,loss:m.loss_rate,price:m.unit_price,usage_part:m.use_part||''})));
+}));
+router.get('/entry/samples',authRequired,requireRole(['admin','sales']),wrap(async(req,res)=>{
+ const source=require('../services/preOrderStyles');
+ return ok(res,source.availableDistinct(req.user,String(req.query.q||'')).map(a=>{const s=source.approvedArchive(req.user,a.id).source_data;const split=v=>Array.isArray(v)?v:String(v||'').split(/[,，、/\s]+/).filter(Boolean);return {...a,name:a.product_name,price:Number(s.price||0),colors:split(s.colors),sizes:split(s.size_range)};}));
+}));
+router.get('/entry/salespeople', authRequired, requireRole(['admin','sales']), wrap(async(req,res)=>{
+  const filter=scope.clause(req.user,'u.company_id');
+  return ok(res,db.prepare("SELECT u.id,u.name,u.username FROM users u WHERE u.active=1 AND u.role IN ('admin','sales')" + filter.sql + ' ORDER BY u.id').all(...(filter.params||[])).map(u=>({id:u.id,name:u.name||u.username})));
+}));
+
 router.get('/:id', authRequired, wrap(async (req, res) => {
   orderInScope(req, req.params.id);
   const order = getOrderFull(req.params.id);
@@ -277,10 +309,20 @@ router.get('/:id', authRequired, wrap(async (req, res) => {
 // ---------- 新建 ----------
 router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req, res) => {
   const b = req.body || {};
+  const requestInfo=orderEntry.request(b,req.user);
+  if(requestInfo?.orderId)return ok(res,getOrderFull(requestInfo.orderId));
+  let source=null;
+  if(b.source_pre_order_id) {
+    if(!Number.isSafeInteger(b.source_pre_order_version))return fail(res,409,'缺少预下单版本，请重新带入');
+    source=sourceForOrder(req.user,b.source_pre_order_id,b.source_pre_order_version);
+    if(b.customer_id===undefined)b.customer_id=source.customer_id;
+  }
+
   const items = Array.isArray(b.items) ? b.items : [];
   if (!items.length) return fail(res, 400, '至少需要一条订单明细');
 
-  const rate = Number(b.rate) > 0 ? Number(b.rate) : getSettings().exchangeRate;
+  const rate = b.entry_version===1 ? getSettings().exchangeRate : (Number(b.rate)>0?Number(b.rate):getSettings().exchangeRate);
+  if(b.entry_version===1&&b.entry_exchange_rate!=null&&Number(b.entry_exchange_rate)!==rate)return fail(res,409,'汇率设置已修改，请重新打开草稿后保存');
   const type = b.type === 'stock' ? 'stock' : 'custom';
 
   let orderUsd = 0;
@@ -296,7 +338,8 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
       if (sizes.length && !String(colorName).trim()) return fail(res, 400, `款「${it.product_name || '未命名'}」有数量的颜色组必须填写颜色`);
       for (const s of sizes) {
         const qty = Number(s.qty) || 0;
-        const usd = Number(s.usd_price ?? 0);
+        if(!Number.isFinite(qty) || qty<=0)return fail(res,400,'尺码数量必须为有效正数');
+        const usd = b.entry_version===1&&s.entry_price!=null ? Number(s.entry_price)/(it.currency==='CNY'?rate:1) : Number(s.usd_price ?? 0);
         if (!Number.isFinite(usd) || usd < 0) return fail(res, 400, `款「${it.product_name || '未命名'}」有无效美金单价`);
         const sizeName = String(s.size || '').trim();
         if (!sizeName) return fail(res, 400, `款「${it.product_name || '未命名'}」有数量的尺码行必须填写尺码`);
@@ -318,6 +361,8 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
     itemUsd = round2(itemUsd);
     orderUsd = round2(orderUsd + itemUsd);
     prepared.push({
+      ...styleImages(it),
+      source_pre_order_item_id:it.source_pre_order_item_id || null,
       product_id: it.product_id || null,
       product_name: it.product_name || '未命名产品',
       style_no: it.style_no || null,
@@ -329,6 +374,8 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
       sizeRows
     });
   }
+  const entryData=orderEntry.prepare(b,prepared,req.user);
+  if(entryData)orderUsd=entryData.summary.total_usd;
   const orderCny = round2(orderUsd * rate);
 
   // 订单号由业务手工填写（必填），不再自动生成。
@@ -340,10 +387,31 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
   //      数据库的唯一索引分大小写，兜不住这个
   //   3. 不强制格式 —— 业务填的是客户 PO / 平台单号 / 老系统流水，强制 SO 前缀等于没改
   const orderNo = orderNoSvc.check(b.order_no);
+  const reserved=db.prepare("SELECT id FROM pre_orders WHERE order_no=? COLLATE NOCASE AND status<>'converted' AND id<>?").get(orderNo,source?.id || 0);
+  if(reserved)return fail(res,409,'订单号已用于预下单，请从该预下单转入正式订单');
+  for(const item of prepared) if(item.source_pre_order_item_id && (!source || !db.prepare('SELECT id FROM pre_order_items WHERE id=? AND pre_order_id=?').get(item.source_pre_order_item_id,source.id)))return fail(res,400,'款式不属于当前预下单，请重新带入');
+
+  // 从客户档案取得默认收货资料；订单保存独立快照，后续客户修改不影响旧单。
+  const customer = b.customer_id ? db.prepare('SELECT * FROM customers WHERE id=?').get(b.customer_id) : null;
+  if (b.customer_id && (!customer || customer.status !== 'active')) return fail(res, 400, '请选择有效客户');
+  const shipping = {};
+  for (const [key, fallback] of Object.entries({ recipient_name: customer?.contact, recipient_phone: customer?.phone, shipping_address: customer?.shipping_address })) {
+    if (b[key] != null && typeof b[key] !== 'string') return fail(res, 400, '收货信息格式无效');
+    shipping[key] = String(b[key] ?? source?.[key] ?? fallback ?? '').trim();
+    if (shipping[key].length > (key === 'shipping_address' ? 2000 : 255)) return fail(res, 400, '收货信息超出长度限制');
+  }
+
 
   let orderId;
   db.exec('BEGIN');
   try {
+    // 转单占位与订单创建处于同一事务；任何失败都会回滚，不留下半张订单。
+    if(source) {
+      require('../services/preOrderStyles').reuseArchives(source.id,req.user);
+      const claim=db.prepare("UPDATE pre_orders SET status='converting' WHERE id=? AND version=? AND status='ready' AND converted_order_id IS NULL").run(source.id,source.version);
+      if(!claim.changes)throw Object.assign(new Error('预下单已被转换或修改，请刷新'),{status:409});
+    }
+
     const t = now();
     const info = db.prepare(
       `INSERT INTO orders (order_no, type, customer_id, status, rate, total_usd, total_amount, currency, style_name, cus_order_no, manager, order_date, delivery_method, packaging, trade_terms, shop_name, shop_order_no, delivery_days, freight, image_url, delivery_date, remark, created_by, created_at, updated_at)
@@ -352,26 +420,40 @@ router.post('/', authRequired, requireRole(['admin', 'sales']), wrap(async (req,
       b.style_name || null, b.cus_order_no || null, b.manager || null,
       b.order_date || null, b.delivery_method || null, b.packaging || null, b.trade_terms || null,
       b.shop_name || null, b.shop_order_no || null, Number(b.delivery_days) || 0, Number(b.freight) || 0,
-      b.image_url || null,
+      b.image_url || prepared.find(item=>item.effect_image_url)?.effect_image_url || null,
       b.delivery_date || null, b.remark || null, req.user.sub, t, t);
     orderId = Number(info.lastInsertRowid);
+    if(entryData&&!source)db.prepare('UPDATE orders SET company_id=? WHERE id=?').run(scope.writeCompanyOf(req.user),orderId);
+    db.prepare('UPDATE orders SET customer_name_snapshot=?,recipient_name=?,recipient_phone=?,shipping_address=? WHERE id=?')
+      .run(customer?.name || source?.customer_name || null, shipping.recipient_name, shipping.recipient_phone, shipping.shipping_address, orderId);
+
 
     const insItem = db.prepare(
-      'INSERT INTO order_items (order_id, product_id, product_name, style_no, sku, remark, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO order_items (order_id, product_id, product_name, style_no, sku, remark, qty, amount_usd, amount_cny, effect_image_url, detail_images, source_pre_order_item_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     const insSize = db.prepare(
       'INSERT INTO order_item_sizes (item_id, color, size, qty, usd_price, cny_price, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?)'
     );
+    const createdItemIds=[];
     prepared.forEach((p) => {
-      const r = insItem.run(orderId, p.product_id, p.product_name, p.style_no, p.sku, p.remark, p.qty, p.amount_usd, p.amount_cny);
+      const r = insItem.run(orderId, p.product_id, p.product_name, p.style_no, p.sku, p.remark, p.qty, p.amount_usd, p.amount_cny, p.effect_image_url, JSON.stringify(p.detail_images), p.source_pre_order_item_id);
       const itemId = Number(r.lastInsertRowid);
+      createdItemIds.push(itemId);
       p.sizeRows.forEach((s) =>
         insSize.run(itemId, s.color, s.size, s.qty, s.usd_price, s.cny_price, s.amount_usd, s.amount_cny)
       );
     });
 
+    orderEntry.apply(orderId,createdItemIds,entryData,requestInfo,req.user);
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
       .run(orderId, null, 'draft', req.user.username, '创建订单', t);
+    if(source) {
+      db.prepare('UPDATE orders SET source_pre_order_id=?,company_id=? WHERE id=?').run(source.id,source.company_id,orderId);
+      require('../services/confirmation').linkPreOrder(orderId,source.id);
+      db.prepare("UPDATE pre_orders SET status='converted',converted_order_id=?,version=version+1,updated_at=? WHERE id=?").run(orderId,t,source.id);
+      db.prepare('INSERT INTO pre_order_events(pre_order_id,action,version,operator,details,created_at) VALUES(?,?,?,?,?,?)').run(source.id,'converted',source.version+1,req.user.name||req.user.username,JSON.stringify({order_id:orderId,order_no:orderNo}),t);
+    }
+
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -392,8 +474,14 @@ router.put('/:id/items', authRequired, requireRole(['admin', 'sales']), wrap(asy
 
   const rate = Number(order.rate) > 0 ? Number(order.rate) : getSettings().exchangeRate;
   const items = [];
+  if(db.prepare('SELECT 1 FROM sample_seals WHERE order_id=? LIMIT 1').get(order.id) || db.prepare('SELECT 1 FROM tech_packs WHERE order_id=? LIMIT 1').get(order.id))return fail(res,409,'订单已进入开发或封样，请通过客户变更修改数量与价格，保留款式关联');
+  const previousItems=db.prepare('SELECT * FROM order_items WHERE order_id=? ORDER BY id').all(order.id);
   let orderUsd = 0;
   for (const it of input) {
+    const previous=previousItems.find(row=>row.id===it.id);
+    if(it.id&&!previous)return fail(res,400,'款式不属于当前订单');
+    if(it.id&&items.some(x=>x.id===it.id))return fail(res,400,'款式重复');
+    const images=styleImages({effect_image_url:it.effect_image_url ?? previous?.effect_image_url,detail_images:it.detail_images ?? readImages(previous?.detail_images)});
     const sizes = Array.isArray(it.sizes) ? it.sizes : (Array.isArray(it.colors)
       ? it.colors.flatMap((c) => (c.sizes || []).map((s) => ({ ...s, color: c.color })))
       : []);
@@ -420,6 +508,8 @@ router.put('/:id/items', authRequired, requireRole(['admin', 'sales']), wrap(asy
     amountUsd = round2(amountUsd);
     orderUsd = round2(orderUsd + amountUsd);
     items.push({
+      id:previous?.id||null,entry_json:previous?.entry_json||null,
+      ...images,source_pre_order_item_id:previous?.source_pre_order_item_id || null,
       product_id: it.product_id || null,
       product_name: String(it.product_name).trim(),
       style_no: it.style_no || null,
@@ -436,24 +526,34 @@ router.put('/:id/items', authRequired, requireRole(['admin', 'sales']), wrap(asy
     });
   }
 
+  if(db.prepare('SELECT 1 FROM sample_seals WHERE order_id=? LIMIT 1').get(order.id) || db.prepare('SELECT 1 FROM tech_packs WHERE order_id=? LIMIT 1').get(order.id))return fail(res,409,'订单已进入开发或封样，请通过客户变更修改数量与价格，保留款式关联');
+  const entrySummary=orderEntry.reprice(order,items);
+  if(entrySummary)orderUsd=entrySummary.total_usd;
   db.exec('BEGIN');
   try {
-    db.prepare('DELETE FROM order_item_sizes WHERE item_id IN (SELECT id FROM order_items WHERE order_id = ?)').run(order.id);
-    db.prepare('DELETE FROM order_items WHERE order_id = ?').run(order.id);
-    const insItem = db.prepare(
-      'INSERT INTO order_items (order_id, product_id, product_name, style_no, sku, remark, qty, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?,?)'
-    );
-    const insSize = db.prepare(
-      'INSERT INTO order_item_sizes (item_id, color, size, qty, usd_price, cny_price, amount_usd, amount_cny) VALUES (?,?,?,?,?,?,?,?)'
-    );
-    for (const it of items) {
-      const info = insItem.run(order.id, it.product_id, it.product_name, it.style_no, it.sku, it.remark,
-        it.qty, it.amount_usd, it.amount_cny);
-      for (const s of it.sizes) insSize.run(Number(info.lastInsertRowid), s.color, s.size, s.qty, s.usd, s.cny, s.amount, s.amount_cny);
+    // 已有款保留主键；否则新增下单时带入的物料会变成孤儿。
+    for (const old of previousItems.filter(p=>!items.some(i=>i.id===p.id))) {
+      db.prepare('DELETE FROM order_material_colors WHERE order_material_id IN (SELECT id FROM order_materials WHERE item_id=?)').run(old.id);
+      db.prepare('DELETE FROM order_materials WHERE item_id=?').run(old.id);
+      db.prepare('DELETE FROM order_item_sizes WHERE item_id=?').run(old.id);
+      db.prepare('DELETE FROM order_items WHERE id=?').run(old.id);
     }
-    const t = now();
-    db.prepare('UPDATE orders SET total_usd = ?, total_amount = ?, updated_at = ? WHERE id = ?')
-      .run(orderUsd, round2(orderUsd * rate), t, order.id);
+    const insItem = db.prepare('INSERT INTO order_items(order_id,product_id,product_name,style_no,sku,remark,qty,amount_usd,amount_cny,effect_image_url,detail_images,source_pre_order_item_id,entry_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const insSize = db.prepare('INSERT INTO order_item_sizes(item_id,color,size,qty,usd_price,cny_price,amount_usd,amount_cny) VALUES(?,?,?,?,?,?,?,?)');
+    for (const it of items) {
+      const values=[it.product_id,it.product_name,it.style_no,it.sku,it.remark,it.qty,it.amount_usd,it.amount_cny,it.effect_image_url,JSON.stringify(it.detail_images),it.source_pre_order_item_id,it.entry_json];
+      let itemId=it.id;
+      if(itemId){db.prepare('UPDATE order_items SET product_id=?,product_name=?,style_no=?,sku=?,remark=?,qty=?,amount_usd=?,amount_cny=?,effect_image_url=?,detail_images=?,source_pre_order_item_id=?,entry_json=? WHERE id=?').run(...values,itemId);db.prepare('DELETE FROM order_item_sizes WHERE item_id=?').run(itemId);}
+      else itemId=Number(insItem.run(order.id,...values).lastInsertRowid);
+      for(const row of it.sizes)insSize.run(itemId,row.color,row.size,row.qty,row.usd,row.cny,row.amount,row.amount_cny);
+      const colorSet=new Set(it.sizes.map(s=>s.color));
+      for(const m of db.prepare('SELECT id FROM order_materials WHERE item_id=?').all(itemId)){
+        for(const c of db.prepare('SELECT id,colorway FROM order_material_colors WHERE order_material_id=?').all(m.id))if(!colorSet.has(c.colorway))db.prepare('DELETE FROM order_material_colors WHERE id=?').run(c.id);
+        require('../services/orderMaterialColors').recalc(m.id);
+      }
+    }
+    const t=now();
+    db.prepare('UPDATE orders SET total_usd=?,total_amount=?,entry_json=?,updated_at=? WHERE id=?').run(orderUsd,round2(orderUsd*rate),entrySummary?JSON.stringify(entrySummary):null,t,order.id);
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
       .run(order.id, 'draft', 'draft', req.user.username, `完善颜色尺码明细：${items.length} 款，共 ${items.reduce((sum, it) => sum + it.qty, 0)} 件`, t);
     db.exec('COMMIT');
@@ -635,3 +735,4 @@ router.post('/:id/rollback', authRequired, wrap(async (req, res) => {
 }));
 
 module.exports = router;
+module.exports.findOrder=findOrder;

@@ -14,7 +14,7 @@
       <div class="head-ops">
         <span class="pill p-gray">{{ dict.today || '—' }}</span>
         <button class="btn btn-ghost" @click="reloadAll">刷新</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openNewInv">新建投资</button>
+        <button v-action="['investment','create']" v-if="canWrite" class="btn btn-primary" @click="openNewInv">新建投资</button>
       </div>
     </div>
 
@@ -177,7 +177,7 @@
     </div>
 
     <!-- ==================== 投资详情 ==================== -->
-    <div v-if="inv.open" class="modal-mask" @click.self="inv.open = false">
+    <div v-if="inv.open" class="modal-mask">
       <div class="modal xxwide">
         <h3>
           {{ inv.data.inv_no }}
@@ -244,7 +244,7 @@
     </div>
 
     <!-- ==================== 新建投资 ==================== -->
-    <div v-if="newInv.open" class="modal-mask" @click.self="newInv.open = false">
+    <div v-if="newInv.open" class="modal-mask">
       <div class="modal">
         <h3>新建长期股权投资</h3>
         <div class="fgrid">
@@ -413,11 +413,11 @@ onMounted(reloadAll);
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
 .stat strong.sm { font-size: 16px; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
 .help-bar { background: #f6f9fe; border: 1px solid #e2ebf8; border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: #4a5568; line-height: 1.75; margin-bottom: 12px; }
@@ -426,26 +426,26 @@ onMounted(reloadAll);
 
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .grow { flex: 1; }
-.inp { padding: 5px 8px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; }
+.inp { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; }
 .add-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .sec { font-size: 13px; color: #16305f; margin: 16px 0 8px; }
 .kv { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
 .kv > div { background: #f8fafd; border-radius: 8px; padding: 7px 9px; }
-.kv span { display: block; font-size: 11px; color: #8a94a6; }
+.kv span { display: block; font-size: 12px; color: var(--ink-mute); }
 .kv b { font-size: 13px; color: #16305f; }
-.kv small { display: block; font-size: 10.5px; color: #9aa4b5; }
+.kv small { display: block; font-size: 12px; color: #9aa4b5; }
 .fl { display: block; font-size: 12px; color: #5b6474; margin: 8px 0 0; }
-.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid #dfe5ef; border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
+.fl input { width: 100%; margin-top: 4px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; box-sizing: border-box; }
 
 .issue { font-size: 12.5px; padding: 7px 11px; border-radius: 8px; margin-bottom: 6px; line-height: 1.6; }
 .issue.lv-block { background: #fff6f7; border: 1px solid #f6c6cd; color: #b42318; }
 .issue.lv-warn { background: #fffaf1; border: 1px solid #f7d9a8; color: #92400e; }
 .issue.lv-info { background: #f6f9fe; border: 1px solid #e2ebf8; color: #4a5568; }
 
-.offset-card { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+.offset-card { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
 .oc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13.5px; color: #16305f; }
 .oc-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-.oc-grid span { display: block; font-size: 11px; color: #8a94a6; }
+.oc-grid span { display: block; font-size: 12px; color: var(--ink-mute); }
 .oc-grid b { font-size: 14px; color: #16305f; }
 .oc-rows { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
@@ -460,8 +460,8 @@ table.data tr.sum-row { background: #f8fafd; }
 .orange { color: #d97706; }
 
 .modal { padding: 18px 20px; }
-.modal > h3 { margin: 0 0 12px; font-size: 16px; color: #16233b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.modal-ops { display: flex; align-items: center; gap: 8px; padding-top: 13px; margin-top: 14px; border-top: 1px solid #eef2f7; flex-wrap: wrap; }
+.modal > h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.modal-ops { display: flex; align-items: center; gap: 8px; padding-top: 13px; margin-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }

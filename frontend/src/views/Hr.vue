@@ -56,7 +56,7 @@
           <option value="closed">已关闭</option>
         </select>
         <button class="btn btn-ghost" @click="loadRecruitments">查询</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openRecruit()">＋ 新增招聘需求</button>
+        <button v-action="['hr','create']"  v-if="canWrite" class="btn btn-primary" @click="openRecruit()">＋ 新增招聘需求</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
         需求人数与已到岗分开记，<strong>招满自动关闭</strong>；候选人从「已投递」推进到「已入职」后，系统直接生成员工档案并回写到岗人数。
@@ -78,8 +78,8 @@
               <td class="nowrap"><span class="tag" :class="r.status === 'open' ? 'green' : r.status === 'paused' ? 'orange' : 'gray'">{{ r.status_label }}</span></td>
               <td v-if="canWrite" class="nowrap">
                 <button class="link-btn" @click="openCandidates(r)">候选人</button>
-                <button class="link-btn" @click="openRecruit(r)">编辑</button>
-                <button class="link-btn danger" @click="removeRecruit(r)">删除</button>
+                <button v-action="['hr','edit']"  class="link-btn" @click="openRecruit(r)">编辑</button>
+                <button v-action="['hr','delete']" class="link-btn danger" @click="removeRecruit(r)">删除</button>
               </td>
             </tr>
             <tr v-if="!recruitments.length"><td :colspan="canWrite ? 8 : 7" class="empty-cell">暂无招聘需求</td></tr>
@@ -88,7 +88,7 @@
       </div>
 
       <!-- 需求弹窗 -->
-      <div v-if="recruitModal" class="modal-mask" @click.self="recruitModal = false">
+      <div v-if="recruitModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>{{ recruitForm.id ? '编辑招聘需求' : '新增招聘需求' }}</h3><button class="link-btn" @click="recruitModal = false">关闭</button></div>
           <div class="modal-body">
@@ -124,7 +124,7 @@
       </div>
 
       <!-- 候选人弹窗 -->
-      <div v-if="candModal" class="modal-mask" @click.self="candModal = false">
+      <div v-if="candModal" class="modal-mask">
         <div class="modal xwide">
           <div class="modal-head">
             <h3>候选人 · {{ currentRecruit && currentRecruit.position }}</h3>
@@ -187,7 +187,7 @@
           <option value="cancelled">已撤销</option>
         </select>
         <button class="btn btn-ghost" @click="loadMovements">查询</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openMovement()">＋ 新建异动</button>
+        <button v-action="['hr','create']" v-if="canWrite" class="btn btn-primary" @click="openMovement()">＋ 新建异动</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
         <strong>生效才改档案</strong>：生效日未到会先挂「待生效」，避免提前把部门岗位改错；离职必须先填交接清单，离职生效时未到期的劳动合同自动置「已解除」。
@@ -224,7 +224,7 @@
         </table>
       </div>
 
-      <div v-if="movModal" class="modal-mask" @click.self="movModal = false">
+      <div v-if="movModal" class="modal-mask">
         <div class="modal wide">
           <div class="modal-head"><h3>新建人事异动</h3><button class="link-btn" @click="movModal = false">关闭</button></div>
           <div class="modal-body">
@@ -275,7 +275,7 @@
           <option value="90">90 天内到期</option>
         </select>
         <button class="btn btn-ghost" @click="loadContracts">查询</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openContract()">＋ 新建合同</button>
+        <button v-action="['hr','create']" v-if="canWrite" class="btn btn-primary" @click="openContract()">＋ 新建合同</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
         同一员工<strong>不允许两份时间重叠的有效合同</strong>；试用期必须落在合同期内；合同签完要登记<strong>交付员工的证据</strong>（双方各执一份）。续签会生成新合同并指向原合同。
@@ -314,7 +314,7 @@
         </table>
       </div>
 
-      <div v-if="contractModal" class="modal-mask" @click.self="contractModal = false">
+      <div v-if="contractModal" class="modal-mask">
         <div class="modal wide">
           <div class="modal-head"><h3>新建劳动合同</h3><button class="link-btn" @click="contractModal = false">关闭</button></div>
           <div class="modal-body">
@@ -362,7 +362,7 @@
           <option value="cancelled">已取消</option>
         </select>
         <button class="btn btn-ghost" @click="loadAdjustments">查询</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openAdjustment()">＋ 新建调薪</button>
+        <button v-action="['hr','create']" v-if="canWrite" class="btn btn-primary" @click="openAdjustment()">＋ 新建调薪</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
         调薪留前后值与生效日；<strong>生效后才回写员工基本工资</strong>，历史可追溯。生效日未到会挂「已批准待生效」，到期再执行。
@@ -396,7 +396,7 @@
         </table>
       </div>
 
-      <div v-if="adjModal" class="modal-mask" @click.self="adjModal = false">
+      <div v-if="adjModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>新建调薪</h3><button class="link-btn" @click="adjModal = false">关闭</button></div>
           <div class="modal-body">

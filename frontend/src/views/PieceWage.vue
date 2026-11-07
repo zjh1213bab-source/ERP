@@ -251,7 +251,7 @@
             <button v-if="run && canApprove && run.status !== 'void'" class="btn btn-ghost btn-sm" :disabled="busy" @click="voidRun">
               作废
             </button>
-            <button v-if="run" class="btn btn-ghost btn-sm" @click="exportCsv">导出 CSV</button>
+            <button v-action="['piece-wage','export']" v-if="run" class="btn btn-ghost btn-sm" @click="exportCsv">导出 CSV</button>
             <button v-if="run && run.status === 'confirmed'" class="btn btn-ghost btn-sm" @click="openPayslip(run.id)">
               出工资条
             </button>
@@ -288,7 +288,7 @@
                 <td class="num">
                   {{ it.qty }}<i v-if="it.capped" class="cap">{{ it.cap_kind === 'month' ? '月封顶' : it.cap_kind === 'daily' ? '日封顶' : '封顶' }}</i>
                 </td>
-                <td class="num">{{ money(it.unit_price) }}</td>
+                <td class="num">{{ unitPrice(it.unit_price) }}<div v-if="it.wage_snapshot" class="tiny muted">{{ wageBasis(it.wage_snapshot) }}</div></td>
                 <td class="num strong">¥{{ money(it.amount) }}</td>
                 <td class="tiny">{{ it.rate_source === 'style' ? '款专属' : '通用' }}</td>
                 <td class="tiny">{{ it.matched_by === 'id' ? '员工编号' : '姓名匹配' }}</td>
@@ -526,7 +526,7 @@
               </td>
               <td class="tiny">{{ r.note || '' }}</td>
               <td>
-                <button v-if="canWrite && r.status === 'active'" class="link-btn danger" @click="disableRate(r)">停用</button>
+                <button  v-if="canWrite && r.status === 'active'" class="link-btn danger" @click="disableRate(r)">停用</button>
                 <span v-else class="tiny muted">—</span>
               </td>
             </tr>
@@ -567,7 +567,7 @@
               <td class="tiny">{{ r.confirmed_by || '—' }}<br />{{ r.confirmed_at ? $fmt(r.confirmed_at) : '' }}</td>
               <td>
                 <button class="link-btn" @click="openRun(r.id)">查看</button>
-                <button v-if="r.status === 'confirmed'" class="link-btn" @click="exportRun(r.id)">导出</button>
+                <button v-action="['piece-wage','export']" v-if="r.status === 'confirmed'" class="link-btn" @click="exportRun(r.id)">导出</button>
                 <button v-if="r.status === 'confirmed'" class="link-btn" @click="openPayslip(r.id)">工资条</button>
                 <button v-if="r.status === 'confirmed'" class="link-btn" @click="openPayslip(r.id, 'public')">公示表</button>
               </td>
@@ -581,6 +581,8 @@
 </template>
 
 <script setup>
+const unitPrice=n=>Number(n).toFixed(6).replace(/\.?0+$/,'');
+function wageBasis(raw){try{const s=JSON.parse(raw);return (s.color||'未填颜色')+' · '+s.color_qty+'件 · '+unitPrice(s.base_unit_price)+' × '+s.multiplier;}catch{return '计价快照待核对';}}
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, downloadFile } from '../api';
@@ -935,7 +937,7 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 12px 14px;
   margin-bottom: 14px;
-  background: #fff;
+  background: var(--surface);
   /* 诊断表列多（订单/扎号/工序/件数/姓名/原因），窄屏要能横向滚动，
      否则会被卡片裁掉右边几列 */
   overflow-x: auto;
@@ -958,11 +960,11 @@ onMounted(async () => {
 }
 .diag-h b {
   font-size: 13px;
-  color: #16233b;
+  color: var(--ink);
 }
 .diag-h span {
-  font-size: 11.5px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
 }
 table.data.sm th,
 table.data.sm td {
@@ -975,7 +977,7 @@ table.data.sm td {
 }
 .strong {
   font-weight: 800;
-  color: #16233b;
+  color: var(--ink);
 }
 .over {
   color: #d92d45;
@@ -984,7 +986,7 @@ table.data.sm td {
 .cap {
   display: inline-block;
   margin-left: 4px;
-  font-size: 9.5px;
+  font-size: 12px;
   font-style: normal;
   color: #d92d45;
   border: 1px solid #f3c3cb;
@@ -993,7 +995,7 @@ table.data.sm td {
 }
 .empty {
   text-align: center;
-  color: #8a94a6;
+  color: var(--ink-mute);
   padding: 22px 0 !important;
 }
 .ratio {
@@ -1006,7 +1008,7 @@ table.data.sm td {
 .ratio i {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #4f8cf7, #2563eb);
+  background: var(--brand);
 }
 .panel-h {
   display: flex;
@@ -1025,7 +1027,7 @@ table.data.sm td {
 .emp-code {
   display: inline-block;
   margin-left: 7px;
-  font-size: 11px;
+  font-size: 12px;
   color: #a0aabb;
 }
 .row-off td {

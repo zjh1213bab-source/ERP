@@ -37,12 +37,15 @@ const router = express.Router();
 
 function decorate(row) {
   if (!row) return row;
+  const employee=db.prepare('SELECT e.id,e.name FROM users u LEFT JOIN employees e ON e.id=u.employee_id WHERE u.id=?').get(row.id);
   const extra = db.prepare('SELECT role FROM user_roles WHERE user_id = ?').all(row.id).map((r) => r.role);
   const company = row.company_id
     ? db.prepare('SELECT id, name, short_name FROM companies WHERE id = ?').get(row.company_id)
     : null;
   return {
     ...row,
+    employee_id:employee?.id||null,
+    employee_name:employee?.name||null,
     role_label: ROLE_LABELS[row.role] || row.role,
     extra_roles: extra,
     extra_role_labels: extra.map((r) => ROLE_LABELS[r] || r),
@@ -154,6 +157,10 @@ router.put(
     const nextRole = b.role || exists.role;
     const nextActive = b.active === undefined ? Number(exists.active) : (b.active ? 1 : 0);
     const self = id === Number(req.user.sub);
+    if (nextActive && exists.employee_id) {
+      const employee = db.prepare('SELECT status FROM employees WHERE id=?').get(exists.employee_id);
+      if (!employee || employee.status === 'left') return fail(res, 409, '绑定员工已离职或不存在，不能启用账号');
+    }
 
     /**
      * 自锁防护：管理员不能把自己停用、也不能把自己降成非管理员
@@ -218,4 +225,10 @@ router.put(
   })
 );
 
+router.post('/:id/bind-employee',authRequired,requireRole(['admin']),wrap(async(req,res)=>{
+  if(!Object.hasOwn(req.body||{},'expected_employee_id'))return fail(res,400,'缺少当前绑定状态，请刷新');
+  const result=require('../services/employeeBinding').bind(Number(req.params.id),Number(req.body.employee_id),req.body.expected_employee_id);
+  console.info('[employee-bind]',{operator:req.user.username,user_id:result.id,employee_id:result.employee_id});
+  return ok(res,result);
+}));
 module.exports = router;

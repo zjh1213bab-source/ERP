@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="viewer.open" class="iv-mask" @click.self="close">
+    <div v-if="viewer.open" class="iv-mask" role="dialog" aria-modal="true" aria-label="图片放大预览">
       <div class="iv-bar">
         <span class="iv-title">{{ viewer.title || '图片预览' }}</span>
         <div class="iv-acts">
@@ -12,7 +12,8 @@
         </div>
       </div>
       <div class="iv-body" @wheel.prevent="onWheel">
-        <img :src="viewer.url" :style="{ transform: `scale(${scale})` }" @click.stop />
+        <p v-if="failed" class="iv-error">图片加载失败，请关闭后重试。</p>
+        <img v-else :src="viewer.url" :alt="viewer.title || '图片预览'" :style="{ transform: `scale(${scale})` }" @error="failed = true" @click.stop />
       </div>
       <div class="iv-tip">点击空白处或按 Esc 关闭 · 滚轮缩放</div>
     </div>
@@ -24,6 +25,8 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { viewer, closeImage } from '../store/viewer';
 
 const scale = ref(1);
+const failed = ref(false);
+let previousOverflow = '';
 
 function close() { closeImage(); }
 function reset() { scale.value = 1; }
@@ -45,14 +48,15 @@ function onKey(e) {
 }
 
 watch(() => viewer.open, (v) => {
-  if (v) { scale.value = 1; document.body.style.overflow = 'hidden'; }
-  else document.body.style.overflow = '';
+  if (v) { previousOverflow = document.body.style.overflow; scale.value = 1; failed.value = false; document.body.style.overflow = 'hidden'; }
+  else document.body.style.overflow = previousOverflow;
 });
+watch(() => viewer.url, () => { scale.value = 1; failed.value = false; });
 
 onMounted(() => document.addEventListener('keydown', onKey));
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKey);
-  document.body.style.overflow = '';
+  if (viewer.open) document.body.style.overflow = previousOverflow;
 });
 </script>
 
@@ -80,7 +84,8 @@ onBeforeUnmount(() => {
 }
 .iv-body img {
   max-width: 92vw; max-height: 82vh; object-fit: contain;
-  transition: transform 0.12s ease; border-radius: 4px; background: #fff;
+  transition: transform 0.12s ease; border-radius: 4px; background: var(--surface);
 }
-.iv-tip { text-align: center; color: rgba(232, 238, 247, 0.55); font-size: 11.5px; padding: 8px 0 14px; }
+.iv-tip { text-align: center; color: rgba(232, 238, 247, 0.55); font-size: 12px; padding: 8px 0 14px; }
+.iv-error { color: #fff; }
 </style>

@@ -234,7 +234,7 @@
     </div>
 
     <!-- 签字弹窗 -->
-    <div v-if="sign.show" class="modal-mask" @click.self="sign.show = false">
+    <div v-if="sign.show" class="modal-mask">
       <div class="modal-box">
         <h3>复核签字</h3>
         <p class="tiny muted">
@@ -423,7 +423,7 @@ table.matrix thead th {
 }
 .hint {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 500;
   color: #a6b0c0;
@@ -432,24 +432,24 @@ table.matrix tbody tr:hover {
   background: #f7faff;
 }
 .count-row th {
-  font-size: 11px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
   font-weight: 600;
   border-bottom: 1px solid #e6ebf3;
 }
 .yes {
   font-size: 15px;
   font-weight: 800;
-  color: #2563eb;
+  color: var(--brand);
 }
 .no {
   color: #d5dbe6;
 }
 code.perm {
-  background: #f2f5fa;
+  background: var(--bg);
   padding: 1px 6px;
   border-radius: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #3c4a63;
   white-space: nowrap;
 }
@@ -483,7 +483,7 @@ code.perm {
 .uc-body {
   border-top: 1px dashed #e6ebf3;
   padding: 14px 18px 16px;
-  background: #fbfcfe;
+  background: var(--surface-2);
 }
 .ro-note {
   background: #f2f7ff;
@@ -512,7 +512,7 @@ code.perm {
   overflow-y: auto;
 }
 .perm-chip {
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 7px;
   border-radius: 5px;
   background: #eef2f9;
@@ -535,7 +535,7 @@ code.perm {
   margin-bottom: 8px;
 }
 .exc-reason {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #6b5a44;
   margin: 5px 0 0;
   line-height: 1.5;
@@ -544,7 +544,7 @@ code.perm {
   background: none;
   border: none;
   color: #d92d45;
-  font-size: 11.5px;
+  font-size: 12px;
   cursor: pointer;
   padding: 0;
   margin-top: 4px;
@@ -562,16 +562,16 @@ code.perm {
 .role-pick {
   padding: 3px 9px;
   border: 1px solid #e2e8f2;
-  background: #fff;
+  background: var(--surface);
   border-radius: 16px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: #5b6474;
   cursor: pointer;
 }
 .role-pick.on {
   background: #eaf1ff;
   border-color: #cfe0ff;
-  color: #2563eb;
+  color: var(--brand);
   font-weight: 700;
 }
 .sod-card {
@@ -612,7 +612,7 @@ code.perm {
   z-index: 100;
 }
 .modal-box {
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 22px;
   width: 460px;

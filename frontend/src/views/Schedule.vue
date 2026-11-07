@@ -244,7 +244,7 @@
       <div class="toolbar" style="margin-bottom: 10px">
         <div class="spacer"></div>
         <span class="muted tiny">共 {{ standards.length }} 条，未配置 {{ unconfigured.length }} 条</span>
-        <button v-if="canWrite" class="btn btn-primary btn-sm" @click="openStd()">＋ 新增工序定额</button>
+        <button v-action="['schedule','create']"  v-if="canWrite" class="btn btn-primary btn-sm" @click="openStd()">＋ 新增工序定额</button>
       </div>
       <div class="table-wrap">
         <table class="data">
@@ -262,7 +262,7 @@
               <td class="num tiny">{{ num(s.efficiency) }}%</td>
               <td class="tiny">{{ eqCount(s.work_center) }} 台</td>
               <td class="tiny muted">{{ s.remark || '—' }}</td>
-              <td v-if="canWrite"><button class="btn btn-ghost btn-sm" @click="openStd(s)">编辑</button></td>
+              <td v-if="canWrite"><button v-action="['schedule','edit']"  class="btn btn-ghost btn-sm" @click="openStd(s)">编辑</button></td>
             </tr>
             <tr v-if="!standards.length"><td :colspan="canWrite ? 9 : 8" class="empty-cell">还没有定额，先点右上角新增</td></tr>
           </tbody>
@@ -343,7 +343,7 @@
     </div>
 
     <!-- ==================== 生成排程弹窗 ==================== -->
-    <div v-if="build.open" class="modal-mask" @click.self="build.open = false">
+    <div v-if="build.open" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>生成排程</h3>
@@ -431,7 +431,7 @@
     </div>
 
     <!-- ==================== 处理冲突弹窗 ==================== -->
-    <div v-if="resolve.open" class="modal-mask" @click.self="resolve.open = false">
+    <div v-if="resolve.open" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>处理硬冲突</h3>
@@ -454,7 +454,7 @@
     </div>
 
     <!-- ==================== 调整任务弹窗 ==================== -->
-    <div v-if="adjust.open" class="modal-mask" @click.self="adjust.open = false">
+    <div v-if="adjust.open" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>调整排程任务</h3>
@@ -492,7 +492,7 @@
     </div>
 
     <!-- ==================== 工序定额弹窗 ==================== -->
-    <div v-if="std.open" class="modal-mask" @click.self="std.open = false">
+    <div v-if="std.open" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>{{ std.id ? '编辑工序定额' : '新增工序定额' }}</h3>
@@ -910,28 +910,28 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 14px 0 16px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
-.stat span { display: block; font-size: 12px; color: #8a94a6; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; }
+.stat span { display: block; font-size: 12px; color: var(--ink-mute); }
 .stat strong { display: block; font-size: 22px; font-weight: 800; color: #16305f; margin-top: 6px; line-height: 1.1; }
-.stat strong i { font-size: 13px; font-style: normal; color: #8a94a6; margin-left: 2px; }
-.stat small { display: block; font-size: 11px; color: #9aa4b5; margin-top: 4px; }
+.stat strong i { font-size: 13px; font-style: normal; color: var(--ink-mute); margin-left: 2px; }
+.stat small { display: block; font-size: 12px; color: #9aa4b5; margin-top: 4px; }
 .stat.st-warn { border-color: #f7d9a8; background: #fffaf1; }
 .stat.st-bad { border-color: #f6c6cd; background: #fff6f7; }
 
-.empty-box { background: #fff; border: 1px dashed #dfe5ef; border-radius: 12px; padding: 34px; text-align: center; color: #8a94a6; font-size: 13px; }
+.empty-box { background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; padding: 34px; text-align: center; color: var(--ink-mute); font-size: 13px; }
 .sec-title { font-size: 14px; color: #16305f; margin: 20px 0 10px; }
 .ok-line { color: #16a34a; }
 .warn-box { margin-top: 10px; background: #fffaf1; border: 1px solid #f7d9a8; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: #92400e; }
 .ok-box { margin-top: 10px; background: #f2fbf5; border: 1px solid #c9ecd6; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: #15803d; }
 
-.gantt-wrap { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; overflow-x: auto; padding: 8px; }
+.gantt-wrap { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; overflow-x: auto; padding: 8px; }
 .gantt { display: grid; gap: 2px; min-width: max-content; }
 .g-cell { border-radius: 6px; }
-.g-head { background: #f5f8fd; text-align: center; padding: 4px 0; font-size: 11px; color: #5b6474; overflow: hidden; }
+.g-head { background: #f5f8fd; text-align: center; padding: 4px 0; font-size: 12px; color: #5b6474; overflow: hidden; }
 .g-head.rest { background: #eef1f6; color: #a3adbd; }
 .g-corner { display: flex; align-items: center; justify-content: center; font-weight: 700; color: #16305f; }
-.dow { font-size: 10px; color: #9aa4b5; }
-.dnum { font-size: 11px; font-weight: 700; }
+.dow { font-size: 12px; color: #9aa4b5; }
+.dnum { font-size: 12px; font-weight: 700; }
 .g-label { background: #f8fafd; padding: 6px 8px; display: flex; flex-direction: column; justify-content: center; }
 .g-label .wc { font-size: 12.5px; font-weight: 700; color: #16305f; }
 .g-day { position: relative; height: 40px; background: #f8fafd; overflow: hidden; }
@@ -942,18 +942,18 @@ onMounted(async () => {
 .down-mark { position: absolute; inset: 0; background: repeating-linear-gradient(45deg, rgba(217, 45, 69, 0.12), rgba(217, 45, 69, 0.12) 4px, transparent 4px, transparent 8px); }
 .dot { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: #d92d45; }
 
-.legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 2px 0; font-size: 11.5px; color: #5b6474; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 2px 0; font-size: 12px; color: #5b6474; }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
 
 .split { display: flex; gap: 14px; align-items: flex-start; }
-.panel { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 14px; min-width: 300px; }
+.panel { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 14px; min-width: 300px; }
 .panel.narrow { width: 380px; flex: none; min-width: 0; }
 .panel.grow { flex: 1; min-width: 0; }
 .panel h4 { margin: 0 0 10px; font-size: 13.5px; color: #16305f; display: flex; gap: 8px; align-items: baseline; }
 table.data th, table.data td { white-space: nowrap; }
 table.data td.wrap { white-space: normal; }
 table.data .mini-inp { width: 56px; box-sizing: border-box; }
-.mini-inp { width: 62px; padding: 3px 6px; border: 1px solid #dfe5ef; border-radius: 6px; font-size: 12px; text-align: right; }
+.mini-inp { width: 62px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; text-align: right; }
 
 .preview { margin-top: 14px; border-top: 1px dashed #e6ebf3; padding-top: 12px; }
 .pv-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: #5b6474; margin-bottom: 8px; }

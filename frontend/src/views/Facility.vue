@@ -55,7 +55,7 @@
     <template v-if="tab === 'dorm'">
       <div class="toolbar" style="margin-bottom: 12px">
         <button class="btn btn-ghost" @click="loadOccupancy">看入住率</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openRoom()">＋ 新增房间</button>
+        <button v-action="['facility','create']"  v-if="canWrite" class="btn btn-primary" @click="openRoom()">＋ 新增房间</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
         <strong>一人同一期间只能一床、一床同一期间只能一人</strong>：入住与预约都按整段区间校验；换宿是原子操作，新床占不上就回滚、原床不动。租金 / 押金 / 水电分栏，押金不自动扣薪。
@@ -110,7 +110,7 @@
       </div>
 
       <!-- 入住 / 房间 / 换宿 弹窗 -->
-      <div v-if="dormModal" class="modal-mask" @click.self="dormModal = false">
+      <div v-if="dormModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>{{ dormTitle }}</h3><button class="link-btn" @click="dormModal = false">关闭</button></div>
           <div class="modal-body">
@@ -221,7 +221,7 @@
         </table>
       </div>
 
-      <div v-if="mealModal" class="modal-mask" @click.self="mealModal = false">
+      <div v-if="mealModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>{{ mealTitle }}</h3><button class="link-btn" @click="mealModal = false">关闭</button></div>
           <div class="modal-body">
@@ -257,8 +257,8 @@
     <!-- ==================== 证照印章 ==================== -->
     <template v-if="tab === 'cert'">
       <div class="toolbar" style="margin-bottom: 12px">
-        <button v-if="canWrite" class="btn btn-primary" @click="openCert">＋ 新增证照</button>
-        <button v-if="canWrite" class="btn btn-ghost" @click="openSeal">＋ 新增印章</button>
+        <button v-action="['facility','create']"  v-if="canWrite" class="btn btn-primary" @click="openCert">＋ 新增证照</button>
+        <button v-action="['facility','create']"  v-if="canWrite" class="btn btn-ghost" @click="openSeal">＋ 新增印章</button>
         <button v-if="canWrite" class="btn btn-ghost" @click="openUsage">＋ 用印申请</button>
       </div>
       <div class="muted" style="font-size: 12.5px; margin: -4px 0 12px">
@@ -284,8 +284,8 @@
               <td class="nowrap">{{ r.holder || '-' }}<div class="muted" style="font-size: 12px">{{ r.location || '' }}</div></td>
               <td class="nowrap"><span class="tag" :class="r.status === 'valid' ? 'green' : 'gray'">{{ r.status_label }}</span></td>
               <td v-if="canWrite" class="nowrap">
-                <button v-if="r.status === 'valid'" class="link-btn" @click="openCert(r)">编辑</button>
-                <button v-if="r.status === 'valid'" class="link-btn danger" @click="doVoidCert(r)">停用</button>
+                <button v-action="['facility','edit']"  v-if="r.status === 'valid'" class="link-btn" @click="openCert(r)">编辑</button>
+                <button  v-if="r.status === 'valid'" class="link-btn danger" @click="doVoidCert(r)">停用</button>
               </td>
             </tr>
             <tr v-if="!certs.length"><td :colspan="canWrite ? 9 : 8" class="empty-cell">暂无证照</td></tr>
@@ -314,7 +314,7 @@
                 <button v-if="r.status === 'pending'" class="link-btn" @click="doUsage(r, 'approved')">批准</button>
                 <button v-if="r.status === 'approved'" class="link-btn" @click="doUsage(r, 'used')">登记用印</button>
                 <button v-if="r.status === 'used'" class="link-btn" @click="doUsage(r, 'returned')">登记归还</button>
-                <button v-if="['pending','approved'].includes(r.status)" class="link-btn danger" @click="doUsage(r, 'rejected')">驳回</button>
+                <button  v-if="['pending','approved'].includes(r.status)" class="link-btn danger" @click="doUsage(r, 'rejected')">驳回</button>
               </td>
             </tr>
             <tr v-if="!usages.length"><td :colspan="canWrite ? 7 : 6" class="empty-cell">暂无用印记录</td></tr>
@@ -322,7 +322,7 @@
         </table>
       </div>
 
-      <div v-if="certModal" class="modal-mask" @click.self="certModal = false">
+      <div v-if="certModal" class="modal-mask">
         <div class="modal wide">
           <div class="modal-head"><h3>{{ certForm.id ? '编辑证照' : '新增证照' }}</h3><button class="link-btn" @click="certModal = false">关闭</button></div>
           <div class="modal-body">
@@ -352,7 +352,7 @@
         </div>
       </div>
 
-      <div v-if="sealModal" class="modal-mask" @click.self="sealModal = false">
+      <div v-if="sealModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>新增印章</h3><button class="link-btn" @click="sealModal = false">关闭</button></div>
           <div class="modal-body">
@@ -371,7 +371,7 @@
         </div>
       </div>
 
-      <div v-if="usageModal" class="modal-mask" @click.self="usageModal = false">
+      <div v-if="usageModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>用印申请</h3><button class="link-btn" @click="usageModal = false">关闭</button></div>
           <div class="modal-body">
@@ -457,7 +457,7 @@
         </table>
       </div>
 
-      <div v-if="checkModal" class="modal-mask" @click.self="checkModal = false">
+      <div v-if="checkModal" class="modal-mask">
         <div class="modal wide">
           <div class="modal-head"><h3>登记安全巡检</h3><button class="link-btn" @click="checkModal = false">关闭</button></div>
           <div class="modal-body">
@@ -490,7 +490,7 @@
         </div>
       </div>
 
-      <div v-if="repairModal" class="modal-mask" @click.self="repairModal = false">
+      <div v-if="repairModal" class="modal-mask">
         <div class="modal">
           <div class="modal-head"><h3>直接报修</h3><button class="link-btn" @click="repairModal = false">关闭</button></div>
           <div class="modal-body">
@@ -940,11 +940,11 @@ onMounted(loadAll);
 .bed-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
 .bed-chip {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 8px 4px; border: 1px solid #dfe5ef; border-radius: 9px;
+  padding: 8px 4px; border: 1px solid var(--line); border-radius: 9px;
   background: #f8fafd; cursor: pointer; font-size: 12px; color: #5b6474;
 }
-.bed-chip .bed-no { font-weight: 700; color: #16233b; }
-.bed-chip .bed-who { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.bed-chip .bed-no { font-weight: 700; color: var(--ink); }
+.bed-chip .bed-who { font-size: 12px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .bed-chip.on { background: #eaf3ff; border-color: #a9cdf7; color: #1f4f8a; }
 .bed-chip.maint { background: #fdeeee; border-color: #f0bdbd; color: #b33; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }

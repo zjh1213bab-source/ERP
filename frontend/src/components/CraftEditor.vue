@@ -3,16 +3,7 @@
     <div v-for="grp in GROUPS" :key="grp.key" class="ce-grp">
       <div class="ce-head">
         <strong>{{ grp.label }}</strong>
-        <span class="ce-quick">
-          常用工序：
-          <button
-            v-for="t in craftTypes" :key="t.id" type="button" class="ce-tag"
-            :disabled="disabled" @click="addRow(grp.key, t)"
-          >{{ t.name }}</button>
-          <span v-if="!craftTypes.length" class="ce-none">
-            工序档案为空，可先到「档案 → 工序类别」建立，或直接点「＋ 添加一行」手填
-          </span>
-        </span>
+        <CraftCatalogPicker :disabled="disabled" :category="grp.key" @selected="addRow(grp.key, $event)" />
         <span class="ce-ratio">
           工价倍数
           <input class="input ce-ratio-in" type="number" step="0.1" :value="groupRatio(grp.key)"
@@ -47,7 +38,7 @@
               <td><input class="input mini" v-model="row.owner" :disabled="disabled" /></td>
               <td><input class="input mini" v-model="row.remark" :disabled="disabled" /></td>
               <td class="center">
-                <button v-if="!disabled" type="button" class="link-btn danger" @click="delRow(grp.key, i)">删</button>
+                <button v-if="!disabled" type="button" class="link-btn" :disabled="i===0" @click="moveRow(grp.key,i,-1)">↑</button><button v-if="!disabled" type="button" class="link-btn" :disabled="i===rowsOf(grp.key).length-1" @click="moveRow(grp.key,i,1)">↓</button><button v-if="!disabled" type="button" class="link-btn danger" @click="delRow(grp.key, i)">删</button>
               </td>
             </tr>
             <tr v-if="!rowsOf(grp.key).length">
@@ -88,8 +79,7 @@
  * 保存时父组件取同一份对象即可。这在本仓库是既有写法（PatternBoard 的工序表同样处理），
  * 换成逐行 emit 只会让"输入一个字触发一次父级更新"，对这类中小规模表格没有收益。
  */
-import { ref, onMounted } from 'vue';
-import { api } from '../api';
+import CraftCatalogPicker from './CraftCatalogPicker.vue';
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({ sewing: [], finish: [] }) },
@@ -106,7 +96,6 @@ const CAT_LABEL = {
   finish: '后整', pack: '包装', other: '其他'
 };
 
-const craftTypes = ref([]);
 const money = (v) => (Math.round((Number(v) || 0) * 100) / 100).toFixed(2);
 
 function rowsOf(k) {
@@ -129,17 +118,19 @@ function setGroupRatio(k, v) {
 function addRow(k, tpl) {
   const grp = GROUPS.find((g) => g.key === k);
   rowsOf(k).push({
+    craft_type_id: tpl?.id || null, unit: tpl?.unit || '件', image_url: tpl?.image_url || '',
     category: tpl ? (CAT_LABEL[tpl.category] || tpl.category || grp.cat) : grp.cat,
     name: tpl ? tpl.name : '',
     price: tpl ? Number(tpl.default_price) || 0 : 0,
     ratio: groupRatio(k),
     owner: '',
-    remark: '',
+    remark: tpl?.remark || '',
     open_price: 0
   });
   emit('change');
 }
 
+function moveRow(k,i,delta) { const rows=rowsOf(k),next=i+delta;if(props.disabled || next<0 || next>=rows.length)return;[rows[i],rows[next]]=[rows[next],rows[i]];emit('change'); }
 function delRow(k, i) {
   rowsOf(k).splice(i, 1);
   emit('change');
@@ -149,31 +140,27 @@ function totalOf(k) {
   return rowsOf(k).reduce((s, r) => s + (Number(r.price) || 0) * (Number(r.ratio) || 0), 0);
 }
 
-onMounted(async () => {
-  try { craftTypes.value = (await api.craftTypes({ status: 'active' })) || []; }
-  catch (e) { craftTypes.value = []; }
-});
 </script>
 
 <style scoped>
-.ce-grp { border: 1px solid #eef2f7; border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #fcfdff; }
+.ce-grp { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #fcfdff; }
 .ce-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .ce-head strong { font-size: 13px; }
 .ce-quick { font-size: 12px; color: #5b6474; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .ce-tag {
-  border: 1px solid #d9e2ef; background: #fff; border-radius: 10px;
-  padding: 1px 8px; font-size: 11.5px; color: #33415a; cursor: pointer;
+  border: 1px solid #d9e2ef; background: var(--surface); border-radius: 10px;
+  padding: 1px 8px; font-size: 12px; color: var(--ink); cursor: pointer;
 }
 .ce-tag:hover:not(:disabled) { border-color: #6f9bff; color: #1d39c4; }
-.ce-none { color: #8a94a6; font-size: 11.5px; }
+.ce-none { color: var(--ink-mute); font-size: 12px; }
 .ce-ratio { margin-left: auto; font-size: 12px; color: #5b6474; display: flex; align-items: center; gap: 6px; }
 .ce-ratio-in { width: 64px; }
-.ce-hint { color: #a0a8b8; font-size: 11px; }
-.ce-scroll { overflow: auto; max-height: 30vh; border: 1px solid #eef2f7; border-radius: 8px; background: #fff; }
+.ce-hint { color: #a0a8b8; font-size: 12px; }
+.ce-scroll { overflow: auto; max-height: 30vh; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .ce-tbl { border: none; }
 .ce-tbl th, .ce-tbl td { padding: 4px 6px; font-size: 12px; white-space: nowrap; }
 .ce-tbl .mini { padding: 2px 4px; height: 26px; font-size: 12px; }
 .ce-foot { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.ce-sum { font-size: 12px; color: #8a94a6; margin-left: auto; }
+.ce-sum { font-size: 12px; color: var(--ink-mute); margin-left: auto; }
 .ce.ro .ce-tbl { opacity: 0.85; }
 </style>

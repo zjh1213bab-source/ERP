@@ -14,7 +14,7 @@
         <input v-model="codeInput" class="mr-input" placeholder="扫工单条码或输入单号" @keyup.enter="loadOrder(codeInput)" />
         <button class="mr-go" @click="loadOrder(codeInput)">查</button>
       </div>
-      <p class="mr-hint">扫工单上的条码就能带出单号；输入后按回车也行。</p>
+      <p class="mr-hint">扫工单或扎标即可带出订单；选择款式与颜色后，会显示基础工价、匹配倍率及最终计件单价。</p>
       <div v-if="err" class="mr-err">{{ err }}</div>
     </div>
 
@@ -56,12 +56,13 @@
     </template>
 
     <!-- 第三步：填数（底部抽屉） -->
-    <div v-if="picked" class="mr-mask" @click.self="picked = null">
+    <div v-if="picked" class="mr-mask">
       <div class="mr-sheet">
         <div class="mr-sheet-h">
           <b>{{ picked.name }}</b>
           <button class="mr-x" @click="picked = null">×</button>
         </div>
+        <ReportWageQuote :self-service="workerMode" :node-id="picked.id" :bundle-no="bundleNo" :report-date="today" @change="wageSelection=$event" />
         <div class="mr-fields">
           <label>
             合格数
@@ -95,7 +96,7 @@
         </div>
 
         <div v-if="err" class="mr-err">{{ err }}</div>
-        <button class="mr-submit" :disabled="saving" @click="submit">
+        <button class="mr-submit" :disabled="saving||!wageSelection" @click="submit">
           {{ saving ? '提交中…' : '提交报工' }}
         </button>
         <p class="mr-hint" style="text-align: center">
@@ -109,12 +110,14 @@
 </template>
 
 <script setup>
+import ReportWageQuote from '../components/ReportWageQuote.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { auth } from '../store/auth';
 import { compressImage, localDateTime } from '../utils/photo';
 
+const workerMode=computed(()=>auth.user?.role==='employee');
 const route = useRoute();
 const router = useRouter();
 
@@ -125,6 +128,8 @@ const order = ref(null);
 const nodes = ref([]);
 const reports = ref([]);
 const picked = ref(null);
+const wageSelection=ref(null);
+const requestNo=ref('');
 const saving = ref(false);
 const err = ref('');
 const camInput = ref(null);
@@ -160,7 +165,7 @@ async function loadOrder(raw) {
   if (!no) return;
   err.value = '';
   try {
-    const o = await api.findOrder(no);
+    const o = await (workerMode.value?api.selfWorkFind:api.findOrder)(no);
     await openOrder(o.id);
   } catch (e) {
     err.value = e.message || '没找到这张单';
@@ -169,6 +174,7 @@ async function loadOrder(raw) {
 }
 
 async function openOrder(id) {
+  if(workerMode.value){const d=await api.selfWorkOrder(id);order.value=d.order;nodes.value=d.nodes;reports.value=d.reports;return;}
   const [full, nd, rep] = await Promise.all([
     api.order(id),
     api.orderNodes(id).catch(() => []),
@@ -180,6 +186,7 @@ async function openOrder(id) {
 }
 
 function pick(n) {
+  wageSelection.value=null;requestNo.value=globalThis.crypto?.randomUUID?.()||('report_'+Date.now()+'_'+Math.random().toString(36).slice(2));
   picked.value = n;
   form.qty_ok = 0;
   form.qty_defect = 0;
@@ -216,7 +223,8 @@ async function submit() {
   const nodeName = picked.value.name;
   const defectQty = Number(form.qty_defect) || 0;
   try {
-    await api.createReport({
+    await (workerMode.value?api.selfWorkReport:api.createReport)({
+      ...wageSelection.value,request_no:requestNo.value,
       order_id: order.value.id,
       node_id: picked.value.id,
       qty_ok: Number(form.qty_ok) || 0,
@@ -277,8 +285,9 @@ function back() {
   else router.push('/m');
 }
 
-onMounted(() => {
-  if (route.query.no) loadOrder(route.query.no);
+onMounted(async () => {
+  if (route.query.no) await loadOrder(route.query.no);
+  else if(route.query.order){try{await openOrder(Number(route.query.order));}catch(e){err.value=e.message;}}
 });
 </script>
 
@@ -288,7 +297,7 @@ onMounted(() => {
   margin: 0 auto;
   padding: 14px 14px 40px;
   min-height: 100vh;
-  background: #f2f5fa;
+  background: var(--bg);
 }
 .mr-bar {
   display: flex;
@@ -301,17 +310,17 @@ onMounted(() => {
   height: 34px;
   border-radius: 10px;
   border: 1px solid #dbe3ef;
-  background: #fff;
+  background: var(--surface);
   font-size: 20px;
   line-height: 1;
-  color: #33415a;
+  color: var(--ink);
   cursor: pointer;
 }
 .mr-bar b { font-size: 15px; }
 .mr-bundle-chip {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 800;
-  color: #2563eb;
+  color: var(--brand);
   background: #e8f0ff;
   border: 1px solid #cfe0ff;
   border-radius: 20px;
@@ -321,10 +330,10 @@ onMounted(() => {
 .mr-no {
   margin-left: auto;
   font-size: 12px;
-  color: #8a94a6;
+  color: var(--ink-mute);
 }
 .mr-card {
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 16px 14px;
   border: 1px solid #e6ebf3;
@@ -332,7 +341,7 @@ onMounted(() => {
 }
 .mr-label {
   font-size: 12.5px;
-  color: #6b7688;
+  color: var(--ink-soft);
   margin-bottom: 8px;
   font-weight: 600;
 }
@@ -344,21 +353,21 @@ onMounted(() => {
   border-radius: 11px;
   padding: 13px 13px;
   font-size: 15px;
-  background: #fff;
+  background: var(--surface);
 }
 .mr-go {
   flex: none;
   width: 58px;
   border: none;
   border-radius: 11px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--brand);
+  color: var(--on-brand);
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
 }
 .mr-hint {
-  font-size: 11.5px;
+  font-size: 12px;
   color: #a6b0c0;
   margin: 8px 0 0;
   line-height: 1.7;
@@ -374,21 +383,21 @@ onMounted(() => {
   line-height: 1.7;
 }
 .mr-order { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.mr-style { font-size: 15px; font-weight: 700; color: #16233b; }
+.mr-style { font-size: 15px; font-weight: 700; color: var(--ink); }
 .mr-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .mr-tag {
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 9px;
   border-radius: 20px;
   font-weight: 700;
 }
-.mr-tag.blue { background: #e8f0ff; color: #2563eb; }
-.mr-tag.gray { background: #eef1f6; color: #6b7688; }
+.mr-tag.blue { background: #e8f0ff; color: var(--brand); }
+.mr-tag.gray { background: #eef1f6; color: var(--ink-soft); }
 .mr-link {
   margin-top: 10px;
   border: none;
   background: none;
-  color: #2563eb;
+  color: var(--brand);
   font-size: 12.5px;
   padding: 0;
   cursor: pointer;
@@ -402,7 +411,7 @@ onMounted(() => {
   padding: 12px 13px;
   border-radius: 11px;
   border: 1px solid #e6ebf3;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
   text-align: left;
 }
@@ -411,11 +420,11 @@ onMounted(() => {
 .mr-node.doing { background: #f6faff; border-color: #cfe0ff; }
 .mr-node-main { display: flex; flex-direction: column; gap: 3px; }
 .mr-node-main b { font-size: 14px; color: #1f2a3d; }
-.mr-node-sub { font-size: 11.5px; color: #8a94a6; }
+.mr-node-sub { font-size: 12px; color: var(--ink-mute); }
 .mr-node-qty {
   font-size: 13px;
   font-weight: 800;
-  color: #2563eb;
+  color: var(--brand);
   min-width: 34px;
   text-align: right;
 }
@@ -434,7 +443,7 @@ onMounted(() => {
   width: 100%;
   max-width: 560px;
   margin: 0 auto;
-  background: #fff;
+  background: var(--surface);
   border-radius: 18px 18px 0 0;
   padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
 }
@@ -464,7 +473,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 5px;
   font-size: 12px;
-  color: #6b7688;
+  color: var(--ink-soft);
   min-width: 0; /* 不加这行，input 的默认宽度会把三列撑出屏幕，工时框就看不见了 */
 }
 .mr-num {
@@ -476,7 +485,7 @@ onMounted(() => {
   font-size: 17px;
   font-weight: 700;
   text-align: center;
-  color: #16233b;
+  color: var(--ink);
 }
 .mr-submit {
   width: 100%;
@@ -484,8 +493,8 @@ onMounted(() => {
   padding: 15px;
   border: none;
   border-radius: 13px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--brand);
+  color: var(--on-brand);
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
@@ -504,12 +513,12 @@ onMounted(() => {
   border: 1px solid #2563eb;
   border-radius: 11px;
   background: #f4f8ff;
-  color: #2563eb;
+  color: var(--brand);
   font-size: 13.5px;
   font-weight: 700;
   cursor: pointer;
 }
-.mr-shot-n { font-size: 11.5px; color: #2563eb; }
+.mr-shot-n { font-size: 12px; color: var(--brand); }
 .mr-shot-n.muted { color: #a6b0c0; }
 .mr-file { display: none; }
 .mr-thumbs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }

@@ -107,7 +107,7 @@
     </div>
 
     <!-- ============ 开变更单 ============ -->
-    <div v-if="changeForm" class="modal-mask" @click.self="changeForm = null">
+    <div v-if="changeForm" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head"><h3>开变更单（减量 / 停单）</h3><button class="x" @click="changeForm = null">×</button></div>
         <div class="modal-body">
@@ -159,7 +159,7 @@
     </div>
 
     <!-- ============ 开退料单 ============ -->
-    <div v-if="returnForm" class="modal-mask" @click.self="returnForm = null">
+    <div v-if="returnForm" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head"><h3>开退料单</h3><button class="x" @click="returnForm = null">×</button></div>
         <div class="modal-body">
@@ -197,7 +197,7 @@
     </div>
 
     <!-- ============ 变更明细 ============ -->
-    <div v-if="chgDetail" class="modal-mask" @click.self="chgDetail = null">
+    <div v-if="chgDetail" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>{{ chgDetail.change_no }} · {{ chgDetail.supplier_name }}</h3>
@@ -228,7 +228,7 @@
     </div>
 
     <!-- ============ 退料明细 ============ -->
-    <div v-if="retDetail" class="modal-mask" @click.self="retDetail = null">
+    <div v-if="retDetail" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head"><h3>{{ retDetail.return_no }} · {{ retDetail.supplier_name }}</h3><button class="x" @click="retDetail = null">×</button></div>
         <div class="modal-body">
@@ -408,22 +408,22 @@ onMounted(() => { loadBoard(); loadPos(); });
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a !important; }
 .amt-red { color: #d92d45 !important; }
 .amt-orange { color: #d97706 !important; }
-.amt-blue { color: #2b6de5 !important; }
-.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
-.tiny { font-size: 11.5px; color: #8a94a6; line-height: 1.5; }
+.amt-blue { color: var(--brand) !important; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.tiny { font-size: 12px; color: var(--ink-mute); line-height: 1.5; }
 .ops { white-space: nowrap; }
 .wrap { white-space: normal !important; line-height: 1.55; }
 .num { text-align: right; }
 .center { text-align: center; }
 .muted { color: #b6bfcc; }
-.rule-note { margin: 10px 0 0; font-size: 11.5px; color: #8a94a6; line-height: 1.6; }
+.rule-note { margin: 10px 0 0; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
 .input.mini { width: 90px; padding: 4px 8px; font-size: 12.5px; text-align: right; }
 @media (max-width: 760px) { .stat-row { grid-template-columns: repeat(2, 1fr); } }
 </style>

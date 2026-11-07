@@ -78,15 +78,17 @@ function effective(userId, primaryRole) {
 }
 
 function computeEffective(userId, primaryRole) {
-  const roles = rolesOf(userId, primaryRole);
+  const position = require('./positionAccess').assigned(userId);
+  const roles = position ? position.roles : rolesOf(userId, primaryRole);
   const isAdmin = primaryRole === 'admin';
   const base = new Set();
   roles.forEach((r) => permsOfRole(r).forEach((p) => base.add(p)));
 
-  const exc = exceptionsOf(userId);
+  const exc = position?.direct ? [] : exceptionsOf(userId);
   const deny = exc.filter((e) => e.effect === 'deny').map((e) => e.perm);
   const allow = exc.filter((e) => e.effect === 'allow').map((e) => e.perm);
 
+  if (position) { base.clear(); position.perms.filter(p => PERMS[p]).forEach(p => base.add(p)); }
   const perms = new Set(base);
   deny.forEach((p) => perms.delete(p));
   // allow 只把「被 deny 掉的」加回来，不会凭空创造角色外的权限
@@ -125,7 +127,7 @@ function matchDeny(req) {
     if (!eff.deny.includes(g.perm)) continue;
     if (eff.allow.includes(g.perm)) continue; // 个别开口子，放行
     if (g.method !== '*' && g.method !== method) continue;
-    if (url === g.prefix || url.startsWith(g.prefix + '/')) {
+    if (url === g.prefix || (!g.exact && url.startsWith(g.prefix + '/'))) {
       const hit = exceptionsOf(u.sub).find((e) => e.perm === g.perm && e.effect === 'deny');
       return { perm: g.perm, reason: hit && hit.reason ? hit.reason : '该权限已按岗位复核结果收回' };
     }

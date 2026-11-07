@@ -53,7 +53,7 @@
         </select>
         <input class="input" v-model="f.q" placeholder="检验单号 / 批次 / 款号" @keyup.enter="loadInspections" style="width: 220px" />
         <button class="btn btn-ghost" @click="loadInspections">查询</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openInspectionForm">＋ 新建检验</button>
+        <button v-action="['qc','create']" v-if="canWrite" class="btn btn-primary" @click="openInspectionForm">＋ 新建检验</button>
       </div>
 
       <div class="table-wrap">
@@ -86,7 +86,7 @@
               <td>{{ r.inspect_date || '-' }}</td>
               <td style="white-space: nowrap">
                 <button class="link-btn" @click="openInspection(r)">{{ r.status === 'draft' && canWrite ? '录入' : '查看' }}</button>
-                <button v-if="r.status === 'draft' && canWrite" class="link-btn danger" @click="removeInspection(r)">删除</button>
+                <button v-action="['qc','delete']" v-if="r.status === 'draft' && canWrite" class="link-btn danger" @click="removeInspection(r)">删除</button>
                 <button v-if="r.batch_no" class="link-btn" @click="openTrace(r.batch_no)">追溯</button>
                 <button v-if="r.order_id" class="link-btn" @click="openReport(r.order_id)">验货报告</button>
               </td>
@@ -108,7 +108,7 @@
           <option value="child">童装合规</option>
         </select>
         <button class="btn btn-ghost" @click="loadStandards">查询</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openStandardForm">＋ 新建标准</button>
+        <button v-action="['qc','create']" v-if="canWrite" class="btn btn-primary" @click="openStandardForm">＋ 新建标准</button>
       </div>
       <div class="table-wrap">
         <table class="data">
@@ -123,8 +123,8 @@
               <td class="num">{{ r.item_count }}</td>
               <td><span class="tag" :class="r.status === 'active' ? 'green' : 'gray'">{{ r.status === 'active' ? '启用' : '停用' }}</span></td>
               <td v-if="canWrite" style="white-space: nowrap">
-                <button class="link-btn" @click="openStandardForm(r)">编辑</button>
-                <button v-if="r.status === 'active'" class="link-btn danger" @click="disableStandard(r)">停用</button>
+                <button v-action="['qc','edit']"  class="link-btn" @click="openStandardForm(r)">编辑</button>
+                <button  v-if="r.status === 'active'" class="link-btn danger" @click="disableStandard(r)">停用</button>
               </td>
             </tr>
             <tr v-if="!standards.length"><td :colspan="canWrite ? 8 : 7" class="empty-cell">暂无标准</td></tr>
@@ -193,7 +193,7 @@
         </select>
         <input class="input" v-model="f.bq" placeholder="批次号 / 款号 / 面料批号" @keyup.enter="loadBatches" style="width: 240px" />
         <button class="btn btn-ghost" @click="loadBatches">查询</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openBatchForm">＋ 新建批次</button>
+        <button v-action="['qc','create']" v-if="canWrite" class="btn btn-primary" @click="openBatchForm">＋ 新建批次</button>
       </div>
       <div class="table-wrap">
         <table class="data">
@@ -217,7 +217,7 @@
               <td><span class="tag" :class="r.status === 'normal' ? 'green' : r.status === 'hold' ? 'orange' : 'red'">{{ r.status_label }}</span></td>
               <td style="white-space: nowrap">
                 <button class="link-btn" @click="openTrace(r.batch_no)">追溯</button>
-                <button v-if="canWrite" class="link-btn" @click="openBatchForm(r)">编辑</button>
+                <button v-action="['qc','edit']"  v-if="canWrite" class="link-btn" @click="openBatchForm(r)">编辑</button>
               </td>
             </tr>
             <tr v-if="!batches.length"><td colspan="11" class="empty-cell">暂无批次，成品检验合格后可建批次并追溯</td></tr>
@@ -271,7 +271,7 @@
     </template>
 
     <!-- ===== 新建检验 ===== -->
-    <div v-if="inspForm" class="modal-mask" @click.self="inspForm = null">
+    <div v-if="inspForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>新建检验单</h3>
@@ -316,7 +316,7 @@
     </div>
 
     <!-- ===== 录入检验结果 ===== -->
-    <div v-if="inspDetail" class="modal-mask" @click.self="inspDetail = null">
+    <div v-if="inspDetail" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>检验录入 · {{ inspDetail.inspect_no }}</h3>
@@ -368,7 +368,7 @@
     </div>
 
     <!-- ===== 标准编辑 ===== -->
-    <div v-if="stdForm" class="modal-mask" @click.self="stdForm = null">
+    <div v-if="stdForm" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>{{ stdForm.id ? '编辑标准' : '新建质量标准' }}</h3>
@@ -418,7 +418,7 @@
     </div>
 
     <!-- ===== 异常处理 ===== -->
-    <div v-if="issueForm" class="modal-mask" @click.self="issueForm = null">
+    <div v-if="issueForm" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ issueForm.id ? '异常处理 · ' + issueForm.issue_no : '登记异常 / 客诉' }}</h3>
@@ -477,7 +477,7 @@
     </div>
 
     <!-- ===== 批次编辑 ===== -->
-    <div v-if="batchForm" class="modal-mask" @click.self="batchForm = null">
+    <div v-if="batchForm" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ batchForm.id ? '编辑批次 · ' + batchForm.batch_no : '新建生产批次' }}</h3>
@@ -537,7 +537,7 @@
     </div>
 
     <!-- ===== 追溯 ===== -->
-    <div v-if="trace" class="modal-mask" @click.self="trace = null">
+    <div v-if="trace" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>批次追溯 · {{ trace.batch.batch_no }}</h3>
@@ -630,7 +630,7 @@
     </div>
 
     <!-- ===== 召回 ===== -->
-    <div v-if="recallForm" class="modal-mask" @click.self="recallForm = null">
+    <div v-if="recallForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>{{ recallForm.id ? '更新召回 · ' + recallForm.recall_no : '发起召回评估' }}</h3>
@@ -919,7 +919,7 @@ onMounted(loadAll);
 </script>
 
 <style scoped>
-.delta { font-size: 12px; color: #8a94a6; margin-top: 8px; }
-.tr-h { margin: 14px 0 8px; font-size: 13.5px; color: #16233b; }
+.delta { font-size: 12px; color: var(--ink-mute); margin-top: 8px; }
+.tr-h { margin: 14px 0 8px; font-size: 13.5px; color: var(--ink); }
 .table-wrap { overflow-x: auto; }
 </style>

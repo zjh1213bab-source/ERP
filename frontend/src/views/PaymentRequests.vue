@@ -10,8 +10,8 @@
       </div>
       <div class="head-ops">
         <button class="btn btn-ghost" @click="reload">刷新</button>
-        <button class="btn btn-ghost" @click="doExport">导出 CSV</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="openCreate">新建付款申请</button>
+        <button v-action="['payment-requests','export']" class="btn btn-ghost" @click="doExport">导出 CSV</button>
+        <button v-action="['payment-requests','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">新建付款申请</button>
       </div>
     </div>
 
@@ -100,7 +100,7 @@
               <td class="ops">
                 <button class="link-btn" @click="openDetail(r.id)">明细</button>
                 <button v-if="canWrite && r.status === 'draft'" class="link-btn" @click="doSubmit(r)">提交</button>
-                <button v-if="canWrite && r.status === 'draft'" class="link-btn danger" @click="doDelete(r)">删除</button>
+                <button v-action="['payment-requests','delete']" v-if="canWrite && r.status === 'draft'" class="link-btn danger" @click="doDelete(r)">删除</button>
                 <button v-if="canPay && r.status === 'approved'" class="link-btn strong" @click="openPay(r)">执行付款</button>
                 <button
                   v-if="r.status !== 'paid' && r.status !== 'cancelled'"
@@ -118,7 +118,7 @@
     </div>
 
     <!-- ================= 新建 ================= -->
-    <div v-if="createOpen" class="modal-mask" @click.self="createOpen = false">
+    <div v-if="createOpen" class="modal-mask">
       <div class="modal xxwide">
         <div class="modal-head">
           <h3>新建付款申请</h3>
@@ -186,6 +186,7 @@
                 <tr>
                   <th style="width: 38px"></th>
                   <th style="min-width: 150px">发票号</th>
+                  <th style="min-width: 260px">生产实际 / 结算依据</th>
                   <th style="min-width: 88px">到期日</th>
                   <th class="num" style="min-width: 92px">未付</th>
                   <th class="num" style="min-width: 92px">已占用</th>
@@ -211,6 +212,18 @@
                     {{ c.bill_no }}
                     <span v-if="c.overdue_days" class="tag red" style="margin-left: 4px">逾期 {{ c.overdue_days }} 天</span>
                   </td>
+                  <td class="tiny">
+                    <template v-if="c.production_basis?.purchase">
+                      <div>采购单：{{ c.production_basis.purchase.po_no }} · {{ purchaseStatusLabel(c.production_basis.purchase.status) }}</div>
+                      <div>订单：{{ c.production_basis.order?.order_no || '备货采购' }}</div>
+                      <div v-for="dispatch in c.production_basis.dispatches" :key="dispatch.id">{{ dispatch.type === 'outsource' ? '外发' : '本厂' }} · {{ dispatch.factory_name || '未指定工厂' }} · {{ dispatch.qty }} 件</div>
+                      <div v-if="c.production_basis.order && !c.production_basis.dispatches.length">尚无有效生产分单</div>
+                      <div v-for="receipt in c.production_basis.receipts" :key="receipt.id">{{ receipt.grn_no }} · {{ $fmtDate(receipt.receive_date) }} · {{ receiptStatusLabel(receipt.status) }}</div>
+                      <div v-if="!c.production_basis.receipts.length">暂无收货验收记录，请核对来源凭据</div>
+                      <div>供应商账期：{{ c.production_basis.term_days != null ? c.production_basis.term_days+'天' : c.production_basis.payment_terms || '未配置' }}</div>
+                    </template>
+                    <span v-else>{{ c.production_basis?.source === 'missing_purchase' ? '采购来源已缺失，需核对原单' : '非采购单来源，按应付发票及对账凭据核实' }}</span>
+                  </td>
                   <td class="tiny nowrap">{{ c.due_date || '—' }}</td>
                   <td class="num">{{ money(c.open_amount) }}</td>
                   <td class="num" :style="{ color: c.committed ? '#d97706' : '#8a94a6' }">
@@ -233,7 +246,7 @@
                     <span v-else class="muted tiny">未选</span>
                   </td>
                 </tr>
-                <tr v-if="!cand.rows.length"><td colspan="7" class="empty">该供应商没有可申请的应付发票</td></tr>
+                <tr v-if="!cand.rows.length"><td colspan="8" class="empty">该供应商没有可申请的应付发票</td></tr>
               </tbody>
             </table>
           </div>
@@ -254,7 +267,7 @@
     </div>
 
     <!-- ================= 详情 ================= -->
-    <div v-if="cur" class="modal-mask" @click.self="cur = null">
+    <div v-if="cur" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>
@@ -362,7 +375,7 @@
     </div>
 
     <!-- ================= 执行付款 ================= -->
-    <div v-if="payOpen" class="modal-mask" @click.self="payOpen = false">
+    <div v-if="payOpen" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>执行付款</h3>
@@ -416,6 +429,9 @@
 </template>
 
 <script setup>
+const purchaseStatusLabel = status => ({draft:'草稿',ordered:'已下单',partial:'部分到货',received:'已收货',cancelled:'已取消'})[status] || status;
+const receiptStatusLabel = status => ({pending:'待检',inspecting:'检验中',partial:'部分合格',passed:'全部合格',rejected:'全退',cancelled:'作废'})[status] || status;
+
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api, downloadFile } from '../api';
 import { can } from '../store/permissions';
@@ -708,10 +724,10 @@ onMounted(reload);
 .tabs button {
   padding: 6px 14px;
   border: 1px solid #e2e8f2;
-  background: #fff;
+  background: var(--surface);
   border-radius: 8px;
   font-size: 12.5px;
-  color: #4b5568;
+  color: var(--ink-soft);
   cursor: pointer;
 }
 .tabs button.on {
@@ -778,7 +794,7 @@ onMounted(reload);
 }
 .fld > span {
   font-size: 12.5px;
-  color: #6b7688;
+  color: var(--ink-soft);
 }
 .fld > span i {
   color: #d92d45;
@@ -791,7 +807,7 @@ onMounted(reload);
   flex-wrap: wrap;
   margin: 14px 0 8px;
   padding-top: 12px;
-  border-top: 1px solid #eef2f7;
+  border-top: 1px solid var(--line);
 }
 .cand-head .spacer {
   flex: 1;
@@ -820,11 +836,11 @@ onMounted(reload);
   bottom: -18px;
   margin-top: 14px;
   padding: 12px 0 4px;
-  background: #fff;
+  background: var(--surface);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  border-top: 1px solid #eef2f7;
+  border-top: 1px solid var(--line);
 }
 /* 详情 */
 .dgrid {
@@ -843,19 +859,19 @@ onMounted(reload);
   gap: 3px;
 }
 .dgrid span {
-  font-size: 11.5px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
 }
 .dgrid b {
   font-size: 13px;
-  color: #16233b;
+  color: var(--ink);
   font-weight: 600;
 }
 .reason-box {
   padding: 10px 14px;
   border-radius: 10px;
-  background: #fbfcfe;
-  border: 1px solid #eef2f7;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
   margin-bottom: 14px;
   font-size: 13px;
   line-height: 1.7;
@@ -866,7 +882,7 @@ onMounted(reload);
 .sec h4 {
   margin: 0 0 8px;
   font-size: 12.5px;
-  color: #16233b;
+  color: var(--ink);
   font-weight: 700;
 }
 /* 审批步骤 */
@@ -881,8 +897,8 @@ onMounted(reload);
   align-items: flex-start;
   padding: 9px 12px;
   border-radius: 10px;
-  border: 1px solid #eef2f7;
-  background: #fbfcfe;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
 }
 .step .sn {
   flex: none;
@@ -890,8 +906,8 @@ onMounted(reload);
   height: 20px;
   border-radius: 50%;
   background: #eef1f6;
-  color: #6b7688;
-  font-size: 11.5px;
+  color: var(--ink-soft);
+  font-size: 12px;
   display: flex;
   align-items: center;
   justify-content: center;

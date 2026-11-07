@@ -28,10 +28,25 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const S = require('../services/selfService');
 
 const router = express.Router();
+router.get('/review-notices',authRequired,wrap(async(req,res)=>ok(res,require('../services/reviewNotices').list(req.user))));
 
-const ALL = ['admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'];
+const ALL = ['employee', 'admin', 'boss', 'sales', 'tech', 'production', 'warehouse', 'finance', 'hr'];
 const MANAGE = ['admin', 'hr', 'finance'];
 const BIND = ['admin', 'hr'];
+
+/** 一线计件员工按账号绑定归人，客户端不能指定他人报工。 */
+function workEmployee(req){const me=S.resolve(req.user);if(!me.bound||me.employee.status!=='active')throw Object.assign(new Error('当前账号未绑定在职员工，不能扫码报工'),{status:403});return me.employee;}
+router.get('/work-find',authRequired,wrap(async(req,res)=>{workEmployee(req);req.workerReport=true;return require('./orders').findOrder(req,res);}));
+router.get('/work-order/:id',authRequired,wrap(async(req,res)=>{
+ workEmployee(req);const {db}=require('../db'),scope=require('../access/companyScope');const found=scope.assertOrder(req.user,Number(req.params.id));if(!found.ok)return fail(res,found.status,found.reason);
+ const order=found.row;return ok(res,{order:{id:order.id,order_no:order.order_no,style_name:order.style_name,status:order.status,delivery_date:order.delivery_date},nodes:db.prepare('SELECT id,name,status,code FROM order_nodes WHERE order_id=? ORDER BY seq,id').all(order.id),reports:db.prepare('SELECT node_id,SUM(qty_ok) AS ok,SUM(qty_defect) AS defect FROM production_reports WHERE order_id=? GROUP BY node_id').all(order.id)});
+}));
+router.get('/work-quote',authRequired,wrap(async(req,res)=>{
+ workEmployee(req);const {db}=require('../db');const node=db.prepare('SELECT * FROM order_nodes WHERE id=?').get(Number(req.query.node_id));if(!node)return fail(res,404,'生产工序不存在');const found=require('../access/companyScope').assertOrder(req.user,node.order_id);if(!found.ok)return fail(res,found.status,found.reason);return ok(res,require('../services/wageMultiplier').quote(node.order_id,node,req.query));
+}));
+router.post('/work-report',authRequired,wrap(async(req,res)=>{
+ const employee=workEmployee(req);req.body={...req.body,employee_id:employee.id,operator:employee.name};return require('./reports').createReport(req,res);
+}));
 
 // 自助：任何登录角色都能看自己的；范围由服务层按「绑定关系」卡死
 router.get('/meta', authRequired, requireRole(ALL), wrap(async (req, res) => ok(res, S.dict())));

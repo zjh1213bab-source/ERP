@@ -204,7 +204,7 @@
     </div>
 
     <!-- ================= 制度详情 ================= -->
-    <div v-if="cur" class="modal-mask" @click.self="cur = null">
+    <div v-if="cur" class="modal-mask">
       <div class="modal xxwide">
         <div class="modal-head">
           <h3>{{ cur.title }}
@@ -289,7 +289,7 @@
     </div>
 
     <!-- ================= 新建制度 ================= -->
-    <div v-if="sopForm" class="modal-mask" @click.self="sopForm = null">
+    <div v-if="sopForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>新建制度 / SOP</h3><button class="x" @click="sopForm = null">×</button></div>
         <div class="modal-body">
@@ -315,7 +315,7 @@
     </div>
 
     <!-- ================= 写新版 ================= -->
-    <div v-if="verForm" class="modal-mask" @click.self="verForm = null">
+    <div v-if="verForm" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head"><h3>编制新版本 · {{ verForm.doc.title }}</h3><button class="x" @click="verForm = null">×</button></div>
         <div class="modal-body">
@@ -336,7 +336,7 @@
     </div>
 
     <!-- ================= 设置代理 ================= -->
-    <div v-if="dgForm" class="modal-mask" @click.self="dgForm = null">
+    <div v-if="dgForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head"><h3>设置审批代理</h3><button class="x" @click="dgForm = null">×</button></div>
         <div class="modal-body">
@@ -591,15 +591,15 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 9px; margin-bottom: 12px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 10px 12px; }
-.stat span { font-size: 11.5px; color: #8a94a6; }
-.stat strong { display: block; margin: 3px 0 1px; font-size: 19px; color: #16233b; }
-.stat small { font-size: 11px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 10px 12px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 3px 0 1px; font-size: 19px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a; }
 .amt-red { color: #d92d45; }
 .amt-orange { color: #d97706; }
 .muted { color: #9aa4b5; }
-.tiny { font-size: 11.5px; }
+.tiny { font-size: 12px; }
 .wrap { white-space: normal; line-height: 1.55; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
 .num { text-align: right; }
@@ -608,22 +608,22 @@ onMounted(async () => {
 .muted-row { opacity: .65; }
 .ops { white-space: nowrap; }
 .block { margin-top: 18px; }
-.block h4 { margin: 0 0 8px; font-size: 13px; color: #16233b; }
-.sec-title { margin: 16px 0 8px; font-size: 13px; color: #16233b; }
+.block h4 { margin: 0 0 8px; font-size: 13px; color: var(--ink); }
+.sec-title { margin: 16px 0 8px; font-size: 13px; color: var(--ink); }
 .row-between { display: flex; align-items: center; justify-content: space-between; }
 .hint-bar { background: #f6f9ff; border: 1px solid #dbe4f5; border-radius: 9px; padding: 9px 12px;
   font-size: 12.5px; color: #3d4a63; line-height: 1.7; margin: 0 0 10px; }
 .q-tbl { min-width: 1180px; }
 .s-tbl { min-width: 1180px; }
 .s-tbl .tag, .q-tbl .tag { white-space: nowrap; }
-.step-chip { display: inline-block; background: #eef2f8; color: #5b6474; border-radius: 10px; padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 11px; }
+.step-chip { display: inline-block; background: #eef2f8; color: #5b6474; border-radius: 10px; padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
 .sop-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12.5px; color: #5b6474;
   background: #f8fafd; border: 1px solid #e8eef7; border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; }
-.sop-meta b { color: #16233b; }
+.sop-meta b { color: var(--ink); }
 .four-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 4px; }
-.four-card { background: #fbfcfe; border: 1px solid #e8eef7; border-radius: 10px; padding: 10px 12px; }
-.four-title { font-size: 12px; font-weight: 700; color: #2b6de5; margin-bottom: 4px; }
-.four-body { font-size: 12.5px; color: #33415a; line-height: 1.7; white-space: pre-wrap; }
+.four-card { background: var(--surface-2); border: 1px solid #e8eef7; border-radius: 10px; padding: 10px 12px; }
+.four-title { font-size: 12px; font-weight: 700; color: var(--brand); margin-bottom: 4px; }
+.four-body { font-size: 12.5px; color: var(--ink); line-height: 1.7; white-space: pre-wrap; }
 @media (max-width: 1400px) { .stat-row { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 760px) { .stat-row { grid-template-columns: repeat(2, 1fr); } .four-grid { grid-template-columns: 1fr; } }
 </style>

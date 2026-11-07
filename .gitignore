@@ -4,6 +4,7 @@ node_modules/
 # 环境变量（含密码，不入库）
 .env
 .env.local
+deploy/win/*.local.json
 
 # 构建产物
 dist/
@@ -18,6 +19,8 @@ backend/data/.golive-probe-*
 backend/data/*.db.bak-*
 # 上传文件与现场照片（运行时数据，体积大，不入库）
 backend/data/uploads/
+backend/data/ai-models/
+backend/data/image-vectors/
 
 # 备份与恢复留档（体积大、属于运行时数据，不入库）
 backend/data/backups/
@@ -43,3 +46,13 @@ Thumbs.db
 # 交接包（由 backend/scripts/make-handoff-pack.js 生成，不入库）
 handoff/
 handoff-*.zip
+
+# 本地业务数据、参考站原始快照及界面截图（单独安全交接）
+backend/data/
+shots/
+# 本地环境及访问凭据
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key

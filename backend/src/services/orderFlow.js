@@ -156,15 +156,21 @@ function check(orderId, { to, force, user, write = true, source } = {}) {
       throw bad(`接单评审${commit && commit.review_status === 'rejected' ? '未通过' : '未完成'}：${why}。` +
         '请到「生产 → 接单评审与交期」确认前端裁床、后端缝制、物料齐套三项并给出承诺交期后再做技术确认');
     }
-    const tp = db.prepare("SELECT id FROM tech_packs WHERE order_id = ? AND status = 'confirmed' ORDER BY id DESC LIMIT 1").get(id);
-    if (!tp) throw bad('开发单尚未确认，无法通过「技术确认」；请先补全并确认开发单');
-    if (order.type === 'custom') {
+    const packs=db.prepare('SELECT * FROM tech_packs WHERE order_id=? ORDER BY id DESC').all(id);
+    if (!packs.length) throw bad('开发单尚未确认，无法通过「技术确认」；请先补全并确认开发单');
+    const styles=db.prepare('SELECT id,source_pre_order_item_id,product_name,style_no FROM order_items WHERE order_id=?').all(id);
+    for(const style of styles){
+      const tp=require('./orderTechnicalPacks').packForItem(id,style,styles);
+      if(!tp)throw bad(`款「${style.style_no||style.product_name}」没有对应开发单，请逐款关联技术资料`);
+      if(tp.status!=='confirmed')throw bad(`款「${style.style_no||style.product_name}」开发单尚未确认，请逐款完成技术确认`);
+      if (order.type === 'custom') {
       const flow = db.prepare('SELECT * FROM pattern_flows WHERE tech_pack_id = ?').get(tp.id);
       if (!flow) throw bad('定制订单必须走打版流程：该开发单还没有打版流程记录，请到「打版流程」发起');
       if (flow.status !== 'done') {
         const left = db.prepare('SELECT stage FROM pattern_stages WHERE flow_id = ? AND status != ?').all(flow.id, 'done');
         const names = left.map((r) => STAGE_LABELS[r.stage] || r.stage).join('、');
         throw bad(`定制订单的打版流程尚未完成，剩余：${names || '收尾确认'}；请到「打版流程」完成后再做技术确认`);
+      }
       }
     }
     // 走过样衣封样的订单：最新版本必须「客户已确认 + 总部技术已批准」双确认
@@ -199,8 +205,10 @@ function check(orderId, { to, force, user, write = true, source } = {}) {
 
   // ---------- 门槛 5：结案前应收要清 ----------
   if (to === 'closed' && !force) {
-    const ar = db.prepare('SELECT * FROM ar_invoices WHERE order_id = ? AND status != ?').get(id, 'void');
-    if (ar) {
+    const invoices = db.prepare('SELECT * FROM ar_invoices WHERE order_id = ? AND status != ?').all(id, 'void');
+    const invoiced=invoices.reduce((sum,a)=>sum+(Number(a.amount)||0),0);
+    if(Number(order.total_amount)>0.005&&invoiced+0.005<Number(order.total_amount))throw bad('订单应收尚未完整生成，请核对应收账款后再结案');
+    for(const ar of invoices){
       const open = Math.round(((Number(ar.amount) || 0) - (Number(ar.paid_amount) || 0)) * 100) / 100;
       if (open > 0.005) {
         throw bad(`该订单还有未收金额 ${open} 元（${ar.bill_no}），收清后再结案；确需先结案请传 force=true 并说明原因`);
@@ -239,7 +247,8 @@ function apply(order, { to, note, batchNo, user } = {}) {
 
   db.exec('BEGIN');
   try {
-    db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(to, t, id);
+    const updated=db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ? AND status=? AND updated_at IS ?').run(to,t,id,cur,order.updated_at);
+    if(updated.changes!==1)throw bad('订单已被其他操作更新，请刷新后重试',409);
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
       .run(id, cur, to, who, finalNote, t);
     db.exec('COMMIT');

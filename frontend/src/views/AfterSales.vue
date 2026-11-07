@@ -186,7 +186,7 @@
     </div>
 
     <!-- ---------------- 详情弹窗 ---------------- -->
-    <div class="modal-mask" v-if="detail" @click.self="detail = null">
+    <div class="modal-mask" v-if="detail">
       <div class="modal wide">
         <div class="modal-head">
           <div class="mh-left">
@@ -292,7 +292,7 @@
             <div class="row">
               <label>驳回原因</label>
               <input v-model="act.reject" class="input" style="flex: 1" placeholder="≥6 字，写清为什么不属售后范围（客户会看到）" />
-              <button class="btn btn-ghost" @click="doReject">驳回</button>
+              <button v-action="['after-sales','reject']" class="btn btn-ghost" @click="doReject">驳回</button>
             </div>
             <div class="tiny mut">受理「退货退款 / 返修」时会自动在仓库生成退货单草稿，等客户把货寄回后由仓库点收判定。</div>
           </div>
@@ -346,7 +346,7 @@
     </div>
 
     <!-- ---------------- 生成对账单 ---------------- -->
-    <div class="modal-mask" v-if="gen.open" @click.self="gen.open = false">
+    <div class="modal-mask" v-if="gen.open">
       <div class="modal">
         <div class="modal-head"><b>生成对账单</b><span class="sp"></span>
           <button class="btn btn-sm btn-ghost" @click="gen.open = false">取消</button></div>
@@ -578,15 +578,15 @@ onMounted(reload);
 .cards.c6 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .cards.c6 .stat-card { min-height: 100px; padding: 13px 12px; }
 .cards.c6 .stat-card .value { font-size: 22px; margin-top: 5px; }
-.cards.c6 .stat-card .foot { font-size: 11px; line-height: 1.4; }
+.cards.c6 .stat-card .foot { font-size: 12px; line-height: 1.4; }
 .stat-card.warn { border-color: #fde68a; background: #fffdf5; }
 
 .ell { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tiny { font-size: 11px; line-height: 1.45; }
+.tiny { font-size: 12px; line-height: 1.45; }
 .mut { color: #7b8698; }
 .red { color: #b91c1c; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
-tr.dim td { color: #94a3b8; }
+tr.dim td { color: var(--ink-mute); }
 .empty { padding: 26px 6px; color: #7b8698; font-size: 12.5px; }
 .table-wrap { overflow-x: auto; }
 /* 单元格里的标签与单号一律不折行：折成「已撤 / 销」「详 / 情」这种竖排完全读不懂 */
@@ -607,7 +607,7 @@ table.data td { vertical-align: middle; }
 .mh-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
 @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
-.col-h { font-size: 12.5px; font-weight: 600; color: #16233b; margin-bottom: 7px; }
+.col-h { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 7px; }
 .kv { display: flex; gap: 8px; font-size: 12px; padding: 3px 0; }
 .kv > span { color: #7b8698; min-width: 74px; flex: 0 0 auto; }
 .kv > b { font-weight: 500; }
@@ -618,7 +618,7 @@ table.data td { vertical-align: middle; }
 
 /* 五条轨道：一眼看出哪条卡住 */
 .track { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 2px 8px; padding: 6px 9px; border-radius: 8px; border: 1px solid #eef1f6; margin-bottom: 6px; background: #fcfdff; }
-.track .t-name { font-size: 11.5px; color: #7b8698; grid-row: span 2; align-self: center; }
+.track .t-name { font-size: 12px; color: #7b8698; grid-row: span 2; align-self: center; }
 .track .t-val { font-size: 12px; }
 .track .t-note { grid-column: 2; }
 .track.done { border-color: #bbf7d0; background: #f5fdf8; }
@@ -630,11 +630,11 @@ table.data td { vertical-align: middle; }
 
 .blockers { border: 1px solid #fde68a; background: #fffbeb; border-radius: 9px; padding: 8px 11px; margin-top: 8px; }
 .b-h { font-size: 12px; font-weight: 600; color: #92400e; margin-bottom: 3px; }
-.blockers ul { margin: 0 0 0 16px; font-size: 11.5px; color: #92400e; line-height: 1.7; }
+.blockers ul { margin: 0 0 0 16px; font-size: 12px; color: #92400e; line-height: 1.7; }
 .done-box { border: 1px solid #bbf7d0; background: #f5fdf8; border-radius: 9px; padding: 8px 11px; margin-top: 8px; }
 .done-box .b-h { color: #047857; }
 .done-box p { margin: 0; font-size: 12px; line-height: 1.7; }
-.done-box.reject { border-color: #e5e7eb; background: #fafafa; }
+.done-box.reject { border-color: var(--line); background: #fafafa; }
 .done-box.reject .b-h { color: #4b5563; }
 
 .actions { border-top: 1px solid #eef1f6; margin-top: 14px; padding-top: 12px; }

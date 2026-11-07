@@ -113,6 +113,21 @@ router.get('/', authRequired, wrap(async (req, res) => {
   return ok(res, db.prepare(sql).all(...params));
 }));
 
+// 采购工作台：读取、创建及实际下单仍沿用采购模块权限。
+router.get('/order-details.csv',authRequired,requireRole(['admin','warehouse','production','finance','boss']),wrap(async(req,res)=>{const csv=require('../services/purchaseOrderExport').csv(req.query.order_numbers,req.user);res.setHeader('Content-Type','text/csv; charset=utf-8');res.setHeader('Content-Disposition','attachment; filename="purchase-order-details.csv"');res.send(csv);}));
+router.get('/workspace', authRequired, wrap(async(req,res)=>ok(res,require('../services/purchaseWorkspace').workspace(cidOf(req)))));
+router.post('/:id/note',authRequired,requireRole(WRITE),wrap(async(req,res)=>{
+ const po=poOr404(req,req.params.id),b=req.body||{};
+ if(typeof b.message!=='string'||!b.message.trim()||b.message.length>2000)return fail(res,400,'沟通内容必填且不能超过2000字');
+ if(b.updated_at!==po.updated_at)return fail(res,409,'采购单已更新，请刷新后再留言');
+ const ts=new Date(Math.max(Date.now(),Date.parse(po.updated_at||'')+1||0)).toISOString();
+ const remark=[po.remark,`[${ts} ${req.user.name||req.user.username}] ${b.message.trim()}`].filter(Boolean).join('\n');
+ if(remark.length>20000)return fail(res,400,'采购备注已达上限，请另留附件说明');
+ const changed=db.prepare('UPDATE purchase_orders SET remark=?,updated_at=? WHERE id=? AND updated_at=?').run(remark,ts,po.id,po.updated_at);
+ if(!changed.changes)return fail(res,409,'采购单已更新，请刷新后再留言');
+ return ok(res,full(po.id));
+}));
+
 router.get('/:id', authRequired, wrap(async (req, res) => {
   poOr404(req, req.params.id);
   const po = full(req.params.id);

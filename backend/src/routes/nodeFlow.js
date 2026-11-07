@@ -78,30 +78,9 @@ router.post('/templates/:id/apply', authRequired, requireRole(WRITE), wrap(async
 }));
 
 /* ---------------- 看板 ---------------- */
-router.get('/board', authRequired, wrap(async (req, res) => ok(res, svc.board({
-    // 主体过滤值：单公司模式下恒为 null（不过滤）—— 见 access/companyScope.js 的 of()。
-    // 多主体模式下才是"分部只列自己、集团角色看全集团"。
-    companyId: require('../access/companyScope').filterCompanyId(req.user),
-  templateId: req.query.template_id || null,
-  status: req.query.status || '',
-  q: req.query.q || '',
-  limit: req.query.limit || 200,
-  customerId: req.query.customer_id || null,
-  manager: req.query.manager || '',
-  orderFrom: req.query.order_from || '',
-  orderTo: req.query.order_to || '',
-  orderFrom: req.query.order_from || '',
-  orderTo: req.query.order_to || '',
-  dueFrom: req.query.due_from || '',
-  dueTo: req.query.due_to || '',
-  // 查询串里传 "1"/"0"：`!!'0'` 是 true，这里显式比字符串
-  overdue: String(req.query.overdue || '') === '1',
-  noDue: String(req.query.no_due || '') === '1',
-  dueSoon: String(req.query.due_soon || '') === '1',
-  nodeCode: req.query.node_code || '',
-  nodeStatus: req.query.node_status || '',
-  sort: req.query.sort || 'due'
-}))));
+router.get('/board', authRequired, wrap(async (req, res) => ok(res, svc.boardFromQuery(
+  req.query, require('../access/companyScope').filterCompanyId(req.user)
+))));
 
 router.get('/builtin', authRequired, wrap(async (req, res) => ok(res, {
   codes: svc.BUILTIN_CODES,

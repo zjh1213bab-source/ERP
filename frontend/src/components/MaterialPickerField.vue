@@ -82,7 +82,7 @@ const nameOf = (id) => {
 const specOf = (id) => {
   const r = rowOf(id);
   if (!r) return '';
-  const bits = [r.width && `幅宽${r.width}`, r.weight && `克重${r.weight}`, r.color_no, r.spec]
+  const bits = [r.width && `幅宽${r.width}`, r.weight && `克重${r.weight}`, r.spec]
     .filter(Boolean);
   return bits.join(' · ');
 };
@@ -137,7 +137,7 @@ watch(() => props.type, loadArchive);
 }
 .mpf-chip.gone { background: #fff7e6; border-color: #ffd591; color: #874d00; }
 .mpf-name { font-weight: 500; }
-.mpf-spec { color: #7a869a; font-size: 11.5px; }
+.mpf-spec { color: #7a869a; font-size: 12px; }
 .mpf-x {
   border: none;
   background: transparent;
@@ -149,6 +149,6 @@ watch(() => props.type, loadArchive);
 }
 .mpf-x:hover { color: #d4380d; }
 .mpf-ops { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.mpf-count { font-size: 12px; color: #8a94a6; }
+.mpf-count { font-size: 12px; color: var(--ink-mute); }
 .mpf-warn { font-size: 12px; color: #d46b08; }
 </style>

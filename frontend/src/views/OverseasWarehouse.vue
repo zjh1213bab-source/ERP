@@ -12,9 +12,9 @@
       </div>
       <div class="head-ops">
         <button class="btn btn-ghost" @click="reloadAll">刷新</button>
-        <button v-if="canWrite && tab === 'asn'" class="btn btn-primary" @click="openAsnForm">＋ 新建发运单</button>
-        <button v-if="canWrite && tab === 'bundle'" class="btn btn-primary" @click="openBundleForm">＋ 新建套装</button>
-        <button v-if="canWrite && tab === 'loc'" class="btn btn-primary" @click="openLocForm()">＋ 新建库位</button>
+        <button v-action="['wh','create']" v-if="canWrite && tab === 'asn'" class="btn btn-primary" @click="openAsnForm">＋ 新建发运单</button>
+        <button v-action="['wh','create']" v-if="canWrite && tab === 'bundle'" class="btn btn-primary" @click="openBundleForm">＋ 新建套装</button>
+        <button v-action="['wh','create']" v-if="canWrite && tab === 'loc'" class="btn btn-primary" @click="openLocForm()">＋ 新建库位</button>
       </div>
     </div>
 
@@ -336,7 +336,7 @@
     </div>
 
     <!-- ==================== 弹窗：新建发运单 ==================== -->
-    <div v-if="asnForm" class="modal-mask" @click.self="asnForm = null">
+    <div v-if="asnForm" class="modal-mask">
       <div class="modal wide">
         <h3>新建集货发运单</h3>
         <div class="form-grid">
@@ -372,7 +372,7 @@
     </div>
 
     <!-- ==================== 弹窗：点收 ==================== -->
-    <div v-if="rcvModal" class="modal-mask" @click.self="rcvModal = null">
+    <div v-if="rcvModal" class="modal-mask">
       <div class="modal wide">
         <h3>到仓点收 · {{ rcvModal.asn.asn_no }}</h3>
         <p class="tiny muted" style="margin-bottom: 10px">
@@ -414,7 +414,7 @@
     </div>
 
     <!-- ==================== 弹窗：上架 ==================== -->
-    <div v-if="putModal" class="modal-mask" @click.self="putModal = null">
+    <div v-if="putModal" class="modal-mask">
       <div class="modal wide">
         <h3>上架 · {{ putModal.receipt.rcv_no }}</h3>
         <p class="tiny muted" style="margin-bottom: 10px">
@@ -453,7 +453,7 @@
     </div>
 
     <!-- ==================== 弹窗：组装 / 拆分 ==================== -->
-    <div v-if="kitModal" class="modal-mask" @click.self="kitModal = null">
+    <div v-if="kitModal" class="modal-mask">
       <div class="modal">
         <h3>{{ kitModal.type === 'kit' ? '组装套装' : '拆分套装' }} · {{ kitModal.bundle.bundle_sku }}</h3>
         <p class="tiny muted" style="margin-bottom: 10px">
@@ -475,7 +475,7 @@
     </div>
 
     <!-- ==================== 弹窗：新建套装 ==================== -->
-    <div v-if="bundleForm" class="modal-mask" @click.self="bundleForm = null">
+    <div v-if="bundleForm" class="modal-mask">
       <div class="modal wide">
         <h3>新建套装</h3>
         <div class="form-grid">
@@ -508,7 +508,7 @@
     </div>
 
     <!-- ==================== 弹窗：新建库位 ==================== -->
-    <div v-if="locForm" class="modal-mask" @click.self="locForm = null">
+    <div v-if="locForm" class="modal-mask">
       <div class="modal">
         <h3>新建库位</h3>
         <div class="form-grid">
@@ -530,7 +530,7 @@
     </div>
 
     <!-- ==================== 弹窗：账单明细 ==================== -->
-    <div v-if="billModal" class="modal-mask" @click.self="billModal = null">
+    <div v-if="billModal" class="modal-mask">
       <div class="modal xxwide">
         <div class="bill-head">
           <div>
@@ -598,7 +598,7 @@
     </div>
 
     <!-- ==================== 弹窗：ASN / 点收单明细 ==================== -->
-    <div v-if="detailModal" class="modal-mask" @click.self="detailModal = null">
+    <div v-if="detailModal" class="modal-mask">
       <div class="modal xwide">
         <h3>{{ detailModal.title }}</h3>
         <div class="table-wrap">
@@ -931,31 +931,31 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
-.stat span { font-size: 12px; color: #8a94a6; }
-.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: #16233b; }
-.stat small { font-size: 11.5px; color: #a9b4c5; }
+.stat { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 11px 13px; }
+.stat span { font-size: 12px; color: var(--ink-mute); }
+.stat strong { display: block; margin: 4px 0 2px; font-size: 20px; color: var(--ink); }
+.stat small { font-size: 12px; color: var(--ink-mute); }
 .amt-green { color: #16a34a; }
 .amt-red { color: #d92d45; }
 .amt-orange { color: #d97706; }
-.amt-blue { color: #2b6de5; }
+.amt-blue { color: var(--brand); }
 .muted { color: #9aa4b5; }
-.tiny { font-size: 11.5px; }
+.tiny { font-size: 12px; }
 .wrap { white-space: normal; line-height: 1.55; min-width: 120px; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
-.variant { color: #8a94a6; margin-left: 2px; }
+.variant { color: var(--ink-mute); margin-left: 2px; }
 .num { text-align: right; }
 .ops { white-space: nowrap; }
 .ok-txt { color: #16a34a; font-size: 12px; }
 .row-warn { background: #fffdf7; }
 .hint-bar { background: #f6f9ff; border: 1px solid #dbe4f5; border-radius: 9px; padding: 9px 12px; font-size: 12.5px; color: #3d4a63; line-height: 1.7; margin: 0 0 12px; }
 .block { margin-top: 18px; }
-.block h4 { margin: 0 0 8px; font-size: 13px; color: #16233b; }
-.block h4 small { margin-left: 8px; font-weight: 400; font-size: 11.5px; color: #9aa4b5; }
+.block h4 { margin: 0 0 8px; font-size: 13px; color: var(--ink); }
+.block h4 small { margin-left: 8px; font-weight: 400; font-size: 12px; color: #9aa4b5; }
 
-.pill { display: inline-block; font-size: 11px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
-.st-draft { background: #eef2f8; color: #64748b; }
-.st-in_transit { background: #eef4ff; color: #2b6de5; }
+.pill { display: inline-block; font-size: 12px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+.st-draft { background: #eef2f8; color: var(--ink-soft); }
+.st-in_transit { background: #eef4ff; color: var(--brand); }
 .st-arrived { background: #fff6e8; color: #b46207; }
 .st-receiving { background: #fdf0e6; color: #c2410c; }
 .st-done { background: #eefaf2; color: #15803d; }
@@ -963,14 +963,14 @@ onMounted(async () => {
 .st-pending { background: #fff6e8; color: #b46207; }
 .st-matched { background: #eefaf2; color: #15803d; }
 .st-disputed { background: #fdecef; color: #c0243c; }
-.st-settled { background: #eef2f8; color: #64748b; }
+.st-settled { background: #eef2f8; color: var(--ink-soft); }
 .pill-lock { background: #fdecef; color: #c0243c; }
 .dt-ok { background: #eefaf2; color: #15803d; }
 .dt-amount { background: #fdecef; color: #c0243c; }
 .dt-weight { background: #fff6e8; color: #b46207; }
 .dt-missing { background: #f3e8ff; color: #7c3aed; }
-.dt-no_rate { background: #eef2f8; color: #64748b; }
-.dt-extra { background: #eef4ff; color: #2b6de5; }
+.dt-no_rate { background: #eef2f8; color: var(--ink-soft); }
+.dt-extra { background: #eef4ff; color: var(--brand); }
 
 .asn-tbl { min-width: 1110px; width: 100%; }
 .rcv-tbl { min-width: 1000px; width: 100%; }
@@ -983,50 +983,50 @@ onMounted(async () => {
 .line-tbl th, .line-tbl td { padding: 5px 6px; }
 
 .loc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-.loc-card { background: #fff; border: 1px solid #e6ebf3; border-left: 3px solid #2b6de5; border-radius: 10px; padding: 10px 12px; }
+.loc-card { background: var(--surface); border: 1px solid #e6ebf3; border-left: 3px solid #2b6de5; border-radius: 10px; padding: 10px 12px; }
 .loc-card.z-sellable { border-left-color: #16a34a; }
 .loc-card.z-inspect { border-left-color: #2b6de5; }
 .loc-card.z-damaged { border-left-color: #d92d45; }
 .loc-card.z-return { border-left-color: #7c3aed; }
 .loc-card.z-staging { border-left-color: #94a3b8; }
 .loc-head { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; flex-wrap: wrap; }
-.loc-head b { font-size: 13px; color: #16233b; }
+.loc-head b { font-size: 13px; color: var(--ink); }
 .loc-body { display: flex; gap: 22px; margin-bottom: 5px; }
 .loc-body > div { min-width: 64px; }
-.loc-body span { display: block; font-size: 11.5px; color: #8a94a6; }
-.loc-body b { font-size: 15px; color: #16233b; }
+.loc-body span { display: block; font-size: 12px; color: var(--ink-mute); }
+.loc-body b { font-size: 15px; color: var(--ink); }
 .loc-ops { margin-top: 6px; }
 .z-sellable.pill { background: #eefaf2; color: #15803d; }
-.z-inspect.pill { background: #eef4ff; color: #2b6de5; }
+.z-inspect.pill { background: #eef4ff; color: var(--brand); }
 .z-damaged.pill { background: #fdecef; color: #c0243c; }
 .z-return.pill { background: #f3e8ff; color: #7c3aed; }
-.z-staging.pill { background: #eef2f8; color: #64748b; }
+.z-staging.pill { background: #eef2f8; color: var(--ink-soft); }
 
 .bundle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 12px; }
-.bundle-card { background: #fff; border: 1px solid #e6ebf3; border-radius: 12px; padding: 13px 15px; }
+.bundle-card { background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px; padding: 13px 15px; }
 .bd-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-.bd-head b { font-size: 14px; color: #16233b; }
-.rule-code { font-size: 11px; color: #a3adbe; font-family: ui-monospace, Menlo, Consolas, monospace; margin-top: 2px; }
+.bd-head b { font-size: 14px; color: var(--ink); }
+.rule-code { font-size: 12px; color: #a3adbe; font-family: ui-monospace, Menlo, Consolas, monospace; margin-top: 2px; }
 .bd-stat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 9px 0; border-top: 1px dashed #e9eef7; border-bottom: 1px dashed #e9eef7; margin-bottom: 9px; }
-.bd-stat span { display: block; font-size: 11.5px; color: #8a94a6; }
-.bd-stat b { font-size: 17px; color: #16233b; }
+.bd-stat span { display: block; font-size: 12px; color: var(--ink-mute); }
+.bd-stat b { font-size: 17px; color: var(--ink); }
 .bd-tbl { width: 100%; margin-bottom: 9px; }
-.bd-tbl th, .bd-tbl td { padding: 4px 5px; font-size: 11.5px; }
+.bd-tbl th, .bd-tbl td { padding: 4px 5px; font-size: 12px; }
 .bd-ops { display: flex; gap: 6px; }
 
 .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
 .fld { display: block; }
 .fld span { display: block; font-size: 12px; color: #6b7791; margin-bottom: 4px; }
 .fld input, .fld select { width: 100%; border: 1px solid #dbe3ef; border-radius: 8px; padding: 6px 9px; font-size: 13px; font-family: inherit; }
-.line-head { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 6px; font-size: 13px; color: #16233b; }
+.line-head { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 6px; font-size: 13px; color: var(--ink); }
 .cell-in { width: 100%; border: 1px solid #e2e8f2; border-radius: 6px; padding: 4px 6px; font-size: 12.5px; font-family: inherit; }
 .cell-in.num { text-align: right; }
 .modal-mask { position: fixed; inset: 0; background: rgba(20, 30, 48, 0.42); display: flex; align-items: center; justify-content: center; z-index: 60; }
-.modal { background: #fff; border-radius: 14px; padding: 18px 20px; width: 560px; max-width: 94vw; max-height: 92vh; overflow: auto; box-shadow: 0 18px 50px rgba(16, 30, 55, 0.22); }
+.modal { background: var(--surface); border-radius: 14px; padding: 18px 20px; width: 560px; max-width: 94vw; max-height: 92vh; overflow: auto; box-shadow: 0 18px 50px rgba(16, 30, 55, 0.22); }
 .modal.wide { width: 880px; }
 .modal.xwide { width: 1000px; }
 .modal.xxwide { width: 1320px; }
-.modal h3 { margin: 0 0 8px; font-size: 15px; color: #16233b; }
+.modal h3 { margin: 0 0 8px; font-size: 15px; color: var(--ink); }
 .modal-ops { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .bill-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
 .bill-ops { display: flex; gap: 6px; white-space: nowrap; }

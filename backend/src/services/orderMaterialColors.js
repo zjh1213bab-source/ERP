@@ -99,6 +99,26 @@ function recalc(materialId) {
   const loss = 1 + (Number(row.loss) || 0) / 100;
   const colors = db.prepare('SELECT * FROM order_material_colors WHERE order_material_id = ?').all(materialId);
 
+  // 新下单的分色单价、分码用量、空差统一在此计算，采购/详情仍取同一结果。
+  const entry = row.entry_json ? JSON.parse(row.entry_json) : null;
+  if (entry?.version === 1) {
+    const sizeRows = db.prepare('SELECT color,size,qty FROM order_item_sizes WHERE item_id=?').all(row.item_id);
+    const configs = new Map((entry.colors || []).map(c => [c.colorway,c]));
+    const selected = new Map(colors.map(c => [c.colorway,c]));
+    let use=0, cost=0;
+    for (const s of sizeRows) {
+      if (!Number(row.all_colors) && (colors.length || entry.colors_configured) && !selected.has(s.color)) continue;
+      const c=configs.get(s.color), current=selected.get(s.color);
+      const sized=c?.sizes?.find(x=>x.size===s.size);
+      const one=sized ? Number(sized.one_use) : Number(current?.qty ?? row.one_use);
+      const u=one*Number(s.qty)*loss*100/Number(entry.air_gap || 100);
+      use+=u;cost+=u*Number(c?.price ?? row.price);
+    }
+    const total_use=round2(use), amount=round2(cost);
+    db.prepare('UPDATE order_materials SET total_use=?,amount=? WHERE id=?').run(total_use,amount,materialId);
+    return {total_use,amount};
+  }
+
   let totalUse;
   if (Number(row.all_colors) === 1 || !colors.length) {
     totalUse = round2((Number(row.one_use) || 0) * qtyOf(row.order_id, row.item_id) * loss);

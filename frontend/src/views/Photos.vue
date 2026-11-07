@@ -104,7 +104,7 @@
     </div>
 
     <!-- 大图 -->
-    <div v-if="cur" class="mask" @click.self="cur = null">
+    <div v-if="cur" class="mask">
       <div class="viewer">
         <img :src="cur.url" alt="" />
         <div class="viewer-side">
@@ -132,7 +132,7 @@
             <button v-if="cur.order_id !== undefined || cur.order_no" class="btn btn-ghost sm" @click="goOrder(cur)">
               看订单
             </button>
-            <button v-if="can('photo.write')" class="btn btn-ghost sm danger" @click="del(cur)">删除</button>
+            <button v-action="['photos','delete']" v-if="can('photo.write')" class="btn btn-ghost sm danger" @click="del(cur)">删除</button>
           </div>
           <p class="tiny muted">删除只是加一个标记，文件仍保留在服务器上——照片是证据，不能真删。</p>
         </div>
@@ -237,10 +237,10 @@ onMounted(() => load(0));
 </script>
 
 <style scoped>
-.sub { font-size: 12.5px; color: #6b7688; line-height: 1.9; margin: 6px 0 0; max-width: 900px; }
+.sub { font-size: 12.5px; color: var(--ink-soft); line-height: 1.9; margin: 6px 0 0; max-width: 900px; }
 .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
 .panel {
-  background: #fff; border: 1px solid #e6ebf3; border-radius: 14px;
+  background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px;
   padding: 14px 16px; margin-bottom: 14px;
 }
 .panel-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -248,23 +248,23 @@ onMounted(() => load(0));
 .trend { display: flex; align-items: flex-end; gap: 4px; }
 .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .trend-bar-wrap { width: 100%; height: 66px; display: flex; align-items: flex-end; justify-content: center; }
-.trend-bar { width: 100%; max-width: 26px; background: #2563eb; border-radius: 3px 3px 0 0; opacity: 0.85; }
-.trend-n { font-size: 10px; color: #6b7688; height: 12px; }
+.trend-bar { width: 100%; max-width: 26px; background: var(--brand); border-radius: 3px 3px 0 0; opacity: 0.85; }
+.trend-n { font-size: 12px; color: var(--ink-soft); height: 12px; }
 .trend-n.zero { color: transparent; }
-.trend-d { font-size: 9.5px; color: #a6b0c0; }
+.trend-d { font-size: 12px; color: #a6b0c0; }
 
 .filters {
-  background: #fff; border: 1px solid #e6ebf3; border-radius: 14px;
+  background: var(--surface); border: 1px solid #e6ebf3; border-radius: 14px;
   padding: 12px 14px; margin-bottom: 14px;
 }
 .cats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .chip {
-  border: 1px solid #dbe3ef; background: #fff; color: #4a5769; border-radius: 20px;
+  border: 1px solid #dbe3ef; background: var(--surface); color: #4a5769; border-radius: 20px;
   padding: 6px 14px; font-size: 12.5px; cursor: pointer;
 }
-.chip.on { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 700; }
+.chip.on { background: var(--brand); border-color: #2563eb; color: var(--on-brand); font-weight: 700; }
 .chip.danger:not(.on) { border-color: #f3c3cb; color: #d92d45; }
-.chip-n { font-size: 11px; opacity: 0.75; margin-left: 2px; }
+.chip-n { font-size: 12px; opacity: 0.75; margin-left: 2px; }
 .filter-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .inp {
   border: 1px solid #d9e1ee; border-radius: 9px; padding: 7px 11px; font-size: 12.5px;
@@ -279,22 +279,22 @@ onMounted(() => load(0));
   gap: 12px;
 }
 .cell {
-  position: relative; background: #fff; border: 1px solid #e6ebf3; border-radius: 12px;
+  position: relative; background: var(--surface); border: 1px solid #e6ebf3; border-radius: 12px;
   overflow: hidden; cursor: pointer; transition: box-shadow 0.15s;
 }
 .cell:hover { box-shadow: 0 4px 16px rgba(30, 50, 90, 0.12); }
 .cell img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #f4f7fc; }
 .cell-cat {
-  position: absolute; left: 7px; top: 7px; font-size: 10.5px; font-weight: 700;
-  padding: 2px 8px; border-radius: 20px; background: rgba(255, 255, 255, 0.94); color: #2563eb;
+  position: absolute; left: 7px; top: 7px; font-size: 12px; font-weight: 700;
+  padding: 2px 8px; border-radius: 20px; background: rgba(255, 255, 255, 0.94); color: var(--brand);
 }
 .cell-cat.defect { color: #d92d45; }
 .cell-cat.incoming { color: #b45309; }
 .cell-cat.packing { color: #0f766e; }
 .cell-cat.sample { color: #7c3aed; }
-.cell-cat.big { position: static; font-size: 11.5px; }
+.cell-cat.big { position: static; font-size: 12px; }
 .cell-foot { padding: 7px 9px 9px; }
-.cell-no { font-size: 11px; color: #8a94a6; }
+.cell-no { font-size: 12px; color: var(--ink-mute); }
 .cell-note {
   font-size: 12.5px; color: #1f2a3d; margin-top: 2px; line-height: 1.45;
   /* 两行截断：「左袖口跳线 3 处，已停线待返工」一行放不下，截成一行等于没说 */
@@ -302,11 +302,11 @@ onMounted(() => load(0));
   overflow: hidden; min-height: 36px;
 }
 .empty {
-  background: #fff; border: 1px dashed #dbe3ef; border-radius: 14px;
+  background: var(--surface); border: 1px dashed #dbe3ef; border-radius: 14px;
   padding: 40px 0; text-align: center; color: #a6b0c0; font-size: 13px;
 }
 .more { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 18px 0; }
-.link { color: #2563eb; cursor: pointer; }
+.link { color: var(--brand); cursor: pointer; }
 .btn.danger { color: #d92d45; border-color: #f3c3cb; }
 
 .mask {

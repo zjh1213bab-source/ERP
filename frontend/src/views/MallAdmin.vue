@@ -58,7 +58,7 @@
               <td>{{ p.tags || '-' }}</td>
               <td><span class="tag" :class="p.status === 'published' ? 'green' : p.status === 'draft' ? 'gray' : 'orange'">{{ statusLabel(p.status) }}</span></td>
               <td v-if="canWrite" style="white-space: nowrap">
-                <button class="link-btn" @click="openProductForm(p)">编辑</button>
+                <button v-action="['mall-admin','edit']"  class="link-btn" @click="openProductForm(p)">编辑</button>
                 <button v-if="p.status !== 'published'" class="link-btn" @click="setStatus(p, 'published')">上架</button>
                 <button v-else class="link-btn" @click="setStatus(p, 'off')">下架</button>
                 <button class="link-btn" @click="openPrice(p)">专属价</button>
@@ -152,8 +152,8 @@
               <td v-if="canWrite" style="white-space: nowrap">
                 <button v-if="a.role === 'owner'" class="link-btn" @click="openApprove(a)">批准上限</button>
                 <button class="link-btn" @click="resetPwd(a)">重置密码</button>
-                <button v-if="a.status === 'active'" class="link-btn danger" @click="setAccountStatus(a, 'disabled')">停用</button>
-                <button v-else class="link-btn" @click="setAccountStatus(a, 'active')">启用</button>
+                <button  v-if="a.status === 'active'" class="link-btn danger" @click="setAccountStatus(a, 'disabled')">停用</button>
+                <button  v-else class="link-btn" @click="setAccountStatus(a, 'active')">启用</button>
               </td>
             </tr>
             <tr v-if="!accounts.length"><td :colspan="canWrite ? 9 : 8" class="empty-cell">还没有商城账号，点「开通账号」或「发注册邀请」</td></tr>
@@ -186,7 +186,7 @@
     </template>
 
     <!-- ===== 商品表单 ===== -->
-    <div v-if="productForm" class="modal-mask" @click.self="productForm = null">
+    <div v-if="productForm" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>{{ productForm.id ? '编辑商城商品' : '发布商品到商城' }}</h3>
@@ -234,7 +234,7 @@
     </div>
 
     <!-- ===== 客户专属价 ===== -->
-    <div v-if="priceModal" class="modal-mask" @click.self="priceModal = null">
+    <div v-if="priceModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>客户专属价 · {{ priceModal.name_cn }}</h3>
@@ -271,7 +271,7 @@
     </div>
 
     <!-- ===== 报价 ===== -->
-    <div v-if="quoteModal" class="modal-mask" @click.self="quoteModal = null">
+    <div v-if="quoteModal" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>报价 · {{ quoteModal.inquiry_no }}</h3>
@@ -311,7 +311,7 @@
     </div>
 
     <!-- ===== 询价明细 ===== -->
-    <div v-if="inqDetail" class="modal-mask" @click.self="inqDetail = null">
+    <div v-if="inqDetail" class="modal-mask">
       <div class="modal wide">
         <div class="modal-head">
           <h3>询价明细 · {{ inqDetail.inquiry_no }}</h3>
@@ -344,7 +344,7 @@
     </div>
 
     <!-- ===== 开通账号 ===== -->
-    <div v-if="accountForm" class="modal-mask" @click.self="accountForm = null">
+    <div v-if="accountForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>开通商城账号</h3>
@@ -378,7 +378,7 @@
 
 
     <!-- ===== 批准权限上限 ===== -->
-    <div v-if="approveModal" class="modal-mask" @click.self="approveModal = null">
+    <div v-if="approveModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>批准客户可分配的权限上限 · {{ approveModal.name }}</h3>
@@ -405,7 +405,7 @@
     </div>
 
     <!-- ===== 发注册邀请 ===== -->
-    <div v-if="inviteForm" class="modal-mask" @click.self="inviteForm = null">
+    <div v-if="inviteForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>发注册邀请</h3>
@@ -459,7 +459,7 @@
     </div>
 
     <!-- ===== 授权审计 ===== -->
-    <div v-if="auditOpen" class="modal-mask" @click.self="auditOpen = false">
+    <div v-if="auditOpen" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>客户授权审计</h3>
@@ -490,7 +490,7 @@
     </div>
 
     <!-- ===== 发通知 ===== -->
-    <div v-if="notifyForm" class="modal-mask" @click.self="notifyForm = null">
+    <div v-if="notifyForm" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>给客户发站内通知</h3>
@@ -809,14 +809,14 @@ onMounted(() => {
 .table-wrap table.data td.perm-cell { white-space: normal; }
 .perm-cell { font-size: 12px; color: #5b6474; max-width: 260px; white-space: normal; line-height: 1.5; }
 .invite-box { margin-top: 18px; }
-.invite-box h4 { margin: 0 0 8px; font-size: 13px; color: #16233b; }
+.invite-box h4 { margin: 0 0 8px; font-size: 13px; color: var(--ink); }
 .perm-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .perm-chk { display: flex; align-items: flex-start; gap: 8px; border: 1px solid #e8edf4; border-radius: 9px; padding: 8px 10px; cursor: pointer; }
 .perm-chk:hover { background: #f8fafd; }
 .perm-chk span { display: flex; flex-direction: column; gap: 2px; }
-.perm-chk b { font-size: 12.5px; color: #16233b; font-weight: 600; }
-.perm-chk i { font-size: 11px; color: #9aa4b5; font-style: normal; }
+.perm-chk b { font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.perm-chk i { font-size: 12px; color: #9aa4b5; font-style: normal; }
 .invite-result { margin-top: 12px; background: #f6f9ff; border: 1px solid #dbe4f5; border-radius: 9px; padding: 10px 12px; font-size: 12.5px; line-height: 1.8; }
-.invite-result code { display: block; background: #fff; border: 1px solid #e3e9f2; border-radius: 6px; padding: 6px 8px; margin: 6px 0; font-size: 12.5px; word-break: break-all; color: #1d4ed8; }
-.audit-detail { max-width: 300px; white-space: normal; word-break: break-all; font-size: 11.5px; color: #6b7688; }
+.invite-result code { display: block; background: var(--surface); border: 1px solid #e3e9f2; border-radius: 6px; padding: 6px 8px; margin: 6px 0; font-size: 12.5px; word-break: break-all; color: #1d4ed8; }
+.audit-detail { max-width: 300px; white-space: normal; word-break: break-all; font-size: 12px; color: var(--ink-soft); }
 </style>

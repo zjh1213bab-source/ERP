@@ -26,7 +26,7 @@
       </select>
       <input class="input" v-model="q" placeholder="收款方 / 经办人 / 备注" @keyup.enter="load" style="width: 200px" />
       <button class="btn btn-ghost" @click="load">查询</button>
-      <button class="btn btn-ghost btn-sm" @click="exportCsv">导出 CSV</button>
+      <button v-action="['admin-expenses','export']" class="btn btn-ghost btn-sm" @click="exportCsv">导出 CSV</button>
       <button class="btn btn-ghost btn-sm" @click="quickRange('month')">本月</button>
       <button class="btn btn-ghost btn-sm" @click="quickRange('lastMonth')">上月</button>
       <button class="btn btn-ghost btn-sm" @click="quickRange('year')">本年</button>
@@ -57,12 +57,13 @@
     </div>
 
     <div class="table-wrap">
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data">
         <thead>
           <tr><th>日期</th><th>类别</th><th class="num">金额</th><th>收款方</th><th>经办人</th><th>付款方式</th><th>备注</th><th v-if="canWrite" style="width: 110px">操作</th></tr>
         </thead>
         <tbody>
-          <tr v-for="r in list" :key="r.id">
+          <tr v-for="r in pagination.rows" :key="r.id">
             <td>{{ r.expense_date }}</td>
             <td><span class="tag gray">{{ r.category }}</span></td>
             <td class="num"><strong>¥{{ money(r.amount) }}</strong></td>
@@ -71,16 +72,17 @@
             <td>{{ r.payment_method || '-' }}</td>
             <td>{{ r.remark || '-' }}</td>
             <td v-if="canWrite" style="white-space: nowrap">
-              <button class="link-btn" @click="openEdit(r)">编辑</button>
-              <button class="link-btn danger" @click="remove(r)">删除</button>
+              <button v-action="['admin-expenses','edit']" class="link-btn" @click="openEdit(r)">编辑</button>
+              <button v-action="['admin-expenses','delete']" class="link-btn danger" @click="remove(r)">删除</button>
             </td>
           </tr>
           <tr v-if="!list.length"><td :colspan="canWrite ? 8 : 7" class="empty-cell">该区间暂无费用记录</td></tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
+    <div v-if="showModal" class="modal-mask">
       <div class="modal">
         <div class="modal-head">
           <h3>{{ form.id ? '编辑费用' : '登记费用' }}</h3>
@@ -118,6 +120,8 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { api, downloadFile } from '../api';
 import { can } from '../store/permissions';
@@ -231,6 +235,8 @@ async function exportCsv() {
 }
 
 onMounted(load);
+
+const pagination = useListPagination(() => list.value);
 </script>
 
 <style scoped>
@@ -238,8 +244,8 @@ onMounted(load);
 .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 13px; }
 .bar-name { width: 64px; color: #4a566a; flex: none; }
 .bar-track { flex: 1; height: 12px; background: #eef2f7; border-radius: 6px; overflow: hidden; }
-.bar-fill { height: 100%; background: linear-gradient(90deg, #2b6de5, #6aa1ff); border-radius: 6px; }
-.bar-val { width: 104px; text-align: right; font-variant-numeric: tabular-nums; color: #16233b; font-weight: 600; flex: none; }
+.bar-fill { height: 100%; background: var(--brand); border-radius: 6px; }
+.bar-val { width: 104px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; flex: none; }
 @media (max-width: 900px) {
   .two-col { grid-template-columns: 1fr; }
 }

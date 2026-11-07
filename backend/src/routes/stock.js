@@ -15,6 +15,13 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+/** 单据备注随实物流水留档；缺省沿用订单说明，避免订单有说明而库存流水丢失。 */
+function movementRemark(body,order){
+  const remark=body?.remark??order.remark??'';
+  if(typeof remark!=='string'||remark.length>2000)throw Object.assign(new Error('出入库说明须为不超过2000字的文本'),{status:400});
+  return remark.trim();
+}
 const WRITE = ['admin', 'warehouse', 'production', 'sales'];
 // 库存原子操作统一走 services/stockOps，避免与零售/渠道履约出现两套口径
 const { getStock, applyStock, addLedger, round2 } = require('../services/stockOps');
@@ -185,6 +192,7 @@ router.post('/instock', authRequired, requireRole(['admin', 'warehouse', 'produc
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(order_id);
   if (!order) return fail(res, 404, '订单不存在');
   if (order.status !== 'production') return fail(res, 400, `订单当前为「${order.status}」，只有生产中的订单可入库`);
+  const movementNote=movementRemark(req.body,order);
   orderFlow.check(order_id, { to: 'instock', user: req.user, source: 'stock' });
   const rows = orderSizeRows(order_id);
   if (!rows.length) return fail(res, 400, '订单没有明细');
@@ -196,7 +204,7 @@ router.post('/instock', authRequired, requireRole(['admin', 'warehouse', 'produc
     rows.forEach((r) => {
       if (!Number(r.qty)) return;
       applyStock({ warehouse, style_no: r.style_no, product_name: r.product_name, color: r.color, size: r.size, delta: Number(r.qty) });
-      addLedger({ warehouse, style_no: r.style_no, product_name: r.product_name, color: r.color, size: r.size, type: 'in', qty: Number(r.qty), ref_type: 'order', ref_id: Number(order_id), remark: '成品入库', operator: req.user.username });
+      addLedger({ warehouse, style_no: r.style_no, product_name: r.product_name, color: r.color, size: r.size, type: 'in', qty: Number(r.qty), ref_type: 'order', ref_id: Number(order_id), remark: ['成品入库',movementNote].filter(Boolean).join('；'), operator: req.user.username });
     });
     const t = now();
     db.prepare('UPDATE orders SET status=?, updated_at=? WHERE id=?').run('instock', t, order_id);
@@ -210,7 +218,7 @@ router.post('/instock', authRequired, requireRole(['admin', 'warehouse', 'produc
      */
     markDoneByCode(order_id, 'instock', { date: t.slice(0, 10), operator: req.user.username });
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
-      .run(order_id, order.status, 'instock', req.user.username, `成品入库(${warehouse})`, t);
+      .run(order_id, order.status, 'instock', req.user.username, [`成品入库(${warehouse})`,movementNote].filter(Boolean).join('；'), t);
     db.exec('COMMIT');
     orderFlow.afterTransition(order, { to: 'instock', note: `成品入库(${warehouse})`, user: req.user });
     return ok(res, { order_id: Number(order_id), warehouse, status: 'instock' });
@@ -226,6 +234,7 @@ router.post('/ship', authRequired, requireRole(['admin', 'warehouse', 'finance']
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(order_id);
   if (!order) return fail(res, 404, '订单不存在');
   if (order.status !== 'instock') return fail(res, 400, `订单当前为「${order.status}」，只有已入库可发货`);
+  const movementNote=movementRemark(req.body,order);
   orderFlow.check(order_id, { to: 'shipped', user: req.user, source: 'stock' });
   const rows = orderSizeRows(order_id);
   // 入库那边有「订单没有明细」的校验，发货这边原来漏了：
@@ -267,15 +276,16 @@ router.post('/ship', authRequired, requireRole(['admin', 'warehouse', 'finance']
     rows.forEach((r) => {
       if (!Number(r.qty)) return;
       applyStock({ warehouse, style_no: r.style_no, product_name: r.product_name, color: r.color, size: r.size, delta: -Number(r.qty) });
-      addLedger({ warehouse, style_no: r.style_no, product_name: r.product_name, color: r.color, size: r.size, type: 'out', qty: -Number(r.qty), ref_type: 'order', ref_id: Number(order_id), remark: '发货出库', operator: req.user.username });
+      addLedger({ warehouse, style_no: r.style_no, product_name: r.product_name, color: r.color, size: r.size, type: 'out', qty: -Number(r.qty), ref_type: 'order', ref_id: Number(order_id), remark: ['发货出库',movementNote].filter(Boolean).join('；'), operator: req.user.username });
     });
     const t = now();
     db.prepare('UPDATE orders SET status=?, updated_at=? WHERE id=?').run('shipped', t, order_id);
     // 同上：按 code（ship）标记，改名不影响
     markDoneByCode(order_id, 'ship', { date: t.slice(0, 10), operator: req.user.username });
-    const shipNote = consumed
+    const shipNoteBase = consumed
       ? `发货出库(${warehouse})·信用放行单#${consumed.id}`
       : `发货出库(${warehouse})`;
+    const shipNote=[shipNoteBase,movementNote].filter(Boolean).join('；');
     db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
       .run(order_id, order.status, 'shipped', req.user.username, shipNote, t);
     db.exec('COMMIT');

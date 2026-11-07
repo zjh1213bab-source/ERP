@@ -19,7 +19,7 @@
           <button class="btn btn-primary" :disabled="!employeeId || busy" @click="clock('in')">上班打卡</button>
           <button class="btn btn-ghost" :disabled="!employeeId || busy" @click="clock('out')">下班打卡</button>
         </div>
-        <span v-if="today" style="font-size: 13px; color: #33415a">
+        <span v-if="today" style="font-size: 13px; color: var(--ink)">
           今日：上班 {{ today.check_in || '-' }} / 下班 {{ today.check_out || '-' }}
           <span class="tag" :class="today.status === 'late' ? 'orange' : 'green'">{{ statusLabel(today.status) }}</span>
         </span>
@@ -31,16 +31,18 @@
       <div class="toolbar" style="margin-bottom: 12px">
         <input class="input" type="month" v-model="month" @change="load" style="width: 180px" />
       </div>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
       <table class="data">
         <thead><tr><th>日期</th><th>员工</th><th>上班</th><th>下班</th><th>状态</th></tr></thead>
         <tbody>
-          <tr v-for="a in rows" :key="a.id">
+          <tr v-for="a in pagination.rows" :key="a.id">
             <td>{{ a.date }}</td><td>{{ a.employee_name }}</td><td>{{ a.check_in || '-' }}</td><td>{{ a.check_out || '-' }}</td>
             <td><span class="tag" :class="a.status === 'late' ? 'orange' : 'green'">{{ statusLabel(a.status) }}</span></td>
           </tr>
           <tr v-if="!rows.length"><td colspan="5" class="empty-cell">暂无考勤记录</td></tr>
         </tbody>
       </table>
+      <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
     </div>
 
     <!-- ============ 钉钉同步 ============ -->
@@ -133,6 +135,8 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
 
@@ -220,6 +224,8 @@ onMounted(async () => {
   await load();
   await loadDt();
 });
+
+const pagination = useListPagination(() => rows.value);
 </script>
 
 <style scoped>
@@ -230,11 +236,11 @@ onMounted(async () => {
 /* 钉钉同步 */
 .dt-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .dt-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.dt-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: #33415a; margin: 0 0 8px; }
+.dt-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--ink); margin: 0 0 8px; }
 .dt-hint { background: #fff8e8; border: 1px solid #f3dfae; color: #8a5a00; font-size: 12px; line-height: 1.7; padding: 10px 12px; border-radius: 8px; margin: 0 0 10px; }
-.dt-probe { background: #f7f9fc; border: 1px solid #e6ebf3; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.dt-probe { background: var(--surface-2); border: 1px solid #e6ebf3; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
 .dt-step { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
-.dt-result { font-size: 13px; color: #16233b; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 0 0 6px; }
+.dt-result { font-size: 13px; color: var(--ink); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 0 0 6px; }
 .dt-sub { font-size: 12px; color: #6b7a90; margin: 14px 0 8px; }
 .dt-input { width: 100%; max-width: 260px; }
 

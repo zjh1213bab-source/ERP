@@ -123,7 +123,7 @@
               <button v-if="j.exists && j.kind !== 'restore'" class="link-btn" @click="download(j)">下载</button>
               <button v-if="j.exists && j.kind !== 'restore'" class="link-btn" @click="verify(j)">校验</button>
               <button v-if="j.exists && j.kind !== 'restore'" class="link-btn strong" @click="askRestore(j)">恢复</button>
-              <button v-if="j.kind !== 'restore'" class="link-btn danger" @click="remove(j)">删除</button>
+              <button v-action="['backup','delete']" v-if="j.kind !== 'restore'" class="link-btn danger" @click="remove(j)">删除</button>
               <span v-if="!j.exists && j.kind !== 'restore'" class="tiny muted">文件已清理</span>
             </td>
           </tr>
@@ -194,7 +194,7 @@
     </div>
 
     <!-- 恢复确认弹层 -->
-    <div v-if="confirm.show" class="modal-mask" @click.self="confirm.show = false">
+    <div v-if="confirm.show" class="modal-mask">
       <div class="modal-box">
         <h3>确认恢复这份备份？</h3>
         <div class="cf-target">
@@ -216,7 +216,7 @@
     </div>
 
     <!-- 上传预检结果 -->
-    <div v-if="prep.show" class="modal-mask" @click.self="prep.show = false">
+    <div v-if="prep.show" class="modal-mask">
       <div class="modal-box wide">
         <h3>预检通过，已准备恢复</h3>
         <p class="tiny muted">
@@ -413,12 +413,12 @@ onMounted(async () => {
 }
 .banner .bn-sub {
   font-size: 12px;
-  color: #6b7688;
+  color: var(--ink-soft);
   margin-top: 5px;
 }
 .banner .bn-cmd {
-  font-size: 11.5px;
-  color: #8a94a6;
+  font-size: 12px;
+  color: var(--ink-mute);
   margin-top: 6px;
 }
 .banner code,
@@ -426,13 +426,13 @@ onMounted(async () => {
   background: #eef2f9;
   padding: 1px 6px;
   border-radius: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 .mono {
-  background: #f2f5fa;
+  background: var(--bg);
   padding: 1px 6px;
   border-radius: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .tabs.mine {
@@ -448,7 +448,7 @@ table.data td.ops .link-btn + .link-btn {
 .link-btn {
   background: none;
   border: none;
-  color: #2563eb;
+  color: var(--brand);
   font-size: 12px;
   cursor: pointer;
   padding: 0 6px 0 0;
@@ -497,7 +497,7 @@ table.data td.ops .link-btn + .link-btn {
   z-index: 100;
 }
 .modal-box {
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 22px;
   width: 480px;
@@ -553,7 +553,7 @@ table.data td.ops .link-btn + .link-btn {
   font-size: 12.5px;
 }
 .kv-grid span {
-  color: #8a94a6;
+  color: var(--ink-mute);
 }
 .modal-ops {
   display: flex;

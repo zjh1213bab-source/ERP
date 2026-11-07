@@ -1,23 +1,29 @@
 <template>
-  <div>
-    <div class="page-head">
+  <div class="quote-page">
+    <div class="page-head quote-heading">
       <div>
         <h2>报价单</h2>
-        <div class="sub">按数量阶梯自动取价 → 报价 → 一键转销售订单</div>
+        <div class="sub">管理客户报价，跟进意向与订单转化</div>
       </div>
-      <button v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新建报价单</button>
+      <div class="quote-heading-actions">
+        <details class="quote-help"><summary><UiIcon name="assist" />流程说明</summary><div class="quote-help-content"><strong>报价处理流程</strong><p>{{approvalNote}}</p></div></details>
+        <button v-action="['quotations','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新建报价单</button>
+      </div>
     </div>
 
-    <div class="toolbar" style="margin-bottom: 14px">
-      <input class="input" v-model="q" placeholder="搜索报价单号 / 客户" @keyup.enter="load" style="width: 240px" />
+    <section class="quote-records" aria-label="报价记录">
+      <div class="quote-records-head">
+        <div class="quote-records-title"><span class="quote-section-icon"><UiIcon name="sales" /></span><div><h3>报价记录</h3><p>查看报价进度与客户反馈</p></div></div>
+        <form class="quote-filters" @submit.prevent="load">
+      <div class="quote-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input class="input" v-model="q" placeholder="搜索报价单号 / 客户" aria-label="搜索报价单号或客户" /></div>
       <select class="select" v-model="status" @change="load">
         <option value="">全部状态</option>
         <option v-for="(label, key) in labels" :key="key" :value="key">{{ label }}</option>
       </select>
-      <button class="btn btn-ghost" @click="load">查询</button>
-    </div>
-
-    <div class="table-wrap">
+      <button class="btn btn-ghost" type="submit">查询</button>
+        </form>
+      </div>
+      <div class="quote-table-scroll">
       <table class="data">
         <thead>
           <tr>
@@ -27,23 +33,23 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in list" :key="r.id">
-            <td><strong>{{ r.quote_no }}</strong></td>
-            <td>{{ r.customer_name || '-' }}</td>
+          <tr v-for="r in pagination.rows" :key="r.id">
+            <td class="quote-number"><strong>{{ r.quote_no }}</strong></td>
+            <td><span :class="{'quote-cell-muted':!r.customer_name}">{{ r.customer_name || '未关联客户' }}</span></td>
             <td class="num">{{ r.total_qty }}</td>
-            <td class="num">${{ money(r.total_usd) }}</td>
-            <td class="num">¥{{ money(r.total_amount) }}</td>
-            <td>{{ r.valid_until || '-' }}</td>
+            <td class="num quote-amount">${{ money(r.total_usd) }}</td>
+            <td class="num quote-cell-muted">¥{{ money(r.total_amount) }}</td>
+            <td><span :class="{'quote-cell-muted':!r.valid_until}">{{ r.valid_until || '未设置' }}</span></td>
             <td><span class="tag" :class="statusClass(r.status)">{{ labels[r.status] || r.status }}</span></td>
-            <td>
+            <td class="quote-row-actions">
               <button class="link-btn" @click="openDetail(r)">明细</button>
-              <button v-if="r.status === 'draft' && canWrite" class="link-btn" @click="openEdit(r)">编辑</button>
+              <button v-action="['quotations','edit']" v-if="r.status === 'draft' && canWrite" class="link-btn" @click="openEdit(r)">编辑</button>
               <button v-if="r.status === 'draft' && canWrite" class="link-btn" @click="setStatus(r, 'sent')">发出</button>
               <button v-if="r.status === 'sent' && canWrite" class="link-btn" @click="setStatus(r, 'accepted')">客户接受</button>
               <button v-if="r.status === 'sent' && canWrite" class="link-btn danger" @click="setStatus(r, 'rejected')">客户拒绝</button>
               <button v-if="r.status === 'accepted' && canWrite" class="link-btn" @click="convert(r)">转订单</button>
               <button v-if="r.order_id" class="link-btn" @click="$router.push('/orders')">看订单</button>
-              <button v-if="r.status === 'draft' && canWrite" class="link-btn danger" @click="remove(r)">删除</button>
+              <button v-action="['quotations','delete']" v-if="r.status === 'draft' && canWrite" class="link-btn danger" @click="remove(r)">删除</button>
             </td>
           </tr>
           <tr v-if="!list.length">
@@ -51,10 +57,15 @@
           </tr>
         </tbody>
       </table>
-    </div>
+      </div>
+      <footer class="quote-records-foot" :class="{'single-page':pagination.total<=pagination.pageSize}">
+        <span class="quote-result-count" aria-live="polite">共 <strong>{{pagination.total}}</strong> 条报价记录</span>
+        <ListPagination v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" />
+      </footer>
+    </section>
 
     <!-- 新建 / 编辑 -->
-    <div v-if="showForm" class="modal-mask" @click.self="showForm = false">
+    <div v-if="showForm" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>{{ form.id ? '编辑报价单 ' + form.quote_no : '新建报价单' }}</h3>
@@ -81,7 +92,7 @@
           <table class="data">
             <thead>
               <tr>
-                <th style="min-width: 200px">产品</th>
+                <th style="width: 100px">款式图片</th><th style="min-width: 200px">产品</th>
                 <th style="width: 130px">颜色 / 花型</th>
                 <th style="width: 100px">数量</th>
                 <th style="width: 120px">单价 USD</th>
@@ -91,6 +102,7 @@
             </thead>
             <tbody>
               <tr v-for="(it, i) in form.items" :key="i">
+                <td><ImageUpload v-model="it.image_url" size="sm" title="报价款式图片" /><small class="muted">上传 / Ctrl+V</small></td>
                 <td>
                   <select class="select" v-model="it.product_id" @change="onPickProduct(it)">
                     <option :value="null">— 手填 —</option>
@@ -112,11 +124,11 @@
                 <td class="num">${{ money((Number(it.qty) || 0) * (Number(it.price_usd) || 0)) }}</td>
                 <td style="white-space: nowrap">
                   <button class="link-btn" @click="takeTier(it)">阶梯价</button>
-                  <button class="link-btn danger" @click="form.items.splice(i, 1)">删除</button>
+                  <button  class="link-btn danger" @click="form.items.splice(i, 1)">删除</button>
                 </td>
               </tr>
               <tr v-if="!form.items.length">
-                <td colspan="6" class="empty-cell">添加一行开始报价</td>
+                <td colspan="7" class="empty-cell">添加一行开始报价</td>
               </tr>
             </tbody>
           </table>
@@ -138,7 +150,7 @@
     </div>
 
     <!-- 明细 -->
-    <div v-if="detail" class="modal-mask" @click.self="detail = null">
+    <div v-if="detail" class="modal-mask">
       <div class="modal xwide">
         <div class="modal-head">
           <h3>报价单 {{ detail.quote_no }}</h3>
@@ -158,11 +170,11 @@
           </table>
           <table class="data">
             <thead>
-              <tr><th>序号</th><th>款号</th><th>产品</th><th class="num">数量</th><th class="num">单价 USD</th><th class="num">金额 USD</th><th class="num">金额 CNY</th><th>计价</th></tr>
+              <tr><th>序号</th><th>款式图片</th><th>款号</th><th>产品</th><th class="num">数量</th><th class="num">单价 USD</th><th class="num">金额 USD</th><th class="num">金额 CNY</th><th>计价</th></tr>
             </thead>
             <tbody>
               <tr v-for="(it, i) in detail.items" :key="it.id">
-                <td>{{ i + 1 }}</td>
+                <td>{{ i + 1 }}</td><td><img v-if="it.image_url" :src="it.image_url" :alt="it.product_name" class="quote-photo" /><span v-else class="muted">—</span></td>
                 <td>{{ it.sku || '-' }}</td>
                 <td>{{ it.product_name }}</td>
                 <td class="num">{{ it.qty }}</td>
@@ -174,7 +186,7 @@
             </tbody>
             <tfoot>
               <tr>
-                <th colspan="3">合计</th>
+                <th colspan="4">合计</th>
                 <th class="num">{{ detail.total_qty }}</th>
                 <th></th>
                 <th class="num">${{ money(detail.total_usd) }}</th>
@@ -197,6 +209,10 @@
 </template>
 
 <script setup>
+import ListPagination from '../components/ListPagination.vue';
+import ImageUpload from '../components/ImageUpload.vue';
+import UiIcon from '../components/UiIcon.vue';
+import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
@@ -212,6 +228,7 @@ const q = ref('');
 const status = ref('');
 const labels = ref({ draft: '草稿', sent: '已发出', accepted: '已接受', rejected: '已拒绝', converted: '已转订单' });
 const rate = ref(6.5);
+const approvalNote=ref('当前无内部审批：业务员或管理员在报价单页发出，登记客户接受/拒绝后方可转订单；审批中心不处理报价单。');
 
 const showForm = ref(false);
 const saving = ref(false);
@@ -243,6 +260,7 @@ async function loadMeta() {
     const m = await api.quotationMeta();
     labels.value = m.labels;
     rate.value = m.rate;
+    approvalNote.value=m.approval?.description || approvalNote.value;
   } catch (e) { /* 默认值兜底 */ }
 }
 
@@ -261,7 +279,7 @@ function colorOptions(it) {
 }
 
 function addItem() {
-  form.value.items.push({ product_id: null, product_name: '', color: '', qty: 0, price_usd: 0 });
+  form.value.items.push({ product_id: null, product_name: '',image_url:'', color: '', qty: 0, price_usd: 0 });
 }
 
 function onPickProduct(it) {
@@ -306,7 +324,7 @@ async function openEdit(row) {
       delivery_days: d.delivery_days || 0, remark: d.remark || '',
       items: d.items.map((it) => ({
         product_id: it.product_id, product_name: it.product_name, sku: it.sku, color: it.color || '',
-        qty: it.qty, price_usd: it.price_usd
+        qty: it.qty, price_usd: it.price_usd,image_url:it.image_url || ''
       }))
     };
     showForm.value = true;
@@ -402,4 +420,52 @@ onMounted(() => {
   loadMeta();
   loadBase();
 });
+
+const pagination = useListPagination(() => list.value);
 </script>
+
+<style scoped>
+.quote-page {max-width:1440px;margin:0 auto;}
+.quote-heading {align-items:center;margin-bottom:26px;}
+.quote-heading-actions {display:flex;align-items:center;gap:12px;flex:none;}
+.quote-help {position:relative;}
+.quote-help summary {list-style:none;display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-mute);padding:8px 10px;border-radius:7px;cursor:pointer;}
+.quote-help summary::-webkit-details-marker {display:none;}
+.quote-help summary:hover,.quote-help[open] summary {background:var(--surface);color:var(--brand);}
+.quote-help summary svg {width:15px;height:15px;}
+.quote-help-content {position:absolute;right:0;top:calc(100% + 10px);width:330px;max-width:80vw;z-index:25;padding:17px 19px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-md);}
+.quote-help-content strong {font-size:13px;font-weight:600;color:var(--ink);}
+.quote-help-content p {font-size:12px;line-height:1.8;color:var(--ink-soft);margin:8px 0 0;}
+.quote-records {border:1px solid var(--line);border-radius:13px;background:var(--surface);box-shadow:var(--shadow-sm);overflow:visible;}
+.quote-records-head {display:flex;justify-content:space-between;align-items:center;gap:20px;padding:21px 23px;}
+.quote-records-title {display:flex;align-items:center;gap:11px;flex:none;}
+.quote-section-icon {display:grid;place-items:center;width:36px;height:38px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);color:var(--brand);}
+.quote-records-title h3 {font-size:14px;font-weight:600;margin:0;color:var(--ink);}
+.quote-records-title p {font-size:11px;color:var(--ink-mute);margin:3px 0 0;}
+.quote-filters {display:flex;align-items:center;gap:9px;}
+.quote-search {position:relative;width:260px;}
+.quote-search>svg {position:absolute;left:12px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--ink-mute);}
+.quote-search .input {width:100%;padding-left:36px;}
+.quote-filters>.select {min-width:110px;}
+.quote-table-scroll {overflow-x:auto;}
+.quote-table-scroll table.data {min-width:930px;}
+.quote-table-scroll table.data th {padding:13px 20px;font-size:11px;color:var(--ink-mute);font-weight:550;border-top:1px solid var(--line);background:var(--surface-2);}
+.quote-table-scroll table.data td {padding:22px 20px;font-variant-numeric:tabular-nums;}
+.quote-number {min-width:210px;}
+.quote-number strong {font-weight:600;letter-spacing:.1px;}
+.quote-table-scroll table.data .quote-cell-muted {color:var(--ink-mute);}
+.quote-table-scroll table.data .quote-amount {font-weight:600;}
+.quote-row-actions {white-space:nowrap;}
+.quote-row-actions .link-btn {padding:5px 7px;border-radius:5px;margin-right:2px;}
+.quote-row-actions .link-btn:hover {background:var(--brand-soft);}
+.quote-row-actions .link-btn.danger:hover {background:color-mix(in srgb,var(--danger) 8%,var(--surface));}
+.quote-records-foot {display:flex;align-items:center;justify-content:space-between;gap:20px;padding:15px 22px;border-top:1px solid var(--line);}
+.quote-result-count {font-size:12px;color:var(--ink-mute);white-space:nowrap;}
+.quote-result-count strong {font-weight:600;color:var(--ink-soft);margin:0 2px;}
+.quote-records-foot :deep(.list-pagination) {padding:0;gap:14px;}
+.quote-records-foot :deep(.pagination-summary) {display:none;}
+.quote-records-foot.single-page :deep(.pagination-buttons) {display:none;}
+@media(max-width:1100px) {.quote-records-head{align-items:flex-start;flex-direction:column;gap:16px;}.quote-filters{width:100%;}.quote-search{flex:1;width:auto;}}
+@media(max-width:600px) {.quote-heading{align-items:flex-start;}.quote-heading-actions{flex-direction:column-reverse;align-items:flex-end;gap:5px;}.quote-help summary{font-size:11px;}.quote-records-head{padding:18px 16px;}.quote-filters{flex-wrap:wrap;}.quote-search{flex:1 1 100%;}.quote-filters>.select{flex:1;}.quote-records-foot{padding:14px 16px;flex-wrap:wrap;gap:12px;}.quote-records-foot :deep(.list-pagination){width:100%;}.quote-records-foot :deep(.pagination-size){margin-right:auto;}}
+.quote-photo {width:64px;height:64px;object-fit:contain;cursor:zoom-in;border-radius:6px;}
+</style>

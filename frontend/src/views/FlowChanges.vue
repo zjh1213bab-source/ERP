@@ -144,7 +144,7 @@
     </div>
 
     <!-- 发起变更 -->
-    <div class="modal-mask" v-if="createOpen" @click.self="createOpen = false">
+    <div class="modal-mask" v-if="createOpen">
       <div class="modal wide">
         <div class="m-head">
           <div><h3>发起流程变更</h3><div class="mut">创建后是草稿，必须试运行才能发布。</div></div>
@@ -193,7 +193,7 @@
     </div>
 
     <!-- 变更详情 -->
-    <div class="modal-mask" v-if="detail" @click.self="detail = null">
+    <div class="modal-mask" v-if="detail">
       <div class="modal wide">
         <div class="m-head">
           <div>
@@ -500,25 +500,25 @@ onMounted(async () => {
 .gate { background: #fffaf0; border: 1px solid #f2dfae; border-radius: 10px; padding: 10px 14px; font-size: 12.4px; color: #7a6420; line-height: 1.65; }
 .gate b { display: block; color: #8a6d1f; margin-bottom: 3px; }
 
-.sec-title { font-size: 14px; font-weight: 700; color: #16233b; }
-.sec-h { font-size: 13px; font-weight: 700; color: #16233b; margin: 14px 0 8px; }
+.sec-title { font-size: 14px; font-weight: 700; color: var(--ink); }
+.sec-h { font-size: 13px; font-weight: 700; color: var(--ink); margin: 14px 0 8px; }
 
 .flow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
 .flow-card { border: 1px solid #e6ebf3; border-radius: 12px; padding: 12px 14px; min-height: 96px; cursor: pointer; transition: border-color .15s, background .15s; }
 .flow-card:hover { border-color: #b9cdf3; background: #fafcff; }
 .flow-card.on { border-color: #2b6de5; background: #f5f9ff; }
 .fc-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.fc-name { font-weight: 700; color: #16233b; font-size: 13.5px; }
+.fc-name { font-weight: 700; color: var(--ink); font-size: 13.5px; }
 .fc-path { color: #4a5875; font-size: 12.3px; margin: 6px 0; line-height: 1.5; }
-.fc-foot { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.8px; color: #8a94a6; }
+.fc-foot { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--ink-mute); }
 .fc-foot b { color: #16305f; }
 
 .ver-box { margin-top: 14px; }
 
-.ttl { font-weight: 600; color: #16233b; cursor: pointer; }
-.ttl:hover { color: #2563eb; }
-.mut { color: #8a94a6; font-size: 11.8px; line-height: 1.55; }
-.muted { color: #8a94a6; font-size: 12px; }
+.ttl { font-weight: 600; color: var(--ink); cursor: pointer; }
+.ttl:hover { color: var(--brand); }
+.mut { color: var(--ink-mute); font-size: 12px; line-height: 1.55; }
+.muted { color: var(--ink-mute); font-size: 12px; }
 .warnText { color: #d92d45; font-weight: 600; }
 
 .modal.wide { max-width: 880px; width: 93vw; }
@@ -527,31 +527,31 @@ onMounted(async () => {
 .m-body { max-height: 70vh; overflow-y: auto; }
 .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; font-size: 12.8px; margin-bottom: 12px; }
 .kv > div { display: flex; gap: 8px; }
-.kv span { color: #8a94a6; min-width: 64px; }
-.kv b { font-weight: 600; color: #16233b; }
+.kv span { color: var(--ink-mute); min-width: 64px; }
+.kv b { font-weight: 600; color: var(--ink); }
 
 .trial-box { background: #f5f9ff; border: 1px solid #d6e4fb; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
 .tb-h { font-size: 12.8px; font-weight: 700; color: #16305f; margin-bottom: 8px; }
 .tb-stats { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 8px; }
 .tb-stats > div { display: flex; flex-direction: column; }
 .tb-stats b { font-size: 20px; font-weight: 800; color: #16305f; line-height: 1.1; }
-.tb-stats span { font-size: 11.5px; color: #7a869a; }
+.tb-stats span { font-size: 12px; color: #7a869a; }
 .tb-stats .warn b { color: #d92d45; }
-.tb-verdict { font-size: 12.6px; color: #33415a; background: #fff; border-radius: 6px; padding: 7px 10px; margin-bottom: 6px; }
+.tb-verdict { font-size: 12.6px; color: var(--ink); background: var(--surface); border-radius: 6px; padding: 7px 10px; margin-bottom: 6px; }
 
 .warn-box { background: #fffaf0; border: 1px solid #f2dfae; border-radius: 10px; padding: 10px 14px; font-size: 12.6px; color: #7a6420; line-height: 1.7; margin-bottom: 14px; }
 .act-bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
 .form-box { background: #f8fafd; border: 1px solid #e6ebf3; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-.form-box .lbl { font-size: 12px; color: #6b7688; margin: 6px 0 4px; }
+.form-box .lbl { font-size: 12px; color: var(--ink-soft); margin: 6px 0 4px; }
 .form-box .input, .form-box .select { width: 100%; }
 .form-foot { margin-top: 10px; display: flex; gap: 8px; }
-.lbl { font-size: 12px; color: #6b7688; margin: 10px 0 4px; }
+.lbl { font-size: 12px; color: var(--ink-soft); margin: 10px 0 4px; }
 .step-editor { display: flex; flex-direction: column; gap: 8px; }
 .step-row { display: flex; gap: 6px; align-items: center; }
-.step-no { width: 20px; text-align: center; color: #8a94a6; font-size: 12px; }
+.step-no { width: 20px; text-align: center; color: var(--ink-mute); font-size: 12px; }
 
-.acts { border-top: 1px solid #eef2f7; padding-top: 10px; margin-top: 12px; }
-.acts-h { font-size: 12.5px; font-weight: 700; color: #16233b; margin-bottom: 6px; }
+.acts { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px; }
+.acts-h { font-size: 12.5px; font-weight: 700; color: var(--ink); margin-bottom: 6px; }
 .act-row { display: flex; gap: 10px; align-items: baseline; font-size: 12.2px; padding: 4px 0; border-bottom: 1px dashed #f0f3f8; }
 .act-t { color: #9aa4b5; width: 118px; flex: none; }
 .act-o { color: #4a5875; width: 84px; flex: none; }

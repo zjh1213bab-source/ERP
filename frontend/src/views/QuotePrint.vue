@@ -42,7 +42,7 @@
           <tr>
             <th style="width: 38px">#</th>
             <th style="width: 110px">款号</th>
-            <th>产品名称</th>
+            <th style="width:64px">图片</th><th>产品名称</th>
             <th style="width: 88px">颜色/花型</th>
             <th style="width: 70px">数量</th>
             <th style="width: 84px">单价 USD</th>
@@ -54,18 +54,18 @@
           <tr v-for="(it, i) in quote.items" :key="it.id">
             <td>{{ i + 1 }}</td>
             <td>{{ it.sku || '-' }}</td>
-            <td>{{ it.product_name }}</td>
+            <td><img v-if="it.image_url" :src="it.image_url" :alt="it.product_name" style="width:54px;height:54px;object-fit:contain" /><span v-else>—</span></td><td>{{ it.product_name }}</td>
             <td>{{ it.color || '-' }}</td>
             <td class="num">{{ it.qty }}</td>
             <td class="num">{{ fmt(it.price_usd) }}</td>
             <td class="num">{{ fmt(it.amount_usd) }}</td>
             <td class="num">{{ fmt(it.amount_cny) }}</td>
           </tr>
-          <tr v-if="!quote.items.length"><td colspan="8" class="num">无明细</td></tr>
+          <tr v-if="!quote.items.length"><td colspan="9" class="num">无明细</td></tr>
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="4" class="qp-total-label">合计 TOTAL</td>
+            <td colspan="5" class="qp-total-label">合计 TOTAL</td>
             <td class="num">{{ quote.total_qty }}</td>
             <td></td>
             <td class="num">{{ fmt(quote.total_usd) }}</td>

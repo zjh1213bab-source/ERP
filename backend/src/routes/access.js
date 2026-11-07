@@ -58,6 +58,9 @@ router.get(
       roles: eff.roles,
       is_admin: eff.isAdmin,
       perms: eff.isAdmin ? A.allPerms() : eff.perms,
+      position_name: require('../services/positionAccess').assigned(req.user.sub)?.name || '',
+      position_direct: !!require('../services/positionAccess').assigned(req.user.sub)?.direct,
+      position_permissions: require('../services/positionAccess').assigned(req.user.sub)?.perms || null,
       denied: eff.deny,
       allowed_by_exception: eff.allow
     });
@@ -156,4 +159,6 @@ router.post(
   })
 );
 
+router.get('/positions',authRequired,requireRole(['admin']),wrap(async(req,res)=>ok(res,require('../services/positionAccess').snapshot())));
+router.put('/positions',authRequired,requireRole(['admin']),wrap(async(req,res)=>ok(res,require('../services/positionAccess').save(req.body,req.user))));
 module.exports = router;
