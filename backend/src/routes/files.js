@@ -98,14 +98,14 @@ function userFromReq(req) {
 
 /** 这个附件挂在哪张订单上？（attachments 表按 url 反查） */
 function orderRefOf(url) {
-  try {
-    const r = db.prepare(
-      "SELECT target_type, target_id FROM attachments WHERE url = ? AND target_type = 'order' LIMIT 1"
-    ).get(url);
-    return r || null;
-  } catch (e) {
-    return null;
-  }
+  return db.prepare(
+    "SELECT target_type, target_id FROM attachments WHERE url = ? AND target_type = 'order' LIMIT 1"
+  ).get(url) || null;
+}
+
+function canAccessFile(user, name) {
+  const ref = orderRefOf('/api/files/att/' + name);
+  return !ref || CS.assertOrder(user, ref.target_id).ok;
 }
 
 /**
@@ -124,11 +124,7 @@ function downloadHandler(req, res) {
   if (!bySig) {
     const user = userFromReq(req);
     if (!user) return fail(res, 401, '请先登录，或使用带有效签名的下载链接');
-    const ref = orderRefOf('/api/files/att/' + name);
-    if (ref) {
-      const chk = CS.assertOrder(user, ref.target_id);
-      if (!chk.ok) return fail(res, 404, '文件不存在');
-    }
+    if (!canAccessFile(user, name)) return fail(res, 404, '文件不存在');
   }
 
   const full = safePath(name);
@@ -150,6 +146,9 @@ router.get('/att/:name', downloadHandler);
 function signedUrlHandler(req, res) {
   const name = String((req.body && req.body.name) || '').replace(/^\/api\/files\/att\//, '');
   if (!validName(name)) return fail(res, 400, '文件名不合法');
+  const user = userFromReq(req);
+  if (!user) return fail(res, 401, '请先登录');
+  if (!canAccessFile(user, name)) return fail(res, 404, '文件不存在');
   if (!safePath(name)) return fail(res, 404, '文件不存在');
   const ttl = Math.min(Number((req.body && req.body.ttl) || 600), 86400);
   const expires = Date.now() + ttl * 1000;

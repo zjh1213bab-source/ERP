@@ -688,6 +688,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
@@ -756,7 +757,7 @@ function openInspectionForm() {
   formMsg.value = '';
   inspForm.value = {
     order_id: null, type: 'final', standard_id: null, batch_no: '',
-    sample_qty: 0, inspect_date: new Date().toISOString().slice(0, 10), remark: ''
+    sample_qty: 0, inspect_date: localDate(), remark: ''
   };
 }
 async function saveInspection() {
@@ -866,7 +867,7 @@ async function openBatchForm(r) {
   if (r) {
     batchForm.value = { ...r, docs: r.docs ? JSON.parse(r.docs) : [] };
   } else {
-    batchForm.value = { id: null, order_id: null, qty: 0, production_date: new Date().toISOString().slice(0, 10),
+    batchForm.value = { id: null, order_id: null, qty: 0, production_date: localDate(),
       factory: '', fabric_batch: '', child_safety: '', status: 'normal', remark: '', docs: [] };
   }
 }

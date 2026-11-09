@@ -175,6 +175,7 @@ function migrate() {
   add('pre_order_items','sample_archive_id','INTEGER');
   add('pre_order_items','source_snapshot','TEXT');
   add('pre_order_items','pricing_json',"TEXT NOT NULL DEFAULT '[]'");
+  add('pre_order_items','matrix_json',"TEXT NOT NULL DEFAULT '{}'");
   add('tech_packs','source_archive_id','INTEGER');
 
   // 计件报价快照与扫码幂等键：历史记录保持 NULL，不回算历史倍率。
@@ -223,6 +224,7 @@ function migrate() {
   // 预下单约定金额与付款比例；旧单留空，不把未约定金额记成零。
   add('pre_orders', 'total_usd', 'REAL');
   add('pre_orders', 'payment_ratio', 'REAL');
+  add('pre_orders', 'payment_proofs_json', "TEXT NOT NULL DEFAULT '[]'");
   for (const field of ['designer','category','series','wave','sample_source','po_no']) add('pre_orders', field, 'TEXT');
   add('pre_orders', 'version', 'INTEGER NOT NULL DEFAULT 1');
   add('pre_orders', 'completed_at', 'TEXT');

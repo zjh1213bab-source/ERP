@@ -5,15 +5,23 @@ const bad=(message,status=400)=>{throw Object.assign(new Error(message),{status}
 function archiveRow(id){return db.prepare(`SELECT a.*,pf.id AS source_flow_id,pf.status AS flow_status,COALESCE(o.company_id,p.company_id) AS company_id
  FROM sample_archives a JOIN tech_packs tp ON tp.id=a.tech_pack_id JOIN pattern_flows pf ON pf.tech_pack_id=tp.id
  LEFT JOIN orders o ON o.id=tp.order_id LEFT JOIN pre_orders p ON p.id=tp.pre_order_id WHERE a.id=?`).get(id);}
+/** 只认导入时冻结的来源完成事实；不能用前端状态或补造本地历史阶段来代替。 */
+function importedCompletion(archive,snapshot){
+ const source=snapshot.source,style=String(archive.style_no||'').trim();
+ return !!(style&&source&&source.system==='衣创'&&source.url==='https://kr.yc198.com'&&
+  source.source_key==='yc198:sample:'+style&&source.fields?.style===style&&source.fields?.status==='打版完成'&&
+  source.historical_details_imported===false&&typeof source.imported_at==='string'&&Number.isFinite(Date.parse(source.imported_at))&&
+  String(archive.remark||'').startsWith(source.source_key+'\n'));
+}
 function approvedArchive(user,id){
  if(!Number.isSafeInteger(id)||id<=0)bad('请选择有效的已打版商品');const a=archiveRow(id);
  if(!a||(!scope.isSingle()&&!a.company_id)||!scope.canSee(user,a))bad('已打版商品不存在或无权访问',404);
  if(a.status!=='locked'||a.flow_status!=='done')bad('只能选择已完成打版且锁定的样衣版本',409);
+ let snap;try{snap=JSON.parse(a.snapshot);}catch{bad('样衣快照无效，请核对样衣档案',409);}if(!snap||typeof snap!=='object'||Array.isArray(snap))bad('样衣快照无效',409);
  const stages=require('../routes/patternFlows').STAGE_KEYS;
- if(Number(db.prepare("SELECT COUNT(*) AS n FROM pattern_stages WHERE flow_id=? AND status='done' AND stage IN ("+stages.map(()=>'?').join(',')+")").get(a.source_flow_id,...stages).n)!==stages.length)bad('该样衣打版阶段未完整完成',409);
+ if(!importedCompletion(a,snap)&&Number(db.prepare("SELECT COUNT(*) AS n FROM pattern_stages WHERE flow_id=? AND status='done' AND stage IN ("+stages.map(()=>'?').join(',')+")").get(a.source_flow_id,...stages).n)!==stages.length)bad('该样衣打版阶段未完整完成',409);
  if(db.prepare("SELECT 1 FROM sample_archives WHERE tech_pack_id=? AND id>? LIMIT 1").get(a.tech_pack_id,a.id))bad('该商品已有更新版本，请重新选择',409);
  if(db.prepare("SELECT 1 FROM sample_change_requests WHERE archive_id=? AND status IN ('pending','approved') AND new_archive_id IS NULL LIMIT 1").get(a.id))bad('该样衣正在变更，暂不可选',409);
- let snap;try{snap=JSON.parse(a.snapshot);}catch{bad('样衣快照无效，请核对样衣档案',409);}if(!snap||typeof snap!=='object'||Array.isArray(snap))bad('样衣快照无效',409);
  return {...a,source_data:snap};
 }
 function available(user,q=''){
@@ -44,6 +52,18 @@ function copyRows(table,tpId,rows){
 function ensureDevelopment(pre,item,user,reuse=false){
  const details=Array.isArray(item.detail_images)?item.detail_images:require('./orderImages').readImages(item.detail_images);
  const referenceImages=[item.effect_image_url,...details].filter(Boolean),primaryImage=referenceImages[0]||null;
+ const syncMaterials=(tpId,flowId)=>{
+  const meta=JSON.parse(item.matrix_json||'{}');if(meta.material_details===undefined)return;
+  const stage=db.prepare("SELECT data FROM pattern_stages WHERE flow_id=? AND stage='material'").get(flowId);let data={};try{data=JSON.parse(stage?.data||'{}');}catch{}
+  const current=()=>db.prepare('SELECT * FROM tech_pack_materials WHERE tech_pack_id=? ORDER BY sort,id').all(tpId);
+  const hash=rows=>require('crypto').createHash('sha256').update(JSON.stringify(rows)).digest('hex');const rows=current();
+  // 只更新仍与上次预单同步一致的开发明细；技术人员改过后保留技术版本。
+  if(!rows.length&&!data.pre_order_material_sync_hash||data.pre_order_material_sync_hash===hash(rows)){
+   require('./techPackMaterials').saveMaterials(tpId,require('./preOrderMaterials').techRows(meta.material_details));data.pre_order_material_sync_hash=hash(current());
+  }
+  data.pre_order_materials_reference=meta.material_details;
+  db.prepare("UPDATE pattern_stages SET data=? WHERE flow_id=? AND stage='material'").run(JSON.stringify(data),flowId);
+ };
  const syncReferences=flowId=>{
   const stage=db.prepare("SELECT data FROM pattern_stages WHERE flow_id=? AND stage='material'").get(flowId);let data={};try{data=JSON.parse(stage?.data||'{}');}catch{}
   const ownImages=(Array.isArray(data.images)?data.images:[]).filter(url=>!(data.pre_order_reference_images||[]).includes(url));
@@ -52,7 +72,7 @@ function ensureDevelopment(pre,item,user,reuse=false){
  if(item.source_type==='legacy'||item.source_type==='archive'&&!reuse)return null;
  const existing=db.prepare('SELECT * FROM tech_packs WHERE pre_order_item_id=? ORDER BY id DESC LIMIT 1').get(item.id);if(existing){
   const f=db.prepare('SELECT * FROM pattern_flows WHERE tech_pack_id=?').get(existing.id);
-  if(!existing.source_archive_id&&f?.status==='running'&&f.current_stage==='material'&&!db.prepare("SELECT 1 FROM pattern_stages WHERE flow_id=? AND status='done'").get(f.id)){db.prepare('UPDATE tech_packs SET product_name=?,image_url=?,customer_req=?,updated_at=? WHERE id=?').run(item.product_name||existing.product_name,primaryImage,pre.requirements||'',now(),existing.id);syncReferences(f.id);}
+  if(!existing.source_archive_id&&f?.status==='running'&&f.current_stage==='material'&&!db.prepare("SELECT 1 FROM pattern_stages WHERE flow_id=? AND status='done'").get(f.id)){db.prepare('UPDATE tech_packs SET product_name=?,image_url=?,customer_req=?,updated_at=? WHERE id=?').run(item.product_name||existing.product_name,primaryImage,pre.requirements||'',now(),existing.id);syncReferences(f.id);syncMaterials(existing.id,f.id);}
   return existing;
  }
  const a=item.source_type==='archive'?approvedArchive(user,item.sample_archive_id):null,snap=a?.source_data||{},t=now();
@@ -63,13 +83,15 @@ function ensureDevelopment(pre,item,user,reuse=false){
  const flow=require('../routes/patternFlows').ensureFlow(tpId,user.sub);
  // 来自预下单的公共资料只写入新开发单，不能回写来源样衣或已推进的技术记录。
  db.prepare('UPDATE tech_packs SET designer=?,category=?,series=?,wave=?,sales_owner=?,po_no=? WHERE id=?').run(pre.designer||snap.designer||'',pre.category||snap.category||'',pre.series||snap.series||'',pre.wave||snap.wave||'',pre.manager||snap.sales_owner||'',pre.po_no||snap.po_no||'',tpId);
- if(!a)syncReferences(flow.id);
+ if(!a){syncReferences(flow.id);syncMaterials(tpId,flow.id);}
  if(a){
+  const imported=importedCompletion(a,snap);
   copyRows('tech_pack_materials',tpId,snap.materials);copyRows('tech_pack_sizes',tpId,snap.sizes);copyRows('tech_pack_requirements',tpId,snap.requirements);
   for(const old of db.prepare('SELECT * FROM pattern_stages WHERE flow_id=?').all(a.source_flow_id)){
    let data={};try{data=JSON.parse(old.data||'{}');}catch{}
    if(old.stage==='craft')data={...data,sewing:snap.processes?.sewing||[],finish:snap.processes?.finish||[]};
-   db.prepare("UPDATE pattern_stages SET status='done',owner=?,pattern_size=?,data=?,remark=?,operator=?,started_at=?,finished_at=?,updated_at=? WHERE flow_id=? AND stage=?").run(old.owner,old.pattern_size,JSON.stringify({...data,reused_archive_id:a.id}), '继承已完成样衣 '+a.archive_no,user.username,t,t,t,flow.id,old.stage);
+   if(imported)data={...data,source_key:snap.source.source_key,historical_details_imported:false,completion_basis:'imported_sample_reuse'};
+   db.prepare("UPDATE pattern_stages SET status='done',owner=?,pattern_size=?,data=?,remark=?,operator=?,started_at=?,finished_at=?,updated_at=? WHERE flow_id=? AND stage=?").run(old.owner,old.pattern_size,JSON.stringify({...data,reused_archive_id:a.id}), '继承已完成样衣 '+a.archive_no+(imported?'（本次为复用确认，来源历史阶段记录未导入）':''),user.username,t,t,t,flow.id,old.stage);
   }
   if(db.prepare("SELECT 1 FROM pattern_stages WHERE flow_id=? AND status<>'done'").get(flow.id))bad('原样衣打版阶段记录不完整，不可复用',409);
   db.prepare("UPDATE pattern_flows SET status='done',current_stage='done',finished_at=? WHERE id=?").run(t,flow.id);

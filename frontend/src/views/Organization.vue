@@ -668,6 +668,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -868,7 +869,7 @@ function guessEmployer() {
 function openEmployment() {
   empForm.value = {
     employee_id: null, employer_company_id: dict.value.companies[0]?.id, service_company_id: null,
-    position_id: null, employment_type: 'fulltime', start_date: new Date().toISOString().slice(0, 10),
+    position_id: null, employment_type: 'fulltime', start_date: localDate(),
     end_date: '', reason: '新入职'
   };
   modal.value = 'employment';
@@ -910,7 +911,7 @@ async function doApprove() {
 function openTransfer(e) {
   transferTarget.value = e;
   const d = new Date(); d.setDate(d.getDate() + 1);
-  transferForm.value = { position_id: null, start_date: d.toISOString().slice(0, 10), reason: '调岗' };
+  transferForm.value = { position_id: null, start_date: localDate(d), reason: '调岗' };
   modal.value = 'transfer';
 }
 async function doTransfer() {
@@ -923,7 +924,7 @@ async function doTransfer() {
 }
 function startEnd(e) {
   endTarget.value = e;
-  endForm.value = { end_date: new Date().toISOString().slice(0, 10) };
+  endForm.value = { end_date: localDate() };
   modal.value = 'endEmp';
 }
 async function doEnd() {
@@ -977,7 +978,7 @@ function openScope() {
   const d = new Date(); d.setDate(d.getDate() + 180);
   scopeForm.value = {
     user_id: null, field_scope: 'full', aggregate_scope: 'company',
-    expires_at: d.toISOString().slice(0, 10), reason: ''
+    expires_at: localDate(d), reason: ''
   };
   scopeCompanies.value = [];
   modal.value = 'scope';
@@ -1017,7 +1018,7 @@ async function doRejectScope() {
 }
 async function renewScope(s) {
   const d = new Date(); d.setDate(d.getDate() + 180);
-  const expires = prompt('续期到哪天（YYYY-MM-DD）：', d.toISOString().slice(0, 10));
+  const expires = prompt('续期到哪天（YYYY-MM-DD）：', localDate(d));
   if (!expires) return;
   try {
     await api.renewOrgScope(s.id, { expires_at: expires });

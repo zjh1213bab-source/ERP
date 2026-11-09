@@ -31,6 +31,7 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const { nextNo } = require('../utils/docNo');
 
 const router = express.Router();
 const WRITE = ['admin', 'production', 'warehouse', 'tech'];
@@ -93,17 +94,6 @@ function hoursBetween(a, b) {
 function occupiedOf(row) {
   const end = row.end_at || normTime(now());
   return hoursBetween(row.start_at, end);
-}
-
-function nextNo(prefix, table, field) {
-  const t = now();
-  const ymd = t.slice(0, 10).replace(/-/g, '');
-  const seq = Number(db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE ${field} LIKE ?`).get(`${prefix}${ymd}%`).c) + 1;
-  let n = `${prefix}${ymd}${String(seq).padStart(4, '0')}`;
-  while (db.prepare(`SELECT 1 x FROM ${table} WHERE ${field} = ?`).get(n)) {
-    n = `${prefix}${ymd}${String(++seq).padStart(4, '0')}`;
-  }
-  return n;
 }
 
 function dtView(id) {

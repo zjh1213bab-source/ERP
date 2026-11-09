@@ -271,6 +271,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
@@ -311,7 +312,7 @@ function curText(r, v) {
 function blankPay() {
   return {
     direction: 'in', partner_id: null, currency: 'CNY', rate: 6.5, amount: 0,
-    method: '银行转账', pay_date: new Date().toISOString().slice(0, 10), remark: ''
+    method: '银行转账', pay_date: localDate(), remark: ''
   };
 }
 

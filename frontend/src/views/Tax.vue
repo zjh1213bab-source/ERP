@@ -272,6 +272,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, computed, onMounted } from 'vue';
 import { api, downloadFile } from '../api';
 import { can } from '../store/permissions';
@@ -404,7 +405,7 @@ function openPolicy() {
   const c0 = dict.value.companies[0];
   polForm.value = {
     company_id: c0 ? c0.id : 1, tax_region: 'CN', tax_type: 'vat', rate: 13,
-    price_includes_tax: 1, effective_from: dict.value.today || new Date().toISOString().slice(0, 10),
+    price_includes_tax: 1, effective_from: dict.value.today || localDate(),
     effective_to: '', policy_no: '', remark: ''
   };
   modal.value = 'policy';
@@ -425,7 +426,7 @@ async function savePolicy() {
 onMounted(async () => {
   dict.value = await api.taxDict();
   form.value.company_id = dict.value.companies[0] ? dict.value.companies[0].id : 1;
-  form.value.period = (dict.value.today || new Date().toISOString().slice(0, 10)).slice(0, 7);
+  form.value.period = (dict.value.today || localDate()).slice(0, 7);
   await loadOv();
   await loadPolicies();
   await loadRuns();

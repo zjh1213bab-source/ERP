@@ -491,6 +491,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -582,7 +583,7 @@ function openCollect(row) {
   formMsg.value = '';
   const end = new Date();
   const start = new Date(Date.now() - 90 * 86400000);
-  const iso = (d) => d.toISOString().slice(0, 10);
+  const iso = (d) => localDate(d);
   cForm.value = {
     supplier_id: row ? row.supplier_id : null,
     period_start: iso(start),

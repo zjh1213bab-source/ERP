@@ -319,6 +319,7 @@ export const api = {
 
   // 附件
   uploadFile: (dataUrl, filename) => req('/api/upload/file', { method: 'POST', body: { dataUrl, filename } }),
+  uploadPreOrderPaymentProof: (dataUrl, filename) => req('/api/pre-orders/payment-proofs/upload', { method: 'POST', body: { dataUrl, filename } }),
   attachments: (params) => req('/api/attachments' + qs(params)),
   createAttachment: (d) => req('/api/attachments', { method: 'POST', body: d }),
   deleteAttachment: (id) => req(`/api/attachments/${id}`, { method: 'DELETE' }),

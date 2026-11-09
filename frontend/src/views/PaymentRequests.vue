@@ -429,6 +429,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 const purchaseStatusLabel = status => ({draft:'草稿',ordered:'已下单',partial:'部分到货',received:'已收货',cancelled:'已取消'})[status] || status;
 const receiptStatusLabel = status => ({pending:'待检',inspecting:'检验中',partial:'部分合格',passed:'全部合格',rejected:'全退',cancelled:'作废'})[status] || status;
 
@@ -521,7 +522,7 @@ function doExport() {
 const createOpen = ref(false);
 const form = reactive({
   supplier_id: '',
-  plan_pay_date: new Date().toISOString().slice(0, 10),
+  plan_pay_date: localDate(),
   method: '银行转账',
   bank_account_id: '',
   reason: ''
@@ -534,7 +535,7 @@ function openCreate() {
   createOpen.value = true;
   form.supplier_id = '';
   form.reason = '';
-  form.plan_pay_date = new Date().toISOString().slice(0, 10);
+  form.plan_pay_date = localDate();
   form.method = '银行转账';
   form.bank_account_id = '';
   cand.value = { rows: [], summary: { open_total: 0, committed_total: 0, available_total: 0 } };
@@ -664,7 +665,7 @@ const payForm = reactive({ bank_account_id: '', pay_date: '', method: '银行转
 function openPay(r) {
   payTarget.value = r;
   payForm.bank_account_id = r.bank_account_id || '';
-  payForm.pay_date = new Date().toISOString().slice(0, 10);
+  payForm.pay_date = localDate();
   payForm.method = r.method || '银行转账';
   payOpen.value = true;
 }

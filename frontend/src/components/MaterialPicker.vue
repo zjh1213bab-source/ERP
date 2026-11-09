@@ -6,7 +6,7 @@
           {{ mode === 'base' ? '从档案选择基础物料' : '选择面辅料' }}
           <span class="hint">{{ mode === 'base' ? '选中后把它的资料带到新建页，改完保存就是一条新档案' : '勾选后加入本单，档案资料只读' }}</span>
         </h3>
-        <button class="x" @click="close">×</button>
+        <button type="button" class="x" @click="close">×</button>
       </div>
 
       <div class="modal-body">
@@ -22,10 +22,10 @@
             <option value="fabric">面料</option>
             <option value="accessory">辅料</option>
           </select>
-          <button class="btn btn-ghost btn-sm" @click="load">查询</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="load">查询</button>
           <div style="flex: 1"></div>
-          <button class="btn btn-ghost btn-sm" @click="openArchive">＋ 新增料</button>
-          <button class="btn btn-ghost btn-sm" @click="reloadAll">刷新档案</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="openArchive">＋ 新增料</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="reloadAll">刷新档案</button>
         </div>
 
         <div class="picker-scroll">
@@ -77,10 +77,10 @@
                   <span v-else class="sub-line">-</span>
                 </td>
                 <td class="ops">
-                  <button v-if="mode === 'base'" class="link-btn" @click="useAsBase(m)">用作基础</button>
+                  <button type="button" v-if="mode === 'base'" class="link-btn" @click="useAsBase(m)">用作基础</button>
                   <template v-else>
-                    <button class="link-btn" @click="pickOne(m)">加入</button>
-                    <button class="link-btn" :disabled="copying === m.id" @click="copyOne(m)">
+                    <button type="button" class="link-btn" @click="pickOne(m)">加入</button>
+                    <button type="button" class="link-btn" :disabled="copying === m.id" @click="copyOne(m)">
                       {{ copying === m.id ? '…' : '复制' }}
                     </button>
                   </template>
@@ -96,11 +96,11 @@
         <span class="sel-count">
           {{ mode === 'base' ? '点「用作基础」把这条资料带到新建页；档案里没有的可以先空白新建' : '已选 ' + picked.size + ' 条' }}
         </span>
-        <button class="btn btn-ghost" @click="close">关闭</button>
+        <button type="button" class="btn btn-ghost" @click="close">关闭</button>
         <template v-if="mode === 'base'">
-          <button class="btn btn-primary" @click="blankNew">空白新建</button>
+          <button type="button" class="btn btn-primary" @click="blankNew">空白新建</button>
         </template>
-        <button v-else class="btn btn-primary" :disabled="!picked.size" @click="confirm">确定加入</button>
+        <button type="button" v-else class="btn btn-primary" :disabled="!picked.size" @click="confirm">确定加入</button>
       </div>
     </div>
   </div>

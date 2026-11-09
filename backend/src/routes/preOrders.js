@@ -1,14 +1,16 @@
 const pricing=require('../services/preOrderPricing');
+const matrix=require('../services/preOrderMatrix');
+const paymentProofs=require('../services/preOrderPaymentProofs');
 const express=require('express');const {db,now}=require('../db');const {ok,fail,wrap}=require('../utils/http');const {authRequired,requireRole}=require('../middleware/auth');const scope=require('../access/companyScope');const {nextNo}=require('../utils/docNo');const orderNo=require('../services/orderNo');const {styleImages,readImages}=require('../services/orderImages');const {sourceForOrder}=require('../services/preOrderTransfer');
 const styles=require('../services/preOrderStyles');
 const router=express.Router(),READ=['admin','boss','sales','tech','warehouse'],WRITE=['admin','sales'];
 const bad=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 function scoped(req){const r=scope.assertRow(req.user,'pre_orders',req.params.id,'预下单');if(!r.ok)bad(r.reason,r.status);return r.row;}
-function detail(row){if(!row)return null;const items=db.prepare('SELECT * FROM pre_order_items WHERE pre_order_id=? ORDER BY sort,id').all(row.id).map(item=>{const tp=db.prepare(`SELECT tp.id,tp.status,tp.business_submitted_at,CASE WHEN TRIM(IFNULL(tp.customer_req,''))<>'' THEN 1 ELSE 0 END AS has_customer_req,tp.version,(SELECT COUNT(*) FROM tech_pack_materials m WHERE m.tech_pack_id=tp.id) material_count,pf.id AS flow_id,pf.status AS flow_status,pf.current_stage FROM tech_packs tp LEFT JOIN pattern_flows pf ON pf.tech_pack_id=tp.id WHERE tp.pre_order_item_id=? ORDER BY tp.id DESC LIMIT 1`).get(item.id);return {...item,size_prices:pricing.read(item.pricing_json),amount_usd:pricing.amount(pricing.read(item.pricing_json)),development:tp||null,detail_images:readImages(item.detail_images)};});const actual=items.length?items:[{id:null,product_name:row.style_name||'',style_no:'',expected_qty:row.expected_qty||0,effect_image_url:null,detail_images:[],remark:''}];
+function detail(row){if(!row)return null;const items=db.prepare('SELECT * FROM pre_order_items WHERE pre_order_id=? ORDER BY sort,id').all(row.id).map(item=>{const tp=db.prepare(`SELECT tp.id,tp.status,tp.business_submitted_at,CASE WHEN TRIM(IFNULL(tp.customer_req,''))<>'' THEN 1 ELSE 0 END AS has_customer_req,tp.version,(SELECT COUNT(*) FROM tech_pack_materials m WHERE m.tech_pack_id=tp.id) material_count,pf.id AS flow_id,pf.status AS flow_status,pf.current_stage FROM tech_packs tp LEFT JOIN pattern_flows pf ON pf.tech_pack_id=tp.id WHERE tp.pre_order_item_id=? ORDER BY tp.id DESC LIMIT 1`).get(item.id);return {...item,matrix_meta:matrix.read(item.matrix_json,pricing.read(item.pricing_json)),size_prices:pricing.read(item.pricing_json),amount_usd:pricing.amount(pricing.read(item.pricing_json)),development:tp||null,detail_images:readImages(item.detail_images)};});const actual=items.length?items:[{id:null,product_name:row.style_name||'',style_no:'',expected_qty:row.expected_qty||0,effect_image_url:null,detail_images:[],remark:''}];
  const finance=!!row.converted_order_id&&!!db.prepare("SELECT 1 FROM cost_sheets WHERE order_id=? AND status='approved'").get(row.converted_order_id);
  const missing=actual.some(i=>i.source_type!=='archive'&&(!i.development?.material_count||!i.development?.has_customer_req));
  const finished=actual.length>0&&actual.every(i=>i.source_type==='archive'||i.development?.flow_status==='done');
- return {...row,items:actual,finance_passed:finance,missing_details:missing,pattern_running:actual.some(i=>i.development?.flow_status==='running'),pattern_complete_unordered:finished&&row.status!=='converted'};}
+ return {...row,payment_proofs:paymentProofs.read(row.payment_proofs_json),items:actual,finance_passed:finance,missing_details:missing,pattern_running:actual.some(i=>i.development?.flow_status==='running'),pattern_complete_unordered:finished&&row.status!=='converted'};}
 function text(value,label,max=255){if(value!=null && typeof value!=='string')bad(label+'格式错误');const v=String(value||'').trim();if(v.length>max)bad(label+'超过长度限制');return v;}
 /** 金额及比例在事务前校验；空值表示尚未约定，不能接受布尔值、指数或超过两位小数。 */
 function decimal(value,label,max){
@@ -17,8 +19,10 @@ function decimal(value,label,max){
  const n=Number(value);if(!Number.isFinite(n)||n>max)bad(label+'超出允许范围');return n;
 }
 const META_FIELDS={designer:'设计师',category:'分类',series:'系列',wave:'波段',sample_source:'样品来源',po_no:'PO单号'};
-function saveHeader(id,v){db.prepare('UPDATE pre_orders SET total_usd=?,payment_ratio=?,designer=?,category=?,series=?,wave=?,sample_source=?,po_no=? WHERE id=?').run(v.total_usd,v.payment_ratio,...Object.keys(META_FIELDS).map(k=>v[k]),id);}
+function saveHeader(id,v){db.prepare('UPDATE pre_orders SET total_usd=?,payment_ratio=?,designer=?,category=?,series=?,wave=?,sample_source=?,po_no=?,payment_proofs_json=? WHERE id=?').run(v.total_usd,v.payment_ratio,...Object.keys(META_FIELDS).map(k=>v[k]),JSON.stringify(v.payment_proofs),id);}
 function input(body,user,preId) {
+ const previous=preId?db.prepare('SELECT payment_proofs_json,company_id FROM pre_orders WHERE id=?').get(preId):null;
+ const payment_proofs=paymentProofs.prepare(user,body.payment_proofs,previous,previous?.company_id??scope.writeCompanyOf(user));
  const customerId=body.customer_id?Number(body.customer_id):null;
  if(customerId!==null && (!Number.isSafeInteger(customerId)||customerId<=0))bad('客户档案编号无效');
  const customer=customerId?db.prepare("SELECT * FROM customers WHERE id=? AND status='active'").get(customerId):null;
@@ -34,10 +38,11 @@ function input(body,user,preId) {
   text(item.product_name,'款式名称',120);text(item.style_no,'款号',100);
   const source=styles.prepare(user,item,previous),size_prices=pricing.normalize(item.size_prices??pricing.read(previous?.pricing_json)),qty=size_prices.length?size_prices.reduce((n,r)=>n+r.qty,0):Number(item.expected_qty||0);
   if(!Number.isFinite(qty)||qty<0)bad('预估数量必须为非负数');
-  return {id:Number(item.id)||null,...source,size_prices,expected_qty:qty,remark:text(item.remark,'款式要求',2000)};
+  const matrix_meta=require('../services/preOrderMaterials').prepare(matrix.prepare(item.matrix_meta,size_prices,previous,pricing.read(previous?.pricing_json)));
+  return {id:Number(item.id)||null,...source,size_prices,matrix_meta,expected_qty:qty,remark:text(item.remark,'款式要求',2000)};
  });
  const archives=new Set(),codes=new Set();for(const item of items){const code=String(item.style_no||'').trim().toLowerCase();if((item.sample_archive_id&&archives.has(item.sample_archive_id))||(code&&codes.has(code)))bad('同一款号不能重复选择：'+(item.style_no||item.product_name));if(item.sample_archive_id)archives.add(item.sample_archive_id);if(code)codes.add(code);}
- return {order_no:businessNo,customer_id:customerId,customer_name:customerName,recipient_name:text(body.recipient_name??customer?.contact,'联系人'),recipient_phone:text(body.recipient_phone??customer?.phone,'电话'),shipping_address:text(body.shipping_address??customer?.shipping_address,'收货地址',2000),manager:text(body.manager??user.name??user.username,'业务员'),target_date:body.target_date||null,requirements:text(body.requirements,'订单要求',4000),total_usd:items.every(i=>i.size_prices.length)?decimal(pricing.amount(items.flatMap(i=>i.size_prices)),'订单总金额',999999999999.99):decimal(body.total_usd,'订单总金额',999999999999.99),payment_ratio:decimal(body.payment_ratio,'付款比例',100),...Object.fromEntries(Object.entries(META_FIELDS).map(([k,label])=>[k,text(body[k],label,k==='po_no'?100:120)])),items};
+ return {payment_proofs,order_no:businessNo,customer_id:customerId,customer_name:customerName,recipient_name:text(body.recipient_name??customer?.contact,'联系人'),recipient_phone:text(body.recipient_phone??customer?.phone,'电话'),shipping_address:text(body.shipping_address??customer?.shipping_address,'收货地址',2000),manager:text(body.manager??user.name??user.username,'业务员'),target_date:body.target_date||null,requirements:text(body.requirements,'订单要求',4000),total_usd:items.every(i=>i.size_prices.length)?decimal(pricing.amount(items.flatMap(i=>i.size_prices)),'订单总金额',999999999999.99):decimal(body.total_usd,'订单总金额',999999999999.99),payment_ratio:decimal(body.payment_ratio,'付款比例',100),...Object.fromEntries(Object.entries(META_FIELDS).map(([k,label])=>[k,text(body[k],label,k==='po_no'?100:120)])),items};
 }
 function event(id,action,version,req,details){db.prepare('INSERT INTO pre_order_events(pre_order_id,action,version,operator,details,created_at) VALUES(?,?,?,?,?,?)').run(id,action,version,req.user.name||req.user.username,JSON.stringify(details),now());}
 function saveItems(id,items,user){
@@ -47,13 +52,18 @@ function saveItems(id,items,user){
  if(retained.size!==items.filter(i=>i.id).length)bad('款式编号重复');
  for(const item of items)if(item.id && !previous.some(r=>r.id===item.id))bad('款式不属于此预下单');
  for(const item of previous)if(!retained.has(item.id)){if(referenced(item))bad('款式已进入开发，不可删除；请保留来源款式',409);db.prepare('DELETE FROM pre_order_items WHERE id=?').run(item.id);}
- const insert=db.prepare('INSERT INTO pre_order_items(pre_order_id,product_name,style_no,expected_qty,effect_image_url,detail_images,remark,sort,source_type,sample_archive_id,source_snapshot,pricing_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
- const update=db.prepare('UPDATE pre_order_items SET product_name=?,style_no=?,expected_qty=?,effect_image_url=?,detail_images=?,remark=?,sort=?,source_type=?,sample_archive_id=?,source_snapshot=?,pricing_json=? WHERE id=? AND pre_order_id=?');
- items.forEach((item,index)=>{const values=[item.product_name,item.style_no,item.expected_qty,item.effect_image_url,JSON.stringify(item.detail_images),item.remark,index,item.source_type,item.sample_archive_id,item.source_snapshot,JSON.stringify(item.size_prices)];if(item.id)update.run(...values,item.id,id);else insert.run(id,...values);});
+ const insert=db.prepare('INSERT INTO pre_order_items(pre_order_id,product_name,style_no,expected_qty,effect_image_url,detail_images,remark,sort,source_type,sample_archive_id,source_snapshot,pricing_json,matrix_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+ const update=db.prepare('UPDATE pre_order_items SET product_name=?,style_no=?,expected_qty=?,effect_image_url=?,detail_images=?,remark=?,sort=?,source_type=?,sample_archive_id=?,source_snapshot=?,pricing_json=?,matrix_json=? WHERE id=? AND pre_order_id=?');
+ items.forEach((item,index)=>{const values=[item.product_name,item.style_no,item.expected_qty,item.effect_image_url,JSON.stringify(item.detail_images),item.remark,index,item.source_type,item.sample_archive_id,item.source_snapshot,JSON.stringify(item.size_prices),JSON.stringify(item.matrix_meta)];if(item.id)update.run(...values,item.id,id);else insert.run(id,...values);});
  const pre=db.prepare('SELECT * FROM pre_orders WHERE id=?').get(id);
  for(const item of db.prepare('SELECT * FROM pre_order_items WHERE pre_order_id=? ORDER BY sort,id').all(id))styles.ensureDevelopment(pre,item,user);
 }
 
+router.post('/payment-proofs/upload',authRequired,requireRole(WRITE),wrap(async(req,res)=>ok(res,paymentProofs.upload(req.user,req.body))));
+router.get('/payment-proofs/:name',authRequired,requireRole(READ),wrap(async(req,res)=>{
+ const {row,file}=paymentProofs.getFile(req.user,req.params.name);
+ return res.download(file,row.filename,{headers:{'Content-Type':row.mime,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store','Content-Security-Policy':"default-src 'none'; sandbox"}});
+}));
 router.get('/',authRequired,requireRole(READ),wrap(async(req,res)=>{
  const where=[],args=[],sc=scope.clause(req.user,'p.company_id');if(sc.sql){where.push(sc.sql.replace(/^\s*AND\s+/,''));args.push(...sc.params);}if(req.query.status){where.push('p.status=?');args.push(String(req.query.status));}const q=String(req.query.q||'').trim();if(q){where.push('(p.pre_order_no LIKE ? OR p.order_no LIKE ? OR p.customer_name LIKE ? OR p.style_name LIKE ? OR EXISTS(SELECT 1 FROM pre_order_items si WHERE si.pre_order_id=p.id AND (si.product_name LIKE ? OR si.style_no LIKE ?)))');args.push(...Array(6).fill('%'+q+'%'));}return ok(res,db.prepare(`SELECT p.* FROM pre_orders p ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY p.id DESC`).all(...args).map(detail));
 }));

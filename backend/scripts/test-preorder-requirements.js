@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict'),matrix=require('../src/services/preOrderMatrix');
+const base={colors:[],sizes:[],color_images:{},split_price:false},selected={...base,materials:['面料 · __SMOKE棉布'],crafts:['__SMOKE车缝'],craft_note:'领口双针'};
+assert.deepEqual(matrix.normalize(selected,[]),selected);
+assert.deepEqual(matrix.read(JSON.stringify(selected),[]),selected);
+const previous={matrix_json:JSON.stringify(selected)};
+assert.deepEqual(matrix.prepare(undefined,[],previous),selected);
+assert.deepEqual(matrix.prepare(base,[],previous),selected);
+assert.deepEqual(matrix.prepare({...base,materials:[],crafts:[],craft_note:''},[],previous),{...base,materials:[],crafts:[],craft_note:''});
+for(const patch of [{materials:['重复','重复']},{crafts:'错误'},{craft_note:'x'.repeat(2001)},{materials:Array.from({length:101},(_,i)=>''+i)}])assert.throws(()=>matrix.normalize({...base,...patch},[]),e=>e.status===400);
+assert.deepEqual(matrix.normalize(base,[]),base);
+console.log('PASS 10 pre-order requirement persistence/validation assertions');

@@ -51,23 +51,28 @@ function create(params) {
   const failMax = Number(p.failMax) || cfgLimit.failMax;
   const lockMs = Number(p.lockMs) || cfgLimit.lockMs;
   const lockMaxMs = Number(p.lockMaxMs) || cfgLimit.lockMaxMs;
+  const failRetentionMs = Math.max(24 * 60 * 60 * 1000, lockMaxMs);
 
   /** ip → { all: [ts], bad: [ts] } */
   const ipHits = new Map();
-  /** 账号（小写）→ { n: 连续失败次数, until: 锁到什么时候 } */
+  /** 账号（小写）→ { n: 连续失败次数, until: 锁到什么时候, lastFail: 最后失败时间 } */
   const fails = new Map();
+  let lastPrune = 0;
 
   const ipKey = (req) => tag + ':ip:' + (req.ip || (req.socket && req.socket.remoteAddress) || 'unknown');
   const userKey = (u) => tag + ':u:' + String(u || '').trim().toLowerCase();
 
   function prune(nowMs) {
-    if (ipHits.size + fails.size < PRUNE_AT) return;
+    if (ipHits.size + fails.size < PRUNE_AT || nowMs - lastPrune < windowMs) return;
+    lastPrune = nowMs;
     ipHits.forEach((v, k) => {
       v.all = v.all.filter((t) => nowMs - t < windowMs);
       v.bad = v.bad.filter((t) => nowMs - t < windowMs);
       if (!v.all.length && !v.bad.length) ipHits.delete(k);
     });
-    fails.forEach((v, k) => { if (!v.until && !v.n) fails.delete(k); });
+    fails.forEach((v, k) => {
+      if (v.until <= nowMs && nowMs - v.lastFail >= failRetentionMs) fails.delete(k);
+    });
   }
 
   /**
@@ -128,7 +133,10 @@ function create(params) {
 
     const uname = String(username !== undefined ? username : req._loginUser || '').trim().toLowerCase();
     if (!uname) return;
-    const cur = fails.get(userKey(uname)) || { n: 0, until: 0 };
+    let cur = fails.get(userKey(uname));
+    if (!cur || (cur.until <= nowMs && nowMs - cur.lastFail >= failRetentionMs)) {
+      cur = { n: 0, until: 0 };
+    }
     const n = cur.n + 1;
     let until = 0;
     if (n >= failMax) {
@@ -136,7 +144,7 @@ function create(params) {
       const step = Math.min(n - failMax, 10);
       until = nowMs + Math.min(lockMs * Math.pow(2, step), lockMaxMs);
     }
-    fails.set(userKey(uname), { n, until });
+    fails.set(userKey(uname), { n, until, lastFail: nowMs });
   }
 
   /** 登录成功：清掉该账号的连续失败计数（IP 的尝试计数保留，防止「成功一次重置配额」） */
@@ -149,6 +157,7 @@ function create(params) {
   function reset() {
     ipHits.clear();
     fails.clear();
+    lastPrune = 0;
   }
 
   return {

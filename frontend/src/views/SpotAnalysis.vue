@@ -425,6 +425,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -497,7 +498,7 @@ function skuOfStyle(styleNo) {
 function openReturnForm() {
   rtForm.value = {
     type: 'customer', partner_name: '', source_no: '', reason: '',
-    return_date: new Date().toISOString().slice(0, 10),
+    return_date: localDate(),
     items: [{ style_no: '', product_name: '', color: '', size: '', qty_apply: 1 }]
   };
 }

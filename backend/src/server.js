@@ -178,6 +178,8 @@ app.disable('x-powered-by');
  * 当成同一个人，额度一满所有人一起被锁（详见 config.trustProxy 的注释）。
  */
 app.set('trust proxy', config.trustProxy);
+// 单个10MB凭证的base64约13.4MB；仅该上传入口扩容，其他JSON接口仍保持8MB。
+app.use('/api/pre-orders/payment-proofs/upload', express.json({ limit: '15mb' }));
 app.use(express.json({ limit: '8mb' }));
 
 // ---------- CORS ----------
@@ -437,8 +439,11 @@ app.use('/api/importops', importOpsRoutes);   // 真实数据导入   // 供方�
 const UPLOAD_SAFE = uploadRoutes.SAFE_EXTS;
 const UPLOAD_INLINE = uploadRoutes.INLINE_EXTS;
 app.use('/uploads', (req, res, next) => {
-  const rel = String(req.path || '').replace(/^\/+/, '');
-  if (rel.toLowerCase().startsWith('private/')) return res.status(404).end();
+  // 与静态文件中间件使用相同的一次URL解码；Windows还须拒绝反斜杠/尾点目录别名绕过。
+  let rel;try { rel = decodeURIComponent(String(req.path || '')).replace(/\\/g, '/').replace(/^\/+/, ''); }
+  catch { return res.status(404).end(); }
+  const parts = rel.split('/').filter(Boolean);
+  if (!parts.length || parts[0].toLowerCase() === 'private' || parts.some(part => part === '.' || part === '..' || /[ .]$/.test(part) || /[:\x00]/.test(part))) return res.status(404).end();
   const ext = path.extname(rel).slice(1).toLowerCase();
   if (!UPLOAD_SAFE.has(ext)) return res.status(404).end();
   res.setHeader('X-Content-Type-Options', 'nosniff');

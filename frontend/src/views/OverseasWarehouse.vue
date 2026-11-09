@@ -653,6 +653,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -735,7 +736,7 @@ function go(t) {
 /* ---------------- ASN ---------------- */
 function openAsnForm() {
   asnForm.value = {
-    container_no: '', carrier: '', ship_date: new Date().toISOString().slice(0, 10),
+    container_no: '', carrier: '', ship_date: localDate(),
     eta_date: '', carton_plan: 0,
     items: [{ style_no: '', product_name: '', color: '', size: '', expect_qty: 1, carton_no: '' }]
   };
@@ -753,12 +754,12 @@ async function submitAsn() {
 }
 async function doShip(a) {
   if (!confirm(`确认发运 ${a.asn_no}？`)) return;
-  try { await api.whShipAsn(a.id, { ship_date: new Date().toISOString().slice(0, 10) }); await reloadAll(); }
+  try { await api.whShipAsn(a.id, { ship_date: localDate() }); await reloadAll(); }
   catch (e) { alert('发运失败：' + e.message); }
 }
 async function doArrive(a) {
   if (!confirm(`标记 ${a.asn_no} 已到仓？到仓后才能点收。`)) return;
-  try { await api.whArriveAsn(a.id, { arrive_date: new Date().toISOString().slice(0, 10) }); await reloadAll(); }
+  try { await api.whArriveAsn(a.id, { arrive_date: localDate() }); await reloadAll(); }
   catch (e) { alert('操作失败：' + e.message); }
 }
 async function doCancel(a) {
@@ -779,7 +780,7 @@ async function openReceive(a) {
   const d = await api.whAsn(a.id);
   rcvModal.value = {
     asn: d.asn,
-    arrive_date: new Date().toISOString().slice(0, 10),
+    arrive_date: localDate(),
     carton_actual: a.carton_plan || 0,
     note: '',
     lines: d.items.map((i) => ({

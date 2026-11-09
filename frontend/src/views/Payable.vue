@@ -355,6 +355,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api, downloadFile } from '../api';
 import { can } from '../store/permissions';
@@ -378,7 +379,7 @@ const termForm = reactive({ open: false, id: null, name: '', payment_terms: '', 
 
 const summary = computed(() => board.value.summary || {});
 const canWrite = computed(() => can('payable.write'));
-const today = computed(() => board.value.as_of || new Date().toISOString().slice(0, 10));
+const today = computed(() => board.value.as_of || localDate());
 
 const shownPending = computed(() => (showAllPending.value ? pending.value : pending.value.slice(0, 10)));
 

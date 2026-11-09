@@ -312,6 +312,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 /**
  * 样衣管理（一比一改版）
  * ------------------------------------------------------------------
@@ -493,7 +494,7 @@ function exportCsv() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = '样衣管理-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.download = '样衣管理-' + localDate() + '.csv';
   a.click();
   URL.revokeObjectURL(url);
   showNotice(`已导出 ${filteredRows.value.length} 条`);

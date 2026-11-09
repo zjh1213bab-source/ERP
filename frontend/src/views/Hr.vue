@@ -437,6 +437,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -629,7 +630,7 @@ async function saveMovement() {
 
 async function doApplyMovement(r) {
   let force = false;
-  if (r.effective_date > new Date().toISOString().slice(0, 10)) {
+  if (r.effective_date > localDate()) {
     if (!confirm(`生效日 ${r.effective_date} 还没到，是否立即生效（提前执行）？`)) return;
     force = true;
   } else if (!confirm(`确认异动 ${r.mov_no} 生效？生效后会立即改写员工档案。`)) {
@@ -719,7 +720,7 @@ async function doApproveAdj(r) {
 }
 async function doApplyAdj(r) {
   let force = false;
-  if (r.effective_date > new Date().toISOString().slice(0, 10)) {
+  if (r.effective_date > localDate()) {
     if (!confirm(`生效日 ${r.effective_date} 还没到，是否立即生效？`)) return;
     force = true;
   }

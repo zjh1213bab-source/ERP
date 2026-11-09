@@ -120,6 +120,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import ListPagination from '../components/ListPagination.vue';
 import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
@@ -131,7 +132,7 @@ const canWrite = computed(() => can('expense.write'));
 const today = new Date();
 const ym = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const from = ref(ym(today) + '-01');
-const to = ref(new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10));
+const to = ref(localDate(new Date(today.getFullYear(), today.getMonth() + 1, 0)));
 
 const categories = ref(['房租', '水电', '办公', '差旅', '招待', '快递', '薪酬福利', '其他']);
 const list = ref([]);
@@ -148,7 +149,7 @@ const pct = (v) => {
 };
 
 const blank = () => ({
-  id: null, expense_date: new Date().toISOString().slice(0, 10), category: '办公',
+  id: null, expense_date: localDate(), category: '办公',
   amount: 0, payee: '', handler: '', payment_method: '转账', remark: ''
 });
 const form = ref(blank());
@@ -168,11 +169,11 @@ function quickRange(kind) {
   const d = new Date();
   if (kind === 'month') {
     from.value = ym(d) + '-01';
-    to.value = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+    to.value = localDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
   } else if (kind === 'lastMonth') {
     const p = new Date(d.getFullYear(), d.getMonth() - 1, 1);
     from.value = ym(p) + '-01';
-    to.value = new Date(p.getFullYear(), p.getMonth() + 1, 0).toISOString().slice(0, 10);
+    to.value = localDate(new Date(p.getFullYear(), p.getMonth() + 1, 0));
   } else {
     from.value = d.getFullYear() + '-01-01';
     to.value = d.getFullYear() + '-12-31';

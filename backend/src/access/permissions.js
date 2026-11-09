@@ -698,7 +698,8 @@ const POSITION_LEGACY_MODULES={order:'orders',photo:'photos',production:'product
 const POSITION_FIELD_PERMS=['hr.pii','crm.pii','supplier.pii','payroll.sensitive','adminops.detail'];
 function positionGrants(selected){
  const grants=new Set(selected);
- const crossModule={'action.stock.instock':['order.instock'],'action.stock.ship':['order.ship'],'action.dispatch.create':['order.dispatch'],'action.dispatch.delete':['order.dispatch']};
+ const crossModule={'action.stock.instock':['order.instock'],'action.stock.ship':['order.ship'],'action.dispatch.create':['order.dispatch'],'action.dispatch.delete':['order.dispatch'],
+  'action.pre-orders.create':['action.pre-orders.upload'],'action.pre-orders.edit':['action.pre-orders.upload']};
  for(const code of selected)for(const perm of crossModule[code]||[])grants.add(perm);
  for(const code of selected){const match=/^action\.([\w-]+)\.(.+)$/.exec(code);if(match){grants.add('module.'+match[1]+'.read');grants.add('module.'+match[1]+'.write');}}
  // 把按钮对应接口所需的旧敏感权限一并派生，避免前端旧 can() 形成重复授权。

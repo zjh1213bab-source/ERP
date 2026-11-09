@@ -273,6 +273,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -286,7 +287,7 @@ const dtStat = ref({});
 const orders = ref([]);
 const cap = reactive({});
 const capBoard = reactive({ rows: [] });
-const capDate = ref(new Date().toISOString().slice(0, 10));
+const capDate = ref(localDate());
 const busy = ref(false);
 const formMsg = ref('');
 

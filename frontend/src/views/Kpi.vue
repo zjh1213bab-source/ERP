@@ -538,6 +538,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -592,7 +593,7 @@ async function loadCycles() {
   if (!cycleId.value && cycles.value.length) {
     // 默认选「今天所在的那一周」，没有就取最近一周（不要落到最早的历史周期）
     const today = new Date();
-    const t = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    const t = localDate(today);
     const inRange = cycles.value.find((c) => c.start_date <= t && c.end_date >= t);
     const open = cycles.value.find((c) => c.status !== 'frozen');
     const newest = cycles.value.slice().sort((a, b) => (a.start_date < b.start_date ? 1 : -1))[0];

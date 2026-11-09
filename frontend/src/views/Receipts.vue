@@ -320,6 +320,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import ListPagination from '../components/ListPagination.vue';
 import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
@@ -338,7 +339,7 @@ const newOpen = ref(false);
 const poList = ref([]);
 const poItems = ref([]);
 const newRow = ref([]);
-const newForm = ref({ po_id: 0, receive_date: new Date().toISOString().slice(0, 10), warehouse: '原料库' });
+const newForm = ref({ po_id: 0, receive_date: localDate(), warehouse: '原料库' });
 
 const ins = ref({});
 
@@ -453,7 +454,7 @@ async function cancelGrn() {
 
 async function openNew() {
   newOpen.value = true;
-  newForm.value = { po_id: 0, receive_date: new Date().toISOString().slice(0, 10), warehouse: '原料库' };
+  newForm.value = { po_id: 0, receive_date: localDate(), warehouse: '原料库' };
   poItems.value = [];
   newRow.value = [];
   try {

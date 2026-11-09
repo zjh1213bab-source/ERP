@@ -135,6 +135,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import ListPagination from '../components/ListPagination.vue';
 import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
@@ -159,7 +160,7 @@ const dt = ref({
 
 const statusLabel = (s) => ({ normal: '正常', late: '迟到', leave: '请假', absent: '缺勤' }[s] || s);
 const shortTime = (s) => String(s || '').replace('T', ' ').slice(0, 16);
-const todayRecord = computed(() => rows.value.find((r) => r.employee_id === employeeId.value && r.date === new Date().toISOString().slice(0, 10)));
+const todayRecord = computed(() => rows.value.find((r) => r.employee_id === employeeId.value && r.date === localDate()));
 const today = computed(() => todayRecord.value || null);
 
 async function load() {

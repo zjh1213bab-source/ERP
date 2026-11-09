@@ -72,7 +72,8 @@ const SQL = `
          (SELECT GROUP_CONCAT(DISTINCT ts.size) FROM tech_pack_sizes ts WHERE ts.tech_pack_id = tp.id AND TRIM(COALESCE(ts.size,'')) != '') AS size_list,
          (SELECT u.username FROM users u WHERE u.id = tp.created_by) AS created_by_name,
          sa.id AS archive_id, sa.status AS archive_status, sa.archive_no,
-         sa.style_no AS archive_style_no, sa.snapshot AS archive_snapshot
+         sa.style_no AS archive_style_no, sa.snapshot AS archive_snapshot,
+         sa.customer AS archive_customer
   FROM pattern_flows pf
   JOIN tech_packs tp ON tp.id = pf.tech_pack_id
   LEFT JOIN orders o ON o.id = pf.order_id
@@ -92,7 +93,7 @@ function decorate(r) {
   // 归档快照是真实数据，可补齐 tech_packs 上尚未维护的颜色/尺码/人员字段
   let snap = {};
   try { snap = JSON.parse(r.archive_snapshot || '{}'); } catch (e) { snap = {}; }
-  const customer = text(r.customer_name || r.customer_name_snapshot || r.pre_customer_name);
+  const customer = text(r.customer_name || r.customer_name_snapshot || r.pre_customer_name || r.archive_customer);
   const styleName = text(r.product_name || snap.product_name || r.order_style_name || r.pre_style_name);
   // 款号按真实来源依次兜底：版号 → 订单明细款号 → 归档款号 → 客户款号 → 样衣/订单编号
   const styleNo = text(

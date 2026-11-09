@@ -28,6 +28,7 @@ const express = require('express');
 const { db, now } = require('../db');
 const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
+const { nextNo } = require('../utils/docNo');
 
 const router = express.Router();
 const WRITE = ['admin', 'sales', 'warehouse', 'production'];
@@ -43,17 +44,6 @@ const CHG_LABEL = {
 const RET_LABEL = {
   pending_receipt: '待实物回执', returned: '实物已退', credited: '贷项已收', done: '完成', voided: '已作废'
 };
-
-function no(prefix, table) {
-  const t = now();
-  const ymd = t.slice(0, 10).replace(/-/g, '');
-  const seq = Number(db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE ${prefix === 'PC' ? 'change_no' : 'return_no'} LIKE ?`).get(`${prefix}${ymd}%`).c) + 1;
-  let n = `${prefix}${ymd}${String(seq).padStart(4, '0')}`;
-  while (db.prepare(`SELECT 1 x FROM ${table} WHERE ${prefix === 'PC' ? 'change_no' : 'return_no'} = ?`).get(n)) {
-    n = `${prefix}${ymd}${String(++seq).padStart(4, '0')}`;
-  }
-  return n;
-}
 
 function poLines(poId) {
   const rows = db.prepare(
@@ -186,7 +176,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   }
   if (!items.length) return fail(res, 400, '没有可变更的行');
 
-  const changeNo = no('PC', 'purchase_changes');
+  const changeNo = nextNo('PC', 'purchase_changes', 'change_no');
   const t = now();
   let id;
   db.exec('BEGIN');
@@ -328,7 +318,7 @@ router.post('/returns', authRequired, requireRole(WRITE), wrap(async (req, res) 
   }
   if (!items.length) return fail(res, 400, '没有可退的行');
 
-  const returnNo = no('RT', 'purchase_returns');
+  const returnNo = nextNo('RT', 'purchase_returns', 'return_no');
   const t = now();
   let id;
   db.exec('BEGIN');

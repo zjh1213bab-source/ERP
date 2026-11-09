@@ -38,10 +38,11 @@ for (const f of [TMP, TMP + '-wal', TMP + '-shm']) {
 /* 用 schema.js 建一个空库（走 db.js，才能连 migrate 补列一起验证） */
 process.env.DB_PATH = TMP;
 process.env.ERP_SCHEDULER = '0';
-const { db: fresh } = require('../src/db');
+const { db: fresh, driver } = require('../src/db');
 
-const Database = require('better-sqlite3');
-const live = new Database(TARGET, { readonly: true });
+const live = new fresh.constructor(TARGET, driver === 'node:sqlite'
+  ? { readOnly: true }
+  : { readonly: true });
 
 const q = (conn, sql, ...p) => conn.prepare(sql).all(...p);
 

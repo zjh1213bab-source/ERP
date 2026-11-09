@@ -6,7 +6,9 @@
     :title="tipText"
     @click="onClick"
     @dblclick="onDblClick"
-    @mouseenter="activate"
+    @pointerenter="enter($event)"
+    @pointermove="move($event)"
+    @pointerleave="leave()"
     @contextmenu.prevent="disabled ? null : pick()"
   >
     <img v-if="modelValue" :src="modelValue" />
@@ -19,9 +21,9 @@
     <div v-if="!modelValue && !disabled && isActive() && !uploading" class="ready">Ctrl+V 粘贴</div>
 
     <div v-if="modelValue && !disabled" class="mask">
-      <button class="del" @click.stop="clear">删除</button>
+      <button type="button" class="del" @click.stop="clear">删除</button>
     </div>
-    <button v-if="!disabled && !uploading" class="up-btn" title="选择本地文件" @click.stop="pick">↑</button>
+    <button v-if="!disabled && !uploading" type="button" class="up-btn" title="选择本地文件" @click.stop="pick">↑</button>
 
     <div v-if="uploading" class="busy">上传中…</div>
     <input ref="fileEl" type="file" accept="image/*" style="display: none" @change="onFile" />
@@ -48,6 +50,7 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   size: { type: String, default: 'md' },     // sm | md | lg
   disabled: { type: Boolean, default: false },
+  hoverPaste: Boolean,
   maxMB: { type: Number, default: 3 },
   title: { type: String, default: '' }
 });
@@ -60,6 +63,11 @@ const fileEl = ref(null);
 const uploadRoot = ref(null);
 const uploading = ref(false);
 const isActive = () => activeUid.value === uid;
+let hoverPoint = null;
+function enter(event) { hoverPoint = {x:event.clientX,y:event.clientY}; activate(); }
+function move(event) { hoverPoint = {x:event.clientX,y:event.clientY}; if(props.hoverPaste&&!props.disabled)activate(); }
+function leave() { hoverPoint=null; if(props.hoverPaste&&isActive())activeUid.value=null; }
+function hoveredOwn() { return !!hoverPoint&&!!uploadRoot.value?.contains(document.elementFromPoint(hoverPoint.x,hoverPoint.y)); }
 
 function activate() {
   if (!props.disabled) activeUid.value = uid;
@@ -70,7 +78,7 @@ const tipText = computed(() => {
       ? '点击查看大图'
       : '单击查看大图 · 右上角箭头或右键换图 · 悬停后 Ctrl+V 可替换';
   }
-  return props.disabled ? '' : '单击选中后按 Ctrl+V 粘贴，双击可选文件';
+  return props.disabled ? '' : props.hoverPaste ? '鼠标指向这里按 Ctrl+V 粘贴，双击可选文件' : '单击选中后按 Ctrl+V 粘贴，双击可选文件';
 });
 
 /** 有图 → 看大图；无图 → 选中（准备粘贴） */
@@ -127,13 +135,15 @@ function clear() {
 
 /* ---------- 粘贴 ---------- */
 function onPaste(e) {
-  if (props.disabled || !isActive() || uploading.value || !uploadRoot.value?.getClientRects().length) return;
+  if (e.defaultPrevented || props.disabled || !isActive() || uploading.value || !uploadRoot.value?.getClientRects().length) return;
+  if (props.hoverPaste && !hoveredOwn()) return;
   const items = (e.clipboardData && e.clipboardData.items) || [];
   for (let i = 0; i < items.length; i++) {
     if (items[i].type && items[i].type.startsWith('image/')) {
       const file = items[i].getAsFile();
       if (file) {
         e.preventDefault();
+        if(props.hoverPaste)e.stopImmediatePropagation();
         handleFile(file);
         return;
       }
@@ -144,6 +154,7 @@ function onPaste(e) {
 /* ---------- 拖拽 ---------- */
 function onDrop(e) {
   if (props.disabled || !isActive() || uploading.value || !uploadRoot.value?.getClientRects().length) return;
+  if(props.hoverPaste&&!uploadRoot.value.contains(e.target))return;
   const dt = e.dataTransfer;
   if (!dt) return;
   const file = dt.files && dt.files[0];
@@ -158,14 +169,14 @@ function onDragOver(e) { if (!props.disabled && isActive()) e.preventDefault(); 
 let pasteBound = false;
 function bindPaste() {
   if (pasteBound) return;
-  document.addEventListener('paste', onPaste);
+  document.addEventListener('paste', onPaste, props.hoverPaste);
   document.addEventListener('dragover', onDragOver);
   document.addEventListener('drop', onDrop);
   pasteBound = true;
 }
 function unbindPaste() {
   if (!pasteBound || isActive()) return;   // 还在用就别解绑，由下一个组件接管
-  document.removeEventListener('paste', onPaste);
+  document.removeEventListener('paste', onPaste, props.hoverPaste);
   document.removeEventListener('dragover', onDragOver);
   document.removeEventListener('drop', onDrop);
   pasteBound = false;
@@ -174,11 +185,11 @@ function unbindPaste() {
 onMounted(() => {
   bindPaste();
   // 页面上还没有任何图片位被激活时，默认由第一个接管粘贴
-  if (activeUid.value === null && !props.disabled) activeUid.value = uid;
+  if (activeUid.value === null && !props.disabled && !props.hoverPaste) activeUid.value = uid;
 });
 onBeforeUnmount(() => {
   if (activeUid.value === uid) activeUid.value = null;
-  document.removeEventListener('paste', onPaste);
+  document.removeEventListener('paste', onPaste, props.hoverPaste);
   document.removeEventListener('dragover', onDragOver);
   document.removeEventListener('drop', onDrop);
   pasteBound = false;

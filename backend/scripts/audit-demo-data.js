@@ -509,6 +509,8 @@ function clean(opts = {}) {
  * 猜错了会删掉别人的明细。宁可少覆盖，不要错删。
  */
 const PARENT_PAIRS = [
+  ['pre_order_payment_files', 'company_id', 'companies'],
+  ['pre_order_payment_files', 'uploaded_by', 'users'],
   ['order_entry_drafts','user_id','users'],
   ['order_entry_drafts','company_id','companies'],
   ['order_entry_drafts','order_id','orders'],

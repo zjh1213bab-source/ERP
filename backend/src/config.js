@@ -181,7 +181,7 @@ cfg.securityAudit = function securityAudit() {
   const secret = String(process.env.JWT_SECRET || '');
   if (!secret) {
     issues.push({ key: 'JWT_SECRET', level: 'fatal', msg: 'JWT_SECRET 未设置，正在用示例密钥 —— 任何人都能伪造管理员 token（生成：openssl rand -hex 32）' });
-  } else if (secret === DEFAULT_JWT_SECRET) {
+  } else if (secret === DEFAULT_JWT_SECRET || secret === 'please_change_me_to_a_long_random_secret_string') {
     issues.push({ key: 'JWT_SECRET', level: 'fatal', msg: 'JWT_SECRET 仍是示例值，等于公开了签发密钥' });
   } else if (secret.length < 32) {
     issues.push({ key: 'JWT_SECRET', level: 'warn', msg: `JWT_SECRET 只有 ${secret.length} 位，建议 32 位以上随机串` });

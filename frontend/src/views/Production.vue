@@ -52,6 +52,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import OperationWorkbench from '../components/OperationWorkbench.vue';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
@@ -73,7 +74,7 @@ const STATUS_TAG = { assigned: 'purple', production: 'orange', instock: 'green' 
 const statusLabel = (s) => STATUS_LABEL[s] || s;
 const statusTag = (s) => STATUS_TAG[s] || 'gray';
 
-const today = new Date().toISOString().slice(0, 10);
+const today = localDate();
 const isOverdue = (o) => o.delivery_date && o.delivery_date < today && o.status !== 'instock';
 const pct = (o) => (o.node_total ? Math.round((o.node_done / o.node_total) * 100) : 0);
 

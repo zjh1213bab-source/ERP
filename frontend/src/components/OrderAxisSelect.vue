@@ -5,25 +5,25 @@
       <small v-if="!modelValue.length">请选择{{label}}</small><b class="axis-arrow">⌄</b>
     </div>
     <section v-if="opened" class="axis-popover" :aria-label="label+'选项'">
-      <input ref="searchInput" v-model="search" :placeholder="'搜索'+label" :aria-label="'搜索'+label"/>
+      <input ref="searchInput" v-model="search" :placeholder="'搜索'+label" :aria-label="'搜索'+label" @keydown.enter.stop.prevent/>
       <div class="axis-shortcuts"><span>已选 {{modelValue.length}} / {{max}}</span><button type="button" @click="selectVisible()">选中搜索结果</button><button type="button" @click="$emit('update:modelValue',[])">清空</button></div>
       <div class="axis-option-grid" role="listbox" aria-multiselectable="true" :aria-label="label">
         <button v-for="name in filtered" :key="name" type="button" role="option" :aria-selected="modelValue.includes(name)" :class="{selected:modelValue.includes(name)}" @click="pick(name)">{{name}}<span v-if="modelValue.includes(name)"> ✓</span></button>
         <p v-if="!filtered.length">没有匹配项，可在下方新增。</p>
       </div>
-      <div class="axis-add"><input v-model="newName" :placeholder="kind==='colors'?'新增颜色':'新增尺码'" maxlength="60" @keyup.enter="add()"/><button type="button" @click="add()">添加</button></div>
+      <div class="axis-add"><input v-model="newName" :placeholder="'新增'+label" maxlength="60" @keydown.enter.stop.prevent="add()"/><button type="button" @click="add()">添加</button></div>
       <p v-if="message" class="axis-message" role="status">{{message}}</p>
-      <footer><small>点选即同步下方颜色、尺码及图片</small><button type="button" @click="opened=false">关闭</button></footer>
+      <footer><small>{{['colors','sizes'].includes(kind)?'点选即同步下方颜色、尺码及图片':'点选加入本款，保存预下单后生效'}}</small><button type="button" @click="opened=false">关闭</button></footer>
     </section>
   </div>
 </template>
 <script setup>
 import {ref,computed,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
-const props=defineProps({modelValue:Array,options:Array,label:String,kind:String,max:Number});
+const props=defineProps({modelValue:Array,options:Array,label:String,kind:String,max:Number,sortNames:Function});
 const emit=defineEmits(['update:modelValue']);
 const root=ref(null),searchInput=ref(null),opened=ref(false),search=ref(''),newName=ref(''),known=ref([]),message=ref('');
 watch(()=>[props.options,props.modelValue],()=>{known.value=[...new Set([...known.value,...props.options,...props.modelValue])];},{immediate:true,deep:true});
-const filtered=computed(()=>known.value.filter(n=>n.toLowerCase().includes(search.value.trim().toLowerCase())));
+const filtered=computed(()=>{const names=known.value.filter(n=>n.toLowerCase().includes(search.value.trim().toLowerCase()));return props.sortNames?props.sortNames(names):names;});
 function toggle(){opened.value=!opened.value;if(opened.value){search.value='';message.value='';nextTick(()=>searchInput.value?.focus());}}
 function pick(name){message.value='';if(props.modelValue.includes(name))emit('update:modelValue',props.modelValue.filter(n=>n!==name));else if(props.modelValue.length<props.max)emit('update:modelValue',[...props.modelValue,name]);else message.value=`最多选择${props.max}项`;}
 function selectVisible(){const next=[...new Set([...props.modelValue,...filtered.value])];if(next.length>props.max){message.value=`最多选择${props.max}项，请缩小搜索范围`;return;}emit('update:modelValue',next);}

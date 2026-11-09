@@ -450,6 +450,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api } from '../api';
 import { auth } from '../store/auth';
@@ -493,12 +494,12 @@ const covOf = (name) => (cov.value.list || []).find((x) => x.process_name === na
 
 function certTag(c) {
   if (c.status === 'revoked') return 'gray';
-  if (c.expire_date && c.expire_date < new Date().toISOString().slice(0, 10)) return 'red';
+  if (c.expire_date && c.expire_date < localDate()) return 'red';
   return 'green';
 }
 function certLabel(c) {
   if (c.status === 'revoked') return '已作废';
-  if (c.expire_date && c.expire_date < new Date().toISOString().slice(0, 10)) return '已过期';
+  if (c.expire_date && c.expire_date < localDate()) return '已过期';
   return '有效';
 }
 const typeLabel = (v) => ((meta.value.course_types || []).find((x) => x.value === v) || {}).label || v;

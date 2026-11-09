@@ -119,6 +119,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import ListPagination from '../components/ListPagination.vue';
 import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';
@@ -140,14 +141,14 @@ const money = (v) => Number(v || 0).toLocaleString(undefined, { minimumFractionD
 
 const blank = () => ({
   id: null, code: '', name: '', category: '电子设备', dept: '', keeper: '',
-  purchase_date: new Date().toISOString().slice(0, 10), original_value: 0,
+  purchase_date: localDate(), original_value: 0,
   salvage_rate: 0.05, useful_years: 5, plate_no: '', next_check_date: '',
   status: 'in_use', remark: ''
 });
 const form = ref(blank());
 
 function isDueSoon(d) {
-  const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const in30 = localDate(new Date(Date.now() + 30 * 86400000));
   return d <= in30;
 }
 

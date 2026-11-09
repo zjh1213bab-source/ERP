@@ -420,6 +420,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { api, downloadFile } from '../api';
 import { can } from '../store/permissions';
@@ -647,7 +648,7 @@ async function exportCsv() {
     const url = URL.createObjectURL(b);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dq-issues-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `dq-issues-${localDate()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {

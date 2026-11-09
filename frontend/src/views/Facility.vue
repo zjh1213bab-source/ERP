@@ -524,6 +524,7 @@
 </template>
 
 <script setup>
+import { localDate } from '../utils/time';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { api } from '../api';
 import { can } from '../store/permissions';
@@ -578,7 +579,7 @@ const repairModal = ref(false);
 const repairForm = reactive({});
 
 const money = (v) => (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDate();
 
 const freeBeds = computed(() => {
   const list = [];

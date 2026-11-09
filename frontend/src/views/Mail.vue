@@ -444,7 +444,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api';
-import { fmtTime } from '../utils/time';
+import { fmtTime, localDate } from '../utils/time';
 
 const folders = [
   { key: 'inbox', label: '收件箱', icon: '📥' },
@@ -815,8 +815,8 @@ async function openDelegates() {
     delegates.value = await api.mailDelegates() || [];
     dgForm.value = {
       agent: '', scope: 'ack',
-      start_at: new Date().toISOString().slice(0, 10),
-      end_at: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      start_at: localDate(),
+      end_at: localDate(new Date(Date.now() + 7 * 86400000)),
       reason: ''
     };
     delegateOpen.value = true;
