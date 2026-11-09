@@ -178,15 +178,16 @@ const navModel = [
     ]
   },
   {
-    key: 'sales', label: '销售', icon: '🛒',
+    key: 'sales', label: '销售开单', icon: '🛒',
     children: [
       { label: '报价单', to: '/quotations' },
-      { label: '客户确认', to: '/confirm-center' },
-      { label: '客户营销与消息', to: '/notify' },
-      { label: '销售与客户', to: '/sales' },
-      { label: '客户进度发布', to: '/customer-progress' },
       { label: '预下单', to: '/pre-orders' },
-      { label: '销售订单', to: '/orders' }
+      { label: '业务订单', to: '/orders' },
+      { label: '现货开单', to: '/spot-ops' },
+      { label: '客户确认', to: '/confirm-center' },
+      { label: '客户进度发布', to: '/customer-progress' },
+      { label: '销售与客户', to: '/sales' },
+      { label: '客户营销与消息', to: '/notify' }
     ]
   },
   /**
@@ -211,23 +212,43 @@ const navModel = [
     key: 'tech', label: '技术开发', icon: '🧵',
     children: [
       { label: '开发管理', to: '/development' },
-      { label: '面辅料新品开发', to: '/material-development' },
       { label: '研发立项与 SKU 配码', to: '/dev-master' },
-      { label: '供方协同与技术复审', to: '/sup-review' },
       { label: '打版流程', to: '/pattern-board' },
-      {label:'打样室',to:'/pattern-board?workbench=sample'},
-      { label: '样衣管理', to: '/sample-archive' }
+      { label: '面辅料新品开发', to: '/material-development' },
+      { label: '供方协同与技术复审', to: '/sup-review' }
     ]
   },
+  { key: 'sample', label: '样衣管理', icon: '🧥', children: [
+    { label: '样衣管理', to: '/sample-archive' },
+    { label: '打版流程', to: '/pattern-board' },
+    { label: '打样室', to: '/pattern-board?workbench=sample' }
+  ] },
   {
     key: 'purchase', label: '供应链部', icon: '🛍',
     children: [
       { label: '采购列表', to: '/purchases' },
-      { label: '分配订单', to: '/order-allocation' }
+      { label: '分配订单', to: '/order-allocation' },
+      { label: '原料收货检验', to: '/receipts' },
+      { label: '库存管理', to: '/inventory' },
+      { label: '备料领退与盘点', to: '/material-flow' },
+      { label: '供应商评价', to: '/supplier-eval' },
+      { label: '停单改量退料', to: '/purchase-changes' }
     ]
   },
-  {key:'front',label:'生产前端',icon:'✂',children:[{label:'订单',to:'/order-tracking'},{label:'裁床',to:'/production?station=cut'},{label:'仓库',to:'/production?station=warehouse'}]},
-  {key:'back',label:'生产后端',icon:'🏭',children:[{label:'车间',to:'/production?station=workshop'},{label:'后整',to:'/production?station=finish'}]},
+  { key: 'front', label: '生产前端', icon: '✂', children: [
+    { label: '订单', to: '/order-tracking' },
+    { label: '裁床', to: '/production?station=cut' },
+    { label: '仓库', to: '/production?station=warehouse' },
+    { label: '齐套与缺料', to: '/requirements' },
+    { label: '首件确认', to: '/first-article' }
+  ] },
+  { key: 'back', label: '生产后端', icon: '🏭', children: [
+    { label: '车间', to: '/production?station=workshop' },
+    { label: '后整', to: '/production?station=finish' },
+    { label: '质量与合规', to: '/quality' },
+    { label: '返工报废与结单', to: '/production-close' },
+    { label: '扎级完工进度', to: '/bundle-progress' }
+  ] },
   {
     key: 'prod', label: '生产', icon: '🏭',
     children: [
@@ -441,14 +462,22 @@ function toggle(key) { openMap[key] = !openMap[key]; }
  */
 const quickTabs = [
   { label: '首页', to: '/dashboard' },
-  { label: '生产订单', to: '/orders', group: 'prod' },
-  { label: '采购列表', to: '/purchases', group: 'purchase' },
-  { label: '打版流程', to: '/pattern-board', group: 'tech' },
-  { label: '现货开单', to: '/spot-ops', group: 'stock' },
-  { label: '开销售单', to: '/orders', group: 'sales' },
-  { label: '开发管理', to: '/development', group: 'tech' },
-  { label: '样衣管理', to: '/sample-archive', group: 'tech', dot: true, badgeFrom: '/sample-archive' },
-  { label: '业务订单', to: '/orders', group: 'sales' }
+  { label: '我的工作', to: '/self' },
+  { label: '我的待办', to: '/approvals', group: 'approve' },
+  { label: '内部邮箱', to: '/mail' },
+  { label: '人事薪酬', to: '/payroll-check', group: 'hr' },
+  { label: '样衣管理', to: '/sample-archive', group: 'sample' },
+  { label: '销售开单', to: '/pre-orders', group: 'sales' },
+  { label: '技术开发', to: '/development', group: 'tech' },
+  { label: '供应链部', to: '/purchases', group: 'purchase' },
+  { label: '生产前端', to: '/order-tracking', group: 'front' },
+  { label: '生产后端', to: '/production?station=workshop', group: 'back' },
+  { label: '扫码查询', to: '/scan' },
+  { label: '美仓现货', to: '/wh-plan', group: 'stock' },
+  { label: '财务管理', to: '/finance', group: 'finance' },
+  { label: '行政后勤', to: '/facility', group: 'hr' },
+  { label: '智能助手', to: '/assistant' },
+  { label: '系统设置', to: '/settings', group: 'sys' }
 ];
 const openTab = ref('');
 function toggleTab(label) { openTab.value = openTab.value === label ? '' : label; }
