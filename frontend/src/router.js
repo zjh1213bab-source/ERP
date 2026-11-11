@@ -128,8 +128,10 @@ const MallInvite = () => import('./views/mall/MallInvite.vue');
 const Mall = () => import('./views/mall/Mall.vue');
 const MallGuest = () => import('./views/mall/MallGuest.vue');
 const LabelPrint = () => import('./views/LabelPrint.vue');
+const ProductionFrontPreview = () => import('./views/ProductionFrontPreview.vue');
 
 const routes = [
+  { path: '/production-front-preview', component: ProductionFrontPreview, meta: { public: true, title: '生产前端订单预览' } },
   { path: '/login', component: Login, meta: { public: true } },
   // 客户商城：客户账号独立登录，不受 ERP 登录态影响
   { path: '/mall/login', component: MallLogin, meta: { public: true, title: '客户登录' } },
