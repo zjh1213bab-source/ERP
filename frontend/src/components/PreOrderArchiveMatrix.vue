@@ -1,7 +1,7 @@
 <template>
   <section class="pre-archive-matrix" :class="{compact,'is-disabled':disabled}">
     <fieldset class="matrix-fields" :disabled="disabled">
-      <PreOrderRequirements :item="item" :disabled="disabled||!!pendingRemoval" />
+      <PreOrderRequirements @uploading="trackUpload" :item="item" :disabled="disabled||!!pendingRemoval" />
       <div class="matrix-toolbar" :inert="disabled||!!pendingRemoval">
         <div class="matrix-axis"><label>颜色</label><OrderAxisSelect :key="selectorVersion+'-colors'" :model-value="colors" :options="colorOptions" :sort-names="sortColorNames" label="颜色" kind="colors" :max="60" @update:model-value="requestAxis('colors',$event)"/><button type="button" class="matrix-link" @click="configure('colors')">管理</button></div>
         <div class="matrix-axis matrix-size-axis"><label>尺码</label><OrderAxisSelect :key="selectorVersion+'-sizes'" :model-value="sizes" :options="sizeOptions" :sort-names="sortSizeNames" label="尺码" kind="sizes" :max="30" @update:model-value="requestAxis('sizes',$event)"/><div class="matrix-template-links"><button type="button" class="matrix-link" @click="configure('sizes')">管理</button><button type="button" class="matrix-link" @click="templateOpen=true">选择模板</button><button type="button" class="matrix-link" :disabled="!sizes.length" @click="openSaveTemplate()">保存模板</button></div></div>

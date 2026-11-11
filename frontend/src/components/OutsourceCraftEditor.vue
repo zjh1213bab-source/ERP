@@ -4,17 +4,17 @@
   <p v-if="error" class="outsource-error">{{error}}</p>
   <section v-for="phase in phases" :key="phase.key" class="outsource-phase">
    <header><b>{{phase.label}}</b><span>预计费用合计：¥{{total(phase.key).toFixed(2)}}</span></header>
-   <fieldset :disabled="readonly||uploading>0"><div class="outsource-scroll"><table class="data"><thead><tr><th>序号</th><th>款色 *</th><th>图片</th><th>工艺名称（档案）*</th><th>工艺厂</th><th>电话 / 地址</th><th>数量</th><th>工艺单价（元）</th><th>预计费用</th><th>备注</th><th>操作</th></tr></thead><tbody>
-    <tr v-for="(row,index) in phaseRows(phase.key)" :key="row.key"><td>{{index+1}}</td><td><input v-model.trim="row.color" :list="'outsource-colors-'+uid" maxlength="100" placeholder="选择或填写款色" /></td><td><ImageUpload v-model="row.image_url" :disabled="readonly" @uploading="trackUpload" /></td><td><select v-model.number="row.craft_type_id" @change="fillCraft(row)"><option :value="null">选择工艺档案</option><option v-if="row.craft_type_id&&!crafts.some(c=>c.id===row.craft_type_id)" :value="row.craft_type_id">{{row.name}}（原档案已停用）</option><option v-for="c in crafts" :key="c.id" :value="c.id">{{c.name}}</option></select></td><td><select v-model.number="row.factory_id" @change="fillFactory(row)"><option :value="null">暂未分配</option><option v-if="row.factory_id&&!factories.some(f=>f.id===row.factory_id)" :value="row.factory_id">{{row.factory_name}}（原档案已停用）</option><option v-for="f in factories" :key="f.id" :value="f.id">{{f.name}}</option></select></td><td>{{row.phone||'—'}}<small>{{row.address||'—'}}</small></td><td><input v-model.number="row.qty" type="number" min="0" max="10000000" step="0.001" /></td><td><input v-model.number="row.price" type="number" min="0" max="10000000" step="0.01" /></td><td>¥{{amount(row).toFixed(2)}}</td><td><textarea v-model="row.remark" maxlength="2000" rows="2" /></td><td><button type="button" class="link-btn" @click="copy(row)">复制到其他颜色</button><button type="button" class="link-btn danger" @click="remove(row)">删除</button></td></tr>
-    <tr v-if="!phaseRows(phase.key).length"><td colspan="11" class="empty-cell">暂无{{phase.label}}，请从工艺档案添加</td></tr>
-   </tbody></table></div><button v-if="!readonly" type="button" class="outsource-add" @click="add(phase.key)">＋ 添加工艺</button></fieldset>
+   <fieldset :disabled="readonly||uploading>0"><div class="outsource-scroll"><table class="data"><thead><tr><th>序号</th><th v-if="!byProduct">款色 *</th><th>图片</th><th>工艺名称（档案）*</th><th>工艺厂</th><th>电话 / 地址</th><th>数量</th><th>工艺单价（元）</th><th>预计费用</th><th>备注</th><th>操作</th></tr></thead><tbody>
+    <tr v-for="(row,index) in phaseRows(phase.key)" :key="row.key"><td>{{index+1}}</td><td v-if="!byProduct"><input v-model.trim="row.color" :list="'outsource-colors-'+uid" maxlength="100" placeholder="选择或填写款色" /></td><td><ImageUpload v-model="row.image_url" :disabled="readonly" @uploading="trackUpload" /></td><td><select v-model.number="row.craft_type_id" @change="fillCraft(row)"><option :value="null">选择工艺档案</option><option v-if="row.craft_type_id&&!crafts.some(c=>c.id===row.craft_type_id)" :value="row.craft_type_id">{{row.name}}（原档案已停用）</option><option v-for="c in crafts" :key="c.id" :value="c.id">{{c.name}}</option></select></td><td><select v-model.number="row.factory_id" @change="fillFactory(row)"><option :value="null">暂未分配</option><option v-if="row.factory_id&&!factories.some(f=>f.id===row.factory_id)" :value="row.factory_id">{{row.factory_name}}（原档案已停用）</option><option v-for="f in factories" :key="f.id" :value="f.id">{{f.name}}</option></select></td><td>{{row.phone||'—'}}<small>{{row.address||'—'}}</small></td><td><input v-model.number="row.qty" type="number" min="0" max="10000000" step="0.001" /></td><td><input v-model.number="row.price" type="number" min="0" max="10000000" step="0.01" /></td><td>¥{{amount(row).toFixed(2)}}</td><td><textarea v-model="row.remark" maxlength="2000" rows="2" /></td><td><template v-if="byProduct"><button type="button" class="link-btn" :disabled="index===0" @click="move(row,-1)">上移</button><button type="button" class="link-btn" :disabled="index===phaseRows(phase.key).length-1" @click="move(row,1)">下移</button></template><button v-else type="button" class="link-btn" @click="copy(row)">复制到其他颜色</button><button type="button" class="link-btn danger" @click="remove(row)">删除</button></td></tr>
+    <tr v-if="!phaseRows(phase.key).length"><td :colspan="byProduct?10:11" class="empty-cell">暂无{{phase.label}}，请从工艺档案添加</td></tr>
+   </tbody></table></div><button v-if="!readonly" type="button" class="outsource-add" @click="add(phase.key)">＋ 添加一行数据</button></fieldset>
   </section>
   <datalist :id="'outsource-colors-'+uid"><option v-for="color in colors" :key="color" :value="color" /></datalist>
  </div>
 </template>
 <script setup>
 import {ref,onMounted} from 'vue';import {api} from '../api';import {entryId} from '../utils/orderEntry';import ImageUpload from './ImageUpload.vue';
-const props=defineProps({modelValue:{type:Array,default:()=>[]},colors:{type:Array,default:()=>[]},readonly:Boolean});const emit=defineEmits(['update:modelValue','uploading']);
+const props=defineProps({modelValue:{type:Array,default:()=>[]},colors:{type:Array,default:()=>[]},byProduct:Boolean,readonly:Boolean});const emit=defineEmits(['update:modelValue','uploading']);
 const uid=entryId(),crafts=ref([]),factories=ref([]),error=ref(''),uploading=ref(0),phases=[{key:'fabric',label:'面料工艺'},{key:'cut',label:'裁后工艺'}];
 const phaseRows=phase=>props.modelValue.filter(r=>r.phase===phase),amount=r=>Math.round((Number(r.qty||0)*Number(r.price||0)+Number.EPSILON)*100)/100,total=phase=>phaseRows(phase).reduce((s,r)=>s+amount(r),0);
 function trackUpload(active){const previous=uploading.value;uploading.value=Math.max(0,previous+(active?1:-1));if(!previous&&uploading.value)emit('uploading',true);if(previous&&!uploading.value)emit('uploading',false);}
@@ -23,6 +23,13 @@ function add(phase){if(props.modelValue.length>=200)return alert('最多200条�
 function fillCraft(row){const craft=crafts.value.find(c=>c.id===row.craft_type_id);if(craft){row.name=craft.name;row.price=Number(craft.default_price||0);}}
 function fillFactory(row){const factory=factories.value.find(f=>f.id===row.factory_id);Object.assign(row,{factory_name:factory?.name||'',phone:factory?.phone||'',address:factory?.address||''});}
 function remove(row){emit('update:modelValue',props.modelValue.filter(r=>r.key!==row.key));}
+function move(row,delta){
+ const group=phaseRows(row.phase),neighbor=group[group.indexOf(row)+delta];
+ if(!neighbor)return;
+ const rows=[...props.modelValue],a=rows.indexOf(row),b=rows.indexOf(neighbor);
+ [rows[a],rows[b]]=[rows[b],rows[a]];
+ emit('update:modelValue',rows);
+}
 function copy(row){if(props.modelValue.length>=200)return;emit('update:modelValue',[...props.modelValue,{...JSON.parse(JSON.stringify(row)),key:entryId(),color:''}]);}
 onMounted(load);
 </script>

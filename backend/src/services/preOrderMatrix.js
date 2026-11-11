@@ -33,6 +33,27 @@ function normalize(value, rows) {
   if (rows.some(row => !colors.includes(row.color || '') || !sizes.includes(row.size))) bad('颜色尺码配置与报价明细不一致');
   const requirements=value.material_details===undefined?{}:require('./preOrderMaterials').normalize(value.material_details,value.material_groups||[]);
   for(const key of ['materials','crafts'])if(value[key]!==undefined)requirements[key]=names(value[key],key==='materials'?'面辅料':'工艺',100,500);
+  if(value.outsource_rows!==undefined){
+    if(!Array.isArray(value.outsource_rows)||value.outsource_rows.length>200)bad('最多200条外发工艺');
+    const keys=new Set();
+    requirements.outsource_rows=value.outsource_rows.map(row=>{
+      if(!object(row)||typeof row.key!=='string'||!row.key||row.key.length>100||keys.has(row.key)||!['fabric','cut'].includes(row.phase))bad('外发工艺行无效');
+      keys.add(row.key);
+      if(!Number.isSafeInteger(row.craft_type_id)||row.craft_type_id<1)bad('请选择工艺名称');
+      const result={key:row.key,phase:row.phase,craft_type_id:row.craft_type_id,factory_id:row.factory_id??null,image_url:imageUrl(row.image_url)};
+      for(const field of ['qty','price']){
+        const n=Number(row[field]);
+        if(!Number.isFinite(n)||n<0||n>1e7)bad('工艺数量或单价无效');
+        result[field]=n;
+      }
+      for(const field of ['name','factory_name','phone','address','remark']){
+        const text=row[field]??'';
+        if(typeof text!=='string'||text.length>2000)bad('工艺明细文本过长');
+        result[field]=text;
+      }
+      return result;
+    });
+  }
   if(value.business_requirement!==undefined){if(typeof value.business_requirement!=='string'||value.business_requirement.length>20000)bad('业务要求最多20000字符');requirements.business_requirement=value.business_requirement;}
   if(value.craft_note!==undefined){if(typeof value.craft_note!=='string'||value.craft_note.length>2000)bad('工艺要求最多2000字');requirements.craft_note=value.craft_note.trim();}
   return { colors, sizes, color_images: Object.fromEntries(images), split_price: value.split_price,...requirements };
@@ -56,7 +77,7 @@ function sameNames(left, right) {
 /** 旧客户端不传新字段时，保留仍在本单中的颜色图；报价删轴后对应图同步移除。 */
 function prepare(value, rows, previous, previousRows = []) {
   if (value !== undefined) {
-    if(previous&&object(value)){const saved=read(previous.matrix_json,previousRows);value={...value};for(const key of ['materials','crafts','craft_note','business_requirement','material_details','material_groups'])if(value[key]===undefined&&saved[key]!==undefined)value[key]=saved[key];}
+    if(previous&&object(value)){const saved=read(previous.matrix_json,previousRows);value={...value};for(const key of ['materials','crafts','craft_note','outsource_rows','business_requirement','material_details','material_groups'])if(value[key]===undefined&&saved[key]!==undefined)value[key]=saved[key];}
     return normalize(value, rows);
   }
   if (!previous) return normalize(derived(rows), rows);
