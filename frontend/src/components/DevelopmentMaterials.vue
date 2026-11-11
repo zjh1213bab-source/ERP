@@ -18,7 +18,7 @@ watch(()=>props.rows,rows=>{
  item.colors=(colors.length?colors:['通配']).map(color=>({color,sizes:[{size:'通配',qty:1}]}));
 },{immediate:true});
 function serialize(){return item.materials.flatMap(m=>{
- const data=JSON.stringify({editor_material_key:m.key,usage_group_id:m.usage_group_id,colors_configured:m.colors_configured,colors:m.colors,order_image_url:m.order_image_url,width:m.width,weight:m.weight,base_price:m.price});
+ const data=JSON.stringify({editor_material_key:m.key,shared_color:m.shared_color,shared_config:m.shared_config,usage_group_id:m.usage_group_id,colors_configured:m.colors_configured,colors:m.colors,order_image_url:m.order_image_url,width:m.width,weight:m.weight,base_price:m.price});
  const colors=m.colors.length?m.colors:[{colorway:'',price:m.colors_configured?0:m.price}];
  return colors.map(c=>({id:m.id,material_id:m.material_id,mat_type:m.type,material_name:m.name,unit:m.unit,composition:m.ingredient,supplier:m.supplier,spec_info:m.spec,one_use:m.one_use,unit_price:c.price??m.price,loss_rate:m.loss,air_gap:m.air_gap,use_part:m.usage_part,remark:m.remark,image_url:m.order_image_url,color_card_url:c.image_url||'',colorway:c.colorway,color_no:c.color_no||'',entry_json:data}));
 });}

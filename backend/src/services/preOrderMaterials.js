@@ -15,6 +15,8 @@ function normalize(rows,groups=[]){
   for(const k of ['name','order_name','code','unit','width','weight','spec','supplier','ingredient','usage_part','remark','usage_group_id','role'])r[k]=str(m[k],['spec','ingredient','remark'].includes(k)?2000:500);
   if(r.usage_group_id){const g=gs.find(g=>g.id===r.usage_group_id);if(!g||g.type!==r.type)bad('物料部位分组不存在');if(units.has(g.id)&&units.get(g.id)!==r.unit)bad('同一部位物料单位须一致');units.set(g.id,r.unit);r.one_use=g.one_use;r.usage_part=g.name;}
   r.colors=list(m.colors||[],60).map(c=>({colorway:str(c.colorway,100),color_no:str(c.color_no,150),price:c.price==null||c.price===''?null:num(c.price,1e7),qty:null,sizes:[],image_url:img(c.image_url)}));
+  r.shared_color = m.shared_color ?? (m.type === 'accessory' && !r.colors_configured && !r.colors.length);
+  r.shared_config = r.shared_color ? r.colors[0] || null : null;
   if(r.colors.some(c=>!c.colorway)||new Set(r.colors.map(c=>c.colorway)).size!==r.colors.length)bad('物料配色为空或重复');return r;
  });
  if(new Set(ms.map(m=>m.key)).size!==ms.length)bad('物料标识重复');return {material_details:ms,material_groups:gs};
@@ -27,5 +29,5 @@ function prepare(meta){
  if(data.material_details.some(m=>m.colors.some(c=>!meta.colors.includes(c.colorway))))bad('物料配色不属于本款已选颜色');
  return {...meta,...data};
 }
-function techRows(rows){return rows.flatMap(m=>{const entry_json=JSON.stringify({editor_material_key:m.key,usage_group_id:m.usage_group_id,colors_configured:m.colors_configured,colors:m.colors,order_image_url:m.order_image_url,width:m.width,weight:m.weight,base_price:m.price});return (m.colors.length?m.colors:[{colorway:'',price:m.price}]).map(c=>({material_id:m.material_id,mat_type:m.type,material_name:m.name,unit:m.unit,composition:m.ingredient,supplier:m.supplier,spec_info:m.spec,one_use:m.one_use,unit_price:c.price??m.price,loss_rate:m.loss,air_gap:m.air_gap,use_part:m.usage_part,remark:m.remark,image_url:m.order_image_url,color_card_url:c.image_url||'',colorway:c.colorway,color_no:c.color_no||'',entry_json}));});}
+function techRows(rows){return rows.flatMap(m=>{const entry_json=JSON.stringify({editor_material_key:m.key,shared_color:m.shared_color,shared_config:m.shared_config,usage_group_id:m.usage_group_id,colors_configured:m.colors_configured,colors:m.colors,order_image_url:m.order_image_url,width:m.width,weight:m.weight,base_price:m.price});return (m.colors.length?m.colors:[{colorway:'',price:m.price}]).map(c=>({material_id:m.material_id,mat_type:m.type,material_name:m.name,unit:m.unit,composition:m.ingredient,supplier:m.supplier,spec_info:m.spec,one_use:m.one_use,unit_price:c.price??m.price,loss_rate:m.loss,air_gap:m.air_gap,use_part:m.usage_part,remark:m.remark,image_url:m.order_image_url,color_card_url:c.image_url||'',colorway:c.colorway,color_no:c.color_no||'',entry_json}));});}
 module.exports={normalize,prepare,techRows};

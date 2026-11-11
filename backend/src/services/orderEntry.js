@@ -87,7 +87,7 @@ function prepare(b,prepared,user) {
         sizes:list(group?[]:(c.sizes||[]),'分码用量',100).map(s=>{if(!own.has(c.colorway+'\0'+s.size))throw bad('物料尺码不属于当前款');return {size:s.size,one_use:number(s.one_use,'分码用量',1e6)};})
       }));
       if(new Set(colors.map(c=>c.colorway)).size!==colors.length)throw bad('物料配色重复');
-      return {...m,one_use,loss,price,ingredient:text(m.ingredient,'成分',2000),remark:text(m.remark,'物料备注',2000),entry:{version:1,colors_configured:input.colors_configured===true,order_image_url:image(input.order_image_url),role:m.type==='fabric'?'主料':'辅料',usage_group_id:group?.id||null,usage_part:group?group.name:text(input.usage_part,'使用部位',500),air_gap,colors}};
+      return {...m,one_use,loss,price,ingredient:text(m.ingredient,'成分',2000),remark:text(m.remark,'物料备注',2000),entry:{version:1,shared_color:input.shared_color ?? (m.type==='accessory' && !input.colors_configured && !colors.length),shared_config:input.shared_color===true ? colors[0] || null : null,colors_configured:input.colors_configured===true,order_image_url:image(input.order_image_url),role:m.type==='fabric'?'主料':'辅料',usage_group_id:group?.id||null,usage_part:group?group.name:text(input.usage_part,'使用部位',500),air_gap,colors}};
     });
     const color_images={};for(const [color,url]of Object.entries(it.color_images||{})){if(prepared[i].sizeRows.some(s=>s.color===color))color_images[color]=image(url);}
     const crafts=list(it.crafts||[],'工艺要求',60).map(c=>{const arc=db.prepare("SELECT * FROM craft_types WHERE id=? AND status='active'").get(c.craft_type_id);if(!arc)throw bad('工序档案已停用或不存在');return {craft_type_id:arc.id,name:arc.name,instruction:text(c.instruction,'工艺要求',2000)};});
