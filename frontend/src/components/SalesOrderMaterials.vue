@@ -12,7 +12,29 @@
     </section>
     <details v-if="!hideCrafts" class="craft-requirements"><summary>外发工艺 <small>工艺要求；本厂 / 外发由生产分单确定</small></summary><p><select v-model="selectedCraft"><option value="">选择工序类别</option><option v-for="c in craftTypes" :key="c.id" :value="c.id">{{c.name}}</option></select> <button type="button" @click="addCraft()">添加工序</button></p><div v-for="(c,i) in item.crafts" :key="i" class="craft-row"><b>{{c.name}}</b><input v-model="c.instruction" placeholder="工艺要求"/><button type="button" class="link danger" @click="item.crafts.splice(i,1)">移除</button></div></details>
     <MaterialPicker :open="picker.open" :type="picker.type" :selected="[]" @close="picker.open=false" @picked="picked" />
-    <div v-if="editing" class="entry-dialog-mask"><section class="entry-dialog wide-dialog material-color-dialog" role="dialog" aria-modal="true" aria-label="编辑物料配色与照片" tabindex="-1" ref="colorDialog" @keydown.esc="onEditorEscape"><header class="color-dialog-head"><h3>{{editing.name}} · 配色与照片</h3><button type="button" class="color-dialog-close" :disabled="uploadingColors.size>0" aria-label="关闭配色编辑" @click="closeColors()">×</button></header><div class="color-dialog-body"><label class="material-mode"><input type="checkbox" role="switch" v-model="editing.shared_color" :disabled="uploadingColors.size>0"/> 通配</label><p>{{ editing.shared_color ? "所有款色共用以下物料颜色、色号、单价和照片。" : "按款色分别填写物料颜色、色号、单价和照片。" }}</p><div v-if="!editing.shared_color" class="material-toolbar"><select v-model="addColorway"><option value="">选择新增款色</option><option v-for="c in item.colors.filter(c=>!editing.colors.some(x=>x.colorway===c.color))" :key="c.color" :value="c.color">{{c.color}}</option></select><button type="button" @click="addMaterialColor()">＋增加配色</button><small>点击×立即移除该物料配色，外层同步；可重新增加。</small></div><div class="material-scroll"><table class="color-edit-table"><thead><tr><th>款色图片</th><th>款色</th><th>物料颜色</th><th>色号</th><th>单价(元)</th><th>本单配色照片</th></tr></thead><tbody><tr v-for="c in (editing.shared_color ? [editing.sharedDraft] : editing.colors)" :key="c.colorway" :data-colorway="c.colorway"><td><img v-if="item.color_images[c.colorway]" :src="item.color_images[c.colorway]" style="width:64px;height:64px;object-fit:contain;cursor:zoom-in" @click="openImage(item.color_images[c.colorway],c.colorway)"/><small v-else>暂无款色图片</small></td><td><button v-if="!editing.shared_color" type="button" class="remove-colorway" :disabled="uploadingColors.has(c.colorway)" :aria-label="'删除'+c.colorway+'配色'" title="删除配色，立即同步外层" @click="removeMaterialColor(c)">×</button> {{c.colorway}}</td><td><input v-model="c.color_name" placeholder="输入物料颜色"/></td><td><input v-model="c.color_no" placeholder="输入色号"/></td><td><input type="number" min="0" step="0.01" v-model.number="c.price" :placeholder="String(editing.price)"/></td><td><ImageUpload :disabled="readonly" v-model="c.image_url" size="lg" @uploading="uploadState(c.colorway,$event)"/><small>上传 / Ctrl+V 粘贴</small></td></tr></tbody></table></div></div><footer class="color-dialog-foot"><template v-if="closingColors"><span>配色或照片尚未保存，如何关闭？</span><button type="button" @click="closingColors=false">继续编辑</button><button type="button" class="danger" @click="discardColors()">放弃更改</button><button type="button" class="primary" @click="saveColors()">保存并关闭</button></template><template v-else><small>{{uploadingColors.size?'图片上传中，请稍候…':'确定后将更新外层配色照片，仅保存到本单。'}}</small><button type="button" :disabled="uploadingColors.size>0" @click="closeColors()">取消</button><button type="button" class="primary" :disabled="uploadingColors.size>0" @click="saveColors()">确定</button></template></footer></section></div>
+    <div v-if="editing" class="entry-dialog-mask match-mask">
+      <section ref="colorDialog" role="dialog" aria-modal="true" :aria-label="editing.name+' · 配色编辑'" tabindex="-1" @keydown.esc="onEditorEscape" class="match-dialog" :class="{expanded:expandedColors}">
+        <header><span>{{editing.name}}</span><div><button type="button" :aria-label="expandedColors?'退出全屏':'全屏'" @click="expandedColors=!expandedColors">⛶</button><button type="button" aria-label="关闭" :disabled="uploadingColors.size>0" @click="closeColors">×</button></div></header>
+        <main>
+          <div class="match-select"><b>颜色</b><div class="match-picker">
+            <button type="button" class="picker-trigger" :aria-expanded="pickerOpen" :disabled="editing.shared_color || uploadingColors.size>0" @click="pickerOpen=!pickerOpen"><span v-for="c in displayColors" :key="c.colorway">{{c.colorway}}</span><i>⌄</i></button>
+            <div v-if="pickerOpen && !editing.shared_color" class="picker-menu"><label v-for="c in item.colors" :key="c.color"><input type="checkbox" :checked="editing.colors.some(row=>row.colorway===c.color)" @change="toggleColor(c.color)">{{c.color}}</label><button type="button" @click="pickerOpen=false">完成</button></div>
+          </div></div>
+          <div class="match-switches">
+            <label>所有颜色通配<input type="checkbox" role="switch" :checked="editing.shared_color" :disabled="uploadingColors.size>0" @change="switchShared($event.target.checked)"/></label>
+            <label>单价列复制<input type="checkbox" role="switch" v-model="copyPrice" :disabled="editing.shared_color" @change="copyPrice && applyColumn(displayColors[0],'price',displayColors[0]?.price)"/></label>
+            <label>图片列复制<input type="checkbox" role="switch" v-model="copyPhoto" :disabled="editing.shared_color || uploadingColors.size>0" @change="copyPhoto && applyColumn(displayColors[0],'image_url',displayColors[0]?.image_url)"/></label>
+          </div>
+          <div class="match-scroll"><table><thead><tr><th>款图</th><th>款色</th><th>{{editing.type==='fabric'?'面料色':'辅料色'}}</th><th>色号</th><th>单价</th><th>图片</th></tr></thead><tbody>
+            <tr v-for="c in displayColors" :key="c.colorway" :data-colorway="c.colorway"><td><button v-if="item.color_images?.[c.colorway]" type="button" @click="openImage(item.color_images[c.colorway],c.colorway)"><img :src="item.color_images[c.colorway]" alt="款图"></button><small v-else>暂无上传</small></td><td>{{c.colorway}}</td>
+              <td><input aria-label="物料颜色" v-model="c.color_name" placeholder="输入颜色"></td><td><input aria-label="色号" v-model="c.color_no" placeholder="输入色号"></td>
+              <td><div class="price-step"><button type="button" aria-label="降低单价" @click="stepPrice(c,-1)">−</button><input aria-label="单价" type="number" min="0" step="0.01" :value="c.price ?? editing.price" @input="applyColumn(c,'price',$event.target.value===''?null:Math.max(0,Number($event.target.value)))"><button type="button" aria-label="增加单价" @click="stepPrice(c,1)">＋</button></div></td>
+              <td><ImageUpload :disabled="readonly" :model-value="c.image_url" size="lg" @update:model-value="applyColumn(c,'image_url',$event)" @uploading="uploadState(c.colorway,$event)"/></td></tr>
+          </tbody></table></div>
+        </main>
+        <footer><template v-if="closingColors"><span>保存配色更改？</span><button type="button" @click="closingColors=false">继续编辑</button><button type="button" @click="discardColors">放弃更改</button></template><button v-else type="button" :disabled="uploadingColors.size>0" @click="closeColors">关闭</button><button type="button" class="confirm-match" :disabled="uploadingColors.size>0" @click="saveColors">确定</button></footer>
+      </section>
+    </div>
 
   </fieldset>
 </template>
@@ -57,7 +79,7 @@ function picked(archives){if(picker.replaceKey&&archives.length!==1)return alert
 function remove(m){props.item.materials.splice(props.item.materials.indexOf(m),1);}
 function copy(m){const c=JSON.parse(JSON.stringify(m));c.key=entryId();props.item.materials.splice(props.item.materials.indexOf(m)+1,0,c);}
 function move(m,delta){const i=props.item.materials.indexOf(m),target=props.item.materials.map((x,n)=>({x,n})).filter(y=>y.x.type===m.type),j=target.findIndex(y=>y.n===i)+delta;if(j<0||j>=target.length)return;const k=target[j].n;[props.item.materials[i],props.item.materials[k]]=[props.item.materials[k],props.item.materials[i]];}
-function editColors(m,color){closingColors.value=false;uploadingColors.value=new Set();addColorway.value='';editing.value=JSON.parse(JSON.stringify(m));editing.value.colors=props.item.colors.filter(c=>!m.colors_configured||m.colors.some(x=>x.colorway===c.color)).map(c=>{const cfg=config(m,c.color);return {...cfg,colorway:c.color,color_name:(cfg.color_no||'').includes(' / ')?cfg.color_no.split(' / ')[0]:'',color_no:(cfg.color_no||'').includes(' / ')?cfg.color_no.split(' / ').slice(1).join(' / '):(cfg.color_no||''),price:cfg.price??null,qty:cfg.qty??null,image_url:cfg.image_url||'',size_values:Object.fromEntries((cfg.sizes||[]).map(s=>[s.size,s.one_use]))};});const draft=editing.value;
+function editColors(m,color){expandedColors.value=false;pickerOpen.value=false;copyPrice.value=false;copyPhoto.value=false;closingColors.value=false;uploadingColors.value=new Set();addColorway.value='';editing.value=JSON.parse(JSON.stringify(m));editing.value.colors=props.item.colors.filter(c=>!m.colors_configured||m.colors.some(x=>x.colorway===c.color)).map(c=>{const cfg=config(m,c.color);return {...cfg,colorway:c.color,color_name:(cfg.color_no||'').includes(' / ')?cfg.color_no.split(' / ')[0]:'',color_no:(cfg.color_no||'').includes(' / ')?cfg.color_no.split(' / ').slice(1).join(' / '):(cfg.color_no||''),price:cfg.price??null,qty:cfg.qty??null,image_url:cfg.image_url||'',size_values:Object.fromEntries((cfg.sizes||[]).map(s=>[s.size,s.one_use]))};});const draft=editing.value;
   draft.shared_color=m.shared_color ?? (m.type==='accessory' && !m.colors_configured && !m.colors.length);
   draft.sharedDraft={...(draft.colors.find(c=>c.colorway===color)||draft.colors[0]||{}),colorway:'通配'};
   originalColors=JSON.stringify(draft);nextTick(()=>{colorDialog.value?.focus();if(color){const row=Array.from(colorDialog.value?.querySelectorAll('[data-colorway]')||[]).find(r=>r.dataset.colorway===color);row?.scrollIntoView({block:'nearest'});row?.querySelector('input')?.focus({preventScroll:true});}});}
@@ -68,17 +90,27 @@ watch(()=>props.item.colors.map(c=>c.color), colors=>{
     }
   }
 });
-function addMaterialColor(){if(!addColorway.value)return alert('请选择款色');editing.value.colors.push({colorway:addColorway.value,color_name:'',color_no:'',price:null,qty:null,image_url:'',size_values:{}});addColorway.value='';}
-function removeMaterialColor(c){
- if(uploadingColors.value.has(c.colorway))return;
- const draft=editing.value,m=props.item.materials.find(x=>x.key===draft.key);
- draft.colors=draft.colors.filter(x=>x.colorway!==c.colorway);draft.colors_configured=true;
- // 删除立即提交到本单物料；其他尚未保存的编辑仍留在弹窗里。
- m.colors=draft.colors.map(x=>({...config(m,x.colorway),colorway:x.colorway}));m.colors_configured=true;
- const baseline=JSON.parse(originalColors);baseline.colors=baseline.colors.filter(x=>x.colorway!==c.colorway);baseline.colors_configured=true;originalColors=JSON.stringify(baseline);
+const expandedColors=ref(false), pickerOpen=ref(false), copyPrice=ref(false), copyPhoto=ref(false);
+const displayColors=computed(()=>editing.value?.shared_color?[editing.value.sharedDraft]:editing.value?.colors||[]);
+function applyColumn(row,field,value){
+  if(!row)return;
+  const copy=field==='price'?copyPrice.value:copyPhoto.value;
+  for(const target of copy?displayColors.value:[row]) target[field]=value;
 }
-
-function saveColors(){if(uploadingColors.value.size)return;const draft=editing.value;if(draft.shared_color){
+function stepPrice(row,step){
+  applyColumn(row,'price',Math.max(0,Math.round((Number(row.price??editing.value.price??0)+step)*100)/100));
+}
+function toggleColor(colorway){
+  const rows=editing.value.colors, index=rows.findIndex(c=>c.colorway===colorway);
+  if(index>=0){rows.splice(index,1);return;}
+  rows.push({colorway,color_name:'',color_no:'',price:copyPrice.value?rows[0]?.price:null,image_url:copyPhoto.value?rows[0]?.image_url:'',sizes:[]});
+}
+function switchShared(enabled){
+  const draft=editing.value;
+  if(enabled)draft.sharedDraft={...(draft.colors[0]||draft.sharedDraft),colorway:'通配'};
+  else draft.colors=props.item.colors.map(c=>({...draft.sharedDraft,colorway:c.color}));
+  draft.shared_color=enabled;pickerOpen.value=false;
+}function saveColors(){if(uploadingColors.value.size)return;const draft=editing.value;if(draft.shared_color){
   draft.colors=props.item.colors.map(row=>({...draft.sharedDraft,colorway:row.color}));
 }
 for(const c of draft.colors){c.qty=null;c.sizes=[];c.color_no=[c.color_name?.trim(),c.color_no?.trim()].filter(Boolean).join(' / ');delete c.color_name;delete c.size_values;if(c.price==='')c.price=null;if(c.qty==='')c.qty=null;}const m=props.item.materials.find(x=>x.key===draft.key);m.shared_color=draft.shared_color;
@@ -90,3 +122,14 @@ async function chooseTemplate(){try{const ts=await api.orderMaterialTemplates();
 function addCraft(){const c=craftTypes.value.find(x=>x.id===selectedCraft.value);if(c)props.item.crafts.push({craft_type_id:c.id,name:c.name,instruction:''});}
 onMounted(async()=>{try{craftTypes.value=await api.craftTypes({status:'active'});}catch{}});
 </script>
+
+<style scoped>
+.match-mask{position:fixed;inset:0;z-index:2000;background:#0004;display:flex;align-items:flex-start;justify-content:center;padding:8px 1vw;box-sizing:border-box}
+.match-dialog{background:white;color:#606266;width:100%;max-height:96vh;overflow:auto;border:1px solid #aaa;border-radius:4px;box-shadow:0 1px 4px #0003;font:14px/1.5 Arial,sans-serif}
+.match-dialog.expanded{position:fixed;inset:0;max-height:100vh;display:flex;flex-direction:column}.expanded main{flex:1}
+.match-dialog header,.match-dialog footer{display:flex;align-items:center;padding:10px;gap:8px}.match-dialog header{justify-content:space-between;background:#f3f3f3;border-bottom:1px solid #ccc;height:48px;box-sizing:border-box}.match-dialog header button,.match-dialog td button{border:0;background:transparent;cursor:pointer}.match-dialog header button{font-size:20px;color:#72767b}
+.match-dialog main{padding:20px 24px}.match-select,.match-switches,.match-switches label{display:flex;align-items:center;gap:12px}.match-select>b{width:82px}.match-picker{flex:1;position:relative}.picker-trigger{display:flex;align-items:center;gap:4px;flex-wrap:wrap;width:100%;padding:4px 8px;border:1px solid #dcdfe6;background:white;min-height:32px}.picker-trigger i{margin-left:auto}.picker-trigger span{background:#f2f3f5;padding:1px 6px}.picker-menu{position:absolute;background:white;z-index:1;max-height:200px;overflow:auto;padding:8px;box-shadow:0 2px 10px #0003}.picker-menu label{display:block}
+.match-switches{justify-content:space-between;margin:24px 0;font-weight:600}.match-switches input{appearance:none;width:40px;height:20px;border-radius:12px;background:#dcdfe6;cursor:pointer;border:0}.match-switches input:before{content:'';display:block;width:16px;height:16px;margin:2px;border-radius:50%;background:white}.match-switches input:checked{background:#1989fa}.match-switches input:checked:before{transform:translateX(20px)}
+.match-scroll{overflow:auto}.match-scroll table{width:100%;min-width:720px;border-collapse:collapse;text-align:center;table-layout:fixed}.match-scroll th,.match-scroll td{border:1px solid #dfe6ef;padding:8px;text-align:center}.match-scroll th{height:40px;background:#f8f8f8}.match-scroll th:first-child{width:7.5%}.match-scroll th:nth-child(2){width:10%}.match-scroll td{background:#f5f8fb;height:106px}.match-scroll td>input,.price-step input{width:100%;min-width:0;height:35px;border:1px solid #dcdfe6;border-radius:3px;padding:0 8px;box-sizing:border-box}.match-scroll img{max-width:80px;max-height:80px}.price-step{display:flex;align-items:center}.price-step input{text-align:center;appearance:textfield}.price-step input::-webkit-inner-spin-button{appearance:none}.price-step button{height:32px;min-width:30px;border:1px solid #dcdfe6!important}.match-scroll td:last-child>:first-child{margin:auto}
+.match-dialog footer{justify-content:flex-end;border-top:1px solid #ccc;padding:10px 16px}.match-dialog footer button{height:32px;border:1px solid #dcdfe6;background:white;border-radius:3px;padding:0 15px;cursor:pointer}.match-dialog footer .confirm-match{color:white;background:#1989fa;border-color:#1989fa}
+</style>
