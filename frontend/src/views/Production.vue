@@ -1,6 +1,5 @@
 <template>
-  <WarehouseWorkbench v-if="route.query.station === 'warehouse'" />
-  <OperationWorkbench v-else-if="route.query.station" :station="String(route.query.station)"/>
+  <OperationWorkbench v-if="route.query.station" :station="String(route.query.station)"/>
   <div v-else>
     <div class="page-head">
       <div>
@@ -55,7 +54,6 @@
 <script setup>
 import { localDate } from '../utils/time';
 import OperationWorkbench from '../components/OperationWorkbench.vue';
-import WarehouseWorkbench from './WarehouseWorkbench.vue';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { api } from '../api';
