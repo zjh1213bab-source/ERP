@@ -15,11 +15,15 @@
     <div v-if="editing" class="entry-dialog-mask match-mask">
       <section ref="colorDialog" role="dialog" aria-modal="true" :aria-label="editing.name+' · 配色编辑'" tabindex="-1" @keydown.esc="onEditorEscape" class="match-dialog" :class="{expanded:expandedColors}">
         <header><span>{{editing.name}}</span><div><button type="button" :aria-label="expandedColors?'退出全屏':'全屏'" @click="expandedColors=!expandedColors">⛶</button><button type="button" aria-label="关闭" :disabled="uploadingColors.size>0" @click="closeColors">×</button></div></header>
-        <main>
+        <main @pointerdown="!$event.target.closest('.match-picker') && (pickerOpen=false)">
           <div class="match-select"><b>颜色</b><div class="match-picker">
-            <button type="button" class="picker-trigger" :aria-expanded="pickerOpen" :disabled="editing.shared_color || uploadingColors.size>0" @click="pickerOpen=!pickerOpen"><span v-for="c in displayColors" :key="c.colorway">{{c.colorway}}</span><i>⌄</i></button>
-            <div v-if="pickerOpen && !editing.shared_color" class="picker-menu"><label v-for="c in item.colors" :key="c.color"><input type="checkbox" :checked="editing.colors.some(row=>row.colorway===c.color)" @change="toggleColor(c.color)">{{c.color}}</label><button type="button" @click="pickerOpen=false">完成</button></div>
-          </div></div>
+            <div class="picker-field" :class="{focused:pickerOpen}" @focusout="leavePicker">
+              <button type="button" class="picker-trigger" aria-label="选择款色" :aria-expanded="pickerOpen" :disabled="editing.shared_color || uploadingColors.size>0" @click="pickerOpen=!pickerOpen"><i>{{pickerOpen?'⌃':'⌄'}}</i></button>
+              <div class="picker-tags"><span v-for="c in displayColors" :key="c.colorway">{{c.colorway}}<button v-if="!editing.shared_color" type="button" :aria-label="'移除'+c.colorway" :disabled="uploadingColors.size>0" @click="toggleColor(c.colorway)">×</button></span></div>
+              <div v-if="pickerOpen && !editing.shared_color" class="picker-menu" role="listbox" aria-label="款色" aria-multiselectable="true" @keydown.esc.stop="pickerOpen=false">
+                <button v-for="c in item.colors" :key="c.color" type="button" role="option" :aria-selected="editing.colors.some(row=>row.colorway===c.color)" @mousedown.prevent @click="toggleColor(c.color)">{{c.color}}<i aria-hidden="true">✓</i></button>
+              </div>
+            </div>          </div></div>
           <div class="match-switches">
             <label>所有颜色通配<input type="checkbox" role="switch" :checked="editing.shared_color" :disabled="uploadingColors.size>0" @change="switchShared($event.target.checked)"/></label>
             <label>单价列复制<input type="checkbox" role="switch" v-model="copyPrice" :disabled="editing.shared_color" @change="copyPrice && applyColumn(displayColors[0],'price',displayColors[0]?.price)"/></label>
@@ -100,6 +104,9 @@ function applyColumn(row,field,value){
 function stepPrice(row,step){
   applyColumn(row,'price',Math.max(0,Math.round((Number(row.price??editing.value.price??0)+step)*100)/100));
 }
+function leavePicker(event){
+  if(!event.currentTarget.contains(event.relatedTarget)) pickerOpen.value=false;
+}
 function toggleColor(colorway){
   const rows=editing.value.colors, index=rows.findIndex(c=>c.colorway===colorway);
   if(index>=0){rows.splice(index,1);return;}
@@ -132,4 +139,17 @@ onMounted(async()=>{try{craftTypes.value=await api.craftTypes({status:'active'})
 .match-switches{justify-content:space-between;margin:24px 0;font-weight:600}.match-switches input{appearance:none;width:40px;height:20px;border-radius:12px;background:#dcdfe6;cursor:pointer;border:0}.match-switches input:before{content:'';display:block;width:16px;height:16px;margin:2px;border-radius:50%;background:white}.match-switches input:checked{background:#1989fa}.match-switches input:checked:before{transform:translateX(20px)}
 .match-scroll{overflow:auto}.match-scroll table{width:100%;min-width:720px;border-collapse:collapse;text-align:center;table-layout:fixed}.match-scroll th,.match-scroll td{border:1px solid #dfe6ef;padding:8px;text-align:center}.match-scroll th{height:40px;background:#f8f8f8}.match-scroll th:first-child{width:7.5%}.match-scroll th:nth-child(2){width:10%}.match-scroll td{background:#f5f8fb;height:106px}.match-scroll td>input,.price-step input{width:100%;min-width:0;height:35px;border:1px solid #dcdfe6;border-radius:3px;padding:0 8px;box-sizing:border-box}.match-scroll img{max-width:80px;max-height:80px}.price-step{display:flex;align-items:center}.price-step input{text-align:center;appearance:textfield}.price-step input::-webkit-inner-spin-button{appearance:none}.price-step button{height:32px;min-width:30px;border:1px solid #dcdfe6!important}.match-scroll td:last-child>:first-child{margin:auto}
 .match-dialog footer{justify-content:flex-end;border-top:1px solid #ccc;padding:10px 16px}.match-dialog footer button{height:32px;border:1px solid #dcdfe6;background:white;border-radius:3px;padding:0 15px;cursor:pointer}.match-dialog footer .confirm-match{color:white;background:#1989fa;border-color:#1989fa}
+</style>
+<style scoped>
+.match-picker{min-width:0;margin-right:20px}
+.picker-field{position:relative;display:grid;align-items:center;min-height:32px;border:1px solid #dcdfe6;border-radius:4px;background:white}
+.picker-field.focused{border-color:#409eff}
+.picker-field .picker-trigger{position:absolute;inset:0;border:none;border-radius:4px;min-height:0;padding:0 10px;color:#b9bec7}
+.picker-tags{pointer-events:none;position:relative;display:flex;flex-wrap:wrap;gap:4px;padding:3px 30px 3px 5px;min-height:24px;align-items:center}
+.picker-tags span{display:inline-flex;align-items:center;gap:4px;background:#f4f4f5;color:#909399;border:1px solid #e9e9eb;border-radius:3px;padding:0 4px;font-size:12px;height:20px}
+.picker-tags button{pointer-events:auto;border:0;border-radius:50%;width:13px;height:13px;min-width:0;padding:0;line-height:12px;background:#c0c4cc;color:white;cursor:pointer}
+.picker-field .picker-menu{box-sizing:border-box;left:-1px;right:-1px;top:calc(100% + 10px);padding:6px 0;border:1px solid #dce2eb;border-radius:4px;box-shadow:0 2px 12px #0002;z-index:5}
+.picker-menu button{width:100%;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:white;border:0;color:#606266;text-align:left;cursor:pointer}
+.picker-menu button[aria-selected=true]{color:#1890ff;font-weight:600}.picker-menu button:hover,.picker-menu button:focus-visible{background:#f5f7fa}.picker-menu i{visibility:hidden;font-style:normal}.picker-menu [aria-selected=true] i{visibility:visible}
+.match-scroll td{background:#fff}
 </style>
