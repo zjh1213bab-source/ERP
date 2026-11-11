@@ -1,6 +1,6 @@
 <template>
  <div class="outsource-editor">
-  <div class="outsource-toolbar"><a href="/craft-types" target="_blank" rel="noopener">工艺档案（新增/编辑/停用） ↗</a><a href="/factories" target="_blank" rel="noopener">工艺厂档案 ↗</a><button class="btn btn-ghost btn-sm" @click="load()">刷新档案</button></div>
+  <div v-if="!byProduct" class="outsource-toolbar"><a href="/craft-types" target="_blank" rel="noopener">工艺档案（新增/编辑/停用） ↗</a><a href="/factories" target="_blank" rel="noopener">工艺厂档案 ↗</a><button class="btn btn-ghost btn-sm" @click="load()">刷新档案</button></div>
   <p v-if="error" class="outsource-error">{{error}}</p>
   <section v-for="phase in phases" :key="phase.key" class="outsource-phase">
    <header><b>{{phase.label}}</b><span>预计费用合计：¥{{total(phase.key).toFixed(2)}}</span></header>
