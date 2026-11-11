@@ -5,13 +5,13 @@ const { ok, fail, wrap } = require('../utils/http');
 const { authRequired, requireRole } = require('../middleware/auth');
 const router = express.Router();
 const WRITE = ['admin', 'tech', 'sales'];
-const FIELDS = ['type','code','name','short_name','spec','supplier','supplier_info','supplier_id','image_url','width','weight','air_gap','composition','unit','stock_qty','stock_detail','remark','status'];
+const FIELDS = ['unit_price','type','code','name','short_name','spec','supplier','supplier_info','supplier_id','image_url','width','weight','air_gap','composition','unit','stock_qty','stock_detail','remark','status'];
 const SPEC_FIELDS = ['spec','width','weight','air_gap'];
 const bad = (message, status=400) => { throw Object.assign(new Error(message), { status }); };
 function input(body, previous={}) {
   const b = { ...previous, ...body }, v = {};
   for (const key of FIELDS) {
-    if (['stock_qty','supplier_id'].includes(key)) continue;
+    if (['stock_qty','supplier_id','unit_price'].includes(key)) continue;
     if (b[key] != null && typeof b[key] !== 'string') bad('物料字段格式错误：'+key);
     v[key] = String(b[key] || '').trim();
     if (v[key].length > (['remark','supplier_info','stock_detail','spec'].includes(key) ? 2000 : 255)) bad('字段过长：'+key);
@@ -20,6 +20,8 @@ function input(body, previous={}) {
   if (!v.name) bad('物料名称必填');
   v.status ||= 'active';
   if (!['active','disabled'].includes(v.status)) bad('物料状态无效');
+  v.unit_price = Number(b.unit_price ?? 0);
+  if (!Number.isFinite(v.unit_price) || v.unit_price < 0 || v.unit_price > 1e7) bad('档案单价无效');
   v.stock_qty = Number(b.stock_qty || 0);
   if (!Number.isFinite(v.stock_qty) || v.stock_qty < 0) bad('库存数必须为非负数');
   const sid = Number(b.supplier_id || 0);

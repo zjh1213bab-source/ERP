@@ -24,7 +24,7 @@ function normalize(rows,groups=[]){
 function prepare(meta){
  if(meta.material_details===undefined)return meta;
  const {db}=require('../db'),{archiveInput}=require('./orderMaterialInput');
- const rows=meta.material_details.map(m=>{const trusted=archiveInput(m),a=db.prepare('SELECT * FROM materials WHERE id=?').get(m.material_id);return {...m,...trusted,archive_version:a.version,code:a.code||'',width:a.width||'',weight:a.weight||'',air_gap:Number(String(a.air_gap||100).replace('%',''))};});
+ const rows=meta.material_details.map(m=>{const trusted=archiveInput(m),a=db.prepare('SELECT * FROM materials WHERE id=?').get(m.material_id);return {...m,...trusted,colors:(m.colors||[]).map(c=>({...c,price:null})),archive_version:a.version,code:a.code||'',width:a.width||'',weight:a.weight||'',air_gap:Number(String(a.air_gap||100).replace('%',''))};});
  const data=normalize(rows,meta.material_groups||[]);
  if(data.material_details.some(m=>m.colors.some(c=>!meta.colors.includes(c.colorway))))bad('物料配色不属于本款已选颜色');
  return {...meta,...data};

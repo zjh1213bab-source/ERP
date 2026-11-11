@@ -235,6 +235,7 @@ function migrate() {
   add('order_items', 'effect_image_url', 'TEXT');
   add('order_items', 'detail_images', "TEXT NOT NULL DEFAULT '[]'");
   add('materials', 'supplier_id', 'INTEGER');
+  add('materials', 'unit_price', 'REAL NOT NULL DEFAULT 0');
   add('materials', 'version', 'INTEGER NOT NULL DEFAULT 1');
 
   // 档案图片

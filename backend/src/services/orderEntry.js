@@ -82,7 +82,7 @@ function prepare(b,prepared,user) {
       const air_gap=number(m.archive_air_gap==null||m.archive_air_gap===''?100:String(m.archive_air_gap).replace(/%/g,''),'档案空差',1000);if(air_gap===0)throw bad('空差必须大于 0');
       if((input.colors||[]).some(c=>!prepared[i].sizeRows.some(s=>s.color===c.colorway)))throw bad('物料款色不属于当前款的下单颜色');
       const colors=list(input.colors||[],'物料配色',100).map(c=>({
-        colorway:text(c.colorway,'款色',100),color_no:text(c.color_no,'物料颜色 / 色号',150),price:c.price==null||c.price===''?null:number(c.price,'颜色单价',1e7),image_url:image(c.image_url),
+        colorway:text(c.colorway,'款色',100),color_no:text(c.color_no,'物料颜色 / 色号',150),price:null,image_url:image(c.image_url),
         qty:group?null:(c.qty==null||c.qty===''?null:number(c.qty,'颜色用量',1e6)),
         sizes:list(group?[]:(c.sizes||[]),'分码用量',100).map(s=>{if(!own.has(c.colorway+'\0'+s.size))throw bad('物料尺码不属于当前款');return {size:s.size,one_use:number(s.one_use,'分码用量',1e6)};})
       }));

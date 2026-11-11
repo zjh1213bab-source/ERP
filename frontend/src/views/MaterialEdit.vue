@@ -54,6 +54,7 @@
             </div>
             <div class="fitem"><label>物料编号</label><input class="input" v-model="form.code" placeholder="如 2099" /></div>
             <div class="fitem"><label>简称</label><input class="input" v-model="form.short_name" placeholder="如 2099" /></div>
+            <div class="fitem"><label>档案单价（元/单位）</label><input class="input" type="number" min="0" step="0.01" v-model.number="form.unit_price" /></div>
             <div class="fitem"><label>单位</label><input class="input" v-model="form.unit" placeholder="米 / 个 / 套" /></div>
             <div class="fitem"><label>成份</label><input class="input" v-model="form.composition" placeholder="如 80%棉 20%氨纶" /></div>
 
@@ -83,7 +84,7 @@
         <section class="panel-card">
           <h3>备注</h3>
           <textarea class="input" rows="3" v-model="form.remark" placeholder="其他需要说明的，比如客户指定、检验要求等"></textarea>
-          <p class="tip">颜色/色号仅在业务单据填写；规格只能在本档案修改并留痕；业务单据的成分编辑不影响档案。</p>
+          <p class="tip">色号在业务单据填写，单价从本档案取值；规格只能在本档案修改并留痕；业务单据的成分编辑不影响档案。</p>
         </section>
         <section v-if="isEdit" class="panel-card">
           <h3>档案修改记录</h3>
@@ -150,7 +151,7 @@ function changesOf(record) {
 function blank() {
   return {
     id: null, version: 1, supplier_id: null, type: 'fabric', name: '', code: '', short_name: '', supplier: '', supplier_info: '',
-    color: '', color_no: '', unit: '米', width: '', weight: '', air_gap: '', composition: '',
+    unit_price: 0, unit: '米', width: '', weight: '', air_gap: '', composition: '',
     spec: '', stock_qty: 0, stock_detail: '', image_url: '', remark: '', status: 'active'
   };
 }
