@@ -74,7 +74,7 @@
 
           <!-- ========== 概览：客户要求 ========== -->
           <div v-if="tab === 'overview'">
-            <h4 class="tp-h4">客户要求</h4>
+            <h4 class="tp-h4">业务要求</h4>
             <textarea v-model="head.customer_req" :disabled="!editable" rows="5" class="tp-ta"
               placeholder="尺码表 / 包装 / 标签 / 测试要求 / 交期…（会打印在工艺单与总单上）"></textarea>
 
@@ -317,7 +317,7 @@ const TABS = [
   { key: 'external', label: '外发工艺' },
   { key: 'size', label: '成衣尺寸' },
   { key: 'req', label: '生产要求' },
-  { key: 'overview', label: '富文本（客户要求）' }
+  { key: 'overview', label: '业务要求' }
 ];
 const STAGES = [
   { key: 'draft', label: '可打版' },

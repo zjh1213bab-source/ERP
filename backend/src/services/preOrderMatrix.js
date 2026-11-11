@@ -33,6 +33,7 @@ function normalize(value, rows) {
   if (rows.some(row => !colors.includes(row.color || '') || !sizes.includes(row.size))) bad('颜色尺码配置与报价明细不一致');
   const requirements=value.material_details===undefined?{}:require('./preOrderMaterials').normalize(value.material_details,value.material_groups||[]);
   for(const key of ['materials','crafts'])if(value[key]!==undefined)requirements[key]=names(value[key],key==='materials'?'面辅料':'工艺',100,500);
+  if(value.business_requirement!==undefined){if(typeof value.business_requirement!=='string'||value.business_requirement.length>20000)bad('业务要求最多20000字符');requirements.business_requirement=value.business_requirement;}
   if(value.craft_note!==undefined){if(typeof value.craft_note!=='string'||value.craft_note.length>2000)bad('工艺要求最多2000字');requirements.craft_note=value.craft_note.trim();}
   return { colors, sizes, color_images: Object.fromEntries(images), split_price: value.split_price,...requirements };
 }
@@ -55,7 +56,7 @@ function sameNames(left, right) {
 /** 旧客户端不传新字段时，保留仍在本单中的颜色图；报价删轴后对应图同步移除。 */
 function prepare(value, rows, previous, previousRows = []) {
   if (value !== undefined) {
-    if(previous&&object(value)){const saved=read(previous.matrix_json,previousRows);value={...value};for(const key of ['materials','crafts','craft_note','material_details','material_groups'])if(value[key]===undefined&&saved[key]!==undefined)value[key]=saved[key];}
+    if(previous&&object(value)){const saved=read(previous.matrix_json,previousRows);value={...value};for(const key of ['materials','crafts','craft_note','business_requirement','material_details','material_groups'])if(value[key]===undefined&&saved[key]!==undefined)value[key]=saved[key];}
     return normalize(value, rows);
   }
   if (!previous) return normalize(derived(rows), rows);

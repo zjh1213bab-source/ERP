@@ -296,7 +296,7 @@
               {{ it.product_name }} <span v-if="it.style_no" style="color:var(--brand);font-weight:600">· {{ it.style_no }}</span>
               <span style="color:var(--ink-mute);font-weight:400"> · {{ it.qty }} 件 · ${{ money(it.amount_usd) }} / ¥{{ money(it.amount_cny) }}</span>
             </div>
-            <div v-for="(g, gi) in it.colors" :key="gi" style="margin-bottom: 8px">
+            <BusinessRequirement v-if="itemRequirement(it)" :model-value="itemRequirement(it)" disabled/><div v-for="(g, gi) in it.colors" :key="gi" style="margin-bottom: 8px">
               <div style="font-size: 12.5px; color: var(--brand); font-weight: 700; margin-bottom: 4px">颜色：{{ g.color || '（未填）' }} · {{ g.qty }} 件 · ${{ money(g.amount_usd) }}</div>
               <table class="data" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden">
                 <thead><tr><th>尺码</th><th>数量</th><th>美金单价</th><th>人民币单价</th><th>小计($)</th></tr></thead>
@@ -885,6 +885,8 @@
 <script setup>
 import {preOrderMatrixForSales} from '../utils/preOrderMatrixTransfer';
 import TrialNotice from '../components/TrialNotice.vue';
+import BusinessRequirement from '../components/BusinessRequirement.vue';
+function itemRequirement(item){try{return JSON.parse(item.entry_json||'{}').business_requirement||''}catch{return ''}}
 import SalesOrderEntry from '../components/SalesOrderEntry.vue';
 import OrderEntrySnapshot from '../components/OrderEntrySnapshot.vue';
 import { localDate, fmtTime } from '../utils/time';

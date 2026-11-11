@@ -17,6 +17,7 @@ export function preOrderMatrixForSales(item) {
   const cells = new Map(rows.map(row => [cellKey(row.color, row.size), row]));
   const images = meta.color_images || {};
   return {
+    business_requirement:meta.business_requirement||'',
     ...(meta.material_details ? {materials:JSON.parse(JSON.stringify(meta.material_details)),material_groups:JSON.parse(JSON.stringify(meta.material_groups||[]))}:{}),
     customer_sizes: Object.fromEntries(rows.filter(row => row.customer_size).map(row => [row.size, row.customer_size])),
     colors: colors.map(color => ({

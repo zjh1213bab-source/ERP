@@ -91,7 +91,7 @@ function prepare(b,prepared,user) {
     });
     const color_images={};for(const [color,url]of Object.entries(it.color_images||{})){if(prepared[i].sizeRows.some(s=>s.color===color))color_images[color]=image(url);}
     const crafts=list(it.crafts||[],'工艺要求',60).map(c=>{const arc=db.prepare("SELECT * FROM craft_types WHERE id=? AND status='active'").get(c.craft_type_id);if(!arc)throw bad('工序档案已停用或不存在');return {craft_type_id:arc.id,name:arc.name,instruction:text(c.instruction,'工艺要求',2000)};});
-    return {version:1,sample_archive_id:archive.id,sample_archive_version:archive.version,tax_rate,currency:it.currency==='CNY'?'CNY':'USD',color_images,customer_sizes:it.customer_sizes||{},crafts,material_groups:groups,materials:rows};
+    return {version:1,business_requirement:text(it.business_requirement,'业务要求',20000),sample_archive_id:archive.id,sample_archive_version:archive.version,tax_rate,currency:it.currency==='CNY'?'CNY':'USD',color_images,customer_sizes:it.customer_sizes||{},crafts,material_groups:groups,materials:rows};
   });
   const goods=money(prepared.reduce((s,p)=>s+p.amount_usd,0));
   const summary=settlement(goods,tax,{...b,tags});

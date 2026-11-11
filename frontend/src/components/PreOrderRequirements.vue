@@ -1,4 +1,5 @@
 <template>
+  <BusinessRequirement :model-value="meta.business_requirement" :disabled="disabled" @update:model-value="set('business_requirement',$event)"/>
   <details class="pre-craft-fold" open><summary>工艺选择与要求</summary><div class="pre-requirements" :inert="disabled">
     <div class="requirement-axis"><label>工艺选择</label><OrderAxisSelect :model-value="meta.crafts||[]" :options="craftOptions" :sort-names="sortNames" label="工艺" kind="crafts" :max="100" @update:model-value="set('crafts',$event)" /></div>
     <label class="requirement-note">工艺要求<input :value="meta.craft_note||''" :disabled="disabled" maxlength="2000" placeholder="填写本款工艺、部位及其他要求" @input="set('craft_note',$event.target.value)" /></label>
@@ -11,6 +12,7 @@ let catalogRequest;
 <script setup>
 import {computed,ref,onMounted} from 'vue';
 import {api} from '../api';
+import BusinessRequirement from './BusinessRequirement.vue';
 import OrderAxisSelect from './OrderAxisSelect.vue';
 const props=defineProps({item:{type:Object,required:true},disabled:Boolean});
 const meta=computed(()=>props.item.matrix_meta||{}),materialOptions=ref([]),craftOptions=ref([]),error=ref(''),loading=ref(false);
