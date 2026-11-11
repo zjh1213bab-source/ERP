@@ -178,7 +178,7 @@ const navModel = [
       { label: '报价单', to: '/quotations' },
       { label: '预下单', to: '/pre-orders' },
       { label: '业务订单', to: '/orders' },
-      { label: '现货开单', to: '/spot-ops' },
+      { label: '现货开单', to: '/orders?channel=stock' },
       { label: '客户确认', to: '/confirm-center' },
       { label: '客户进度发布', to: '/customer-progress' },
       { label: '销售与客户', to: '/sales' },
@@ -207,6 +207,8 @@ const navModel = [
     key: 'tech', label: '技术开发', icon: '🧵',
     children: [
       { label: '开发管理', to: '/development' },
+      { label: '生产审核', to: '/approvals?scope=tech' },
+      { label: '打样室', to: '/pattern-board?workbench=sample' },
       { label: '研发立项与 SKU 配码', to: '/dev-master' },
       { label: '打版流程', to: '/pattern-board' },
       { label: '面辅料新品开发', to: '/material-development' },
@@ -215,14 +217,20 @@ const navModel = [
   },
   { key: 'sample', label: '样衣管理', icon: '🧥', children: [
     { label: '样衣管理', to: '/sample-archive' },
-    { label: '打版流程', to: '/pattern-board' },
-    { label: '打样室', to: '/pattern-board?workbench=sample' }
+    { label: '样衣打版', to: '/pattern-board' },
+    { label: '样衣打样室', to: '/pattern-board?workbench=sample' }
   ] },
   {
     key: 'purchase', label: '供应链部', icon: '🛍',
     children: [
       { label: '采购列表', to: '/purchases' },
       { label: '分配订单', to: '/order-allocation' },
+      { label: '订单采购核对', to: '/purchases?scope=order' },
+      { label: '提前采购', to: '/purchases?scope=advance' },
+      { label: '外发工艺跟进', to: '/cut-dispatch' },
+      { label: '工厂管理', to: '/factories' },
+      { label: '工艺厂管理', to:'/factories?usage=craft' },
+      { label: '物料档案', to: '/materials' },
       { label: '原料收货检验', to: '/receipts' },
       { label: '库存管理', to: '/inventory' },
       { label: '备料领退与盘点', to: '/material-flow' },
@@ -454,13 +462,10 @@ function updateCustomNavColor(event) {
   localStorage.setItem('erp_nav_custom_color', customNavColor.value);
   selectNavPalette('custom');
 }
-function openGroupForPath(path) {
-  navModel.forEach((item) => {
-    if (item.children && item.children.some((c) => path.startsWith(c.to))) openMap[item.key] = true;
-  });
-}
+function matchingGroup(){return navModel.find(i=>i.children?.some(c=>c.to===route.fullPath)) || navModel.find(i=>i.children?.some(c=>c.to===route.path));}
+function openGroupForPath(){const group=matchingGroup();if(group)openMap[group.key]=true;}
 openGroupForPath(route.path);
-watch(() => route.path, (p) => { openGroupForPath(p); navOpen.value = false; });
+watch(() => route.fullPath, () => { openGroupForPath(); navOpen.value = false; });
 
 function toggle(key) { openMap[key] = !openMap[key]; }
 
@@ -488,7 +493,7 @@ function closePage(to){
 
 /** 面包屑中间级：按当前路径归属的菜单分组显示，不写死「样衣」。 */
 const sectionTitle = computed(() => {
-  const hit = navModel.find((i) => i.children && i.children.some((c) => route.path.startsWith(String(c.to).split('?')[0])));
+  const hit = matchingGroup();
   return hit?.label || '工作空间';
 });
 const pageTitle = computed(() => route.meta.title || '工作台');

@@ -2,8 +2,8 @@
   <div>
     <div class="page-head">
       <div>
-        <h2>工厂管理</h2>
-        <div class="sub">按轻加工或包工包料维护合作工厂，供订单分单选择</div>
+        <h2>{{route.query.usage==='craft'?'工艺厂管理':'工厂管理'}}</h2>
+        <div class="sub">{{route.query.usage==='craft'?'维护外发工艺可选的工厂档案，电话和地址与工艺单共用':'按轻加工或包工包料维护合作工厂，供订单分单选择'}}</div>
       </div>
       <button v-action="['factories','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate">＋ 新增工厂</button>
     </div>
@@ -76,6 +76,8 @@
 </template>
 
 <script setup>
+import {useRoute} from 'vue-router';
+const route=useRoute();
 import ListPagination from '../components/ListPagination.vue';
 import { useListPagination } from '../composables/useListPagination';
 import { ref, computed, onMounted } from 'vue';

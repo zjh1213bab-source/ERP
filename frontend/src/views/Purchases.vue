@@ -1,6 +1,6 @@
 <template>
   <div class="purchase-page">
-    <div class="purchase-crumb">首页 / 采购 / <b>采购列表</b></div>
+    <div class="purchase-crumb">首页 / 采购 / <b>{{scopeLabel}}</b></div>
     <section class="purchase-filters">
       <label>款号<input v-model="search.style" placeholder="搜索款号 / 客户款号" @input="page=1" /></label>
       <label>单号<input v-model="search.number" placeholder="搜索采购单号 / 订单号" @input="page=1" /></label>
@@ -158,7 +158,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { api } from '../api';
 import { can } from '../store/permissions';
 import {canVisit} from '../store/navigation';
@@ -182,6 +182,9 @@ const form = ref(blank());
 const canWrite = can('purchase.write');
 
 const router = useRouter();
+const route=useRoute();
+const scope=computed(()=>route.query.scope);
+const scopeLabel=computed(()=>scope.value==='order'?'订单采购核对':scope.value==='advance'?'提前采购':'采购列表');
 
 /* 订单号反查：填号之前先确认这个号是别人的哪张单 —— 敲错一位就挂到别人的单上了 */
 const traceOpen = ref(false);
@@ -309,10 +312,13 @@ onMounted(async () => {
 
 const workspace=ref({cards:[]}),workspaceLoading=ref(false),workspaceError=ref(''),notice=ref(''),tab=ref('orders'),workspaceCard=ref(null),cardTab=ref('materials'),imageErrors=reactive({});
 const workspaceTabs=[{key:'orders',label:'按订单采购'},{key:'materials',label:'物料清单'},{key:'lines',label:'采购明细'},{key:'returns',label:'回料明细'}];
+watch(scope,v=>{page.value=1;tab.value=v==='order'?'materials':'orders';}, {immediate:false});
+if(scope.value==='order')tab.value='materials';
 const stateFilters=[{key:'status',label:'采购状态'},{key:'fabric_status',label:'面料采购状态'},{key:'accessory_status',label:'辅料采购状态'}];
 const purchaseStates={pending:'待采购',ordering:'采购中',received:'已到货',cancelled:'已取消',unknown:'未登记'};
 const search=reactive({style:'',number:'',po:'',status:'',fabric_status:'',accessory_status:'',buyer:'',customer:'',factory:'',from:'',to:'',color:'',audit:''});
 const filteredCards=computed(()=>workspace.value.cards.filter(c=>{
+ if(scope.value==='order'&&!c.order_id || scope.value==='advance'&&c.order_id)return false;
  const includes=(value,q)=>!q||String(value||'').toLowerCase().includes(q.trim().toLowerCase());
  return includes(c.style_name,search.style)&&includes(c.order_no+' '+c.purchase_nos,search.number)&&includes(c.po_no,search.po)&&includes(c.buyer_names,search.buyer)&&includes(c.customer_name,search.customer)&&includes(c.factory_names,search.factory)&&includes(c.colors,search.color)&&stateFilters.every(f=>!search[f.key]||c[f.key]===search[f.key])&&(!search.audit||c.audit_status===search.audit)&&(!search.from||fmtDate(c.created_at)>=search.from)&&(!search.to||fmtDate(c.created_at)<=search.to);
 }));

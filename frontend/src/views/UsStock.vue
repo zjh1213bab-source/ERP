@@ -12,10 +12,10 @@
 import {computed,onMounted,ref} from 'vue';
 import {api} from '../api';
 const modules=[['经营看板','供需与业务全景','/us-stock'],['商品管理','款式 · 规格 · 上新','/products'],['备货管理','需求 · 补货 · 财审','/spot-ops'],['生产跟踪','分厂 · 进度 · 交期','/order-tracking'],['物流管理','在途 · 单证 · 运费','/overseas-warehouse'],['仓储管理','收货 · 库存 · 盘点','/wh-plan'],['订单发货','接单 · 拣配 · 售后','/us-ship'],['财务经营','成本 · 资金 · 结算','/finance']];
-const stages=[['待开工','/production'],['生产中','/order-tracking'],['待终检','/quality'],['工厂待发','/production'],['运输在途','/overseas-warehouse'],['美仓实物','/overseas-warehouse'],['预留发货','/wh-plan']];
-const overview=ref(null),pending=ref(null),busy=ref(false),error=ref(''),stamp=ref('');
-const metrics=computed(()=>{const s=overview.value?.stat||{};return [['美仓在库',s.on_hand,'件','美仓库存账面数量','/overseas-warehouse'],['可分配库存',s.sellable,'件','合格上架扣除有效占用','/spot-ops'],['生产在产',s.in_production,'件','在产与运输分开统计','/order-tracking'],['待发订单',pending.value,'单','查看订单齐套与缺货','/us-ship']]});
-async function load(){if(busy.value)return;busy.value=true;error.value='';try{const [a,b]=await Promise.allSettled([api.spotopsOverview({warehouse:'us',window_days:60}),api.shipBoard({warehouse:'us'})]);overview.value=a.status==='fulfilled'?a.value:null;pending.value=b.status==='fulfilled'?b.value.length:null;error.value=[a,b].map((x,i)=>x.status==='rejected'?['供需数据','发货数据'][i]+'读取失败':'').filter(Boolean).join('；');stamp.value=new Date().toLocaleString('zh-CN')}finally{busy.value=false}}
+const stages=[['待开工','/production'],['生产中','/order-tracking'],['待终检','/quality'],['工厂待发','/production'],['运输在途','/overseas-warehouse?status=in_transit'],['美仓实物','/overseas-warehouse?tab=loc'],['预留发货','/wh-plan']];
+const sea=ref(null),overview=ref(null),pending=ref(null),busy=ref(false),error=ref(''),stamp=ref('');
+const metrics=computed(()=>{const s=overview.value?.stat||{};return [['美仓在库',s.on_hand,'件','美仓库存账面数量','/overseas-warehouse'],['可分配库存',s.sellable,'件','合格上架扣除有效占用','/spot-ops'],['海运在途',sea.value,'件','已发运且尚未到仓的柜货','/overseas-warehouse?status=in_transit'],['生产在产',s.in_production,'件','在产与运输分开统计','/order-tracking'],['待发订单',pending.value,'单','查看订单齐套与缺货','/us-ship']]});
+async function load(){if(busy.value)return;busy.value=true;error.value='';try{const [a,b,c]=await Promise.allSettled([api.spotopsOverview({warehouse:'us',window_days:60}),api.shipBoard({warehouse:'us'}),api.whBoard({warehouse:'us'})]);sea.value=c.status==='fulfilled'?c.value.arriving.filter(a=>a.status==='in_transit').reduce((n,a)=>n+Number(a.expect_qty||0),0):null;overview.value=a.status==='fulfilled'?a.value:null;pending.value=b.status==='fulfilled'?b.value.length:null;error.value=[a,b,c].map((x,i)=>x.status==='rejected'?['供需数据','发货数据','海运数据'][i]+'读取失败':'').filter(Boolean).join('；');stamp.value=new Date().toLocaleString('zh-CN')}finally{busy.value=false}}
 onMounted(load);
 </script>
 <style scoped>

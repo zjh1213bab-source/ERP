@@ -1,6 +1,6 @@
 <template>
   <div class="sales-reference">
-    <div class="sales-reference-crumb">首页 / 销售 / <b>业务订单</b></div>
+    <div class="sales-reference-crumb">首页 / 销售 / <b>{{ stockChannel ? '现货开单' : '业务订单' }}</b></div>
     <section class="sales-list-filters">
       <label>PO单号<input v-model="q" placeholder="搜索PO单号 / 销售单号" /></label>
       <label>店铺信息<input v-model="salesFilters.shop" placeholder="搜索店铺信息" /></label>
@@ -12,11 +12,11 @@
       <label>交货天数<input type="number" min="0" v-model="salesFilters.days" placeholder="搜索交货天数" /></label>
       <label>订单状态<select v-model="status"><option value="">全部</option><option v-for="(lb,k) in labels" :key="k" :value="k">{{ lb }}</option></select></label>
       <label>审核状态<select v-model="salesFilters.approval"><option value="">请选择成本审核状态</option><option value="approved">成本审核通过</option><option value="pending">成本待审核</option><option value="rejected">成本已驳回</option><option value="none">未提交成本单</option></select></label>
-      <label>订单类型<select v-model="type"><option value="">全部</option><option value="custom">定制</option><option value="stock">现货</option></select></label>
+      <label>订单类型<select v-model="type" :disabled="stockChannel"><option value="">全部</option><option value="custom">定制</option><option value="stock">现货</option></select></label>
       <button @click="resetSalesFilters()">重置</button>
     </section>
     <section class="sales-reference-panel">
-      <div class="sales-list-toolbar"><button v-action="['orders','create']" v-if="canCreate" class="sales-primary" @click="openCreate()">新增业务下单</button><details class="sales-more"><summary>更多 ▾</summary><div><button @click="openTrace()">单号反查</button><button v-action="['orders','export']" v-if="canExport" @click="exportCsv()">导出 Excel</button><button @click="batchPrint()">批量打印工单</button></div></details><ReferencePager v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" @refresh="load()" /></div>
+      <div class="sales-list-toolbar"><button v-action="['orders','create']" v-if="canCreate" class="sales-primary" @click="openCreate()">{{ stockChannel ? '新增现货单' : '新增业务下单' }}</button><details class="sales-more"><summary>更多 ▾</summary><div><button @click="openTrace()">单号反查</button><button v-action="['orders','export']" v-if="canExport" @click="exportCsv()">导出 Excel</button><button @click="batchPrint()">批量打印工单</button></div></details><ReferencePager v-model:page="pagination.page" v-model:page-size="pagination.pageSize" :total="pagination.total" @refresh="load()" /></div>
       <div class="sales-list-scroll"><table class="sales-list-table"><thead><tr><th><input type="checkbox" :checked="allChecked" title="全选本页" @change="toggleAll" /> 客户</th><th>备注</th><th>客户/PO单号</th><th>店铺信息</th><th>标签</th><th>下单商品款号</th><th>下单总数量</th><th>总金额 USD</th><th>业务员</th><th>附件</th><th>日期</th><th>打版进度</th><th>生产进度</th></tr></thead><tbody>
       <tr v-for="o in pagination.rows" :key="o.id" :class="{'row-sel':selected.includes(o.id)}">
         <td><input type="checkbox" :checked="selected.includes(o.id)" @change="toggleOne(o.id)" /><button class="sales-text" @click="openDetail(o.id)">{{ o.customer_name||'—' }}</button></td>
@@ -916,7 +916,9 @@ const batchResult = ref(null);     // 执行结果
 const batchBusy = ref(false);
 const q = ref('');
 const status = ref('');
-const type = ref('');
+const stockChannel=computed(()=>route.query.channel==='stock');
+const type = ref(stockChannel.value?'stock':'');
+watch(stockChannel,v=>{type.value=v?'stock':'';pagination.page=1});
 
 const labels = ref({});
 const flow = ref({});
@@ -1372,7 +1374,7 @@ async function load() {
   catch (e) { alert(e.message); }
 }
 
-function openCreate() { form.value = blankForm(); showCreate.value = true; }
+function openCreate() { form.value = blankForm(); if(stockChannel.value)form.value.type='stock'; showCreate.value = true; }
 function addItem() { form.value.items.push(blankItem()); }
 function removeItem(i) { if (form.value.items.length > 1) form.value.items.splice(i, 1); }
 function addColor(it) { it.colors.push(blankColor('', productSizeNames(it))); }
@@ -1967,7 +1969,7 @@ const filteredSales=computed(()=>list.value.filter(o=>{
 }));
 const pagination=reactive({page:1,pageSize:12,total:computed(()=>filteredSales.value.length),rows:computed(()=>filteredSales.value.slice((pagination.page-1)*pagination.pageSize,pagination.page*pagination.pageSize))});
 watch([q,status,type,()=>({...salesFilters})],()=>{pagination.page=1;});
-function resetSalesFilters(){q.value='';status.value='';type.value='';Object.keys(salesFilters).forEach(k=>salesFilters[k]='');pagination.page=1;}
+function resetSalesFilters(){q.value='';status.value='';type.value=stockChannel.value?'stock':'';Object.keys(salesFilters).forEach(k=>salesFilters[k]='');pagination.page=1;}
 
 </script>
 

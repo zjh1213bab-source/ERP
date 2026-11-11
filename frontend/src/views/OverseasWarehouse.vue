@@ -653,6 +653,8 @@
 </template>
 
 <script setup>
+import {useRoute} from 'vue-router';
+import {watch} from 'vue';
 import { localDate } from '../utils/time';
 import { ref, reactive, computed, onMounted } from 'vue';
 import { api } from '../api';
@@ -660,7 +662,8 @@ import { can } from '../store/permissions';
 
 const canWrite = computed(() => can('wh.write'));
 
-const tab = ref('asn');
+const route=useRoute();
+const tab = ref(route.query.tab==='loc'?'loc':'asn');
 const dict = ref({ zones: [], asn_status: [], carriers: [] });
 const board = ref({ stat: {}, arriving: [], receiving: [], loc_stat: [], bundle_stock: [], recent_ops: [] });
 const asns = ref([]);
@@ -672,7 +675,8 @@ const bundleOps = ref([]);
 const bills = ref([]);
 const rates = ref([]);
 
-const asnStatus = ref('all');
+const asnStatus = ref(route.query.status==='in_transit'?'in_transit':'all');
+watch(()=>route.fullPath,()=>{asnStatus.value=route.query.status==='in_transit'?'in_transit':'all';go(route.query.tab==='loc'?'loc':'asn');});
 const billStatus = ref('all');
 
 const asnForm = ref(null);

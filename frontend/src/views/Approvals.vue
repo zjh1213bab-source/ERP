@@ -2,20 +2,20 @@
   <div>
     <div class="page-head">
       <div>
-        <h2>审批中心</h2>
-        <div class="sub">待技术确认 / 待财务审核 / 待分单 集中处理</div>
+        <h2>{{techOnly?'生产审核':'审批中心'}}</h2>
+        <div class="sub">{{techOnly?'按开发单核对技术资料，确认后流转到下一环节':'待技术确认 / 待财务审核 / 待分单 集中处理'}}</div>
       </div>
       <button class="btn btn-ghost" @click="load">刷新</button>
     </div>
 
     <div class="cards" style="grid-template-columns: repeat(3, 1fr)">
       <div class="stat-card"><div class="label">待技术确认</div><div class="value">{{ d.techpacks.length }}</div></div>
-      <div class="stat-card"><div class="label">待财务审核</div><div class="value">{{ d.costs.length }}</div></div>
-      <div class="stat-card accent"><div class="label">待分单</div><div class="value">{{ d.orders.length }}</div></div>
+      <div v-if="!techOnly" class="stat-card"><div class="label">待财务审核</div><div class="value">{{ d.costs.length }}</div></div>
+      <div v-if="!techOnly" class="stat-card accent"><div class="label">待分单</div><div class="value">{{ d.orders.length }}</div></div>
     </div>
 
     <!-- 待我审批（多级） -->
-    <div class="panel-card">
+    <div v-if="!techOnly" class="panel-card">
       <h3>待我审批（多级流程）</h3>
       <table class="data">
         <thead><tr><th>订单号</th><th>客户</th><th>款名</th><th>当前节点</th><th>总成本</th><th>出厂价</th><th>操作</th></tr></thead>
@@ -62,7 +62,7 @@
     </div>
 
     <!-- 待财务审核 -->
-    <div class="panel-card">
+    <div v-if="!techOnly" class="panel-card">
       <h3>② 待财务审核（成本单）</h3>
       <table class="data">
         <thead><tr><th>订单号</th><th>客户</th><th>款名</th><th>总成本</th><th>出厂价</th><th>操作</th></tr></thead>
@@ -85,7 +85,7 @@
     </div>
 
     <!-- 待分单 -->
-    <div class="panel-card">
+    <div v-if="!techOnly" class="panel-card">
       <h3>③ 待分单（财务已通过）</h3>
       <table class="data">
         <thead><tr><th>订单号</th><th>客户</th><th>款名</th><th>交期</th><th>金额</th><th>操作</th></tr></thead>
@@ -108,11 +108,11 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter,useRoute } from 'vue-router';
 import { api } from '../api';
 import { can } from '../store/permissions';
 
-const router = useRouter();
+const router = useRouter(),route=useRoute(),techOnly=computed(()=>route.query.scope==='tech');
 const d = reactive({ techpacks: [], costs: [], orders: [] });
 const tasks = ref([]);
 
