@@ -218,6 +218,7 @@ const routes = [
       { path: 'sales', component: Sales, meta: { title: '销售与客户' } },
       { path: 'supply', component: Supply, meta: { title: '供给批次与预订' } },
       { path: 'notify', component: Notify, meta: { title: '客户营销与消息' } },
+      { path: 'us-stock', component: () => import('./views/UsStock.vue'), meta: { title: '美仓现货' } },
       { path: 'wh-plan', component: WhPlan, meta: { title: '美仓作业计划' } },
       { path: 'schedule', component: Schedule, meta: { title: '有限产能排程' } },
       { path: 'spot-ops', component: SpotOps, meta: { title: '现货经营与备货' } },

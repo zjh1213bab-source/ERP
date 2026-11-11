@@ -1,7 +1,10 @@
 import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
-const apiTarget = process.env.VITE_API_PROXY_TARGET || loadEnv('development', process.cwd()).VITE_API_PROXY_TARGET || 'http://127.0.0.1:3000';
+import { fileURLToPath } from 'node:url';
+const backendDir = fileURLToPath(new URL('../backend/', import.meta.url));
+const port = loadEnv('development', backendDir, 'PORT').PORT || '3000';
+const apiTarget = process.env.VITE_API_PROXY_TARGET || loadEnv('development', process.cwd()).VITE_API_PROXY_TARGET || ('http://localhost:' + port);
 
 // Vite 配置
 // - 开发时 /api 代理到本地后端 3000

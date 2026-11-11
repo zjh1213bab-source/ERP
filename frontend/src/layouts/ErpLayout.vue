@@ -4,7 +4,7 @@
     <aside class="erp-sidebar" :class="{ open: navOpen }">
       <div class="brand">
         <img class="brand-logo" :src="brandLogo" alt="跳色科技" data-no-image-preview />
-        <span class="brand-copy"><strong>跳色科技</strong><small>协同 ERP</small></span>
+        <span class="brand-copy"><strong>跳色科技</strong><small>WORK WITH CLARITY</small></span>
       </div>
       <nav class="erp-nav">
         <template v-for="item in visibleModel" :key="item.key">
@@ -37,7 +37,7 @@
       <header class="erp-topbar">
         <button class="nav-toggle" @click="navOpen = true" aria-label="打开菜单">☰</button>
         <div class="crumb">
-          <span class="crumb-home">首页</span><span class="crumb-separator">/</span>
+          <span class="crumb-home">首页总览</span><span class="crumb-separator">/</span>
           <span>{{ sectionTitle }}</span><span class="crumb-separator">/</span>
           <strong>{{ pageTitle }}</strong>
         </div>
@@ -65,21 +65,12 @@
       </header>
 
       <!-- 二级页签：文字对齐参考系统，跳转与下拉子项全部取自本地真实路由 -->
-      <div class="yc-tabs">
-        <div v-for="t in quickTabs" :key="t.label" class="yc-tab-wrap">
-          <router-link :to="t.to" class="yc-tab" :class="{ on: isTabOn(t) }" @click="openTab = ''">
-            <span v-if="t.dot" class="yc-dot"></span>{{ t.label }}
-            <span v-if="tabBadge(t)" class="yc-badge">{{ tabBadge(t) }}</span>
-          </router-link>
-          <button class="yc-tab-caret" type="button" :aria-label="`${t.label} 子菜单`" @click.stop="toggleTab(t.label)">▾</button>
-          <div v-if="openTab === t.label" class="yc-tab-menu">
-            <router-link v-for="c in tabChildren(t)" :key="c.to" :to="c.to" @click="openTab = ''">{{ c.label }}</router-link>
-            <span v-if="!tabChildren(t).length" class="yc-tab-empty">该模块暂无授权子页面</span>
-          </div>
+      <nav class="page-tabs" aria-label="已打开页面">
+        <div v-for="t in pages" :key="t.to" :class="{active:t.to===route.fullPath}">
+          <router-link :to="t.to" :aria-current="t.to===route.fullPath?'page':undefined">{{t.label}}</router-link>
+          <button v-if="t.to!=='/dashboard'" :aria-label="'关闭'+t.label" @click="closePage(t.to)">×</button>
         </div>
-      </div>
-
-      <section class="erp-content">
+      </nav>      <section class="erp-content">
         <router-view />
       </section>
     </div>
@@ -159,13 +150,17 @@ watch(() => route.path, () => { loadMailUnread(); });
 
 // 一级=独立页；一级=分组（children 为二级菜单）
 const navModel = [
-  { key: 'dash', label: '工作台', icon: '📊', to: '/dashboard' },
+  { key: 'dash', label: '首页总览', icon: '📊', to: '/dashboard' },
   // 日清放在工作台紧后面：它是全员每天第一件事，不该藏在某个模块里
-  { key: 'self', label: '我的自助', icon: '🙋', to: '/self' },
+  { key: 'self', label: '我的工作', icon: '🙋', to: '/self' },
+  { key: 'tasks', label: '我的待办', to: '/approvals' },
+  { key: 'payroll', label: '人事薪酬', to: '/payroll-check' },
+  { key: 'us', label: '美仓现货', to: '/us-stock' },
+  { key: 'facility', label: '行政后勤', to: '/facility' },
   { key: 'exceptions', label: '异常日清', icon: '🚨', to: '/exceptions' },
   { key: 'scan', label: '扫码查询', icon: '📷', to: '/scan' },
   { key: 'assist', label: '智能助手', icon: '🤖', to: '/assistant' },
-  { key: 'mail', label: '内部邮件', icon: '📧', to: '/mail' },
+  { key: 'mail', label: '内部邮箱', icon: '📧', to: '/mail' },
   {
     key: 'archive', label: '档案', icon: '🗂️',
     children: [
@@ -278,6 +273,7 @@ const navModel = [
       { label: '停单改量退料', to: '/purchase-changes' },
       { label: '原料收货检验', to: '/receipts' },
       { label: '备料领退与盘点', to: '/material-flow' },
+
       { label: '美仓发货', to: '/us-ship' },
       { label: '供给批次与预订', to: '/supply' },
       { label: '美仓作业计划', to: '/wh-plan' },
@@ -359,6 +355,20 @@ const navModel = [
   }
 ];
 
+const primaryOrder = ['dash','self','tasks','mail','payroll','sample','sales','tech','purchase','front','back','scan','us','finance','facility','assist','sys'];
+const rank = item => primaryOrder.includes(item.key) ? primaryOrder.indexOf(item.key) : primaryOrder.length;
+navModel.sort((a,b)=>rank(a)-rank(b));
+const menuTargets = new Map();
+for (const group of navModel) {
+  if (!group.children) continue;
+  group.children = group.children.filter(item => {
+    const previous = menuTargets.get(item.label);
+    if (previous === item.to) return false;
+    if (previous) item.label = group.label + ' · ' + item.label;
+    menuTargets.set(item.label, item.to);
+    return true;
+  });
+}
 const isAdmin = computed(() => auth.user?.role === 'admin');
 /** 菜单显示与模块授权同步，旧账号仍沿用既有导航。 */
 function canNavigate(to){
@@ -388,7 +398,7 @@ const navPalettePresets = [
   // 「跳色蓝」是参考截图的亮蓝侧栏，作为默认项；深色显示模式下自动切深蓝。
   // 侧栏皮肤只读这里的 --nav-* 变量，不再写死颜色，外观设置每个预设都能即时生效。
   // id 沿用 yichuang 只是内部标识，避免已保存过该设置的浏览器丢失选择。
-  { id: 'yichuang', label: '跳色蓝', bg: '#1668f0', accent: '#0f57d8' },
+  { id: 'yichuang', label: '跳色蓝', bg: '#eaf7fc', accent: '#1769bd' },
   // 「跳色彩色」为节日/自定义皮肤配色，搭配「彩色·节日」品牌图标使用。
   { id: 'festive', label: '跳色彩色', bg: '#233a6b', accent: '#ff4d8d' },
   {id:'pearl',label:'雾白',bg:'#f9fbfb',accent:'#1d7066'},
@@ -413,7 +423,7 @@ const navPaletteStyle = computed(() => {
   let bg;
   if (navPaletteId.value === 'custom') bg = customNavColor.value;
   else if (navPaletteId.value === 'pearl') bg = theme.mode === 'dark' ? '#151e26' : '#f9fbfb';
-  else if (navPaletteId.value === 'yichuang') bg = theme.mode === 'dark' ? '#16386b' : '#1668f0';
+  else if (navPaletteId.value === 'yichuang') bg = theme.mode === 'dark' ? '#16386b' : '#eaf7fc';
   else bg = preset?.bg || '#f9fbfb';
   const light = lightness(bg) > 155;
   const accent = navPaletteId.value === 'yichuang' && theme.mode === 'dark'
@@ -460,38 +470,18 @@ function toggle(key) { openMap[key] = !openMap[key]; }
  * navModel 的分组（经 visibleChildren 做权限过滤），不新增死链、不丢入口。
  * 多个页签指向同一路由时只高亮第一个，避免整排同时亮起。
  */
-const quickTabs = [
-  { label: '首页', to: '/dashboard' },
-  { label: '我的工作', to: '/self' },
-  { label: '我的待办', to: '/approvals', group: 'approve' },
-  { label: '内部邮箱', to: '/mail' },
-  { label: '人事薪酬', to: '/payroll-check', group: 'hr' },
-  { label: '样衣管理', to: '/sample-archive', group: 'sample' },
-  { label: '销售开单', to: '/pre-orders', group: 'sales' },
-  { label: '技术开发', to: '/development', group: 'tech' },
-  { label: '供应链部', to: '/purchases', group: 'purchase' },
-  { label: '生产前端', to: '/order-tracking', group: 'front' },
-  { label: '生产后端', to: '/production?station=workshop', group: 'back' },
-  { label: '扫码查询', to: '/scan' },
-  { label: '美仓现货', to: '/wh-plan', group: 'stock' },
-  { label: '财务管理', to: '/finance', group: 'finance' },
-  { label: '行政后勤', to: '/facility', group: 'hr' },
-  { label: '智能助手', to: '/assistant' },
-  { label: '系统设置', to: '/settings', group: 'sys' }
-];
-const openTab = ref('');
-function toggleTab(label) { openTab.value = openTab.value === label ? '' : label; }
-function tabChildren(t) {
-  const group = navModel.find((i) => i.key === t.group);
-  return group ? visibleChildren(group) : [];
-}
-function tabBadge(t) { return t.badgeFrom ? (reviewCount(t.badgeFrom) || 0) : 0; }
-function isTabOn(t) {
-  const p = route.path;
-  if (p !== t.to && !p.startsWith(t.to + '/')) return false;
-  return quickTabs.find((x) => x.to === t.to) === t;
-}
-function toggleFullscreen() {
+const pages=ref([{label:'首页总览',to:'/dashboard'}]);
+watch(()=>route.fullPath, to=>{
+  if(pages.value.some(t=>t.to===to))return;
+  const item=navModel.flatMap(i=>i.children||[i]).find(i=>i.to===to);
+  pages.value.push({to,label:item?.label||route.meta.title||'工作台'});
+},{immediate:true});
+function closePage(to){
+  const i=pages.value.findIndex(t=>t.to===to);
+  if(i<1)return;
+  pages.value.splice(i,1);
+  if(route.fullPath===to)router.push(pages.value[Math.min(i,pages.value.length-1)].to);
+}function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen?.();
   else document.documentElement.requestFullscreen?.();
 }
@@ -515,6 +505,7 @@ function logout() {
 </script>
 
 <style scoped>
+.page-tabs{display:flex;align-items:center;overflow-x:auto;gap:6px;padding:6px 16px;background:var(--yc-surface);border-bottom:1px solid var(--yc-line);flex-shrink:0}.page-tabs div{white-space:nowrap;border:1px solid var(--yc-line);color:var(--yc-ink);display:flex;align-items:center}.page-tabs .active{background:#1769bd;color:white}.page-tabs a,.page-tabs button{color:inherit;text-decoration:none;font:inherit;font-size:12px;padding:6px 10px}.page-tabs button{cursor:pointer;border:0;background:transparent;padding-left:0}
 .global-page-size { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
 .global-page-size .select { width: 88px; padding: 5px 8px; }
 @media(max-width: 760px) { .global-page-size > span { display: none; } }
