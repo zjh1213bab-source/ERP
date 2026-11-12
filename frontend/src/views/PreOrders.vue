@@ -2,8 +2,16 @@
   <div class="pre-reference reference-business-list">
     <div class="reference-crumb">首页 / 销售 / <b>预下单</b></div>
     <section class="pre-reference-panel">
-      <div class="pre-list-filters"><label>预下单号<input v-model="q" placeholder="搜索预下单号" @input="prePage=1" /></label><label>客户<input v-model="customerSearch" placeholder="搜索客户" @input="prePage=1" /></label><label>审批状态<select v-model="approvalSearch" @change="prePage=1"><option value="">全部</option><option value="pending">财务待审核</option><option value="approved">财务通过</option><option value="rejected">财务拒绝</option></select></label><button @click="resetList">重置</button></div>
-      <div class="pre-reference-toolbar"><button v-action="['pre-orders','create']" v-if="canWrite" class="pre-accent" @click="openCreate()">新增预下单</button><button v-for="t in preTabs" :key="t.key" class="pre-accent" :class="{active:preTab===t.key}" @click="preTab=t.key;prePage=1">{{ t.label }} ({{ t.count }})</button><button class="pre-config" @click="configOpen=true">⚙ 配置</button><ReferencePager v-model:page="prePage" v-model:page-size="preSize" :total="filteredPre.length" @refresh="load()" /></div>
+      <div class="pre-list-filters"><label>预下单号<input v-model="q" placeholder="搜索预下单号" @input="prePage=1" /></label><label>客户<input v-model="customerSearch" placeholder="搜索客户" @input="prePage=1" /></label><button @click="resetList">重置</button></div>
+      <div class="pre-reference-toolbar"><button v-action="['pre-orders','create']" v-if="canWrite" class="pre-accent" @click="openCreate()">新增预下单</button><template v-for="t in preTabs" :key="t.key">
+        <select v-if="t.key==='finance'" class="pre-accent pre-finance-select" aria-label="财务审核状态" :value="financeSelection" @change="selectStage($event.target.value)">
+          <option value="" disabled>财务审核</option>
+          <option value="finance">财务待审核 ({{counts.finance}})</option>
+          <option value="rejected">财务拒绝 ({{counts.rejected}})</option>
+          <option value="missing">财务通过 · 待核对 ({{counts.missing}})</option>
+        </select>
+        <button v-else class="pre-accent" :class="{active:preTab===t.key}" @click="selectStage(t.key)">{{t.label}} ({{counts[t.key]}})</button>
+      </template><button class="pre-config" @click="configOpen=true">⚙ 配置</button><ReferencePager v-model:page="prePage" v-model:page-size="preSize" :total="filteredPre.length" @refresh="load()" /></div>
       <div class="pre-list-scroll"><table class="pre-list-table"><thead><tr><th v-for="c in visiblePreColumns" :key="c.key">{{ c.label }}</th></tr></thead><tbody><tr v-for="row in prePageRows" :key="row.id"><td v-for="c in visiblePreColumns" :key="c.key">
         <template v-if="c.key==='order'"><button class="pre-link" @click="detailRow=row">{{ row.order_no||row.pre_order_no }}</button><TrialNotice :record="row" /></template><template v-else-if="c.key==='customer'">{{ row.customer_name }}</template><template v-else-if="c.key==='manager'">{{ row.manager||'—' }}</template>
         <div v-else-if="c.key==='styles'" class="pre-style-names"><button v-for="item in row.items" :key="item.id" class="pre-link" @click="detailRow=row">{{ item.style_no||item.product_name||'图片新款（待版房命名）' }}</button></div>
@@ -70,17 +78,43 @@ import {auth} from '../store/auth';
 import {computed,nextTick,onMounted,reactive,ref,watch} from 'vue';import {useRouter} from 'vue-router';import {api} from '../api';import {can,canAction,permState} from '../store/permissions';import StyleImageFields from '../components/StyleImageFields.vue';import ReferencePager from '../components/ReferencePager.vue';import {fmtTime,localDate} from '../utils/time';import {openImage} from '../store/viewer';
 const sampleCollapsed=ref(false),imageCollapsed=ref(false);
 const router=useRouter(),rows=ref([]),customers=ref([]),archiveProducts=ref([]),sizeTemplates=ref([]),q=ref(''),showForm=ref(false),busy=ref(false);const canWrite=computed(()=>permState.positionDirect?['create','edit','complete'].some(a=>canAction('pre-orders',a)):can('order.create'));
-const customerSearch=ref(''),approvalSearch=ref(''),preTab=ref('all'),prePage=ref(1),preSize=ref(12),detailRow=ref(null),configOpen=ref(false);
+const customerSearch=ref(''),preTab=ref('all'),prePage=ref(1),preSize=ref(12),detailRow=ref(null),configOpen=ref(false);
 const preColumns=[{key:'order',label:'预下单号'},{key:'customer',label:'客户名称'},{key:'manager',label:'业务员'},{key:'styles',label:'款式明细'},{key:'photos',label:'成品图片'},{key:'due',label:'目标交期'},{key:'requirements',label:'客户要求'},{key:'created',label:'提交时间'},{key:'actions',label:'操作'}];
 function readColumns(){try{const saved=JSON.parse(localStorage.getItem('erp_preorder_columns'));if(Array.isArray(saved)){const valid=saved.filter(k=>preColumns.some(c=>c.key===k));if(valid.length)return valid;}}catch{}return preColumns.map(c=>c.key);}
 const selectedColumns=ref(readColumns()),visiblePreColumns=computed(()=>preColumns.filter(c=>selectedColumns.value.includes(c.key)));
 function saveListConfig(){try{localStorage.setItem('erp_preorder_columns',JSON.stringify(selectedColumns.value));}catch{}configOpen.value=false;}
-const preBase=computed(()=>rows.value.filter(r=>(!q.value||[r.order_no,r.pre_order_no].some(v=>String(v||'').toLowerCase().includes(q.value.trim().toLowerCase())))&&(!customerSearch.value||String(r.customer_name||'').toLowerCase().includes(customerSearch.value.trim().toLowerCase()))&&(!approvalSearch.value||(approvalSearch.value==='approved'?r.finance_passed:r.status===(approvalSearch.value==='pending'?'open':'finance_rejected')))));
-const preDefinitions=[['all','全部',()=>true],['finance','财务审核',r=>r.status==='open'],['rejected','财务拒绝',r=>r.status==='finance_rejected'],['approved','财务通过',r=>r.finance_passed],['missing','未填资料订单',r=>r.missing_details],['pattern','打版中',r=>r.pattern_running],['unordered','打版完成未下单',r=>r.pattern_complete_unordered]];
-const preTabs=computed(()=>preDefinitions.map(([key,label,match])=>({key,label,count:preBase.value.filter(match).length})));
-const filteredPre=computed(()=>preBase.value.filter(preDefinitions.find(t=>t[0]===preTab.value)[2]));
+const preBase=computed(()=>rows.value.filter(row=>
+  [row.order_no,row.pre_order_no].some(no=>String(no||'').toLowerCase().includes(q.value.trim().toLowerCase()))
+  && String(row.customer_name||'').toLowerCase().includes(customerSearch.value.trim().toLowerCase())
+));
+const preTabs=[
+  {key:'all',label:'全部'}, {key:'finance',label:'财务审核'}, {key:'missing',label:'未填资料订单'},
+  {key:'development',label:'开发待检查'}, {key:'pattern',label:'打版中'},
+  {key:'unordered',label:'打版完成未下单'}, {key:'converted',label:'已转正式订单'}
+];
+function currentStage(row){
+  switch(row.status){
+    case 'finance_rejected': return 'rejected';
+    case 'verified_finance': return 'missing';
+    case 'converted': return 'converted';
+    case 'ready':
+      if(row.pattern_complete_unordered)return 'unordered';
+      return row.pattern_running?'pattern':'development';
+    default: return 'finance';
+  }
+}
+const counts=computed(()=>{
+  const result=Object.fromEntries(preTabs.map(t=>[t.key,0]));
+  result.rejected=0;
+  result.all=preBase.value.length;
+  for(const row of preBase.value) result[currentStage(row)]++;
+  return result;
+});
+const financeSelection=computed(()=>['finance','rejected','missing'].includes(preTab.value)?preTab.value:'');
+function selectStage(stage){preTab.value=stage;prePage.value=1;}
+const filteredPre=computed(()=>preBase.value.filter(row=>preTab.value==='all'||currentStage(row)===preTab.value));
 const prePageRows=computed(()=>filteredPre.value.slice((prePage.value-1)*preSize.value,prePage.value*preSize.value));
-function resetList(){q.value='';customerSearch.value='';approvalSearch.value='';preTab.value='all';prePage.value=1;}
+function resetList(){q.value='';customerSearch.value='';preTab.value='all';prePage.value=1;}
 let itemSequence=0;
 const blankItem=()=>{const generated_name='新款-'+entryId().slice(0,12).toUpperCase();return ({generated_name,client_key:'pre-style-'+(++itemSequence),source_type:'new',sample_archive_id:null,product_name:generated_name,style_no:'',expected_qty:0,effect_image_url:'',detail_images:[],size_prices:[],remark:''});};
 const blank=()=>({id:null,status:'open',version:1,order_no:'',customer_id:null,customer_name:'',recipient_name:'',recipient_phone:'',shipping_address:'',manager:auth.user?.name||auth.user?.username||'',target_date:'',requirements:'',total_usd:null,payment_ratio:null,designer:'',category:'',series:'',wave:'',sample_source:'',po_no:'',payment_proofs:[],items:[blankItem()]});const form=reactive(blank());
@@ -174,6 +208,7 @@ onMounted(async()=>{await load();try{[customers.value,archiveProducts.value,size
 .pre-size-pricing select{width:100%;height:30px;min-width:65px;background:var(--surface);color:var(--ink);border:1px solid var(--line)}.pre-template-tools{margin-bottom:10px;font-size:12px}.pre-template-tools label{display:flex;align-items:center;gap:10px}
 .pre-style-grid{grid-template-columns:minmax(0,1fr)}.pre-style-grid .pre-style>.form-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.pre-style .pre-archive-matrix{margin-top:18px}.pre-delivery small{line-height:1.5}@media(max-width:1000px){.pre-style-grid .pre-style>.form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.pre-style-grid .pre-style>.form-grid{grid-template-columns:minmax(0,1fr)}}
 .pre-basics-title{font-size:16px;margin:0 0 18px}.pre-add-style{margin:4px 0 20px}.pre-basics .pre-proof-field{align-items:start}.pre-proof-field>label{padding-top:10px}.pre-detail-proofs{margin:18px 0}.pre-detail-proofs h4{font-size:14px;margin:0 0 10px}
+.pre-finance-select{border:0;border-radius:3px;padding:0 10px;height:42px;background:var(--list-accent);color:white;cursor:pointer}.pre-finance-select option{color:var(--ink);background:var(--surface)}
 </style>
 
 <style scoped>.archive-product-tabs{display:flex;align-items:center;gap:8px;overflow-x:auto;margin:8px 0}.archive-product-tabs button{display:flex;align-items:center;flex:none;gap:8px;padding:7px 10px;background:white;border:1px solid #dce4ef;border-radius:5px;cursor:pointer}.archive-product-tabs .selected{border-color:#1677ff;background:#eff6ff;color:#166ac1}.archive-product-tabs img{width:36px;height:40px;object-fit:contain}</style>
