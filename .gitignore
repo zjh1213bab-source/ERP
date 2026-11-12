@@ -47,8 +47,11 @@ Thumbs.db
 handoff/
 handoff-*.zip
 
-# 本地业务数据、参考站原始快照及界面截图（单独安全交接）
+# 本地业务数据（运行时数据，不入库）
 backend/data/
+# 开发期界面截图：649 张 / 约 112 MiB，全部为演示数据，已于 2026-11-12 移出 Git 跟踪。
+# docs/ 与 CHANGELOG.md 中的 shots/... 路径指向离线归档包，按 shots-archive-index.csv 索引（含 SHA-256）。
+# 需要重新生成时运行 backend/scripts/shot-*.js；此规则防止截图再次被 git add 入库。
 shots/
 # 本地环境及访问凭据
 .env.*
