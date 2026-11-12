@@ -18,6 +18,10 @@ const zlib = require('zlib');
 const ROOT = path.resolve(__dirname, '../..');
 const PKG_ROOT_NAME = 'erp-mindmap';
 
+// 截图已移出 Git 跟踪，干净 clone 里没有 shots/；带此参数却缺目录时必须报错，
+// 否则会静默产出一个声称包含截图、实际没有的交付包。
+const WITH_SHOTS = process.argv.includes('--with-shots');
+
 // ---------- 排除规则（相对 ROOT 的 posix 路径） ----------
 // 与 .gitignore 的取舍一致：依赖、运行时数据、构建缓存不入包；
 // frontend/dist 例外——它是构建产物，但正是交付要用的东西，必须带上。
@@ -25,7 +29,7 @@ const EXCLUDE_DIRS = [
   'frontend/node_modules',   // 前端只带 dist；要改前端再 npm install
   'backend/data',
   'backend/logs',
-  'shots',
+  ...(WITH_SHOTS ? [] : ['shots']),
   'packages',
   '.git',
   '.npmcache'
@@ -172,6 +176,11 @@ function currentVersion() {
 
 function main() {
   const argv = process.argv.slice(2);
+  if (WITH_SHOTS && !fs.existsSync(path.join(ROOT, 'shots'))) {
+    console.error('错误：--with-shots 需要仓库根目录下存在 shots/ 目录。');
+    console.error('截图已移出 Git 跟踪，请先从离线归档恢复 shots/，或去掉 --with-shots 重新打包。');
+    process.exit(1);
+  }
   const outArg = argv.indexOf('--out');
   const stamp = new Date();
   const ymd = `${stamp.getFullYear()}${String(stamp.getMonth() + 1).padStart(2, '0')}${String(stamp.getDate()).padStart(2, '0')}`;
@@ -221,7 +230,7 @@ function main() {
     '----------------------------------------------------------------',
     'backend/data/          数据库与上传件（运行时数据，另见演示库快照）',
     'frontend/node_modules/ 前端依赖（只在需要重新构建前端时装）',
-    'shots/                 开发期截图证据（可单独打包）',
+    ...(WITH_SHOTS ? [] : ['shots/                 开发期截图证据（--with-shots 可带上）']),
     '.git/                  Git 历史',
     '',
     '三、怎么跑起来',
