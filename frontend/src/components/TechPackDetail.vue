@@ -273,6 +273,7 @@
 
       <div class="modal-foot tp-foot">
         <span v-if="tp && tp.status === 'confirmed'" class="tp-lock">已确认，明细已锁定（如需修改请新建版本）</span>
+        <button v-if="developmentOnly && ['sample_review','new_review'].includes(tp?.stage) && can('development.review')" class="btn btn-primary" :disabled="saving" @click="releaseStyle">{{tp.stage==='sample_review'?'打版完成':'可打版，进入打版流程'}}</button>
         <button v-if="developmentOnly && editable && tp && !tp.business_submitted" class="btn btn-primary" :disabled="saving" @click="submitDevelopment()">保存并提交审核</button>
         <button v-if="developmentOnly && can('development.write') && tp?.business_submitted && tp.development_submission?.status!=='pending' && tp.development_flow_status!=='done' && !['pending','editing','awaiting_recheck'].includes(tp.development_change?.status)" class="btn btn-ghost" :disabled="saving" @click="requestChange()">申请修改资料</button>
         <span v-if="developmentOnly && tp?.development_submission?.status==='pending'" class="tp-lock">待版房审核，审核通过后继续打版</span><span v-if="developmentOnly && tp?.development_change" class="tp-lock">{{({pending:'待版房审核',editing:'版房已同意，可修改后保存',awaiting_recheck:'已修改，待版房复核',released:'改版复核通过',rejected:'修改申请已驳回'})[tp.development_change.status]}}</span>
@@ -362,7 +363,7 @@ const cells = ref({});
 
 
 const revisionEditable=computed(()=>tp.value?.development_change?.status==='editing'&&(tp.value.development_change.applicant===(auth.user?.name||auth.user?.username)||auth.user?.role==='admin'));
-const editable = computed(() => tp.value && tp.value.development_flow_status!=='done' && (tp.value.status !== 'confirmed'||revisionEditable.value) && (!props.developmentOnly||!tp.value.business_submitted||revisionEditable.value) && can('development.write'));
+const editable = computed(() => tp.value && !['sample_review','new_review'].includes(tp.value.stage) && tp.value.development_flow_status!=='done' && (tp.value.status !== 'confirmed'||revisionEditable.value) && (!props.developmentOnly||!tp.value.business_submitted||revisionEditable.value) && can('development.write'));
 const statusLabel = computed(() => {
   if (!tp.value) return '';
   const s = tp.value.status;
@@ -396,6 +397,11 @@ function reqOf(cat) {
   return requirements.value.filter((r) => r.category === cat);
 }
 
+async function releaseStyle(){
+ if(saving.value)return;
+ saving.value=true;
+ try{await api.releasePreStyle(tp.value.id);saving.value=false;emit('saved');close();}catch(e){alert(e.message);}finally{saving.value=false;}
+}
 async function load(id) {
   loading.value = true;
   try {

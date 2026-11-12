@@ -49,7 +49,7 @@ function copyRows(table,tpId,rows){
  for(const row of Array.isArray(rows)?rows:[]){const keys=columns.filter(k=>Object.hasOwn(row,k));if(!keys.length)bad('样衣明细没有有效字段，不能复用',409);db.prepare('INSERT INTO '+table+'(tech_pack_id,'+keys.join(',')+') VALUES (?,'+keys.map(()=>'?').join(',')+')').run(tpId,...keys.map(k=>row[k]));}
 }
 /** 在调用方预下单事务内执行，失败与预下单一起回滚。 */
-function ensureDevelopment(pre,item,user,reuse=false){
+function ensureDevelopment(pre,item,user,reuse=false,hold=false){
  const details=Array.isArray(item.detail_images)?item.detail_images:require('./orderImages').readImages(item.detail_images);
  const referenceImages=[item.effect_image_url,...details].filter(Boolean),primaryImage=referenceImages[0]||null;
  const syncMaterials=(tpId,flowId)=>{
@@ -70,23 +70,33 @@ function ensureDevelopment(pre,item,user,reuse=false){
   db.prepare("UPDATE pattern_stages SET data=? WHERE flow_id=? AND stage='material'").run(JSON.stringify({...data,images:[...new Set([...referenceImages,...ownImages])],pre_order_reference_images:referenceImages}),flowId);
  };
  if(item.source_type==='legacy'||item.source_type==='archive'&&!reuse)return null;
- const existing=db.prepare('SELECT * FROM tech_packs WHERE pre_order_item_id=? ORDER BY id DESC LIMIT 1').get(item.id);if(existing){
+ const existing=db.prepare('SELECT * FROM tech_packs WHERE pre_order_item_id=? ORDER BY id DESC LIMIT 1').get(item.id);if(existing && !['sample_review','new_review'].includes(existing.stage)){
   const f=db.prepare('SELECT * FROM pattern_flows WHERE tech_pack_id=?').get(existing.id);
   if(!existing.source_archive_id&&f?.status==='running'&&f.current_stage==='material'&&!db.prepare("SELECT 1 FROM pattern_stages WHERE flow_id=? AND status='done'").get(f.id)){db.prepare('UPDATE tech_packs SET product_name=?,image_url=?,customer_req=?,updated_at=? WHERE id=?').run(item.product_name||existing.product_name,primaryImage,pre.requirements||'',now(),existing.id);syncReferences(f.id);syncMaterials(existing.id,f.id);}
   return existing;
  }
  const a=item.source_type==='archive'?approvedArchive(user,item.sample_archive_id):null,snap=a?.source_data||{},t=now();
  const name=item.product_name||item.style_no||'图片新款 · '+pre.pre_order_no+' / '+(item.sort+1);
- const tpId=Number(db.prepare(`INSERT INTO tech_packs(order_id,pre_order_id,pre_order_item_id,source_archive_id,product_name,customer_style_no,version,status,stage,image_url,customer_req,fabric_info,accessory_info,craft_info,size_spec,created_by,created_at,updated_at,remark)
+ const tpId=existing?.id||Number(db.prepare(`INSERT INTO tech_packs(order_id,pre_order_id,pre_order_item_id,source_archive_id,product_name,customer_style_no,version,status,stage,image_url,customer_req,fabric_info,accessory_info,craft_info,size_spec,created_by,created_at,updated_at,remark)
  VALUES(0,?,?,?,?,?,?,'draft',?,?,?,?,?,?,?,?,?, ?,?)`).run(pre.id,item.id,a?.id||null,name,item.style_no||null,a?.version||'V1',a?'confirmed':'material',primaryImage,pre.requirements||'',snap.fabric_info||'',snap.accessory_info||'',snap.craft_info||'',snap.size_spec||'',user.sub,t,t,a?'复用已完成样衣 '+a.archive_no+' '+a.version:'由预下单图片新款发起开发').lastInsertRowid);
  if(a&&snap.outsource_json)db.prepare('UPDATE tech_packs SET outsource_json=? WHERE id=?').run(snap.outsource_json,tpId);
- const flow=require('../routes/patternFlows').ensureFlow(tpId,user.sub);
+
  // 来自预下单的公共资料只写入新开发单，不能回写来源样衣或已推进的技术记录。
  db.prepare('UPDATE tech_packs SET designer=?,category=?,series=?,wave=?,sales_owner=?,po_no=? WHERE id=?').run(pre.designer||snap.designer||'',pre.category||snap.category||'',pre.series||snap.series||'',pre.wave||snap.wave||'',pre.manager||snap.sales_owner||'',pre.po_no||snap.po_no||'',tpId);
+ if(hold){
+  db.prepare('UPDATE tech_packs SET stage=? WHERE id=?').run(a?'sample_review':'new_review',tpId);
+  if(!existing){
+   if(a){copyRows('tech_pack_materials',tpId,snap.materials);copyRows('tech_pack_sizes',tpId,snap.sizes);copyRows('tech_pack_requirements',tpId,snap.requirements);}
+   else {const meta=item.matrix_meta||JSON.parse(item.matrix_json||'{}');if(meta.material_details)require('./techPackMaterials').saveMaterials(tpId,require('./preOrderMaterials').techRows(meta.material_details));}
+  }
+  return db.prepare('SELECT * FROM tech_packs WHERE id=?').get(tpId);
+ }
+ db.prepare('UPDATE tech_packs SET stage=? WHERE id=?').run(a?'confirmed':'material',tpId);
+ const flow=require('../routes/patternFlows').ensureFlow(tpId,user.sub);
  if(!a){syncReferences(flow.id);syncMaterials(tpId,flow.id);}
  if(a){
   const imported=importedCompletion(a,snap);
-  copyRows('tech_pack_materials',tpId,snap.materials);copyRows('tech_pack_sizes',tpId,snap.sizes);copyRows('tech_pack_requirements',tpId,snap.requirements);
+  if(!existing){copyRows('tech_pack_materials',tpId,snap.materials);copyRows('tech_pack_sizes',tpId,snap.sizes);copyRows('tech_pack_requirements',tpId,snap.requirements);}
   for(const old of db.prepare('SELECT * FROM pattern_stages WHERE flow_id=?').all(a.source_flow_id)){
    let data={};try{data=JSON.parse(old.data||'{}');}catch{}
    if(old.stage==='craft')data={...data,sewing:snap.processes?.sewing||[],finish:snap.processes?.finish||[]};

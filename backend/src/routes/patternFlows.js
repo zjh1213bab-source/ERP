@@ -217,6 +217,7 @@ router.post('/changes/:id/recheck', authRequired, requireRole(['admin', 'tech'])
 function ensureFlow(techPackId, userId) {
   const tp = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(techPackId);
   if (!tp) return null;
+  if(['sample_review','new_review'].includes(tp.stage))throw Object.assign(new Error('请先在开发管理核对款式'),{status:409});
   let flow = db.prepare('SELECT * FROM pattern_flows WHERE tech_pack_id = ?').get(techPackId);
   if (!flow) {
     const t = now();

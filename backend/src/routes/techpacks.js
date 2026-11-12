@@ -591,12 +591,26 @@ router.post('/:id/reject', authRequired, requireRole(REVIEW), wrap(async (req, r
 // 打版流程推进：draft→material→pattern→craft→sample→biz→confirmed
 const STAGES = ['draft', 'material', 'pattern', 'craft', 'sample', 'biz', 'confirmed'];
 
+router.post('/:id/release-pre-style',authRequired,requireRole(REVIEW),wrap(async(req,res)=>{
+ let result;db.exec('BEGIN IMMEDIATE');try{
+  const tp=db.prepare('SELECT * FROM tech_packs WHERE id=?').get(req.params.id);
+  if(!tp||!['sample_review','new_review'].includes(tp.stage))throw Object.assign(new Error('款式已处理，请刷新'),{status:409});
+  const sc=require('../access/companyScope').assertRow(req.user,'pre_orders',tp.pre_order_id,'预下单');
+  if(!sc.ok)throw Object.assign(new Error(sc.reason),{status:sc.status});
+  if(sc.row.status!=='ready')throw Object.assign(new Error('订单资料尚未核对'),{status:409});
+  const item=db.prepare('SELECT * FROM pre_order_items WHERE id=? AND pre_order_id=?').get(tp.pre_order_item_id,tp.pre_order_id);
+  result=require('../services/preOrderStyles').ensureDevelopment(sc.row,item,req.user,true);
+  db.exec('COMMIT');
+ }catch(e){db.exec('ROLLBACK');throw e;}
+ return ok(res,result);
+}));
 router.post('/:id/stage', authRequired, requireRole(WRITE), wrap(async (req, res) => {
   const { stage } = req.body || {};
   if (!STAGES.includes(stage)) return fail(res, 400, '非法的流程阶段');
   const row = db.prepare('SELECT * FROM tech_packs WHERE id = ?').get(req.params.id);
   if (!row) return fail(res, 404, '技术资料不存在');
 
+  if(['sample_review','new_review'].includes(row.stage))return fail(res,409,'请在开发详情中核对并放行');
   if (stage === 'confirmed') {
     // 与 POST /:id/confirm 完全同一份校验（两条路都会把开发单置为已确认）
     const blocks = confirmBlocks(row);

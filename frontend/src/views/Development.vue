@@ -25,7 +25,7 @@
     </section>
     <div class="dev-list-toolbar"><button v-action="['techpacks','create']" v-if="canWrite" class="btn btn-primary" @click="openCreate()">上传图片 / 新增开发单</button><button v-action="['techpacks','edit']" v-if="canWrite" class="btn btn-ghost" :disabled="!selected.length" @click="assignmentOpen=true">批量设置业务员</button><label class="dev-select-all"><input type="checkbox" :checked="pageRows.length>0&&pageRows.every(r=>selected.includes(r.id))" @change="selectPage($event.target.checked)"/>本页全选</label><span class="dev-selected-note">已选 {{selected.length}} 项</span><div class="dev-pager"><span>共 {{filtered.length}} 款</span><select class="select" v-model.number="pageSize"><option v-for="n in [12,24,48,96]" :key="n" :value="n">{{n}}条/页</option></select><button class="btn btn-ghost" :disabled="page===1" @click="page--">‹</button><span>{{page}} / {{pages}}</span><button class="btn btn-ghost" :disabled="page>=pages" @click="page++">›</button><button class="btn btn-ghost" @click="load()">刷新</button></div></div>
     <div v-if="notice" class="dev-notice" role="status">{{notice}}</div>
-    <div v-if="view === 'card'" class="dev-reference-list"><div class="dev-reference-grid"><article v-for="r in pageRows" :key="r.id" class="dev-reference-card" :class="{selected:selected.includes(r.id)}"><label class="dev-card-select"><input type="checkbox" :checked="selected.includes(r.id)" :aria-label="'选择'+(r.customer_style_no||r.product_name)" @change="selectOne(r.id,$event.target.checked)"/></label><button class="dev-cover" @click="openDetail(r)" :aria-label="'查看开发单'+r.product_name"><img v-if="r.image_url" :src="r.image_url" :alt="r.product_name" data-no-image-preview/><span v-else>暂无款式图片</span><b class="dev-card-state">{{stageLabel(r.stage)}}</b><span class="dev-card-caption">{{r.customer_style_no||r.product_name}}</span></button><div class="dev-reference-actions"><small>{{r.customer_name||'未关联客户'}} · {{r.version}}</small><button class="link-btn" @click="openDetail(r)">详情</button><button v-action="['techpacks','edit']" v-if="canWrite" class="link-btn" @click="openEdit(r)">编辑</button><router-link class="link-btn" :to="{path:'/pattern-board',query:{techpack:r.id}}">打版流程</router-link></div></article></div><div v-if="!filtered.length" class="empty-cell">暂无匹配开发单</div></div>
+    <div v-if="view === 'card'" class="dev-reference-list"><div class="dev-reference-grid"><article v-for="r in pageRows" :key="r.id" class="dev-reference-card" :class="{selected:selected.includes(r.id)}"><label class="dev-card-select"><input type="checkbox" :checked="selected.includes(r.id)" :aria-label="'选择'+(r.customer_style_no||r.product_name)" @change="selectOne(r.id,$event.target.checked)"/></label><button class="dev-cover" @click="openDetail(r)" :aria-label="'查看开发单'+r.product_name"><img v-if="r.image_url" :src="r.image_url" :alt="r.product_name" data-no-image-preview/><span v-else>暂无款式图片</span><b class="dev-card-state">{{stageLabel(r.stage)}}</b><span class="dev-card-caption">{{r.customer_style_no||r.product_name}}</span></button><div class="dev-reference-actions"><small>{{r.customer_name||'未关联客户'}} · {{r.version}}</small><button class="link-btn" @click="openDetail(r)">详情</button><button v-action="['techpacks','edit']" v-if="canWrite" class="link-btn" @click="openEdit(r)">编辑</button><router-link v-if="!['sample_review','new_review'].includes(r.stage)" class="link-btn" :to="{path:'/pattern-board',query:{techpack:r.id}}">打版流程</router-link></div></article></div><div v-if="!filtered.length" class="empty-cell">暂无匹配开发单</div></div>
 
     <!-- 看板视图 -->
     <div v-else class="kanban">
@@ -41,7 +41,7 @@
             <div class="kcard-acts">
               <button class="link-btn" @click="openDetail(r)">详情</button>
               <button v-action="['techpacks','edit']" class="link-btn" @click="openEdit(r)">编辑</button>
-              <button v-if="s.key !== 'confirmed'" class="link-btn" @click="advance(r)">推进 →</button>
+              <button v-if="!['confirmed','sample_review','new_review'].includes(s.key)" class="link-btn" @click="advance(r)">推进 →</button>
             </div>
           </div>
           <div v-if="!byStage[s.key].length" class="kempty">—</div>
@@ -115,6 +115,8 @@ const sewingCount = computed(() => (crafts.value.sewing || []).filter((r) => Str
 const canReview = computed(() => can('development.review'));
 
 const STAGES = [
+  {key:'sample_review',label:'样衣待审核'},
+  {key:'new_review',label:'新款待检查'},
   { key: 'draft', label: '可打版' },
   { key: 'material', label: '面辅料确认' },
   { key: 'pattern', label: '制版' },
@@ -125,6 +127,8 @@ const STAGES = [
 ];
 const tabs = [
   { key: 'all', label: '全部' },
+  {key:'sample_review',label:'样衣待审核'},
+  {key:'new_review',label:'新款待检查'},
   { key: 'draft', label: '待打版' },
   { key: 'doing', label: '打版中' },
   { key: 'confirmed', label: '已完成' }
@@ -139,6 +143,7 @@ const emptyFilters=()=>({category:'',series:'',brand:'',designer:'',customer_nam
 const filters=reactive(emptyFilters()),page=ref(1),pageSize=ref(12),selected=ref([]),batchSearchOpen=ref(false),assignmentOpen=ref(false),assignment=ref(''),assigning=ref(false),salespeople=ref([]),notice=ref('');
 const choices=key=>[...new Set(list.value.map(r=>r[key]).filter(Boolean))].sort();
 const filtered=computed(()=>list.value.filter(r=>{
+ if(['sample_review','new_review'].includes(tab.value)&&r.stage!==tab.value)return false;
  if(tab.value==='draft'&&(r.stage||'draft')!=='draft')return false;
  if(tab.value==='confirmed'&&r.stage!=='confirmed')return false;
  if(tab.value==='doing'&&!['material','pattern','craft','sample','biz'].includes(r.stage))return false;
