@@ -104,14 +104,14 @@
 
     <!-- ================= 详情 ================= -->
     <div v-if="det.open && det.data" class="modal-mask">
-      <div class="modal xxwide">
-        <h3>
+      <div class="modal xxwide review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-title" @keydown.esc.stop="det.open = false">
+        <header class="review-header"><h3 id="review-title">
           #{{ det.data.tech_pack.id }} {{ det.data.tech_pack.product_name }}
           <span class="tag" :class="stageTag(det.data.stage)" style="margin-left: 8px">{{ det.data.stage_label }}</span>
           <span class="tag gray" style="margin-left: 6px">技术包 {{ det.data.tech_pack.status === 'confirmed' ? '已核准' : '未核准' }}</span>
-        </h3>
+        </h3><button type="button" class="btn btn-ghost" autofocus @click="det.open = false">关闭</button></header>
 
-        <div v-if="det.data.problems.length" class="warn-box">
+        <div class="review-body" tabindex="0" aria-label="协同与复审明细"><div v-if="det.data.problems.length" class="warn-box">
           <b>还差这些：</b>
           <div v-for="(p, i) in det.data.problems" :key="i">· {{ p }}</div>
         </div>
@@ -299,7 +299,7 @@
           <div v-else-if="canWrite" class="tiny muted">在 A2 表格里点「复审」选一条已确认的供货条件。</div>
         </div>
 
-        <div class="modal-ops">
+        </div><div class="modal-ops">
           <button class="btn btn-ghost" @click="det.open = false">关闭</button>
           <button v-if="canWrite" class="btn btn-primary" :disabled="!det.data.can_approve" @click="approve">
             核准技术包
@@ -511,7 +511,10 @@ table.data td.wrap { white-space: normal; }
 .red { color: #d92d45; }
 .orange { color: #d97706; }
 .lnk { background: none; border: none; color: #2f6fed; font-size: 12px; cursor: pointer; padding: 0 2px; }
-.modal { padding: 18px 20px; }
+.modal.review-dialog { display:flex; flex-direction:column; max-height:calc(100dvh - 32px); overflow:hidden; padding:0; }
+.review-header, .review-dialog > .modal-ops { flex:none; padding:12px 20px; }
+.review-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }.review-header h3 { margin:0; }
+.review-body { min-height:0; overflow:auto; overscroll-behavior:contain; padding:4px 20px 16px; }
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
