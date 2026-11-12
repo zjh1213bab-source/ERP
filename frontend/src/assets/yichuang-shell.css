@@ -334,3 +334,18 @@
     background-color:color-mix(in srgb,var(--surface) var(--workspace-fill),transparent);
   }
 }
+
+@media screen {
+  :root[data-wallpaper="on"] .erp-shell .erp-sidebar {
+    background: color-mix(in srgb, var(--nav-bg, var(--yc-blue)) var(--workspace-fill), transparent);
+  }
+  :root[data-wallpaper="on"] .erp-shell :is(.erp-topbar, .page-tabs, .pre-reference-panel) {
+    background: color-mix(in srgb, var(--surface) var(--workspace-fill), transparent);
+  }
+  :root[data-wallpaper="on"] .pre-reference-panel :is(.pre-list-scroll, .pre-list-table, tbody, tbody tr, tbody td) {
+    background-color: transparent;
+  }
+  :root[data-wallpaper="on"] .pre-reference-panel :is(.pre-reference-toolbar, th) {
+    background-color: color-mix(in srgb, var(--surface-2) var(--workspace-fill), transparent);
+  }
+}
