@@ -12,6 +12,8 @@ import { openImage } from './store/viewer';
 
 import { canAction } from './store/permissions';
 import { actionDirective } from './directives/action';
+import { installValidationFeedback } from './utils/validationFeedback';
+installValidationFeedback();
 const app = createApp(App);
 app.directive('action', actionDirective);
 app.config.globalProperties.$canAction = canAction;

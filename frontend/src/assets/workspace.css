@@ -205,3 +205,6 @@ a {color:var(--brand);}
 
 /* 明确的按钮权限隐藏优先于布局与 v-show；后端再次验证。 */
 [data-action-denied]{display:none!important}
+
+.erp-invalid { outline:2px solid #d32f39 !important; outline-offset:2px; scroll-margin-block:72px; }
+.erp-validation-message { color:#b4232e; background:var(--surface); padding:4px 8px; font-size:13px; line-height:1.45; white-space:normal; overflow-wrap:anywhere; }

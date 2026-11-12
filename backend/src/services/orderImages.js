@@ -2,7 +2,7 @@
 const bad=message=>{throw Object.assign(new Error(message),{status:400});};
 function imageUrl(value) {
  if(value==null || value==='')return null;
- if(typeof value!=='string'||value!==value.trim()||!/^\/uploads\/(?:[a-f0-9]{20}|yc198-[a-f0-9]{12}-[a-f0-9]{16})\.(png|jpg|jpeg|webp|gif)$/i.test(value))bad('图片地址无效，请重新上传');
+ if(typeof value!=='string'||value!==value.trim()||!/^\/uploads\/(?:yc-samples\/[a-f0-9]{64}|[a-f0-9]{20}|yc198-[a-f0-9]{12}-[a-f0-9]{16})\.(png|jpg|jpeg|webp|gif)$/i.test(value))bad('图片地址无效，请重新上传');
  return value;
 }
 function styleImages(body) {

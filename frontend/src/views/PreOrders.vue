@@ -17,12 +17,12 @@
       <div class="modal-head"><h3>{{ form.id ? '编辑预下单' : '新增预下单' }}</h3><button type="button" class="x" :disabled="busy||uploading>0" @click="closeForm()">×</button></div>
       <div class="modal-body">
       <section class="pre-fold"><button type="button" class="pre-fold-head" :aria-expanded="!sampleCollapsed" @click="sampleCollapsed=!sampleCollapsed"><b>1　选择样衣 · {{form.items.filter(i=>i.source_type==='archive').length}} 款</b><span>{{sampleCollapsed?'展开 ▾':'收起 ▴'}}</span></button><div v-show="!sampleCollapsed"><div class="pre-style-toolbar"><button type="button" class="btn btn-primary" :disabled="busy||uploading>0" @click="openArchivePicker()">从样衣管理选择商品</button></div>
-      <nav class="archive-product-tabs" aria-label="已选商品"><button v-for="item in selectedArchiveItems" :key="item.client_key||item.sample_archive_id" type="button" :class="{selected:item===activeProduct}" @click="selectedProductKey=item.client_key||item.sample_archive_id"><img v-if="item.effect_image_url" :src="item.effect_image_url" alt="">{{item.style_no||item.product_name}}</button></nav>
-      <PreOrderArchiveMatrix v-for="item in selectedArchiveItems" v-show="item===activeProduct" :key="item.client_key||item.sample_archive_id" :item="item" :templates="sizeTemplates" :disabled="busy||uploading>0" @uploading="trackUpload" @templates-changed="refreshSizeTemplates" @remove="form.items.splice(form.items.indexOf(item),1)"/>
+      <nav class="archive-product-tabs" aria-label="已选商品"><button v-for="item in selectedArchiveItems" :data-archive-id="item.sample_archive_id" :key="item.client_key||item.sample_archive_id" type="button" :class="{selected:item===activeProduct}" @click="selectedProductKey=item.client_key||item.sample_archive_id"><img v-if="item.effect_image_url" :src="item.effect_image_url" alt="">{{item.style_no||item.product_name}}</button></nav>
+      <PreOrderArchiveMatrix v-for="item in selectedArchiveItems" :data-archive-panel="item.sample_archive_id" v-show="item===activeProduct" :key="item.client_key||item.sample_archive_id" :item="item" :templates="sizeTemplates" :disabled="busy||uploading>0" @uploading="trackUpload" @templates-changed="refreshSizeTemplates" @remove="form.items.splice(form.items.indexOf(item),1)"/>
 
       </div></section><section class="pre-fold"><button type="button" class="pre-fold-head" :aria-expanded="!imageCollapsed" @click="imageCollapsed=!imageCollapsed"><b>2　上传图片新款 · {{form.items.filter(i=>i.source_type!=='archive').length}} 款</b><span>{{imageCollapsed?'展开 ▾':'收起 ▴'}}</span></button><div v-show="!imageCollapsed">
       <PreOrderImageDrop ref="styleImageDrop" paste-first hover-paste :disabled="busy||archiveOpen||uploading>0" :remaining="remainingStyles" @images="addImages" @uploading="trackUpload" />
-      <div class="pre-style-grid"><section v-for="(item,index) in form.items" :key="item.id || item.client_key" class="pre-style" v-show="item.source_type!=='archive'">
+      <div class="pre-style-grid"><section v-for="(item,index) in form.items" :key="item.id || item.client_key" class="pre-style" :data-style-index="index" v-show="item.source_type!=='archive'">
         <div class="pre-style-head"><strong>第 {{ index+1 }} 款 · {{item.style_no || item.product_name || '图片新款（待命名）'}}</strong><span class="pre-style-actions"><button type="button" class="link-btn" :disabled="index===0||busy||uploading>0" @click="moveStyle(index,-1)">前移</button><button type="button" class="link-btn" :disabled="index===form.items.length-1||busy||uploading>0" @click="moveStyle(index,1)">后移</button></span><button  type="button" class="link-btn danger" :disabled="form.items.length===1 || busy || uploading>0" @click="form.items.splice(index,1)">删除此款</button></div>
         <StyleImageFields hover-paste v-if="item.source_type!=='archive'" v-model:effect-image-url="item.effect_image_url" v-model:detail-images="item.detail_images" :disabled="busy||uploading>0" @uploading="trackUpload" />
         <div v-else class="archive-preview"><img v-if="item.effect_image_url" :src="item.effect_image_url" alt="已打版商品" class="archive-photo" /><p class="sub">复用该样衣锁定版本；原样衣及其他订单不受影响。</p></div>
@@ -58,6 +58,7 @@
   </div>
 </template>
 <script setup>
+import {showFieldError} from '../utils/validationFeedback';
 import {entryId} from '../utils/orderEntry';
 import {preOrderDeliveryDays,preOrderTargetDate,preOrderDeliveryChoice} from '../utils/preOrderDelivery';
 import TrialNotice from '../components/TrialNotice.vue';
@@ -125,7 +126,30 @@ function openCreate(){sampleCollapsed.value=false;imageCollapsed.value=false;Obj
 function edit(row){sampleCollapsed.value=false;imageCollapsed.value=false;Object.assign(form,blank(),JSON.parse(JSON.stringify(row)),{target_date:row.target_date||'',items:row.items.map(item=>({...blankItem(),...JSON.parse(JSON.stringify(item))}))});prepareDelivery(row);showForm.value=true;}
 function toSales(row){router.push({path:'/orders',query:{pre_order:row.id}});}
 async function complete(row){busy.value=true;try{await api.completePreOrder(row.id,{version:row.version});await load();}catch(e){alert(e.message);}finally{busy.value=false;}}
-async function save(convert){if(busy.value||uploading.value>0)return;if(!formElement.value?.reportValidity())return;if(!form.order_no.trim()||!form.customer_name.trim()||form.items.some(i=>i.source_type==='archive'?!i.sample_archive_id:!i.product_name.trim()&&!i.effect_image_url&&!i.detail_images.length))return alert('请填写订单号、客户名称；每款须选择已打版商品或上传图片/填写名称');busy.value=true;try{const payload=JSON.parse(JSON.stringify(form));let saved=form.id?await api.updatePreOrder(form.id,payload):await api.createPreOrder(payload);Object.assign(form,saved);if(convert)saved=await api.completePreOrder(saved.id,{version:saved.version});showForm.value=false;await load();if(convert)toSales(saved);}catch(e){alert(e.message);}finally{busy.value=false;}}
+async function locateImageError() {
+  const valid = url => !url || /^\/uploads\/(?:[a-f0-9]{20}|yc198-[a-f0-9]{12}-[a-f0-9]{16}|yc-samples\/[a-f0-9]{64})\.(png|jpg|jpeg|webp|gif)$/i.test(url);
+  for (const [index,item] of form.items.entries()) {
+    const color = Object.entries(item.matrix_meta?.color_images || {}).find(([,url]) => !valid(url));
+    const detail = (item.detail_images || []).findIndex(url => !valid(url));
+    if (valid(item.effect_image_url) && detail < 0 && !color) continue;
+    const archive = item.source_type === 'archive';
+    if (archive) {
+      sampleCollapsed.value = false;
+      selectedProductKey.value = item.client_key || item.sample_archive_id;
+    } else imageCollapsed.value = false;
+    await nextTick();
+    const root = formElement.value;
+    const panel = root.querySelector(archive ? '[data-archive-panel="'+item.sample_archive_id+'"]' : '[data-style-index="'+index+'"]');
+    let target;
+    if (color) target = [...(panel?.querySelectorAll('.matrix-picture-strip > div') || [])].find(el => el.querySelector('span')?.textContent === color[0]);
+    else if (archive) target = root.querySelector('[data-archive-id="'+item.sample_archive_id+'"]');
+    else target = detail < 0 ? panel?.querySelector('.style-images > div') : panel?.querySelector('.style-detail');
+    showFieldError(target || panel || root, (item.style_no || '第'+(index+1)+'款')+' · '+(color ? color[0]+'颜色图片' : detail < 0 ? '款式效果图' : '第'+(detail+1)+'张细节图')+'地址无效，请检查图片');
+    return true;
+  }
+  return false;
+}
+async function save(convert){if(busy.value||uploading.value>0)return;if(!formElement.value?.reportValidity() || await locateImageError())return;if(!form.order_no.trim()||!form.customer_name.trim()||form.items.some(i=>i.source_type==='archive'?!i.sample_archive_id:!i.product_name.trim()&&!i.effect_image_url&&!i.detail_images.length))return alert('请填写订单号、客户名称；每款须选择已打版商品或上传图片/填写名称');busy.value=true;try{const payload=JSON.parse(JSON.stringify(form));let saved=form.id?await api.updatePreOrder(form.id,payload):await api.createPreOrder(payload);Object.assign(form,saved);if(convert)saved=await api.completePreOrder(saved.id,{version:saved.version});showForm.value=false;await load();if(convert)toSales(saved);}catch(e){alert(e.message);}finally{busy.value=false;}}
 onMounted(async()=>{await load();try{[customers.value,archiveProducts.value,sizeTemplates.value]=await Promise.all([api.customers({status:'active'}),api.preOrderProducts(),api.sizeTemplates()]);}catch(e){alert(e.message);}});
 </script>
 <style scoped>
