@@ -7,10 +7,11 @@
  * 只看按钮长什么样"不算验证过"——按钮能点、点完数据变了，才算关联上了。
  */
 const fs = require('fs');
+const pathMod = require('path');
 const { spawn } = require('child_process');
 const BASE = 'http://127.0.0.1:3000';
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe'].find((p) => fs.existsSync(p));
-const OUT = 'D:/wk/2026-10-26-09-45-32/erp-mindmap/shots/assign';
+const OUT = pathMod.resolve(__dirname, '../../shots/assign');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {

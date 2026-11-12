@@ -3,10 +3,11 @@
  * 用法：node scripts/shot-labels.js [orderId]
  */
 const fs = require('fs');
+const pathMod = require('path');
 const { spawn } = require('child_process');
 const BASE = process.env.BASE || 'http://127.0.0.1:3000';
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe'].find((p) => fs.existsSync(p));
-const OUT = 'D:/wk/2026-10-26-09-45-32/erp-mindmap/shots/labels';
+const OUT = pathMod.resolve(__dirname, '../../shots/labels');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const { db } = require('../src/db');
 

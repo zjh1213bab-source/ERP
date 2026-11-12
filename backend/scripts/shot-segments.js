@@ -4,10 +4,11 @@
  *   node scripts/shot-segments.js
  */
 const fs = require('fs');
+const pathMod = require('path');
 const { spawn } = require('child_process');
 const BASE = 'http://127.0.0.1:3000';
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe'].find((p) => fs.existsSync(p));
-const OUT = 'D:/wk/2026-10-26-09-45-32/erp-mindmap/shots/segments';
+const OUT = pathMod.resolve(__dirname, '../../shots/segments');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
