@@ -14,7 +14,7 @@
       <section class="entry-section"><button class="section-title" @click="fold.products=!fold.products"><span class="step">2</span><b>商品信息</b><small>{{form.items.length}} 款商品</small><span class="chevron">{{fold.products?'⌄':'⌃'}}</span></button><div v-show="!fold.products" class="products-content">
         <div class="selected-products"><div><b>已选商品</b><small>{{form.items.length}} 款　总数量 {{totals.qty}}　总金额 USD {{totals.goods.toFixed(2)}}</small></div><button @click="toggleStock()">{{form.items.every(i=>!i.stock_open)?'展开':'收起'}}全部库存参考</button><button class="primary" @click="productOpen=true">选择商品</button><button class="primary" @click="syncMaterials()">一键同步商品辅料信息</button></div>
         <nav v-if="form.items.length" class="order-product-tabs" role="tablist" aria-label="已选商品款号"><button v-for="(item,index) in form.items" :key="item.key" type="button" role="tab" :id="'product-tab-'+item.key" :aria-selected="activeItemKey===item.key" :aria-controls="'product-panel-'+item.key" :tabindex="activeItemKey===item.key?0:-1" :class="{active:activeItemKey===item.key}" @click="activeItemKey=item.key" @keydown.right.prevent="moveTab(index,1)" @keydown.left.prevent="moveTab(index,-1)"><img v-if="item.effect_image_url" :src="item.effect_image_url" alt=""/><b>{{item.style_no||item.product_name||'商品 '+(index+1)}}</b><small>{{itemTotals(item).qty}} 件 · USD {{itemTotals(item).goods.toFixed(2)}}</small></button></nav>
-        <section v-for="(item,index) in form.items" :key="item.key" v-show="activeItemKey===item.key" :id="'product-panel-'+item.key" class="order-product-panel" :class="{active:activeItemKey===item.key}" role="tabpanel" :aria-labelledby="'product-tab-'+item.key"><BusinessRequirement v-model="item.business_requirement"/><SalesOrderMatrix :item="item" :index="index" :stock="stock" :stock-error="stockError" :rate="rate" :templates="templates" @remove="removeItem(index)" @templates-changed="$emit('templates-changed')"/></section>
+        <section v-for="(item,index) in form.items" :key="item.key" v-show="activeItemKey===item.key" :id="'product-panel-'+item.key" class="order-product-panel" :class="{active:activeItemKey===item.key}" role="tabpanel" :aria-labelledby="'product-tab-'+item.key"><SalesOrderMatrix :item="item" :index="index" :stock="stock" :stock-error="stockError" :rate="rate" :templates="templates" @remove="removeItem(index)" @templates-changed="$emit('templates-changed')"/></section>
         <p v-if="!form.items.length" class="entry-notice">暂无商品，请点击“选择商品”添加已完成打版的样衣。</p>
       </div></section>
       <p v-if="form.source_pre_order_id && (form.pre_order_total_usd!=null||form.pre_order_payment_ratio!=null)" class="entry-notice">预下单约定总金额：{{form.pre_order_total_usd==null?'—':'USD '+Number(form.pre_order_total_usd).toFixed(2)}}；付款比例：{{form.pre_order_payment_ratio==null?'—':form.pre_order_payment_ratio+'%'}}。请核对本单商品金额和约定定金后保存。</p>
@@ -30,7 +30,7 @@
   </div></Teleport>
 </template>
 <script setup>
-import BusinessRequirement from './BusinessRequirement.vue';
+
 import {reactive,ref,computed,onMounted,onBeforeUnmount,watch,nextTick} from 'vue';
 import {api} from '../api';
 import {auth} from '../store/auth';

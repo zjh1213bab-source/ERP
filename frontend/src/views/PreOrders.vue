@@ -67,6 +67,7 @@
 </template>
 <script setup>
 import {showFieldError} from '../utils/validationFeedback';
+import {omitEmptyOrderSizes} from '../utils/preOrderMatrixTransfer';
 import {entryId} from '../utils/orderEntry';
 import {preOrderDeliveryDays,preOrderTargetDate,preOrderDeliveryChoice} from '../utils/preOrderDelivery';
 import PreOrderDetailBody from '../components/PreOrderDetailBody.vue';
@@ -158,7 +159,7 @@ function changeSource(item){if(item.source_type==='archive'){item.sample_archive
 function archiveChosen(p,current){return form.items.some(i=>i!==current&&((i.sample_archive_id&&Number(i.sample_archive_id)===Number(p.id))||(p.style_no&&i.style_no?.trim().toLowerCase()===p.style_no.trim().toLowerCase())));}
 function selectArchive(item){const p=archiveProducts.value.find(p=>p.id===item.sample_archive_id);if(p&&archiveChosen(p,item)){item.sample_archive_id=null;return alert('同一款号不能重复选择');}if(p)Object.assign(item,{product_name:p.product_name,style_no:p.style_no,effect_image_url:p.image_url||'',detail_images:[]});}
 function openCreate(){sampleCollapsed.value=false;imageCollapsed.value=false;Object.assign(form,blank());prepareDelivery();showForm.value=true;}
-function edit(row){sampleCollapsed.value=false;imageCollapsed.value=false;Object.assign(form,blank(),JSON.parse(JSON.stringify(row)),{target_date:row.target_date||'',items:row.items.map(item=>({...blankItem(),...JSON.parse(JSON.stringify(item))}))});prepareDelivery(row);showForm.value=true;}
+function edit(row){sampleCollapsed.value=false;imageCollapsed.value=false;Object.assign(form,blank(),JSON.parse(JSON.stringify(row)),{target_date:row.target_date||'',items:row.items.map(item=>({...blankItem(),...omitEmptyOrderSizes(JSON.parse(JSON.stringify(item)))}))});prepareDelivery(row);showForm.value=true;}
 function toSales(row){router.push({path:'/orders',query:{pre_order:row.id}});}
 async function reviewFinance(row,decision){
  if(busy.value)return;
@@ -190,7 +191,7 @@ async function locateImageError() {
   }
   return false;
 }
-async function save(convert){if(busy.value||uploading.value>0)return;if(!formElement.value?.reportValidity() || await locateImageError())return;if(!form.order_no.trim()||!form.customer_name.trim()||form.items.some(i=>i.source_type==='archive'?!i.sample_archive_id:!i.product_name.trim()&&!i.effect_image_url&&!i.detail_images.length))return alert('请填写订单号、客户名称；每款须选择已打版商品或上传图片/填写名称');busy.value=true;try{const payload=JSON.parse(JSON.stringify(form));let saved=form.id?await api.updatePreOrder(form.id,payload):await api.createPreOrder(payload);Object.assign(form,saved);if(convert)saved=await api.completePreOrder(saved.id,{version:saved.version});showForm.value=false;await load();if(convert)toSales(saved);}catch(e){alert(e.message);}finally{busy.value=false;}}
+async function save(convert){if(busy.value||uploading.value>0)return;if(!formElement.value?.reportValidity() || await locateImageError())return;if(!form.order_no.trim()||!form.customer_name.trim()||form.items.some(i=>i.source_type==='archive'?!i.sample_archive_id:!i.product_name.trim()&&!i.effect_image_url&&!i.detail_images.length))return alert('请填写订单号、客户名称；每款须选择已打版商品或上传图片/填写名称');busy.value=true;try{const payload=JSON.parse(JSON.stringify(form));payload.items=payload.items.map(omitEmptyOrderSizes);let saved=form.id?await api.updatePreOrder(form.id,payload):await api.createPreOrder(payload);Object.assign(form,saved);if(convert)saved=await api.completePreOrder(saved.id,{version:saved.version});showForm.value=false;await load();if(convert)toSales(saved);}catch(e){alert(e.message);}finally{busy.value=false;}}
 onMounted(async()=>{await load();try{[customers.value,archiveProducts.value,sizeTemplates.value]=await Promise.all([api.customers({status:'active'}),api.preOrderProducts(),api.sizeTemplates()]);}catch(e){alert(e.message);}});
 </script>
 <style scoped>

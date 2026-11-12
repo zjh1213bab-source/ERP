@@ -1,7 +1,7 @@
 <template>
   <section class="pre-archive-matrix" :class="{compact,'is-disabled':disabled}">
     <fieldset class="matrix-fields" :disabled="disabled">
-      <PreOrderRequirements @uploading="trackUpload" :item="item" :disabled="disabled||!!pendingRemoval" />
+
       <div class="matrix-toolbar" :inert="disabled||!!pendingRemoval">
         <div class="matrix-axis"><label>颜色</label><OrderAxisSelect :key="selectorVersion+'-colors'" :model-value="colors" :options="colorOptions" :sort-names="sortColorNames" label="颜色" kind="colors" :max="60" @update:model-value="requestAxis('colors',$event)"/><button type="button" class="matrix-link" @click="configure('colors')">管理</button></div>
         <div class="matrix-axis matrix-size-axis"><label>尺码</label><OrderAxisSelect :key="selectorVersion+'-sizes'" :model-value="sizes" :options="sizeOptions" :sort-names="sortSizeNames" label="尺码" kind="sizes" :max="30" @update:model-value="requestAxis('sizes',$event)"/><div class="matrix-template-links"><button type="button" class="matrix-link" @click="configure('sizes')">管理</button><button type="button" class="matrix-link" @click="templateOpen=true">选择模板</button><button type="button" class="matrix-link" :disabled="!sizes.length" @click="openSaveTemplate()">保存模板</button></div></div>
@@ -21,6 +21,7 @@
         </div>
       </div>
       <footer class="matrix-footer" :inert="disabled||!!pendingRemoval"><button v-if="showRemove" type="button" class="matrix-link danger" @click="$emit('remove')">删除商品</button><label v-if="!splitPrice">销售单价 <input aria-label="销售单价 USD" type="number" min="0" step="0.01" :disabled="!rows.length" :value="defaultPrice" @input="uniformPrice($event.target.value)"/></label><label>币种 <span class="matrix-currency-value">美元 USD</span></label><span class="matrix-summary">下单数量 <b>{{totalQty}}</b></span><span class="matrix-summary">商品金额 USD <b>{{amount.toFixed(2)}}</b></span></footer>
+      <PreOrderRequirements @uploading="trackUpload" :item="item" :disabled="disabled||!!pendingRemoval" />
       <PreOrderMaterialDetails :item="item" :disabled="disabled" @uploading="trackUpload" />
       <div v-if="edit.open" class="matrix-dialog-mask"><section class="matrix-dialog" role="dialog" aria-modal="true" :aria-label="'管理'+(edit.kind==='colors'?'颜色':'尺码')"><h3>管理{{edit.kind==='colors'?'颜色':'尺码'}}</h3><p>每行一个，仅影响本单。移除已有报价或图片时需要确认。</p><textarea v-model="edit.text" rows="10" :aria-label="(edit.kind==='colors'?'颜色':'尺码')+'列表'"/><footer><button type="button" @click="edit.open=false">取消</button><button type="button" class="primary" @click="applyConfig()">确定</button></footer></section></div>
       <div v-if="templateOpen" class="matrix-dialog-mask"><section class="matrix-dialog" role="dialog" aria-modal="true" aria-label="选择尺码模板"><h3>选择尺码模板</h3><p>模板尺码会加入当前所选尺码，并按尺码顺序排列。</p><div class="matrix-template-list"><button v-for="template in templates" :key="template.id" type="button" @click="chooseTemplate(template)"><b>{{template.name}}</b><small>{{templateSizeNames(template).join('、')}}</small></button><p v-if="!templates.length">暂无模板，可先选择尺码再保存模板。</p></div><footer><button type="button" @click="templateOpen=false">关闭</button></footer></section></div>

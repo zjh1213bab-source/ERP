@@ -1,6 +1,17 @@
 /** 预单报价转业务下单时保留统一单价、分价、客户尺码与颜色图片。 */
 import { sortColorNames, sortSizeNames } from './orderAxes.js';
 
+export function omitEmptyOrderSizes(item) {
+  const rows = item.size_prices || [];
+  const used = new Set(rows.filter(row => Number(row.qty || 0) !== 0).map(row => row.size));
+  const meta = item.matrix_meta;
+  return {
+    ...item,
+    size_prices: rows.filter(row => used.has(row.size)),
+    ...(meta && {matrix_meta: {...meta, sizes: (meta.sizes || [...used]).filter(size => used.has(size))}})
+  };
+}
+
 export function preOrderMatrixForSales(item) {
   const rows = item.size_prices || [];
   const meta = item.matrix_meta || {};

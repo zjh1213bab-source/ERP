@@ -35,12 +35,13 @@
 </template>
 <script setup>
 import {computed,reactive} from 'vue';
+import {omitEmptyOrderSizes} from '../utils/preOrderMatrixTransfer';
 import StyleImageFields from './StyleImageFields.vue';
 import PreOrderArchiveMatrix from './PreOrderArchiveMatrix.vue';
 import PreOrderPaymentProofs from './PreOrderPaymentProofs.vue';
 const props=defineProps({row:{type:Object,required:true}});
 const selected=reactive({archive:0,new:0});
-const items=computed(()=>JSON.parse(JSON.stringify(props.row.items || [])));
+const items=computed(()=>JSON.parse(JSON.stringify(props.row.items || [])).map(omitEmptyOrderSizes));
 const groups=computed(()=>[['archive','1　选择样衣'],['new','2　上传图片新款']].map(([key,label])=>{
   const list=items.value.filter(item=>(item.source_type==='archive')===(key==='archive'));
   return {key,label,items:list,active:list[selected[key]] || list[0]};

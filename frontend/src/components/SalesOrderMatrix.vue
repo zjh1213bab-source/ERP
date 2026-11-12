@@ -18,6 +18,7 @@
       <button v-else class="link stock-expand" @click="item.stock_open=true">展开库存参考</button>
     </div>
     <div class="item-summary"><button class="link danger" @click="$emit('remove')">删除</button><label>销售单价 <input type="number" v-model.number="item.unit_price" min="0" step="0.01" /></label><label>币种 <select v-model="item.currency"><option value="USD">美元</option><option value="CNY">人民币</option></select></label><label>税率% <input type="number" v-model.number="item.tax_rate" min="0" max="100" /></label><span>下单数量 <strong>{{totalQty}}</strong></span><span>商品金额 USD <strong class="orange">{{amount.toFixed(2)}}</strong></span></div>
+    <BusinessRequirement v-model="item.business_requirement"/>
     <SalesOrderMaterials :item="item" :index="index" />
     <div v-if="edit.open" class="entry-dialog-mask"><section class="entry-dialog"><h3>管理{{edit.kind==='colors'?'颜色':'尺码'}}</h3><p>每行一个；修改只影响本单。删除已有数量的颜色或尺码会要求确认。</p><textarea v-model="edit.text" rows="12"/><footer><button @click="edit.open=false">取消</button><button class="primary" @click="applyConfig()">确定</button></footer></section></div>
     <div v-if="templateOpen" class="entry-dialog-mask"><section class="entry-dialog"><h3>选择尺码模板</h3><button v-for="t in templates" :key="t.id" class="template-option" @click="applySizes(String(t.sizes).split(','))&&(templateOpen=false)">{{t.name}}</button><p v-if="!templates.length">暂无模板，可先管理尺码后保存模板。</p><footer><button @click="templateOpen=false">关闭</button></footer></section></div>
@@ -25,6 +26,7 @@
   </div>
 </template>
 <script setup>
+import BusinessRequirement from './BusinessRequirement.vue';
 import {orderColorOptions} from '../utils/orderOptions';
 import {computed,reactive,ref} from 'vue';
 import {api} from '../api';

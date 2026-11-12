@@ -883,7 +883,7 @@
 </template>
 
 <script setup>
-import {preOrderMatrixForSales} from '../utils/preOrderMatrixTransfer';
+import {preOrderMatrixForSales,omitEmptyOrderSizes} from '../utils/preOrderMatrixTransfer';
 import TrialNotice from '../components/TrialNotice.vue';
 import BusinessRequirement from '../components/BusinessRequirement.vue';
 function itemRequirement(item){try{return JSON.parse(item.entry_json||'{}').business_requirement||''}catch{return ''}}
@@ -1943,7 +1943,7 @@ async function importPreOrder(id) {
       recipient_name:draft.recipient_name || '',recipient_phone:draft.recipient_phone || '',shipping_address:draft.shipping_address || '',
       pre_order_total_usd:draft.total_usd,pre_order_payment_ratio:draft.payment_ratio,deposit:draft.total_usd!=null&&draft.payment_ratio!=null?Math.round(Number(draft.total_usd)*Number(draft.payment_ratio))/100:0,
       manager:draft.manager || '',delivery_date:draft.target_date || '',remark:draft.requirements || '',style_name:draft.style_name || '',
-      items:draft.items.map(item=>({...blankItem(),product_name:item.product_name||item.style_no||'图片新款（待命名）',style_no:item.style_no || '',remark:item.remark || '',expected_qty:item.expected_qty,...preOrderMatrixForSales(item),source_pre_order_item_id:item.id,sample_archive_id:item.source_type==='archive'?item.sample_archive_id:null,effect_image_url:item.effect_image_url || '',detail_images:[...(item.detail_images || [])]}))};
+      items:draft.items.map(item=>({...blankItem(),product_name:item.product_name||item.style_no||'图片新款（待命名）',style_no:item.style_no || '',remark:item.remark || '',expected_qty:item.expected_qty,...preOrderMatrixForSales(omitEmptyOrderSizes(item)),source_pre_order_item_id:item.id,sample_archive_id:item.source_type==='archive'?item.sample_archive_id:null,effect_image_url:item.effect_image_url || '',detail_images:[...(item.detail_images || [])]}))};
     showCreate.value=true;
   }catch(error){alert(error.message);}
 }
