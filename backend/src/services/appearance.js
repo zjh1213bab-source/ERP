@@ -1,7 +1,7 @@
 /** 全站节日外观：只保存本站图片与有限样式参数，绝不接收 CSS/HTML。 */
 const fs=require('fs'),path=require('path');
 const {db,now}=require('../db');
-const DEFAULTS={enabled:false,image_url:null,opacity:0.18,blur:0,position:'center',label:'',revision:0,updated_at:null,updated_by:null};
+const DEFAULTS={enabled:false,image_url:null,workspace_transparency:65,opacity:0.18,blur:0,position:'center',label:'',revision:0,updated_at:null,updated_by:null};
 function readAppearance(){const row=db.prepare("SELECT value FROM app_config WHERE key='ui_appearance'").get();if(!row)return {...DEFAULTS};try{return {...DEFAULTS,...JSON.parse(row.value)};}catch{return {...DEFAULTS};}}
 function saveAppearance(body,user){
  const bad=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
@@ -17,7 +17,9 @@ function saveAppearance(body,user){
  if(body.opacity==null || !Number.isFinite(opacity) || opacity<0.05 || opacity>0.5)bad('背景显示强度应在5%至50%之间');
  if(body.blur==null || !Number.isFinite(blur) || blur<0 || blur>12)bad('背景虚化应在0至12之间');
  if(!['center','top','bottom'].includes(position) || label.length>40)bad('图片位置或节日名称无效');
- const next={enabled:body.enabled,image_url:image,opacity,blur,position,label,revision:current.revision+1,updated_at:now(),updated_by:user.username};
+ const transparency=body.workspace_transparency===undefined?current.workspace_transparency:body.workspace_transparency;
+ if(!Number.isInteger(transparency)||transparency<0||transparency>100)bad('工作区透明度应在0%至100%之间');
+ const next={workspace_transparency:transparency,enabled:body.enabled,image_url:image,opacity,blur,position,label,revision:current.revision+1,updated_at:now(),updated_by:user.username};
  db.exec('BEGIN IMMEDIATE');
  try{
   const locked=readAppearance();if(locked.revision!==current.revision)bad('外观设置已更新，请重新载入',409);

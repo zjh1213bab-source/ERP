@@ -322,3 +322,15 @@
   background: var(--brand-soft); color: var(--brand); font-weight: 600;
 }
 .brand-logo-options img { width: 30px; height: 30px; object-fit: contain; cursor: default; }
+
+@media screen {
+  :root[data-wallpaper="on"] .erp-shell .erp-content {
+    background:color-mix(in srgb,var(--yc-page) var(--workspace-fill),transparent);
+  }
+  :root[data-wallpaper="on"] .erp-content > :is(div,main,section,article) {
+    background-color:transparent;
+  }
+  :root[data-wallpaper="on"] .erp-content :is(.card,.panel,.table-wrap,.filter-bar) {
+    background-color:color-mix(in srgb,var(--surface) var(--workspace-fill),transparent);
+  }
+}

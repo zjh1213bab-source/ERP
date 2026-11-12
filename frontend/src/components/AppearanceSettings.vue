@@ -8,17 +8,18 @@
     <section class="appearance-section"><h3>导航配色</h3><p>选择预设，或使用你的品牌颜色；「跳色彩色」为自定义 / 节日皮肤配色。</p><slot name="navigation" /></section>
     <section class="appearance-section"><h3>品牌图标</h3><p>标准图标按侧栏明暗自动切换黑 / 白；彩色图标用于自定义皮肤与节日氛围。</p><div class="brand-logo-options"><button type="button" :class="{selected:brandLogoMode==='auto'}" @click="setBrandLogoMode('auto')">标准（黑 / 白）</button><button type="button" :class="{selected:brandLogoMode==='festive'}" @click="setBrandLogoMode('festive')"><img :src="logoFestive" alt="" data-no-image-preview />彩色 · 节日</button></div></section>
     </div><section v-show="activeTab==='background'" class="appearance-section"><div class="appearance-section-title"><h3>节假日背景</h3><span class="tag">全站共享</span></div><p>{{isAdmin?'上传节日氛围图并发布，局域网内其他电脑会自动同步。':'背景由系统管理员统一发布；显示模式与导航配色仍由你自由选择。'}}</p>
-     <div class="wallpaper-preview" :class="{empty:!draft.image_url}"><img v-if="draft.image_url" :src="draft.image_url" alt="节日背景预览" data-no-image-preview :style="{opacity:draft.opacity,filter:`blur(${draft.blur}px)`,objectPosition:draft.position}"/><div class="wallpaper-preview-ui"><span></span><div><b>工作空间</b><i></i><i></i></div></div></div>
+     <div class="wallpaper-preview" :class="{empty:!draft.image_url}"><img v-if="draft.image_url" :src="draft.image_url" alt="节日背景预览" data-no-image-preview :style="{opacity:draft.enabled?draft.opacity:0,filter:`blur(${draft.blur}px)`,objectPosition:draft.position}"/><div class="wallpaper-preview-ui" :style="{'--workspace-fill':(draft.enabled?100-draft.workspace_transparency:100)+'%'}"><span></span><div><b>工作空间</b><i></i><i></i></div></div></div>
      <p v-if="loadError" class="form-msg err">{{loadError}}</p>
      <fieldset :disabled="!isAdmin || saving || uploading || loading || !!loadError">
       <label class="appearance-switch"><span>启用节日背景</span><input type="checkbox" v-model="draft.enabled" /></label>
       <div v-if="isAdmin" class="appearance-upload"><label class="btn btn-ghost" :class="{disabled:uploading}" for="holiday-file">{{uploading?'正在上传…':'上传背景图片'}}</label><button type="button" class="btn btn-ghost" :disabled="uploading||saving||loading||!!loadError" @click="useBuiltinFestive">{{uploading?'正在准备…':'使用内置彩色素材'}}</button><input id="holiday-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="upload"/><button v-if="draft.image_url" type="button" class="link-btn danger" @click="draft.image_url=null;draft.enabled=false">移除图片</button></div>
       <label class="appearance-field">节日名称<input class="input" v-model="draft.label" maxlength="40" placeholder="例如：春节、国庆、中秋" /></label>
       <label class="appearance-field">背景显示强度 <span>{{Math.round(draft.opacity*100)}}%</span><input type="range" min="0.05" max="0.5" step="0.01" v-model.number="draft.opacity" /></label>
+      <label v-if="draft.image_url" class="appearance-field">工作区透明度 <span>{{draft.workspace_transparency}}%</span><input type="range" min="0" max="100" step="1" v-model.number="draft.workspace_transparency" /></label>
       <label class="appearance-field">背景虚化 <span>{{draft.blur}} px</span><input type="range" min="0" max="12" step="1" v-model.number="draft.blur" /></label>
       <label class="appearance-field">图片位置<select class="select" v-model="draft.position"><option value="center">居中</option><option value="top">顶部</option><option value="bottom">底部</option></select></label>
      </fieldset>
-     <p class="appearance-hint">背景显示在页面留白区域，表格与表单保持清晰；打印单据不显示背景。建议使用横向大图。</p>
+     <p class="appearance-hint">工作区透明度越高，背景图片越清晰。</p>
      <p v-if="message" class="form-msg" :class="{err:failed}" role="status">{{message}}</p>
     </section>
    </div>
@@ -58,6 +59,6 @@ async function useBuiltinFestive(){
  }catch(e){failed.value=true;message.value=e.message;}
  finally{uploading.value=false;}
 }
-async function publish(){saving.value=true;message.value='';failed.value=false;try{const config=await api.saveAppearance({...draft});applyAppearance(config);Object.assign(draft,config);message.value='已发布，其他电脑会在一分钟内自动同步。';}catch(e){failed.value=true;message.value=e.message;}finally{saving.value=false;}}
+async function publish(){saving.value=true;message.value='';failed.value=false;try{const config=await api.saveAppearance({...draft});if(config.workspace_transparency===undefined && draft.enabled){applyAppearance(config);draft.revision=config.revision;throw new Error('背景图片已发布，工作区透明度需要服务器更新后再次发布。');}applyAppearance(config);Object.assign(draft,config);message.value='已发布，其他电脑会在一分钟内自动同步。';}catch(e){failed.value=true;message.value=e.message;}finally{saving.value=false;}}
 async function reset(){Object.assign(draft,defaultAppearance(),{revision:draft.revision});await publish();}
 </script>
