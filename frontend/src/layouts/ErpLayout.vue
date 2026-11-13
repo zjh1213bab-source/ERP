@@ -527,13 +527,13 @@ function logout() {
 
 <style scoped>
 .page-tabs{display:flex;align-items:center;overflow-x:auto;gap:6px;padding:6px 16px;background:var(--yc-surface);border-bottom:1px solid var(--yc-line);flex-shrink:0}.page-tabs div{white-space:nowrap;border:1px solid var(--yc-line);color:var(--yc-ink);display:flex;align-items:center}.page-tabs .active{background:#1769bd;color:white}.page-tabs a,.page-tabs button{color:inherit;text-decoration:none;font:inherit;font-size:12px;padding:6px 10px}.page-tabs button{cursor:pointer;border:0;background:transparent;padding-left:0}
-/* 二级菜单切换条：比「已打开页面」标签更轻，文字 + 蓝色下划线，全局生效。
-   按文字内容紧凑排列（贴近参考页签），项多时整条横向滚动、文字不压缩不截断；
-   贯穿整行的底线让项数少时也不会显得散。 */
-.section-tabs{display:flex;align-items:stretch;gap:2px;overflow-x:auto;padding:0 16px;background:var(--yc-surface);border-bottom:1px solid var(--yc-line);flex-shrink:0;scrollbar-width:thin}
-.section-tab{flex:0 0 auto;min-width:88px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;padding:9px 18px;font-size:12.5px;color:var(--ink-mute,#7a879c);text-decoration:none;border-bottom:2px solid transparent}
-.section-tab:hover{color:var(--yc-blue);background:color-mix(in srgb,var(--yc-blue) 5%,transparent)}
-.section-tab.active{color:var(--yc-blue);font-weight:700;border-bottom-color:var(--yc-blue)}
+/* 二级菜单切换条：改成筛选区那种「带边框的分块控件」，点击即切换模块页面。
+   每个菜单项是独立的白底圆角块，字号与点击区域放大；选中蓝底白字，反馈明确。
+   按文字内容自适应、多余空间平分，项多时整条横向滚动，文字不压缩不截断。 */
+.section-tabs{display:flex;align-items:stretch;gap:6px;overflow-x:auto;padding:8px 16px;background:var(--yc-surface);border-bottom:1px solid var(--yc-line);flex-shrink:0;scrollbar-width:thin}
+.section-tab{flex:1 1 auto;min-width:max-content;max-width:220px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;min-height:38px;padding:10px 16px;font-size:13.5px;color:var(--ink-mute,#7a879c);text-decoration:none;background:var(--yc-surface,#fff);border:1px solid var(--yc-line,#e4e9f0);border-radius:4px}
+.section-tab:hover{color:var(--yc-blue);border-color:var(--yc-blue);background:color-mix(in srgb,var(--yc-blue) 6%,var(--yc-surface))}
+.section-tab.active{color:#fff;font-weight:700;background:var(--yc-blue);border-color:var(--yc-blue);box-shadow:0 1px 4px color-mix(in srgb,var(--yc-blue) 30%,transparent)}
 .section-tab .review-nav-badge{margin-left:5px}
 @media print{.section-tabs{display:none}}
 .global-page-size { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
