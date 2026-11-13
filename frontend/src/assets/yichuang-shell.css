@@ -109,6 +109,14 @@
   background: var(--nav-hover, rgba(255, 255, 255, .15));
   color: var(--nav-ink, #fff);
 }
+/* 当前模块的一级分组高亮，跟导航配色同源，不写死颜色 */
+.erp-shell .erp-nav .group-head.active {
+  background: var(--nav-hover, rgba(255, 255, 255, .12));
+  color: var(--nav-ink, #fff);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--nav-accent, #315ee8);
+}
+.erp-shell .erp-nav .group-head.active .g-arrow { color: var(--nav-ink, #fff); opacity: .9; }
 /* 选中态不再写死浅蓝/深蓝：交给 workspace.css 的 --nav-accent + --nav-bg 混合，
    这样侧栏底色与选中块始终同一套配色，不会出现「亮蓝底 + 深蓝块」。 */
 .erp-shell .erp-nav .group-body { padding-left: 2px; }

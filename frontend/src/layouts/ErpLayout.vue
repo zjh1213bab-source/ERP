@@ -13,16 +13,13 @@
           </router-link>
 
           <div v-else class="nav-group">
-            <button class="group-head" :class="{ open: openMap[item.key] }" @click="toggle(item.key)">
+            <!-- 一级分组只做模块入口：点击进入该模块首个页面；
+                 该模块的二级菜单统一放到内容区顶部的横向切换条，全局生效。 -->
+            <button class="group-head" :class="{ active: currentGroup?.key === item.key }" @click="enterGroup(item)" :title="item.label">
               <UiIcon class="nav-ico" :name="item.key" />
               <span class="g-label">{{ item.label }}</span><span v-if="(item.children||[]).reduce((n,c)=>n+reviewCount(c.to),0)" class="review-nav-badge">{{(item.children||[]).reduce((n,c)=>n+reviewCount(c.to),0)}}</span>
-              <span class="g-arrow">{{ openMap[item.key] ? '▾' : '▸' }}</span>
+              <span class="g-arrow">›</span>
             </button>
-            <div v-show="openMap[item.key]" class="group-body">
-              <router-link v-for="c in visibleChildren(item)" :key="c.to" :to="c.to" class="sub">
-                {{ c.label }} <span v-if="reviewCount(c.to)" class="review-nav-badge">{{reviewCount(c.to)}}</span>
-              </router-link>
-            </div>
           </div>
         </template>
       </nav>
@@ -70,7 +67,16 @@
           <router-link :to="t.to" :aria-current="t.to===route.fullPath?'page':undefined">{{t.label}}</router-link>
           <button v-if="t.to!=='/dashboard'" :aria-label="'关闭'+t.label" @click="closePage(t.to)">×</button>
         </div>
-      </nav>      <section class="erp-content">
+      </nav>
+      <!-- 二级菜单切换条：当前模块的全部可见子菜单，横向铺开、点击即切换；
+           数据源仍是 navModel + visibleChildren，不新增死链、不丢入口。 -->
+      <nav v-if="sectionTabs.length" class="section-tabs" aria-label="模块内页面">
+        <router-link v-for="c in sectionTabs" :key="c.to" :to="c.to" class="section-tab"
+          :class="{ active: isSectionActive(c.to) }" :aria-current="isSectionActive(c.to) ? 'page' : undefined">
+          {{ c.label }}<span v-if="reviewCount(c.to)" class="review-nav-badge">{{reviewCount(c.to)}}</span>
+        </router-link>
+      </nav>
+      <section class="erp-content">
         <router-view />
       </section>
     </div>
@@ -463,6 +469,16 @@ function updateCustomNavColor(event) {
   selectNavPalette('custom');
 }
 function matchingGroup(){return navModel.find(i=>i.children?.some(c=>c.to===route.fullPath)) || navModel.find(i=>i.children?.some(c=>c.to===route.path));}
+/** 当前模块与其可见二级菜单：全部取自 navModel，权限/单主体过滤沿用 visibleChildren。 */
+const currentGroup = computed(() => matchingGroup());
+const sectionTabs = computed(() => currentGroup.value ? visibleChildren(currentGroup.value) : []);
+function isSectionActive(to){return route.fullPath === to || route.path === to;}
+/** 左侧一级分组点击：进入该模块首个可见页面，顶部切换条随即列出同组全部页面。 */
+function enterGroup(item){
+  const first = visibleChildren(item)[0];
+  if (first?.to) router.push(first.to);
+  navOpen.value = false;
+}
 function openGroupForPath(){const group=matchingGroup();if(group)openMap[group.key]=true;}
 openGroupForPath(route.path);
 watch(() => route.fullPath, () => { openGroupForPath(); navOpen.value = false; });
@@ -511,6 +527,15 @@ function logout() {
 
 <style scoped>
 .page-tabs{display:flex;align-items:center;overflow-x:auto;gap:6px;padding:6px 16px;background:var(--yc-surface);border-bottom:1px solid var(--yc-line);flex-shrink:0}.page-tabs div{white-space:nowrap;border:1px solid var(--yc-line);color:var(--yc-ink);display:flex;align-items:center}.page-tabs .active{background:#1769bd;color:white}.page-tabs a,.page-tabs button{color:inherit;text-decoration:none;font:inherit;font-size:12px;padding:6px 10px}.page-tabs button{cursor:pointer;border:0;background:transparent;padding-left:0}
+/* 二级菜单切换条：比「已打开页面」标签更轻，文字 + 蓝色下划线，全局生效。
+   按文字内容紧凑排列（贴近参考页签），项多时整条横向滚动、文字不压缩不截断；
+   贯穿整行的底线让项数少时也不会显得散。 */
+.section-tabs{display:flex;align-items:stretch;gap:2px;overflow-x:auto;padding:0 16px;background:var(--yc-surface);border-bottom:1px solid var(--yc-line);flex-shrink:0;scrollbar-width:thin}
+.section-tab{flex:0 0 auto;min-width:88px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;padding:9px 18px;font-size:12.5px;color:var(--ink-mute,#7a879c);text-decoration:none;border-bottom:2px solid transparent}
+.section-tab:hover{color:var(--yc-blue);background:color-mix(in srgb,var(--yc-blue) 5%,transparent)}
+.section-tab.active{color:var(--yc-blue);font-weight:700;border-bottom-color:var(--yc-blue)}
+.section-tab .review-nav-badge{margin-left:5px}
+@media print{.section-tabs{display:none}}
 .global-page-size { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
 .global-page-size .select { width: 88px; padding: 5px 8px; }
 @media(max-width: 760px) { .global-page-size > span { display: none; } }
