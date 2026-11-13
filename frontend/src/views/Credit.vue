@@ -367,7 +367,7 @@ const cfg = computed(() => board.value.config || {});
 const canWrite = computed(() => can('credit.write'));
 
 const STATUS_LABEL = {
-  draft: '草稿', tech: '技术确认', finance: '财务审核', assigned: '已分单',
+  draft: '草稿', tech: '技术确认', finance: '财务审核', production_audit: '生产审核', assigned: '已分单',
   production: '生产中', instock: '已入库', shipped: '已发货', closed: '已结案', cancelled: '已取消'
 };
 function statusLabel(s) { return STATUS_LABEL[s] || s || '—'; }

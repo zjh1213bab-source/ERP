@@ -114,7 +114,7 @@ const d = reactive({
   byStatus: [], trend: [], recent: []
 });
 
-const STATUS = { draft: '草稿', tech: '技术确认', finance: '财务审核', assigned: '已分单', production: '生产中', instock: '已入库', shipped: '已发货', closed: '已结案', cancelled: '已取消' };
+const STATUS = { draft: '草稿', tech: '技术确认', finance: '财务审核', production_audit: '生产审核', assigned: '已分单', production: '生产中', instock: '已入库', shipped: '已发货', closed: '已结案', cancelled: '已取消' };
 const statusLabel = (s) => STATUS[s] || s;
 const money = (v) => Number(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 const dateStr = (s) => (s ? new Date(s).toLocaleString('zh-CN', { hour12: false }) : '-');

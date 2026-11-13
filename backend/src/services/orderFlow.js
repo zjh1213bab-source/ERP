@@ -29,23 +29,31 @@ const { ensureCostObject, collectAuto, syncSold } = require('../routes/costObjec
 const { ensureCommitment } = require('../routes/commitments');
 
 const STATUS_LABELS = {
-  draft: '草稿', tech: '技术确认', finance: '财务审核', assigned: '已分单',
+  draft: '草稿', tech: '技术确认', finance: '财务审核', production_audit: '生产审核', assigned: '已分单',
   production: '生产中', instock: '已入库', shipped: '已发货', closed: '已结案', cancelled: '已取消'
 };
 
+// 财务确认之后先到技术开发「生产审核」，核对无误才允许进入供应链分配（assigned）。
 const FLOW = {
-  draft: ['tech'], tech: ['finance'], finance: ['assigned'], assigned: ['production'],
-  production: ['instock'], instock: ['shipped'], shipped: ['closed']
+  draft: ['tech'], tech: ['finance'], finance: ['production_audit'], production_audit: ['assigned'],
+  assigned: ['production'], production: ['instock'], instock: ['shipped'], shipped: ['closed']
 };
 
 /** 正向链路：反审只能往前面的状态退，不能跨过 draft，也不能退已发货/已结案 */
-const CHAIN = ['draft', 'tech', 'finance', 'assigned', 'production', 'instock', 'shipped', 'closed'];
+const CHAIN = ['draft', 'tech', 'finance', 'production_audit', 'assigned', 'production', 'instock', 'shipped', 'closed'];
 
 const TRANSITION_ROLES = {
-  tech: ['admin', 'sales', 'tech'], finance: ['admin', 'sales', 'tech'], assigned: ['admin', 'finance'],
+  tech: ['admin', 'sales', 'tech'], finance: ['admin', 'sales', 'tech'],
+  production_audit: ['admin', 'sales', 'tech'], assigned: ['admin', 'finance'],
   production: ['admin', 'sales', 'production'], instock: ['admin', 'production', 'warehouse'],
   shipped: ['admin', 'warehouse', 'finance'], closed: ['admin', 'sales'], cancelled: ['admin', 'sales']
 };
+
+/** 生产审核以最新一条记录为准；状态机与分配服务共用，避免两边判断不一致。 */
+function productionAuditPassed(orderId) {
+  const row = db.prepare('SELECT decision FROM order_production_audits WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(orderId);
+  return row?.decision === 'approve';
+}
 
 const QTY_EPSILON = 0.0001;
 
@@ -183,6 +191,7 @@ function check(orderId, { to, force, user, write = true, source } = {}) {
 
   // ---------- 门槛 2：进入已分单 ----------
   if (to === 'assigned') {
+    if (!productionAuditPassed(id)) throw bad('技术开发「生产审核」尚未核对通过，不能进入已分单');
     const cs = db.prepare("SELECT 1 AS x FROM cost_sheets WHERE order_id = ? AND status = 'approved' LIMIT 1").get(id);
     if (!cs) throw bad('财务尚未审核通过，无法「分单」；请先录入成本并完成财务审核');
     const qty = orderQty(id);
@@ -402,5 +411,6 @@ module.exports = {
   afterTransition,
   transition,
   batchTransition,
-  batchNo
+  batchNo,
+  productionAuditPassed
 };

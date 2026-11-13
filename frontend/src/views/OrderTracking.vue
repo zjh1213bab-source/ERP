@@ -80,8 +80,8 @@
         <template v-else-if="allocation.context">
           <p>订单 {{ allocation.context.order_qty }} 件 · 已分配 {{ allocation.context.allocated }} 件 · 待分配 {{ allocation.context.pending_qty }} 件</p>
           <table class="tracking-table"><thead><tr><th>生产方式</th><th>承接工厂</th><th>数量</th><th>状态</th></tr></thead><tbody><tr v-for="d in allocation.context.dispatches" :key="d.id"><td>{{ d.type==='own'?'本厂生产':'整单外发' }}</td><td>{{ d.factory_name }}</td><td>{{ d.qty }}</td><td>{{ d.status_label }}</td></tr><tr v-if="!allocation.context.dispatches.length"><td colspan="4">暂无分配记录</td></tr></tbody></table>
-          <fieldset v-if="allocation.context.pending_qty>0 && ['finance','assigned'].includes(allocation.context.order.status)" class="allocation-form" :disabled="allocation.saving">
-            <label>生产方式<select v-model="allocation.mode" @change="allocation.factory_id=allocation.mode==='own'?(allocation.context.own_factory?.id||'local'):''"><option value="own">本厂生产</option><option value="outsource">整单外发</option></select></label>
+          <fieldset v-if="allocation.context.pending_qty>0 && ['finance','production_audit','assigned'].includes(allocation.context.order.status)" class="allocation-form" :disabled="allocation.saving">
+            <label>生产方式<select v-model="allocation.mode" @change="allocation.factory_id=['own','cut'].includes(allocation.mode)?(allocation.context.own_factory?.id||'local'):''"><option value="own">本厂生产</option><option value="outsource">整单外发</option><option value="cut">裁片外发</option></select></label>
             <label>承接工厂 <select v-model="allocation.factory_id"><option value="">请选择工厂</option><option v-if="allocation.mode==='own'&&!allocationFactories.length" value="local">本厂（内部生产）</option><option v-for="f in allocationFactories" :key="f.id" :value="f.id">{{ f.name }}</option></select></label>
             <label>分配数量 <input type="number" min="1" :max="allocation.context.pending_qty" v-model.number="allocation.qty" /></label>
             <label>备注 <input v-model="allocation.remark" maxlength="500" /></label>
@@ -91,7 +91,7 @@
         </template>
         <p v-if="allocation.error" role="alert" class="danger">{{ allocation.error }}</p>
       </div>
-      <div class="modal-foot"><button :disabled="allocation.saving" @click="closeAssignment">关闭</button><button v-if="allocation.context?.pending_qty>0 && ['finance','assigned'].includes(allocation.context.order.status)" class="primary" :disabled="allocation.saving||allocation.loading" @click="saveAssignment">{{ allocation.saving?'分配中…':'确认分配' }}</button></div>
+      <div class="modal-foot"><button :disabled="allocation.saving" @click="closeAssignment">关闭</button><button v-if="allocation.context?.pending_qty>0 && ['finance','production_audit','assigned'].includes(allocation.context.order.status)" class="primary" :disabled="allocation.saving||allocation.loading" @click="saveAssignment">{{ allocation.saving?'分配中…':'确认分配' }}</button></div>
     </div></div>
     <NodePanel v-model:open="panelOpen" :node-id="nodeId" @changed="load" /><OrderPeek v-model:open="peekOpen" :order-id="peekId" />
     <div v-if="batchOpen||summaryOpen||helpOpen||exceptionOrder" class="modal-mask"><div class="modal tracking-modal"><div class="modal-head"><h3>{{ batchOpen?'批量搜索':summaryOpen?'同款汇总':exceptionOrder?'订单异常 · '+exceptionOrder.order_no:'订单跟踪操作说明' }}</h3><button class="x" @click="closeModal">×</button></div><div class="modal-body">
@@ -120,10 +120,10 @@ const statuses={finance:'待分配',assigned:'已分单',production:'生产中',
 const nodeStatuses={pending:'未开始',doing:'进行中',done:'已完成',skipped:'不适用'};
 const statusText=s=>statuses[s]||s;
 const page=ref(1),pageSize=ref(48),jump=ref(1),tab=ref('all'),showDue=ref(true),dueSelection=ref(''),view=ref('list');
-const unassigned=r=>r.pending_allocation>0&&['finance','assigned'].includes(r.status);
+const unassigned=r=>r.pending_allocation>0&&['finance','production_audit','assigned'].includes(r.status);
 // 分配与车间跟踪共用展示组件，但各有独立入口、服务端范围及分类。
 const tabDefinitions=computed(()=>props.assignment?
-  [['all','全部',()=>true],['todo','待分配订单',unassigned],['outsource','整单外发',r=>r.assign_mode==='outsource'],['own','已分配本厂',r=>r.alloc_own>0]]:
+  [['all','全部',()=>true],['todo','待分配订单',unassigned],['own','本厂生产',r=>r.alloc_mode==='own'||r.alloc_own>0],['outsource','整单外发',r=>r.alloc_mode==='outsource'||r.assign_mode==='outsource'],['cut','裁片外发',r=>r.alloc_mode==='cut'||r.cut_dispatches>0]]:
   [['all','全部',()=>true],['own','本厂生产',r=>r.alloc_own>0],['cutout','裁片外发',r=>r.cut_dispatches>0],['rework','次品返修',r=>r.rework_count>0],['odd','订单异常',r=>r.exception_count>0],['cost','成本管控异常',r=>r.cost_exception_count>0],['void','作废订单',r=>r.status==='cancelled']]);
 
 const dueRows=computed(()=>board.value.rows.filter(r=>!dueSelection.value||(dueSelection.value==='overdue'?r.overdue:String(r.delivery_date||'').slice(0,10)===dueSelection.value)));
@@ -141,18 +141,24 @@ const deliveryDays=computed(()=>{const map=new Map();for(const r of board.value.
 const weekday=d=>['周日','周一','周二','周三','周四','周五','周六'][new Date(d+'T00:00:00').getDay()];
 function selectDue(d){dueSelection.value=d;page.value=1;}
 function deliveryHint(r){if(!r.delivery_date||['shipped','closed','cancelled'].includes(r.status))return '';if(r.overdue)return `超期${r.days_late}天`;const days=Math.round((new Date(fmtDate(r.delivery_date)+'T00:00:00')-new Date(localDate()+'T00:00:00'))/86400000);return `剩余${days}天`;}
-function assignText(r){if(r.assign_mode==='none')return unassigned(r)?'待分配':'未记录分单';return r.assign_names||({own:'本厂生产',outsource:'整单外发',mixed:'本厂 + 外协'}[r.assign_mode]);}
+const ALLOC_LABEL={own:'本厂生产',outsource:'整单外发',cut:'裁片外发'};
+function assignText(r){
+  // 优先展示订单上持久化的计划模式（单一答案），没选过才回落到分单事实派生标签
+  if(r.alloc_mode&&ALLOC_LABEL[r.alloc_mode])return ALLOC_LABEL[r.alloc_mode];
+  if(r.assign_mode==='none')return unassigned(r)?'待分配':'未记录分单';
+  return r.assign_names||({own:'本厂生产',outsource:'整单外发',mixed:'本厂 + 外协'}[r.assign_mode]);
+}
 let requestVersion=0;
 async function load(){const version=++requestVersion;loading.value=true;error.value='';try{const read=props.assignment?api.dispatchBoard:api.nodeFlowBoard;const data=await read({...filters,tracking:1,tracking_view:props.assignment?'assignment':'factory',no_nodes:filters.no_nodes?1:'',out_craft:filters.out_craft?1:'',limit:5000});if(version===requestVersion)board.value=data;}catch(e){if(version===requestVersion){error.value=e.message;board.value={rows:[],columns:board.value.columns};}}finally{if(version===requestVersion)loading.value=false;}}
 function search(){page.value=1;dueSelection.value='';load();}
 function reset(){Object.assign(filters,defaults());tab.value='all';search();}
 // 使用原分单接口。财务审核、超量和事务校验均由 ERP 后端执行。
 const allocation=reactive({open:false,loading:false,saving:false,order:null,context:null,mode:'own',factory_id:'',qty:0,remark:'',error:''});
-const allocationFactories=computed(()=>(allocation.context?.factories||[]).filter(f=>allocation.mode==='own'?f.type==='own':f.type!=='own'));
+const allocationFactories=computed(()=>(allocation.context?.factories||[]).filter(f=>['own','cut'].includes(allocation.mode)?f.type==='own':f.type!=='own'));
 let allocationRequest=0;
 async function openAssignment(order){const version=++allocationRequest;Object.assign(allocation,{open:true,loading:true,order,context:null,mode:'own',factory_id:'',qty:0,remark:'',error:''});try{const context=await api.dispatchContext(order.id);if(version!==allocationRequest)return;allocation.context=context;allocation.qty=context.pending_qty;allocation.factory_id=context.own_factory?.id||'local';}catch(e){if(version===allocationRequest)allocation.error=e.message;}finally{if(version===allocationRequest)allocation.loading=false;}}
 function closeAssignment(){if(allocation.saving)return;allocationRequest++;allocation.open=false;}
-async function saveAssignment(){if(allocation.saving)return;if(!allocation.factory_id){allocation.error='请选择承接工厂';return;}if(!Number.isFinite(allocation.qty)||allocation.qty<=0||allocation.qty>allocation.context.pending_qty){allocation.error='分配数量必须大于0且不能超过待分配数量';return;}allocation.saving=true;allocation.error='';try{await api.createDispatch({order_id:allocation.order.id,factory_id:allocation.factory_id==='local'?null:Number(allocation.factory_id),factory_name:allocation.factory_id==='local'?'本厂':'',type:allocation.mode,qty:allocation.qty,remark:allocation.remark});allocation.context=await api.dispatchContext(allocation.order.id);allocation.qty=allocation.context.pending_qty;await load();}catch(e){allocation.error=e.message;}finally{allocation.saving=false;}}
+async function saveAssignment(){if(allocation.saving)return;if(!allocation.factory_id){allocation.error='请选择承接工厂';return;}if(!Number.isFinite(allocation.qty)||allocation.qty<=0||allocation.qty>allocation.context.pending_qty){allocation.error='分配数量必须大于0且不能超过待分配数量';return;}allocation.saving=true;allocation.error='';try{await api.createDispatch({order_id:allocation.order.id,factory_id:allocation.factory_id==='local'?null:Number(allocation.factory_id),factory_name:allocation.factory_id==='local'?'本厂':'',type:allocation.mode==='outsource'?'outsource':'own',mode:allocation.mode,qty:allocation.qty,remark:allocation.remark});allocation.context=await api.dispatchContext(allocation.order.id);allocation.qty=allocation.context.pending_qty;await load();}catch(e){allocation.error=e.message;}finally{allocation.saving=false;}}
 const panelOpen=ref(false),nodeId=ref(null),peekOpen=ref(false),peekId=ref(null);
 function openPeek(id){peekId.value=id;peekOpen.value=true;}
 function firstCell(r){return r.cells.find(c=>c.status==='doing')||r.cells.find(c=>c.status==='pending')||r.cells.find(c=>c.node_id);}

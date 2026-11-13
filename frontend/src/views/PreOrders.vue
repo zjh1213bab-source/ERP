@@ -3,15 +3,13 @@
     <div class="reference-crumb">首页 / 销售 / <b>预下单</b></div>
     <section class="pre-reference-panel">
       <div class="pre-list-filters"><label>预下单号<input v-model="q" placeholder="搜索预下单号" @input="prePage=1" /></label><label>客户<input v-model="customerSearch" placeholder="搜索客户" @input="prePage=1" /></label><button @click="resetList">重置</button></div>
-      <div class="pre-reference-toolbar"><button v-action="['pre-orders','create']" v-if="canWrite" class="pre-accent" @click="openCreate()">新增预下单</button><template v-for="t in preTabs" :key="t.key">
-        <select v-if="t.key==='finance'" class="pre-accent pre-finance-select" aria-label="财务审核状态" :value="financeSelection" @change="selectStage($event.target.value)">
-          <option value="" disabled>财务审核</option>
-          <option value="finance">财务待审核 ({{counts.finance}})</option>
-          <option value="rejected">财务拒绝 ({{counts.rejected}})</option>
-          <option value="missing">财务通过 · 待核对 ({{counts.missing}})</option>
-        </select>
-        <button v-else class="pre-accent" :class="{active:preTab===t.key}" @click="selectStage(t.key)">{{t.label}} ({{counts[t.key]}})</button>
-      </template><button class="pre-config" @click="configOpen=true">⚙ 配置</button><ReferencePager v-model:page="prePage" v-model:page-size="preSize" :total="filteredPre.length" @refresh="load()" /></div>
+      <!-- 流程阶段导航：原来「财务审核」是原生 select，三个状态挤在一个下拉里，
+           「财务通过 · 待核对」会被截断；改成每阶段一个按钮，数量直接可见。 -->
+      <div class="pre-reference-toolbar"><button v-action="['pre-orders','create']" v-if="canWrite" class="pre-accent" @click="openCreate()">新增预下单</button>
+        <button v-for="s in stageButtons" :key="s.key" class="pre-stage" :class="{active:preTab===s.key, side:s.side}" @click="selectStage(s.key)"><i v-if="s.step">{{s.step}}</i>{{s.label}}<b>({{counts[s.key]}})</b></button>
+        <button class="pre-config" @click="configOpen=true">⚙ 配置</button><ReferencePager v-model:page="prePage" v-model:page-size="preSize" :total="filteredPre.length" @refresh="load()" /></div>
+      <!-- 转正式订单之后的链路提示：技术开发生产审核 → 供应链部分配（三种模式） -->
+      <div class="pre-flow-hint"><span class="pre-flow-title">转正式订单后</span><span class="pre-flow-node">技术开发 · 生产审核</span><em>→</em><span class="pre-flow-node">供应链部 · 分配订单</span><span class="pre-flow-modes">本厂生产 / 整单外发 / 裁片外发</span></div>
       <div class="pre-list-scroll"><table class="pre-list-table"><thead><tr><th v-for="c in visiblePreColumns" :key="c.key">{{ c.label }}</th></tr></thead><tbody><tr v-for="row in prePageRows" :key="row.id"><td v-for="c in visiblePreColumns" :key="c.key">
         <template v-if="c.key==='order'"><button class="pre-link" @click="detailRow=row">{{ row.order_no||row.pre_order_no }}</button><TrialNotice :record="row" /></template><template v-else-if="c.key==='customer'">{{ row.customer_name }}</template><template v-else-if="c.key==='manager'">{{ row.manager||'—' }}</template>
         <div v-else-if="c.key==='styles'" class="pre-style-names"><button v-for="item in row.items" :key="item.id" class="pre-link" @click="detailRow=row">{{ item.style_no||item.product_name||'图片新款（待版房命名）' }}</button></div>
@@ -94,6 +92,18 @@ const preTabs=[
   {key:'development',label:'开发待检查'}, {key:'pattern',label:'打版中'},
   {key:'unordered',label:'打版完成未下单'}, {key:'converted',label:'已转正式订单'}
 ];
+// 顶部流程阶段导航：key 与 currentStage() 的返回值一一对应，
+// rejected 是财审驳回的侧支，不占主流程序号。
+const stageButtons=[
+  {key:'all',label:'全部',step:''},
+  {key:'finance',label:'财审待审核',step:'①'},
+  {key:'rejected',label:'财务拒绝',step:'!',side:true},
+  {key:'missing',label:'待核对',step:'②'},
+  {key:'development',label:'开发待检查',step:'③'},
+  {key:'pattern',label:'打版中',step:'④'},
+  {key:'unordered',label:'待转正式订单',step:'⑤'},
+  {key:'converted',label:'已转正式订单',step:'⑥'}
+];
 function currentStage(row){
   switch(row.status){
     case 'finance_rejected': return 'rejected';
@@ -112,7 +122,6 @@ const counts=computed(()=>{
   for(const row of preBase.value) result[currentStage(row)]++;
   return result;
 });
-const financeSelection=computed(()=>['finance','rejected','missing'].includes(preTab.value)?preTab.value:'');
 function selectStage(stage){preTab.value=stage;prePage.value=1;}
 const filteredPre=computed(()=>preBase.value.filter(row=>preTab.value==='all'||currentStage(row)===preTab.value));
 const prePageRows=computed(()=>filteredPre.value.slice((prePage.value-1)*preSize.value,prePage.value*preSize.value));
@@ -211,6 +220,19 @@ onMounted(async()=>{await load();try{[customers.value,archiveProducts.value,size
 .pre-style-grid{grid-template-columns:minmax(0,1fr)}.pre-style-grid .pre-style>.form-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.pre-style .pre-archive-matrix{margin-top:18px}.pre-delivery small{line-height:1.5}@media(max-width:1000px){.pre-style-grid .pre-style>.form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.pre-style-grid .pre-style>.form-grid{grid-template-columns:minmax(0,1fr)}}
 .pre-basics-title{font-size:16px;margin:0 0 18px}.pre-add-style{margin:4px 0 20px}.pre-basics .pre-proof-field{align-items:start}.pre-proof-field>label{padding-top:10px}.pre-detail-proofs{margin:18px 0}.pre-detail-proofs h4{font-size:14px;margin:0 0 10px}
 .pre-finance-select{border:0;border-radius:3px;padding:0 10px;height:42px;background:var(--list-accent);color:white;cursor:pointer}.pre-finance-select option{color:var(--ink);background:var(--surface)}
+/* 流程阶段导航：每个阶段一个按钮，数量直接可见，不再依赖原生 select 下拉 */
+.pre-stage{display:inline-flex;align-items:center;gap:5px;padding:8px 11px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--ink);font-size:12px;white-space:nowrap}
+.pre-stage i{font-style:normal;font-size:11px;color:var(--list-accent);font-weight:700}
+.pre-stage b{font-weight:600;color:var(--ink-mute);margin-left:2px}
+.pre-stage:hover{border-color:var(--list-accent)}
+.pre-stage.active{background:var(--list-accent);border-color:var(--list-accent);color:#fff;box-shadow:0 0 0 2px var(--surface),0 0 0 3px var(--list-accent)}
+.pre-stage.active i,.pre-stage.active b{color:#fff}
+.pre-stage.side{opacity:.72}
+.pre-flow-hint{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:10px 0 14px;padding:9px 12px;border:1px dashed var(--line);border-radius:3px;background:var(--surface-2);font-size:12px;color:var(--ink-mute)}
+.pre-flow-title{font-weight:600;color:var(--list-accent)}
+.pre-flow-node{padding:3px 9px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink)}
+.pre-flow-hint em{font-style:normal;color:var(--list-accent);font-weight:700}
+.pre-flow-modes{margin-left:auto;color:var(--ink)}
 </style>
 
 <style scoped>.archive-product-tabs{display:flex;align-items:center;gap:8px;overflow-x:auto;margin:8px 0}.archive-product-tabs button{display:flex;align-items:center;flex:none;gap:8px;padding:7px 10px;background:white;border:1px solid #dce4ef;border-radius:5px;cursor:pointer}.archive-product-tabs .selected{border-color:#1677ff;background:#eff6ff;color:#166ac1}.archive-product-tabs img{width:36px;height:40px;object-fit:contain}</style>

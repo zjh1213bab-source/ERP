@@ -90,6 +90,59 @@ function orderInScope(req, id) {
   return r.row;
 }
 
+// ---------- 技术开发：生产审核 ----------
+/**
+ * GET /api/orders/production-audits
+ * 财务确认后、供应链分配前的待核对订单。返回核对所需的真实订单资料，
+ * 不做「假审核」：前端勾选的核对项会随审核记录一起落库。
+ */
+router.get('/production-audits', authRequired, requireRole(['admin', 'boss', 'tech', 'sales', 'production']), wrap(async (req, res) => {
+  const where = ["o.status = 'production_audit'"];
+  const params = [];
+  const sc = scope.clause(req.user, 'o.company_id');
+  if (sc.sql) { where.push(sc.sql.replace(/^\s*AND\s+/, '')); params.push(...sc.params); }
+  const rows = db.prepare(`SELECT o.id, o.order_no, o.style_name, o.customer_name_snapshot,
+      c.name AS customer_name, o.delivery_date, o.latest_delivery_date, o.total_usd, o.alloc_mode,
+      (SELECT COALESCE(SUM(qty),0) FROM order_items WHERE order_id = o.id) AS order_qty,
+      (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS style_count,
+      (SELECT COUNT(*) FROM order_item_sizes s JOIN order_items i ON i.id = s.item_id WHERE i.order_id = o.id) AS size_rows,
+      (SELECT decision FROM order_production_audits WHERE order_id = o.id ORDER BY id DESC LIMIT 1) AS last_audit
+    FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
+    WHERE ${where.join(' AND ')} ORDER BY o.id DESC`).all(...params);
+  return ok(res, rows);
+}));
+
+/**
+ * POST /api/orders/:id/production-audit
+ * { decision: 'approve' | 'reject', checks: string[], note }
+ * 通过后订单停留在 production_audit（待供应链分配，由分配服务写 alloc_mode 并在覆盖整单后置 assigned）；
+ * 退回则回到 finance，并留下记录，最新一条 decision 为准。
+ */
+router.post('/:id/production-audit', authRequired, requireRole(['admin', 'tech']), wrap(async (req, res) => {
+  const bad = (m, s = 400) => { throw Object.assign(new Error(m), { status: s }); };
+  const row = orderInScope(req, req.params.id);
+  const decision = String(req.body?.decision || '');
+  if (!['approve', 'reject'].includes(decision)) bad('请选择「核对无误」或「退回重核」');
+  if (row.status !== 'production_audit') bad('订单当前不在生产审核环节，请刷新', 409);
+  const checks = Array.isArray(req.body?.checks)
+    ? req.body.checks.filter((x) => typeof x === 'string' && x.trim() && x.length <= 40).map((x) => x.trim()).slice(0, 20)
+    : [];
+  const note = String(req.body?.note || '').trim().slice(0, 500);
+  if (decision === 'approve' && checks.length < 3) bad('请逐项勾选核对项后再通过');
+  if (decision === 'reject' && !note) bad('退回需填写原因');
+  const t = now();
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('INSERT INTO order_production_audits(order_id,decision,checks_json,note,operator,created_at) VALUES(?,?,?,?,?,?)')
+      .run(row.id, decision, checks.length ? JSON.stringify(checks) : null, note || null, req.user.username, t);
+    if (decision === 'reject') {
+      db.prepare("UPDATE orders SET status = 'finance', updated_at = ? WHERE id = ? AND status = 'production_audit'").run(t, row.id);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return ok(res, getOrderFull(row.id));
+}));
+
 // ---------- 列表 ----------
 router.get('/', authRequired, wrap(async (req, res) => {
   const { q = '', status = '', type = '' } = req.query;

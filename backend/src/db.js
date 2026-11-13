@@ -166,6 +166,9 @@ function migrate() {
   // 预下单款式来源：原记录保持 legacy，新款与样衣复用明确区分。
   // 销售下单快照：旧库只补列，新库完整结构来自 schema.js。
   for (const table of ['orders','order_items','order_materials']) add(table,'entry_json','TEXT');
+  // 分配模式（own 本厂 / outsource 整单外发 / cut 裁片外发）：计划模式由分配动作写入，
+  // 与 dispatch_orders 事实表共用同一写入口，避免出现两套答案。
+  add('orders','alloc_mode','TEXT');
   add('order_materials','layout_history','TEXT');
   add('order_materials','layout_m','REAL');
   add('order_materials','layout_by','TEXT');

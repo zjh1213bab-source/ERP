@@ -72,6 +72,7 @@ router.post('/', authRequired, requireRole(WRITE), wrap(async (req, res) => {
     factory_id: b.factory_id || null,
     factory_name: b.factory_name || '',
     type: b.type || '',
+    mode: b.mode || '',          // 计划分配模式 own / outsource / cut，与 type 共用同一写入口
     qty: b.qty,
     price: b.price,
     remark: b.remark || ''

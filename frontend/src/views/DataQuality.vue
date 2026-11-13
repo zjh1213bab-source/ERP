@@ -445,7 +445,7 @@ const ignoreForm = reactive({ reason: '', days: 0 });
 
 const SEV = { error: '严重', warn: '关注', info: '提示' };
 const STATUS = {
-  draft: '草稿', tech: '技术', finance: '财务', assigned: '已分单', production: '生产中',
+  draft: '草稿', tech: '技术', finance: '财务', production_audit: '生产审核', assigned: '已分单', production: '生产中',
   instock: '已入库', shipped: '已发货', closed: '已结单', cancelled: '已取消'
 };
 const sevLabel = (s) => SEV[s] || s;

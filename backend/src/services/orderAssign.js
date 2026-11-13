@@ -99,11 +99,16 @@ function ownFactory() {
  *
  * @returns {{id, dispatches, allocated, order_qty, covered, promoted}}
  */
-function addDispatch({ orderId, factory_id = null, factory_name = '', type = '', qty = null, price = 0, remark = '' }, operator) {
+function addDispatch({ orderId, factory_id = null, factory_name = '', type = '', mode = '', qty = null, price = 0, remark = '' }, operator) {
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   if (!order) throw bad('订单不存在', 404);
-  if (!['finance', 'assigned'].includes(order.status)) {
-    throw bad(`订单当前为「${order.status}」，只有财务审核/已分单状态可分单`);
+  if (!['finance', 'production_audit', 'assigned'].includes(order.status)) {
+    throw bad(`订单当前为「${order.status}」，只有财务审核/生产审核/已分单状态可分单`);
+  }
+  // 新链路：处于生产审核环节的订单，必须技术开发核对通过才允许供应链分配。
+  // finance / assigned 是升级前在途的历史单，保留原通路，避免老单卡死。
+  if (order.status === 'production_audit' && !require('./orderFlow').productionAuditPassed(orderId)) {
+    throw bad('技术开发「生产审核」尚未核对通过，不能分配订单');
   }
   const cost = db.prepare("SELECT 1 AS x FROM cost_sheets WHERE order_id = ? AND status = 'approved' LIMIT 1").get(orderId);
   if (!cost) throw bad('财务尚未审核通过，不能分单');
@@ -115,6 +120,9 @@ function addDispatch({ orderId, factory_id = null, factory_name = '', type = '',
   if (!factoryName) throw bad('请选择实际承做的工厂/车间');
 
   const kind = type === 'outsource' || (fac && fac.type === 'outsource') ? 'outsource' : 'own';
+  // 计划分配模式 own / outsource / cut：cut 在 dispatch_orders 里仍按 own 入账
+  // （实物交接走 cut_dispatches），orders.alloc_mode 记的是业务选的模式。
+  const allocMode = ['own', 'outsource', 'cut'].includes(mode) ? mode : kind;
   const orderTotal = orderQty(orderId);
   if (!(orderTotal > 0)) throw bad('订单数量为 0，不能分单');
   const q = qty === null || qty === undefined || qty === '' ? orderTotal : Number(qty);
@@ -137,11 +145,13 @@ function addDispatch({ orderId, factory_id = null, factory_name = '', type = '',
 
     const validAllocated = allocatedQty(orderId);
     covered = validAllocated + 0.0001 >= orderTotal;
-    if (order.status === 'finance' && covered) {
-      assignedNote = `分单数量覆盖整单：${factoryName}（${kind === 'own' ? '本厂' : '外协'}）× ${validAllocated}`;
+    // 同一个写入口同时落「计划模式」和分单事实，避免看板 / 分单页 / 订单详情三个答案。
+    db.prepare('UPDATE orders SET alloc_mode = ?, updated_at = ? WHERE id = ?').run(allocMode, t, orderId);
+    if (order.status !== 'assigned' && covered) {
+      assignedNote = `分单数量覆盖整单：${factoryName}（${MODES[allocMode] || (kind === 'own' ? '本厂' : '外协')}）× ${validAllocated}`;
       db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run('assigned', t, orderId);
       db.prepare('INSERT INTO order_logs (order_id, from_status, to_status, operator, note, created_at) VALUES (?,?,?,?,?,?)')
-        .run(orderId, 'finance', 'assigned', operator || 'system', assignedNote, t);
+        .run(orderId, order.status, 'assigned', operator || 'system', assignedNote, t);
     }
     db.exec('COMMIT');
   } catch (e) {
@@ -169,7 +179,7 @@ function addDispatch({ orderId, factory_id = null, factory_name = '', type = '',
 /** 面板要的全部信息：当前分配、可选工厂、能不能分、为什么不能 */
 function snapshot(orderId) {
   const order = db.prepare(
-    'SELECT id, order_no, style_name, status, delivery_date FROM orders WHERE id = ?'
+    'SELECT id, order_no, style_name, status, delivery_date, alloc_mode FROM orders WHERE id = ?'
   ).get(orderId);
   if (!order) throw bad('订单不存在', 404);
 
@@ -190,8 +200,11 @@ function snapshot(orderId) {
   const cost = db.prepare("SELECT status FROM cost_sheets WHERE order_id = ? ORDER BY id DESC LIMIT 1").get(orderId);
 
   const blocked = [];
-  if (!['finance', 'assigned'].includes(order.status)) {
-    blocked.push(`订单状态「${order.status}」不能分单：要先走完财务审核（订单详情 → 状态流转）`);
+  if (!['finance', 'production_audit', 'assigned'].includes(order.status)) {
+    blocked.push(`订单状态「${order.status}」不能分单：要先走完财务审核与生产审核（订单详情 → 状态流转）`);
+  }
+  if (order.status === 'production_audit' && !require('./orderFlow').productionAuditPassed(orderId)) {
+    blocked.push('技术开发「生产审核」尚未核对通过：先到「生产审核」逐项核对并放行');
   }
   if (!cost || cost.status !== 'approved') {
     blocked.push('成本单还没审核通过：去「订单 → 成本核算」提交并审核，通过后才允许定谁做');
@@ -206,6 +219,8 @@ function snapshot(orderId) {
     allocated: alloc,
     pending_qty: pending,
     mode,
+    alloc_mode: order.alloc_mode || null,
+    alloc_mode_label: order.alloc_mode ? (MODES[order.alloc_mode] || MODE_TEXT[order.alloc_mode] || order.alloc_mode) : '未选择',
     mode_label: MODE_TEXT[mode] || mode,
     dispatches: rows,
     factories: fs,
@@ -285,6 +300,7 @@ function assign(nodeId, b, operator) {
     orderId: node.order_id,
     factory_id: factoryId,
     type: dispatchType,
+    mode,
     qty,
     remark: [`看板分配（${MODES[mode]}）`, String(b.note || '').trim()].filter(Boolean).join('：')
   }, operator);

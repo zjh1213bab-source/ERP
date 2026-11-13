@@ -173,6 +173,9 @@ export const api = {
   renameOrderNo: (id, d) => req(`/api/orders/order-no/${id}`, { method: 'POST', body: d }),
   transitionOrder: (id, to, note) =>
     req(`/api/orders/${id}/transition`, { method: 'POST', body: { to, note } }),
+  // 技术开发 · 生产审核（财务确认后、供应链分配前）
+  productionAudits: () => req('/api/orders/production-audits'),
+  auditProductionOrder: (id, d) => req(`/api/orders/${id}/production-audit`, { method: 'POST', body: d }),
   // 批量流转：dry_run=1 只预检（不写库）；all_or_nothing=1 整批一致；默认逐单尽力
   orderBatchTransition: (d) => req('/api/orders/batch/transition', { method: 'POST', body: d }),
   rollbackOrder: (id, to, reason) =>

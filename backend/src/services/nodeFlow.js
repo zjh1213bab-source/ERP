@@ -647,7 +647,7 @@ function board({
    */
   if (companyId) { baseWhere.push('o.company_id = ?'); baseArgs.push(Number(companyId)); }
   if (status) { baseWhere.push('o.status = ?'); baseArgs.push(status); }
-  else baseWhere.push(tracking ? "o.status IN ('finance','assigned','production','instock','shipped','closed','cancelled')" : "o.status IN ('assigned','production','instock')");
+  else baseWhere.push(tracking ? "o.status IN ('finance','production_audit','assigned','production','instock','shipped','closed','cancelled')" : "o.status IN ('assigned','production','instock')");
 
   const st = db.prepare(`
     SELECT COUNT(*) total,
@@ -674,7 +674,7 @@ function board({
   const assignedOut = assignedOwn.replace("d.type='own'", "d.type='outsource'");
   const sentCut = "EXISTS (SELECT 1 FROM cut_dispatches cd WHERE cd.order_id=o.id AND cd.status IN ('sent','partial','returned','closed'))";
   if (trackingView === 'factory') where.push(`((${assignedOwn} OR ${sentCut}) AND NOT (${assignedOut} AND NOT ${assignedOwn}))`);
-  if (trackingView === 'assignment') where.push(`(o.status IN ('finance','assigned') OR (${assignedOut} AND NOT ${assignedOwn}))`);
+  if (trackingView === 'assignment') where.push(`(o.status IN ('finance','production_audit','assigned') OR (${assignedOut} AND NOT ${assignedOwn}))`);
   const COMPLETE = "(SELECT MAX(n.actual_date) FROM order_nodes n WHERE n.order_id=o.id AND n.code='ship' AND n.status='done')";
   if (po) {
     where.push(poMode === 'exact' ? '(o.order_no = ? OR o.cus_order_no = ?)' : '(o.order_no LIKE ? OR o.cus_order_no LIKE ?)');
@@ -733,7 +733,7 @@ function board({
   }[sort] || 'o.delivery_date IS NULL, o.delivery_date, o.id DESC';
 
   const orders = db.prepare(`
-    SELECT o.id, o.order_no, o.status, o.type, o.style_name, o.cus_order_no, o.node_template_id,
+    SELECT o.id, o.order_no, o.status, o.type, o.style_name, o.cus_order_no, o.node_template_id, o.alloc_mode,
            o.order_date, o.delivery_date, o.total_usd, o.image_url, o.manager, o.customer_id,
            o.created_at, ${COMPLETE} AS completed_at,
            (SELECT COALESCE(SUM(i.qty),0) FROM order_items i WHERE i.order_id=o.id) AS order_qty,
@@ -884,6 +884,7 @@ function board({
       alloc_own: Number(o.alloc_own) || 0,
       alloc_out: Number(o.alloc_out) || 0,
       pending_allocation: Math.max(0, Number(o.order_qty) - Number(o.alloc_own) - Number(o.alloc_out)),
+      alloc_mode: o.alloc_mode || null,
       cut_dispatches: Number(o.cut_cnt) || 0,
       assign_names: o.assign_names || '',
       assign_mode: (() => {

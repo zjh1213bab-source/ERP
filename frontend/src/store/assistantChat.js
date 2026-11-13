@@ -51,7 +51,7 @@ export async function sendQuestion(text,{topic}={}){
   let result;
   if(/^(?=.*\d)[A-Za-z0-9][A-Za-z0-9._/-]{2,99}$/.test(orderCode)&&(canVisit('/orders')||canVisit('/scan'))){
    const order=await api.findOrder(orderCode,{signal:request.signal});
-   const labels={draft:'草稿',tech:'技术确认',finance:'财务审核',assigned:'已分单',production:'生产中',instock:'已入库',shipped:'已发货',closed:'已结案',cancelled:'已取消'};
+   const labels={draft:'草稿',tech:'技术确认',finance:'财务审核',production_audit:'生产审核',assigned:'已分单',production:'生产中',instock:'已入库',shipped:'已发货',closed:'已结案',cancelled:'已取消'};
    result={intent:'order-detail',title:'订单 '+order.order_no,summary:'已匹配系统订单，可到原单据核对完整信息。',columns:[{key:'order_no',label:'订单号'},{key:'style_name',label:'款式'},{key:'status_label',label:'状态'}],rows:[{...order,status_label:labels[order.status]||order.status}],links:order.scope==='basic'?[link('扫码查询','/scan')]:[link('查看订单详情','/orders?order='+order.id)]};
   }else result=await api.assistantQuery(question,{signal:request.signal});
   if(current!==generation)return false;
