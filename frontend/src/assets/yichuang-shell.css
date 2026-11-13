@@ -141,17 +141,43 @@
 }
 .erp-shell .erp-sidebar .side-foot .appearance-trigger { color: var(--nav-ink, #fff); }
 
-/* ---------------- 顶部栏 ---------------- */
-.erp-shell .erp-topbar {
-  height: 44px;
-  padding: 0 16px;
-  gap: 10px;
-  border-bottom: 1px solid var(--yc-line);
+/* ---------------- 顶部栏（品牌 + 导航 + 功能按钮同行） ----------------
+   原来 Logo 单独一条、面包屑与右侧按钮又一条，占掉两行高度；
+   现在全部收进这一条 56px：左段品牌、中段面包屑、右段功能按钮。
+   底色与左侧菜单同源（--nav-bg），所以切换任何导航配色 / 深浅模式都同框变色；
+   文字统一读 --nav-ink / --nav-muted，不在本文件写死颜色。 */
+#app .erp-shell .erp-topbar {
+  height: 56px;
+  min-height: 56px;
+  flex: none;
+  padding: 0 16px 0 0;
+  gap: 14px;
+  background: var(--nav-bg, var(--yc-blue));
+  color: var(--nav-text, #dbe8ff);
+  border-bottom: 1px solid color-mix(in srgb, var(--nav-ink, #fff) 16%, transparent);
   box-shadow: none;
-  background: var(--yc-surface);
 }
-.erp-shell .erp-topbar .nav-toggle { font-size: 15px; color: var(--yc-ink-2); }
-.erp-shell .erp-topbar .crumb {
+/* 品牌段：宽度与侧栏一致，右侧一条分隔线，和下方菜单左边缘严格对齐 */
+#app .erp-shell .erp-topbar .topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: var(--yc-side-w);
+  min-width: 0;
+  flex: none;
+  height: 100%;
+  padding: 0 14px;
+  border-right: 1px solid color-mix(in srgb, var(--nav-ink, #fff) 16%, transparent);
+  color: var(--nav-ink, #fff);
+  text-decoration: none;
+}
+#app .erp-shell .erp-topbar .brand-logo { width: 32px; height: 32px; flex: none; object-fit: contain; }
+#app .erp-shell .erp-topbar .brand-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+#app .erp-shell .erp-topbar .brand-copy strong { font-size: 15px; font-weight: 700; color: var(--nav-ink, #fff); line-height: 1.15; white-space: nowrap; }
+#app .erp-shell .erp-topbar .brand-copy small { font-size: 10px; font-weight: 400; color: var(--nav-muted, rgba(255, 255, 255, .78)); line-height: 1.15; white-space: nowrap; letter-spacing: .02em; }
+/* 面包屑占满中段并允许省略，不挤压右侧按钮 */
+#app .erp-shell .erp-topbar .nav-toggle { font-size: 15px; color: var(--nav-text, #c9d6ee); }
+#app .erp-shell .erp-topbar .crumb {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -159,17 +185,38 @@
   gap: 8px;
   font-size: 12.5px;
   font-weight: 400;
-  color: var(--yc-ink-3);
+  color: var(--nav-muted, #9aacc8);
   white-space: nowrap;
   overflow: hidden;
 }
-.erp-shell .erp-topbar .crumb strong { color: var(--yc-ink); font-weight: 600; }
-.erp-shell .erp-topbar .crumb .crumb-separator { color: var(--yc-ink-3); opacity: .6; }
-.erp-shell .erp-topbar .mail-bell { margin-right: 0; opacity: .75; }
-.erp-shell .erp-topbar .theme-toggle,
-.erp-shell .erp-topbar .appearance-top-trigger { font-size: 12px; }
-.erp-shell .erp-topbar .userbox { gap: 8px; font-size: 12px; color: var(--yc-ink-2); }
-.erp-shell .erp-topbar .avatar {
+#app .erp-shell .erp-topbar .crumb .crumb-home { color: var(--nav-text, #c9d6ee); }
+#app .erp-shell .erp-topbar .crumb strong { color: var(--nav-ink, #fff); font-weight: 600; }
+#app .erp-shell .erp-topbar .crumb .crumb-separator { color: var(--nav-muted, #9aacc8); opacity: .7; }
+#app .erp-shell .erp-topbar .topbar-slogan { font-size: 11px; color: var(--nav-muted, rgba(255, 255, 255, .78)); white-space: nowrap; }
+/* 右侧功能按钮：图标 / 文字跟随顶栏文字色，hover 用导航高亮块，深色皮肤下自动反色 */
+#app .erp-shell .erp-topbar .mail-bell { margin-right: 0; color: var(--nav-text, #c9d6ee); opacity: .85; }
+#app .erp-shell .erp-topbar .mail-bell:hover { opacity: 1; }
+#app .erp-shell .erp-topbar .yc-icon-btn,
+#app .erp-shell .erp-topbar .theme-toggle,
+#app .erp-shell .erp-topbar .appearance-top-trigger { color: var(--nav-text, #c9d6ee); }
+#app .erp-shell .erp-topbar .yc-icon-btn:hover,
+#app .erp-shell .erp-topbar .theme-toggle:hover,
+#app .erp-shell .erp-topbar .appearance-top-trigger:hover {
+  background: var(--nav-hover, rgba(255, 255, 255, .10));
+  border-color: color-mix(in srgb, var(--nav-ink, #fff) 18%, transparent);
+  color: var(--nav-ink, #fff);
+}
+#app .erp-shell .erp-topbar .theme-toggle,
+#app .erp-shell .erp-topbar .appearance-top-trigger { font-size: 12px; }
+#app .erp-shell .erp-topbar .userbox { gap: 8px; font-size: 12px; color: var(--nav-text, #c9d6ee); }
+#app .erp-shell .erp-topbar .yc-user .yc-user-txt b { color: var(--nav-ink, #fff); }
+#app .erp-shell .erp-topbar .yc-user .yc-user-txt small { color: var(--nav-muted, #9aacc8); }
+#app .erp-shell .erp-topbar .link-btn { color: var(--nav-ink, #fff); opacity: .8; }
+#app .erp-shell .erp-topbar .link-btn:hover { opacity: 1; text-decoration: underline; }
+/* 帮助中心按钮用当前导航配色的强调色，和侧栏选中项同色系 */
+#app .erp-shell .erp-topbar .yc-help { background: var(--nav-accent, var(--yc-blue)); color: var(--nav-accent-ink, #fff); }
+#app .erp-shell .erp-topbar .yc-help:hover { background: color-mix(in srgb, var(--nav-accent, var(--yc-blue)) 82%, #000); color: var(--nav-accent-ink, #fff); }
+#app .erp-shell .erp-topbar .avatar {
   width: 28px;
   height: 28px;
   border-radius: 4px;
@@ -310,24 +357,10 @@
 .erp-shell .erp-nav a.router-link-active,
 .erp-shell .erp-nav a.sub.router-link-active { font-weight: 700; }
 
-/* ---------------- 页面结构：品牌条独占顶部一条 ----------------
-   Logo 从 148px 侧栏移到全宽品牌条，图形 + 品牌名 + 完整副标题不再被裁切；
-   下面才是「侧栏 + 主区」两栏。侧栏菜单整体放大并严格对齐。 */
+/* ---------------- 页面结构：单条顶栏 + 「侧栏 / 主区」两栏 ----------------
+   品牌已并入顶栏（见上方 .erp-topbar），所以这里只剩两栏；
+   侧栏菜单整体放大并严格对齐。 */
 .erp-shell { flex-direction: column; }
-.erp-shell .erp-brandbar {
-  height: 48px; flex: none;
-  display: flex; align-items: center; gap: 14px;
-  padding: 0 16px;
-  background: var(--nav-bg, var(--yc-blue));
-  color: var(--nav-ink, #fff);
-  border-bottom: 1px solid color-mix(in srgb, var(--nav-ink, #fff) 14%, transparent);
-}
-.erp-shell .erp-brandbar .brandbar-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.erp-shell .erp-brandbar .brand-logo { width: 34px; height: 34px; flex: none; object-fit: contain; }
-.erp-shell .erp-brandbar .brand-copy { display: flex; flex-direction: column; gap: 1px; }
-.erp-shell .erp-brandbar .brand-copy strong { font-size: 15px; font-weight: 700; color: var(--nav-ink, #fff); line-height: 1.15; }
-.erp-shell .erp-brandbar .brand-copy small { font-size: 10.5px; font-weight: 400; color: var(--nav-muted, rgba(255, 255, 255, .78)); line-height: 1.15; white-space: nowrap; letter-spacing: .02em; }
-.erp-shell .erp-brandbar .brandbar-slogan { margin-left: auto; font-size: 11px; color: var(--nav-muted, rgba(255, 255, 255, .78)); white-space: nowrap; }
 .erp-shell .erp-body { display: flex; flex: 1; min-height: 0; }
 
 /* 侧栏菜单：字号 / 行高 / 点击区整体放大，图标·文字·箭头统一基线与左边缘 */
@@ -346,12 +379,28 @@
 .erp-shell .erp-nav .group-head .g-arrow { flex: none; font-size: 12px; }
 .erp-shell .erp-nav .nav-item > .review-nav-badge,
 .erp-shell .erp-nav .group-head > .review-nav-badge { flex: none; }
-@media print { .erp-shell .erp-brandbar { display: none; } }
+@media print { #app .erp-shell .erp-topbar { display: none; } }
 
 @media (max-width: 900px) {
+  /* 侧栏变抽屉后宽度 200px，品牌段跟着侧栏宽度走，避免左边缘错位 */
+  .erp-shell { --yc-side-w: 200px; }
   .erp-shell .erp-sidebar { width: 200px; }
+  /* 窄屏只留 Logo 图形，品牌名与副标题让位给面包屑和右侧按钮 */
+  #app .erp-shell .erp-topbar { height: 62px; min-height: 62px; padding: 0 10px; gap: 8px; overflow: hidden; }
+  #app .erp-shell .erp-topbar .topbar-brand { width: auto; padding: 0 8px 0 0; }
+  #app .erp-shell .erp-topbar .brand-copy,
+  #app .erp-shell .erp-topbar .topbar-slogan { display: none; }
+  /* 手机上全屏按钮无意义、姓名岗位太占宽：只留头像，退出仍可点 */
+  #app .erp-shell .erp-topbar .yc-icon-btn,
+  #app .erp-shell .erp-topbar .yc-user-txt { display: none; }
+  #app .erp-shell .erp-topbar .yc-help { height: 24px; padding: 0 8px; }
   .yc-tabs { gap: 6px; padding: 0 10px; }
   .erp-shell .erp-content { padding: 12px 10px 24px; }
+}
+
+/* 手机窄屏：面包屑只剩半截文字反而更乱，直接收起，页面标题在内容区首屏已有 */
+@media (max-width: 560px) {
+  #app .erp-shell .erp-topbar .crumb { display: none; }
 }
 
 /* ---------------- 外观设置：品牌图标分段控件 ---------------- */
@@ -383,10 +432,11 @@
 }
 
 @media screen {
-  :root[data-wallpaper="on"] .erp-shell .erp-sidebar {
+  :root[data-wallpaper="on"] .erp-shell .erp-sidebar,
+  :root[data-wallpaper="on"] #app .erp-shell .erp-topbar {
     background: color-mix(in srgb, var(--nav-bg, var(--yc-blue)) var(--workspace-fill), transparent);
   }
-  :root[data-wallpaper="on"] .erp-shell :is(.erp-topbar, .page-tabs, .pre-reference-panel) {
+  :root[data-wallpaper="on"] .erp-shell :is(.page-tabs, .pre-reference-panel) {
     background: color-mix(in srgb, var(--surface) var(--workspace-fill), transparent);
   }
   :root[data-wallpaper="on"] .pre-reference-panel :is(.pre-list-scroll, .pre-list-table, tbody, tbody tr, tbody td) {

@@ -1,12 +1,41 @@
 <template>
     <div class="erp-shell" :style="navPaletteStyle">
-    <!-- 品牌条：全宽独立成一条，图形 / 品牌名 / 完整副标题不再被侧栏宽度裁切 -->
-    <header class="erp-brandbar">
-      <div class="brandbar-brand">
+    <!-- 顶栏：品牌 + 导航 + 功能按钮合并到同一行。
+         原来是「品牌条」和「顶栏」两条，各占 48/44px；合并后只留一条 56px，
+         省下一整行高度，且品牌段宽度与左侧菜单同宽，左边缘严格对齐。 -->
+    <header class="erp-topbar">
+      <router-link to="/dashboard" class="topbar-brand" title="跳色科技 · 返回首页总览">
         <img class="brand-logo" :src="brandLogo" alt="跳色科技" data-no-image-preview />
         <span class="brand-copy"><strong>跳色科技</strong><small>WORK WITH CLARITY</small></span>
+      </router-link>
+      <button class="nav-toggle" @click="navOpen = true" aria-label="打开菜单">☰</button>
+      <div class="crumb">
+        <span class="crumb-home">首页总览</span><span class="crumb-separator">/</span>
+        <span>{{ sectionTitle }}</span><span class="crumb-separator">/</span>
+        <strong>{{ pageTitle }}</strong>
       </div>
-      <span class="brandbar-slogan">企业协同工作空间</span>
+      <span class="topbar-slogan">企业协同工作空间</span>
+      <router-link to="/assistant" class="yc-help">帮助中心</router-link>
+      <button class="yc-icon-btn" type="button" title="全屏" aria-label="全屏" @click="toggleFullscreen">⛶</button>
+      <router-link to="/mail" class="mail-bell" :title="mailTitle">
+        <UiIcon name="mail" />
+        <span v-if="mailUnread > 0" class="mb-badge">{{ mailUnread > 99 ? '99+' : mailUnread }}</span>
+      </router-link>
+      <button class="theme-toggle" type="button" @click="toggleTheme" :aria-label="theme.mode === 'dark' ? '切换浅色模式' : '切换深色模式'" :title="theme.mode === 'dark' ? '切换浅色模式' : '切换深色模式'">
+        <span class="theme-toggle-icon">{{ theme.mode === 'dark' ? '☀' : '☾' }}</span>
+        <span class="theme-toggle-label">{{ theme.mode === 'dark' ? '浅色' : '深色' }}</span>
+      </button>
+      <button class="appearance-top-trigger" type="button" @click="appearanceOpen=true"><UiIcon name="palette" /><span>外观</span></button>
+      <div class="userbox">
+        <div class="yc-user">
+          <div class="avatar">{{ initial }}</div>
+          <div class="yc-user-txt">
+            <b>{{ auth.user?.name || auth.user?.username }}</b>
+            <small>{{ roleLabel }}</small>
+          </div>
+        </div>
+        <button class="link-btn" @click="logout">退出</button>
+      </div>
     </header>
 
     <div class="erp-body">
@@ -36,36 +65,6 @@
     <div class="erp-main">
       <!-- 移动端抽屉遮罩 -->
       <div v-if="navOpen" class="nav-mask" @click="navOpen = false"></div>
-
-      <header class="erp-topbar">
-        <button class="nav-toggle" @click="navOpen = true" aria-label="打开菜单">☰</button>
-        <div class="crumb">
-          <span class="crumb-home">首页总览</span><span class="crumb-separator">/</span>
-          <span>{{ sectionTitle }}</span><span class="crumb-separator">/</span>
-          <strong>{{ pageTitle }}</strong>
-        </div>
-        <router-link to="/assistant" class="yc-help">帮助中心</router-link>
-        <button class="yc-icon-btn" type="button" title="全屏" aria-label="全屏" @click="toggleFullscreen">⛶</button>
-        <router-link to="/mail" class="mail-bell" :title="mailTitle">
-          <UiIcon name="mail" />
-          <span v-if="mailUnread > 0" class="mb-badge">{{ mailUnread > 99 ? '99+' : mailUnread }}</span>
-        </router-link>
-        <button class="theme-toggle" type="button" @click="toggleTheme" :aria-label="theme.mode === 'dark' ? '切换浅色模式' : '切换深色模式'" :title="theme.mode === 'dark' ? '切换浅色模式' : '切换深色模式'">
-          <span class="theme-toggle-icon">{{ theme.mode === 'dark' ? '☀' : '☾' }}</span>
-          <span class="theme-toggle-label">{{ theme.mode === 'dark' ? '浅色' : '深色' }}</span>
-        </button>
-        <button class="appearance-top-trigger" type="button" @click="appearanceOpen=true"><UiIcon name="palette" /><span>外观</span></button>
-        <div class="userbox">
-          <div class="yc-user">
-            <div class="avatar">{{ initial }}</div>
-            <div class="yc-user-txt">
-              <b>{{ auth.user?.name || auth.user?.username }}</b>
-              <small>{{ roleLabel }}</small>
-            </div>
-          </div>
-          <button class="link-btn" @click="logout">退出</button>
-        </div>
-      </header>
 
       <!-- 二级页签：文字对齐参考系统，跳转与下拉子项全部取自本地真实路由 -->
       <nav class="page-tabs" aria-label="已打开页面">
