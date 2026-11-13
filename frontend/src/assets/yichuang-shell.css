@@ -14,7 +14,8 @@
   --yc-blue: #1668f0;
   --yc-blue-2: #0f57d8;
   --yc-blue-soft: #eaf2ff;
-  --yc-side-w: 148px;
+  /* 菜单字号放大到 14px 后需要更宽的侧栏，否则「样衣管理 / 供应链部」会被省略号截断 */
+  --yc-side-w: 180px;
   --yc-line: #e4e9f0;
   --yc-ink: #303133;
   --yc-ink-2: #606266;
@@ -309,8 +310,46 @@
 .erp-shell .erp-nav a.router-link-active,
 .erp-shell .erp-nav a.sub.router-link-active { font-weight: 700; }
 
+/* ---------------- 页面结构：品牌条独占顶部一条 ----------------
+   Logo 从 148px 侧栏移到全宽品牌条，图形 + 品牌名 + 完整副标题不再被裁切；
+   下面才是「侧栏 + 主区」两栏。侧栏菜单整体放大并严格对齐。 */
+.erp-shell { flex-direction: column; }
+.erp-shell .erp-brandbar {
+  height: 48px; flex: none;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 16px;
+  background: var(--nav-bg, var(--yc-blue));
+  color: var(--nav-ink, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--nav-ink, #fff) 14%, transparent);
+}
+.erp-shell .erp-brandbar .brandbar-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.erp-shell .erp-brandbar .brand-logo { width: 34px; height: 34px; flex: none; object-fit: contain; }
+.erp-shell .erp-brandbar .brand-copy { display: flex; flex-direction: column; gap: 1px; }
+.erp-shell .erp-brandbar .brand-copy strong { font-size: 15px; font-weight: 700; color: var(--nav-ink, #fff); line-height: 1.15; }
+.erp-shell .erp-brandbar .brand-copy small { font-size: 10.5px; font-weight: 400; color: var(--nav-muted, rgba(255, 255, 255, .78)); line-height: 1.15; white-space: nowrap; letter-spacing: .02em; }
+.erp-shell .erp-brandbar .brandbar-slogan { margin-left: auto; font-size: 11px; color: var(--nav-muted, rgba(255, 255, 255, .78)); white-space: nowrap; }
+.erp-shell .erp-body { display: flex; flex: 1; min-height: 0; }
+
+/* 侧栏菜单：字号 / 行高 / 点击区整体放大，图标·文字·箭头统一基线与左边缘 */
+.erp-shell .erp-nav { padding: 10px 8px 18px; }
+.erp-shell .erp-nav .nav-item,
+.erp-shell .erp-nav .group-head {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 42px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.erp-shell .erp-nav .nav-ico { width: 18px; flex: none; font-size: 16px; line-height: 1; text-align: center; }
+.erp-shell .erp-nav .group-head .g-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.erp-shell .erp-nav .group-head .g-arrow { flex: none; font-size: 12px; }
+.erp-shell .erp-nav .nav-item > .review-nav-badge,
+.erp-shell .erp-nav .group-head > .review-nav-badge { flex: none; }
+@media print { .erp-shell .erp-brandbar { display: none; } }
+
 @media (max-width: 900px) {
-  .erp-shell .erp-sidebar { width: 132px; }
+  .erp-shell .erp-sidebar { width: 200px; }
   .yc-tabs { gap: 6px; padding: 0 10px; }
   .erp-shell .erp-content { padding: 12px 10px 24px; }
 }

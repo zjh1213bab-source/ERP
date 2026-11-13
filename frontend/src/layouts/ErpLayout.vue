@@ -1,11 +1,17 @@
 <template>
     <div class="erp-shell" :style="navPaletteStyle">
-    <!-- 侧边栏 -->
-    <aside class="erp-sidebar" :class="{ open: navOpen }">
-      <div class="brand">
+    <!-- 品牌条：全宽独立成一条，图形 / 品牌名 / 完整副标题不再被侧栏宽度裁切 -->
+    <header class="erp-brandbar">
+      <div class="brandbar-brand">
         <img class="brand-logo" :src="brandLogo" alt="跳色科技" data-no-image-preview />
         <span class="brand-copy"><strong>跳色科技</strong><small>WORK WITH CLARITY</small></span>
       </div>
+      <span class="brandbar-slogan">企业协同工作空间</span>
+    </header>
+
+    <div class="erp-body">
+    <!-- 侧边栏：从品牌条下方开始，只放菜单 -->
+    <aside class="erp-sidebar" :class="{ open: navOpen }">
       <nav class="erp-nav">
         <template v-for="item in visibleModel" :key="item.key">
           <router-link v-if="item.to" :to="item.to" class="nav-item">
@@ -79,6 +85,7 @@
       <section class="erp-content">
         <router-view />
       </section>
+    </div>
     </div>
     <AssistantWidget />
     <AppearanceSettings v-model="appearanceOpen"><template #navigation>
