@@ -8,11 +8,14 @@
       <button class="btn btn-ghost" @click="load">刷新</button>
     </div>
 
-    <div class="cards" style="grid-template-columns: repeat(3, 1fr)">
-      <div class="stat-card"><div class="label">待技术确认</div><div class="value">{{ d.techpacks.length }}</div></div>
-      <div v-if="!techOnly" class="stat-card"><div class="label">待财务审核</div><div class="value">{{ d.costs.length }}</div></div>
-      <div v-if="!techOnly" class="stat-card accent"><div class="label">待分单</div><div class="value">{{ d.orders.length }}</div></div>
-    </div>
+    <!-- 通用模块统计概览条：生产审核视图只显示技术确认，数据来自 api.approvals() -->
+    <ModuleStats :items="[
+      { label: '待技术确认', value: d.techpacks.length, hint: '开发单技术资料' },
+      ...(!techOnly ? [
+        { label: '待财务审核', value: d.costs.length, hint: '成本单待审' },
+        { label: '待分单', value: d.orders.length, hint: '待供应链分配', tone: 'danger' }
+      ] : [])
+    ]" />
 
     <!-- 待我审批（多级） -->
     <div v-if="!techOnly" class="panel-card">

@@ -1,0 +1,39 @@
+/**
+ * 模块统计概览条统一布局（参考「停单改量与供应商退料」页）。
+ *
+ * 项目里 .cards/.stat-card 与 .stat-row/.stat 两套统计卡散落在 40+ 个页面，
+ * 后者多为各页 scoped 样式。这里用 #app 前缀提高特异性统一视觉（不用 !important），
+ * 只统一结构与字号，保留 .amt-red / .accent 等语义色；数据完全由各页面提供，不造假。
+ * 新模块直接复用全局注册的 <ModuleStats :items="..." />。
+ */
+#app .cards { gap: 10px; margin-bottom: 14px; }
+#app .stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+#app .cards .stat-card,
+#app .stat-row .stat {
+  display: flex; flex-direction: column; gap: 6px;
+  min-height: 74px; padding: 11px 14px;
+  background: var(--yc-surface, #fff);
+  border: 1px solid var(--yc-line, #e4e9f0);
+  border-radius: 4px;
+  box-shadow: none;
+}
+#app .cards .stat-card .label,
+#app .stat-row .stat > span {
+  font-size: 12px; color: var(--ink-mute, #7a879c); margin: 0;
+}
+#app .cards .stat-card .value,
+#app .stat-row .stat > strong {
+  font-size: 22px; font-weight: 700; line-height: 1; margin: 0;
+}
+#app .stat-row .stat > small {
+  font-size: 11px; color: var(--ink-mute, #7a879c);
+}
+@media (max-width: 760px) {
+  #app .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media print { #app .stat-row, #app .cards { display: none; } }

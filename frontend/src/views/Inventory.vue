@@ -11,12 +11,13 @@
       </div>
     </div>
 
-    <div class="cards" style="grid-template-columns: repeat(4, 1fr)">
-      <div class="stat-card"><div class="label">生产仓 件数</div><div class="value">{{ summary.cn.qty }}</div></div>
-      <div class="stat-card"><div class="label">生产仓 SKU</div><div class="value">{{ summary.cn.skus }}</div></div>
-      <div class="stat-card"><div class="label">美仓 件数</div><div class="value">{{ summary.us.qty }}</div></div>
-      <div class="stat-card"><div class="label">美仓 SKU</div><div class="value">{{ summary.us.skus }}</div></div>
-    </div>
+    <!-- 通用模块统计概览条：数据来自 api.stockSummary()，不造假 -->
+    <ModuleStats :items="[
+      { label: '生产仓 件数', value: summary.cn.qty, hint: '中国仓成品库存' },
+      { label: '生产仓 SKU', value: summary.cn.skus, hint: '在库款色数' },
+      { label: '美仓 件数', value: summary.us.qty, hint: '美国仓成品库存' },
+      { label: '美仓 SKU', value: summary.us.skus, hint: '在库款色数' }
+    ]" />
 
     <div class="toolbar" style="margin-bottom: 14px">
       <div class="tabs" style="margin-left: 0">

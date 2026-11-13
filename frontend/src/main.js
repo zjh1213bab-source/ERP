@@ -7,14 +7,19 @@ import './assets/erp.css';
 import './assets/workspace.css';
 import './assets/yichuang-theme.css';
 import './assets/yichuang-shell.css';
+import './assets/module-layout.css';
 import './store/theme';
 import { openImage } from './store/viewer';
 
 import { canAction } from './store/permissions';
 import { actionDirective } from './directives/action';
 import { installValidationFeedback } from './utils/validationFeedback';
+import ModuleStats from './components/ModuleStats.vue';
 installValidationFeedback();
 const app = createApp(App);
+// 全局注册通用模块页头：各页面直接用 <ModuleStats :items="..." />，无需逐个 import。
+// 只传 items 时是等宽统计概览条；传 title/description 时是完整页头。
+app.component('ModuleStats', ModuleStats);
 app.directive('action', actionDirective);
 app.config.globalProperties.$canAction = canAction;
 // 兼容业务模板直接调用；图片本身的点击还由根组件统一接管。

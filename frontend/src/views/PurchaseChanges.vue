@@ -15,13 +15,14 @@
       </div>
     </div>
 
-    <div class="stat-row">
-      <div class="stat"><span>变更单</span><strong>{{ stat.changes || 0 }}</strong><small>减量 / 停单</small></div>
-      <div class="stat"><span>待供方确认</span><strong :class="stat.pending_supplier ? 'amt-orange' : ''">{{ stat.pending_supplier || 0 }}</strong><small>未交协商中</small></div>
-      <div class="stat"><span>退料单</span><strong>{{ stat.returns || 0 }}</strong><small>已收未用退回</small></div>
-      <div class="stat"><span>待实物回执</span><strong :class="stat.pending_receipt ? 'amt-orange' : ''">{{ stat.pending_receipt || 0 }}</strong><small>还没退回实物</small></div>
-      <div class="stat"><span>待贷项</span><strong :class="stat.pending_credit ? 'amt-blue' : ''">{{ stat.pending_credit || 0 }}</strong><small>实物退了等贷项</small></div>
-    </div>
+    <!-- 通用模块统计概览条：数据仍来自 api.purchaseChangeBoard() 的 stat，不造假 -->
+    <ModuleStats :items="[
+      { label: '变更单', value: stat.changes || 0, hint: '减量 / 停单' },
+      { label: '待供方确认', value: stat.pending_supplier || 0, hint: '未交协商中', tone: stat.pending_supplier ? 'warn' : '' },
+      { label: '退料单', value: stat.returns || 0, hint: '已收未用退回' },
+      { label: '待实物回执', value: stat.pending_receipt || 0, hint: '还没退回实物', tone: stat.pending_receipt ? 'warn' : '' },
+      { label: '待贷项', value: stat.pending_credit || 0, hint: '实物退了等贷项', tone: stat.pending_credit ? 'info' : '' }
+    ]" />
 
     <div class="toolbar" style="margin-bottom: 12px">
       <div class="tabs" style="margin-left: 0">
